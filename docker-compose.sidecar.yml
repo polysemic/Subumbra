@@ -1,0 +1,46 @@
+services:
+  forge-keys:
+    build:
+      context: ./forge-keys
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    networks:
+      - internal
+    volumes:
+      - forge_keys_data:/app/data
+    environment:
+      FORGE_ACCESS_TOKEN: ${FORGE_ACCESS_TOKEN}
+      FORGE_HMAC_KEY: ${FORGE_HMAC_KEY}
+      DATA_DIR: /app/data
+
+  keyvault-proxy:
+    build:
+      context: ./keyvault-proxy
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    networks:
+      - internal
+      - external
+    ports:
+      - "127.0.0.1:8090:8090"
+    environment:
+      FORGE_ACCESS_TOKEN: ${FORGE_ACCESS_TOKEN}
+      FORGE_HMAC_KEY: ${FORGE_HMAC_KEY}
+      FORGE_URL: http://forge-keys:9090
+      CF_WORKER_URL: ${CF_WORKER_URL}
+      CF_ACCESS_CLIENT_ID: ${CF_ACCESS_CLIENT_ID:-}
+      CF_ACCESS_CLIENT_SECRET: ${CF_ACCESS_CLIENT_SECRET:-}
+    depends_on:
+      forge-keys:
+        condition: service_healthy
+
+networks:
+  internal:
+    driver: bridge
+    internal: true
+  external:
+    driver: bridge
+
+volumes:
+  forge_keys_data:
+    driver: local

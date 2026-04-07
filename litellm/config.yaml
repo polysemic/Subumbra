@@ -1,0 +1,83 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# LiteLLM Proxy Config — KeyVault
+#
+# All models use  api_key: "forge:<key_id>"
+# The ForgeKeyCallback intercepts these and routes through the CF Worker.
+# Real API keys never appear in this file.
+# ─────────────────────────────────────────────────────────────────────────────
+
+model_list:
+
+  # ── Anthropic ───────────────────────────────────────────────────────────────
+  - model_name: claude-opus-4
+    litellm_params:
+      model: anthropic/claude-opus-4-5
+      api_key: "forge:anthropic_prod"
+
+  - model_name: claude-sonnet-4
+    litellm_params:
+      model: anthropic/claude-sonnet-4-5
+      api_key: "forge:anthropic_prod"
+
+  - model_name: claude-haiku-4
+    litellm_params:
+      model: anthropic/claude-haiku-4-5-20251001
+      api_key: "forge:anthropic_prod"
+
+  # ── OpenAI ──────────────────────────────────────────────────────────────────
+  - model_name: gpt-4o
+    litellm_params:
+      model: openai/gpt-4o
+      api_key: "forge:openai_prod"
+
+  - model_name: gpt-4o-mini
+    litellm_params:
+      model: openai/gpt-4o-mini
+      api_key: "forge:openai_prod"
+
+  - model_name: o3
+    litellm_params:
+      model: openai/o3
+      api_key: "forge:openai_prod"
+
+  # ── Groq ────────────────────────────────────────────────────────────────────
+  - model_name: llama-3.3-70b
+    litellm_params:
+      model: groq/llama-3.3-70b-versatile
+      api_key: "forge:groq_prod"
+
+  - model_name: llama-3.1-8b
+    litellm_params:
+      model: groq/llama-3.1-8b-instant
+      api_key: "forge:groq_prod"
+
+  # ── DeepSeek ────────────────────────────────────────────────────────────────
+  - model_name: deepseek-chat
+    litellm_params:
+      model: deepseek/deepseek-chat
+      api_key: "forge:deepseek_prod"
+
+  - model_name: deepseek-reasoner
+    litellm_params:
+      model: deepseek/deepseek-reasoner
+      api_key: "forge:deepseek_prod"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LiteLLM settings
+# ─────────────────────────────────────────────────────────────────────────────
+litellm_settings:
+  # Drop keys from logs — belt-and-suspenders even though keys are tokens here
+  redact_user_api_key_info: true
+
+  # ForgeKeyCallback intercepts "forge:" api_key values before each call.
+  # Must reference a module-level *instance*, not the class itself.
+  # LiteLLM imports custom_callbacks and reads proxy_handler_instance from it.
+  callbacks: custom_callbacks.proxy_handler_instance
+
+# ─────────────────────────────────────────────────────────────────────────────
+# General / proxy settings
+# ─────────────────────────────────────────────────────────────────────────────
+general_settings:
+  # Disable the built-in UI (we have our own)
+  disable_spend_logs: true
+  no_database: true
