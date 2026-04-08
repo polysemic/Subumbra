@@ -3,7 +3,7 @@
 # test-local.sh — smoke-test the CF Worker against a local wrangler dev server
 #
 # Prerequisites:
-#   1. Create worker/.dev.vars with your local test secrets:
+#   1. Copy worker/.dev.vars.example to worker/.dev.vars and fill in your local test secrets:
 #        WORKER_PRIVATE_KEY=<base64 RSA-4096 PKCS#8 DER test key>
 #        WORKER_KEY_FINGERPRINT=sha256:<hex fingerprint of test key>
 #        FORGE_ACCESS_TOKEN=<any hex string, must match what you send>
@@ -25,7 +25,7 @@ if [[ -f "$DEV_VARS_FILE" ]]; then
   VALID_TOKEN="$(grep '^FORGE_ACCESS_TOKEN=' "$DEV_VARS_FILE" | cut -d= -f2- | tr -d '[:space:]')"
 else
   echo "WARNING: $DEV_VARS_FILE not found."
-  echo "         Create it with FORGE_ACCESS_TOKEN=<value> and WORKER_PRIVATE_KEY=<value>"
+  echo "         Copy worker/.dev.vars.example and set FORGE_ACCESS_TOKEN=<value> and WORKER_PRIVATE_KEY=<value>"
   echo "         Using placeholder token — tests 1 and 2 will still pass; 3 and 4 may not."
   echo ""
   VALID_TOKEN="test-token-placeholder"

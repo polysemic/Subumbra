@@ -56,3 +56,5 @@ re
 Thumbs.db
 
 .codex
+
+worker/.dev.vars
