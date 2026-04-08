@@ -169,6 +169,13 @@
     Request counts and last-access times may be stale — the forge-keys stats endpoint is unreachable.
   </div>
 
+  <!-- audit warning (hidden by default) -->
+  <div id="audit-warning" class="alert mb-4 d-none"
+       style="background:#1e3a8a;border:1px solid #1d4ed8;color:#bfdbfe;">
+    <strong>&#9888; Audit unavailable:</strong>
+    <span id="audit-warning-text">Recent structured audit entries are temporarily unavailable.</span>
+  </div>
+
   <!-- ── summary row ────────────────────────────────────────────────────────── -->
   <div class="row g-3 mb-4">
     <div class="col-6 col-md-3">
@@ -217,18 +224,21 @@
     <div class="card-header">Recent Requests <span id="log-count" class="text-muted ms-1" style="font-size:.75rem;text-transform:none;letter-spacing:0;"></span></div>
     <div class="p-0">
       <div id="log-container" style="overflow-x:auto;">
-        <table class="table table-borderless log-table mb-0" style="min-width:600px;">
+        <table class="table table-borderless log-table mb-0" style="min-width:960px;">
           <thead>
             <tr>
               <th class="ps-3">Timestamp</th>
+              <th>Adapter</th>
+              <th>Endpoint</th>
               <th>Key ID</th>
               <th>Provider</th>
               <th>Remote</th>
-              <th>Status</th>
+              <th>Verdict</th>
+              <th>Reason</th>
             </tr>
           </thead>
           <tbody id="log-body">
-            <tr><td colspan="5" class="empty-state">Loading…</td></tr>
+            <tr><td colspan="8" class="empty-state">Loading…</td></tr>
           </tbody>
         </table>
       </div>
@@ -307,11 +317,9 @@ function fmtRelative(iso) {
   return `${Math.floor(diff/86400)}d ago`;
 }
 
-function statusClass(status) {
-  if (!status) return "status-unknown";
-  if (status === "ok")              return "status-ok";
-  if (status.startsWith("denied")) return "status-denied";
-  if (status === "not_found")      return "status-err";
+function verdictClass(verdict) {
+  if (verdict === "allow") return "status-ok";
+  if (verdict === "deny") return "status-denied";
   return "status-unknown";
 }
 
@@ -416,34 +424,41 @@ function renderKeys(keys) {
   }).join("");
 }
 
-function renderLog(log) {
+function renderLog(log, auditAvailable) {
   const tbody = document.getElementById("log-body");
   const count = document.getElementById("log-count");
   count.textContent = log.length ? `(${log.length} entries)` : "";
 
-  if (!log.length) {
-    tbody.innerHTML = `<tr><td colspan="5" class="empty-state">No requests recorded yet.</td></tr>`;
+  if (!auditAvailable) {
+    tbody.innerHTML = `<tr><td colspan="8" class="empty-state">Audit trail unavailable. See warning above.</td></tr>`;
     return;
   }
 
-  // Build a map of key_id → provider from _status for the log table
+  if (!log.length) {
+    tbody.innerHTML = `<tr><td colspan="8" class="empty-state">No requests recorded yet.</td></tr>`;
+    return;
+  }
+
   const provMap = {};
   if (_status) {
     for (const k of _status.keys) provMap[k.key_id] = k.provider;
   }
 
   tbody.innerHTML = log.map(entry => {
-    const prov      = provMap[entry.key_id] ?? "—";
-    const pClass    = PROVIDER_CLASS[prov] ?? "provider-unknown";
-    const sClass    = statusClass(entry.status);
-    const timeStr   = fmtTimestamp(entry.timestamp);
+    const prov = provMap[entry.key_id] ?? "—";
+    const pClass = PROVIDER_CLASS[prov] ?? "provider-unknown";
+    const vClass = verdictClass(entry.verdict);
+    const timeStr = fmtTimestamp(entry.timestamp);
     return `
     <tr>
       <td class="ps-3" style="white-space:nowrap;color:#475569;font-family:monospace;">${esc(timeStr)}</td>
+      <td class="font-monospace">${esc(entry.adapter_id ?? "—")}</td>
+      <td>${esc(entry.endpoint ?? "—")}</td>
       <td class="font-monospace">${esc(entry.key_id ?? "—")}</td>
       <td><span class="provider-badge ${esc(pClass)}" style="margin-bottom:0;">${esc(prov)}</span></td>
       <td style="color:#475569;">${esc(entry.remote ?? "—")}</td>
-      <td class="${sClass}">${esc(entry.status ?? "—")}</td>
+      <td class="${vClass}">${esc(entry.verdict ?? "—")}</td>
+      <td>${esc(entry.reason_code ?? "—")}</td>
     </tr>`;
   }).join("");
 }
@@ -461,7 +476,7 @@ async function loadStatus() {
     renderErrorBanner(_status);
     renderSummary(_status);
     renderKeys(_status.keys);
-    renderLog(_status.recent_log);
+    renderLog(_status.recent_log, _status.audit_available !== false);
 
     // Show stats warning when request counts / last-access data is unavailable
     const statsWarn = document.getElementById("stats-warning");
@@ -469,6 +484,16 @@ async function loadStatus() {
       statsWarn.classList.remove("d-none");
     } else {
       statsWarn.classList.add("d-none");
+    }
+
+    // Show audit warning when durable audit entries are unavailable
+    const auditWarn = document.getElementById("audit-warning");
+    const auditWarnText = document.getElementById("audit-warning-text");
+    if (_status.audit_available === false) {
+      auditWarnText.textContent = _status.audit_error || "Recent structured audit entries are temporarily unavailable.";
+      auditWarn.classList.remove("d-none");
+    } else {
+      auditWarn.classList.add("d-none");
     }
   } catch (err) {
     const dot  = document.getElementById("health-dot");

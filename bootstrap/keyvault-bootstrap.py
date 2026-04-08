@@ -59,7 +59,7 @@ import sys
 import tempfile
 import textwrap
 from base64 import b64encode
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import NoReturn
 
@@ -223,31 +223,45 @@ def _validate_allowed_keys(
 def _build_adapter_registry(
     adapter_tokens: dict[str, str],
     allowed_keys_by_adapter: dict[str, list[str]],
+    *,
+    token_ttl_days: int,
 ) -> dict[str, dict]:
+    issued_at_dt = datetime.now(timezone.utc)
+    expires_at_dt = issued_at_dt + timedelta(days=token_ttl_days)
+    issued_at = issued_at_dt.isoformat(timespec="seconds")
+    expires_at = expires_at_dt.isoformat(timespec="seconds")
     return {
         "litellm": {
             "token": adapter_tokens["litellm"],
             "allowed_keys": allowed_keys_by_adapter["litellm"],
             "can_list_keys": False,
             "can_read_stats": False,
+            "issued_at": issued_at,
+            "expires_at": expires_at,
         },
         "keyvault-proxy": {
             "token": adapter_tokens["keyvault-proxy"],
             "allowed_keys": allowed_keys_by_adapter["keyvault-proxy"],
             "can_list_keys": False,
             "can_read_stats": False,
+            "issued_at": issued_at,
+            "expires_at": expires_at,
         },
         "adapter-probe": {
             "token": adapter_tokens["adapter-probe"],
             "allowed_keys": allowed_keys_by_adapter["adapter-probe"],
             "can_list_keys": False,
             "can_read_stats": False,
+            "issued_at": issued_at,
+            "expires_at": expires_at,
         },
         "keyvault-ui": {
             "token": adapter_tokens["keyvault-ui"],
             "allowed_keys": [],
             "can_list_keys": True,
             "can_read_stats": True,
+            "issued_at": issued_at,
+            "expires_at": expires_at,
         },
     }
 
@@ -345,10 +359,23 @@ def _has_env_credentials() -> bool:
 # Automation fallback (CI / headless mode)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _load_env_fallback() -> tuple[dict[str, tuple[str, str, str]], dict[str, str], dict[str, list[str]]]:
+def _parse_token_ttl_days(raw: str) -> int:
+    raw = raw.strip()
+    if not raw:
+        return 90
+    try:
+        token_ttl_days = int(raw)
+    except ValueError:
+        die("TOKEN_TTL_DAYS must be a positive integer")
+    if token_ttl_days <= 0:
+        die("TOKEN_TTL_DAYS must be a positive integer")
+    return token_ttl_days
+
+
+def _load_env_fallback() -> tuple[dict[str, tuple[str, str, str]], dict[str, str], dict[str, list[str]], int]:
     """
     Load credentials from environment variables.
-    Returns (api_keys, cf_creds, allowed_keys_by_adapter) in the same shape as
+    Returns (api_keys, cf_creds, allowed_keys_by_adapter, token_ttl_days) in the same shape as
     run_interactive_wizard().
 
     api_keys: {key_id: (provider, target_host, raw_secret)}
@@ -397,7 +424,9 @@ def _load_env_fallback() -> tuple[dict[str, tuple[str, str, str]], dict[str, str
     if allowed_keys_by_adapter["keyvault-ui"]:
         die("UI_ALLOWED_KEYS must remain empty")
 
-    return api_keys, cf_creds, allowed_keys_by_adapter
+    token_ttl_days = _parse_token_ttl_days(os.environ.get("TOKEN_TTL_DAYS", "90"))
+
+    return api_keys, cf_creds, allowed_keys_by_adapter, token_ttl_days
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -406,10 +435,10 @@ def _load_env_fallback() -> tuple[dict[str, tuple[str, str, str]], dict[str, str
 
 def run_interactive_wizard(
     existing_keys: dict,
-) -> tuple[dict[str, tuple[str, str, str]], dict[str, str], dict[str, list[str]]]:
+) -> tuple[dict[str, tuple[str, str, str]], dict[str, str], dict[str, list[str]], int]:
     """
     Interactive terminal wizard. Requires a real TTY (run with -it).
-    Returns (api_keys, cf_creds, allowed_keys_by_adapter):
+    Returns (api_keys, cf_creds, allowed_keys_by_adapter, token_ttl_days):
       api_keys: {key_id: (provider, target_host, raw_secret)}
       cf_creds: {"CF_API_TOKEN": ..., "CF_ACCOUNT_ID": ..., "CF_WORKER_NAME": ...}
     """
@@ -541,7 +570,16 @@ def run_interactive_wizard(
         "keyvault-ui": [],
     }
 
-    return api_keys, cf_creds, allowed_keys_by_adapter
+    while True:
+        raw_ttl = input("\n  Token TTL in days [90]: ").strip()
+        try:
+            token_ttl_days = _parse_token_ttl_days(raw_ttl or "90")
+        except SystemExit:
+            print("  ✗  Token TTL must be a positive integer.\n")
+            continue
+        break
+
+    return api_keys, cf_creds, allowed_keys_by_adapter, token_ttl_days
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -879,13 +917,13 @@ def main() -> None:
 
     if not use_wizard:
         step("Automation mode — loading credentials from environment")
-        api_keys, cf_creds, allowed_keys_by_adapter = _load_env_fallback()
+        api_keys, cf_creds, allowed_keys_by_adapter, token_ttl_days = _load_env_fallback()
         ok(f"Found {len(api_keys)} API key(s): {', '.join(api_keys.keys())}")
         ok("Cloudflare credentials present")
     else:
         step("Interactive wizard — no credentials found in environment")
         try:
-            api_keys, cf_creds, allowed_keys_by_adapter = run_interactive_wizard(existing_keys)
+            api_keys, cf_creds, allowed_keys_by_adapter, token_ttl_days = run_interactive_wizard(existing_keys)
         except KeyboardInterrupt:
             print("\n\nAborted. No changes written.", file=sys.stderr)
             sys.exit(0)
@@ -1000,7 +1038,11 @@ def main() -> None:
     ok("FORGE_TOKEN_UI generated")
     ok("FORGE_TOKEN_PROBE generated")
     ok("FORGE_HMAC_KEY generated")
-    adapter_registry = _build_adapter_registry(adapter_tokens, allowed_keys_by_adapter)
+    adapter_registry = _build_adapter_registry(
+        adapter_tokens,
+        allowed_keys_by_adapter,
+        token_ttl_days=token_ttl_days,
+    )
 
     # ── Step 6: encrypt API keys (V2 envelope) ───────────────────────────
     step("Encrypting API keys — V2 envelope (RSA-4096-OAEP + AES-256-GCM)")

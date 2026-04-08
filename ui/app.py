@@ -6,7 +6,7 @@ Talks to forge-keys over the Docker internal network.
 
 Routes:
   GET /           → dashboard HTML
-  GET /api/status → aggregated JSON (health + keys + stats)
+  GET /api/status → aggregated JSON (health + keys + stats + audit)
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from flask import Flask, jsonify, render_template
 # Config
 # ─────────────────────────────────────────────────────────────────────────────
 
-FORGE_URL          = os.environ.get("FORGE_URL",          "http://forge-keys:9090").rstrip("/")
+FORGE_URL = os.environ.get("FORGE_URL", "http://forge-keys:9090").rstrip("/")
 FORGE_ACCESS_TOKEN = os.environ.get("FORGE_ACCESS_TOKEN", "")
 
 if not FORGE_ACCESS_TOKEN:
@@ -78,81 +78,66 @@ def index():
 @app.get("/api/status")
 def api_status():
     """
-    Aggregate health + key list + stats into one response for the dashboard.
+    Aggregate health + key list + stats + audit into one response for the dashboard.
 
     Shape:
     {
       "forge_healthy":   bool,
       "forge_error":     str | null,
-      "stats_available": bool,   // false → request counts/last_access may be stale
+      "stats_available": bool,
+      "audit_available": bool,
+      "audit_error":     str | null,
       "keys_loaded":     int,
-      "keys": [
-        {
-          "key_id":        str,
-          "provider":      str,
-          "created_at":    str,
-          "request_count": int,
-          "last_access":   str | null
-        }, ...
-      ],
-      "recent_log": [
-        {
-          "timestamp": str,
-          "key_id":    str,
-          "remote":    str,
-          "status":    str
-        }, ...
-      ],
-      "dashboard_time": str   // server-side ISO timestamp
+      "keys": [...],
+      "recent_log":      [...],
+      "dashboard_time":  str
     }
     """
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
-    # ── health ────────────────────────────────────────────────────────────────
     health_data, health_err = _forge_get("/health")
     forge_healthy = health_err is None and (health_data or {}).get("status") == "ok"
 
-    # ── key list ──────────────────────────────────────────────────────────────
     keys_data, keys_err = _forge_get("/keys")
     keys_list = (keys_data or {}).get("keys", []) if keys_err is None else []
 
-    # ── stats (request counts + recent log) ───────────────────────────────────
     stats_data, stats_err = _forge_get("/stats")
     stats_map: dict[str, dict] = {}
-    recent_log: list[dict] = []
-
     if stats_err is None and stats_data:
         for entry in stats_data.get("per_key", []):
             stats_map[entry["key_id"]] = entry
-        recent_log = stats_data.get("recent_log", [])
 
-    # ── merge key list + stats ────────────────────────────────────────────────
+    audit_data, audit_err = _forge_get("/audit")
+    audit_available = audit_err is None
+    audit_events: list[dict] = []
+    if audit_available and audit_data:
+        audit_events = audit_data.get("events", [])
+
     merged_keys = []
     for key in keys_list:
         kid = key["key_id"]
-        s   = stats_map.get(kid, {})
+        s = stats_map.get(kid, {})
         merged_keys.append({
-            "key_id":        kid,
-            "provider":      key.get("provider", "unknown"),
-            "created_at":    key.get("created_at", ""),
+            "key_id": kid,
+            "provider": key.get("provider", "unknown"),
+            "created_at": key.get("created_at", ""),
             "request_count": s.get("request_count", 0),
-            "last_access":   s.get("last_access"),
+            "last_access": s.get("last_access"),
         })
 
-    # Sort: most recently used first, never-used last, then alphabetically.
-    # Two-pass stable sort: secondary (alpha) first, then primary (newest first).
-    # last_access or "" gives "" for None; with reverse=True "" sorts last since
-    # "" < any ISO timestamp string.
-    merged_keys.sort(key=lambda k: k["key_id"])                           # secondary
-    merged_keys.sort(key=lambda k: k["last_access"] or "", reverse=True)  # primary
+    # Two-pass stable sort: key_id secondary, newest last_access primary.
+    merged_keys.sort(key=lambda k: k["key_id"])
+    merged_keys.sort(key=lambda k: k["last_access"] or "", reverse=True)
 
     error = health_err or keys_err
     return jsonify({
-        "forge_healthy":   forge_healthy,
-        "forge_error":     error,
+        "forge_healthy": forge_healthy,
+        "forge_error": error,
         "stats_available": stats_err is None,
-        "keys_loaded":     len(merged_keys),
-        "keys":            merged_keys,
-        "recent_log":      list(reversed(recent_log)),  # newest first
-        "dashboard_time":  now,
+        "audit_available": audit_available,
+        "audit_error": None if audit_available else audit_err,
+        "keys_loaded": len(merged_keys),
+        "keys": merged_keys,
+        "recent_log": audit_events,
+        "dashboard_time": now,
     })

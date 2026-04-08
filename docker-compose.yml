@@ -18,6 +18,9 @@ volumes:
   forge_keys_data:
     # Shared between bootstrap (write) and forge-keys (read)
     driver: local
+  forge_audit_data:
+    # Durable forge audit trail (Round 31)
+    driver: local
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Services
@@ -38,10 +41,12 @@ services:
     # Deliberately NOT published to host ports
     volumes:
       - forge_keys_data:/app/data
+      - forge_audit_data:/app/audit
     environment:
       FORGE_ADAPTER_REGISTRY: ${FORGE_ADAPTER_REGISTRY}
       FORGE_HMAC_KEY: ${FORGE_HMAC_KEY}
       DATA_DIR: /app/data
+      AUDIT_DIR: /app/audit
     logging:
       driver: json-file
       options:

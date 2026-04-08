@@ -163,7 +163,7 @@ async function decryptV2(env, ciphertextB64, wrappedDekB64, pubKeyFp, keyId) {
 
   // 1. Verify pub_key_fp matches loaded private key's fingerprint
   if (pubKeyFp && env.WORKER_KEY_FINGERPRINT &&
-      pubKeyFp !== env.WORKER_KEY_FINGERPRINT) {
+    pubKeyFp !== env.WORKER_KEY_FINGERPRINT) {
     throw new Error(
       `record wrapped with unknown key pair (record: ${pubKeyFp}, ` +
       `loaded: ${env.WORKER_KEY_FINGERPRINT}) — re-bootstrap required`
@@ -285,7 +285,7 @@ export class KeyVaultProxy {
     // state.storage is available but we intentionally never use it —
     // the DO is purely ephemeral for this use case.
     this.state = state;
-    this.env   = env;
+    this.env = env;
   }
 
   async fetch(request) {
@@ -336,7 +336,7 @@ export class KeyVaultProxy {
       upstreamResponse = await fetch(targetUrl, {
         method: method ?? "POST",
         headers: upstreamHeaders,
-        body:    body != null ? JSON.stringify(body) : undefined,
+        body: body != null ? JSON.stringify(body) : undefined,
       });
     } catch (err) {
       // Network error reaching provider — do not expose err.message
@@ -358,7 +358,7 @@ export class KeyVaultProxy {
     }
 
     return new Response(upstreamResponse.body, {
-      status:  upstreamResponse.status,
+      status: upstreamResponse.status,
       headers: responseHeaders,
     });
   }
@@ -434,7 +434,7 @@ async function handleProxy(request, env) {
   }
 
   const { ciphertext, provider, target_url, method, headers: fwdHeaders, body: reqBody,
-          wrapped_dek, pub_key_fp, key_id, enc_version } = body;
+    wrapped_dek, pub_key_fp, key_id, enc_version } = body;
 
   if (!ciphertext || typeof ciphertext !== "string") {
     return jsonError("missing or invalid field: ciphertext", 400);
@@ -457,7 +457,8 @@ async function handleProxy(request, env) {
   let parsedTarget;
   try {
     parsedTarget = new URL(target_url);
-  } catch {
+  } catch (e) {
+    console.error("keyvault: URL parse error", e);
     return jsonError("invalid target_url", 400);
   }
   if (parsedTarget.protocol !== "https:") {
@@ -502,15 +503,15 @@ async function handleProxy(request, env) {
   // ── 6. Forward to Durable Object ──────────────────────────────────────────
   //   The DO lives in CF infrastructure, so apiKey is never in transit
   //   outside of CF.  The DO will zero its reference once the fetch returns.
-  const doId   = env.KEY_VAULT_PROXY.newUniqueId();
+  const doId = env.KEY_VAULT_PROXY.newUniqueId();
   const doStub = env.KEY_VAULT_PROXY.get(doId);
 
   const doPayload = JSON.stringify({
     apiKey,         // decrypted — lives in DO memory only
-    targetUrl:  target_url,
-    method:     method ?? "POST",
-    headers:    cleanHeaders,
-    body:       reqBody ?? null,
+    targetUrl: target_url,
+    method: method ?? "POST",
+    headers: cleanHeaders,
+    body: reqBody ?? null,
     authHeader: registryEntry.auth_header,
     authPrefix: registryEntry.auth_prefix,
   });
@@ -519,9 +520,9 @@ async function handleProxy(request, env) {
   apiKey = null; // eslint-disable-line no-param-reassign
 
   const doResponse = await doStub.fetch("https://do-internal/execute", {
-    method:  "POST",
+    method: "POST",
     headers: { "content-type": "application/json" },
-    body:    doPayload,
+    body: doPayload,
   });
 
   // ── 7. Stream DO response back to caller ──────────────────────────────────
@@ -529,7 +530,7 @@ async function handleProxy(request, env) {
   responseHeaders.set("X-KeyVault-Provider", registryEntry.provider_id);  // audit trail
 
   return new Response(doResponse.body, {
-    status:  doResponse.status,
+    status: doResponse.status,
     headers: responseHeaders,
   });
 }

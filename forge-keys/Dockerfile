@@ -11,13 +11,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app.py .
 
 # Data dir owned by forge user; bootstrap writes here via shared volume
-RUN mkdir -p /app/data && chown forge:forge /app/data
+RUN mkdir -p /app/data /app/audit && chown forge:forge /app/data /app/audit
 
 USER forge
 
 EXPOSE 9090
 
-# Single worker — keys.json reads are cheap; HMAC validation is CPU-light
+# Two workers with four threads; keep runtime config and comment aligned.
 CMD ["gunicorn", "--bind", "0.0.0.0:9090", "--workers", "2", "--threads", "4", \
      "--timeout", "30", "--access-logfile", "-", "--error-logfile", "-", \
      "--log-level", "info", "app:app"]

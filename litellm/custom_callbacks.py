@@ -226,16 +226,18 @@ class KeyVaultTransport(httpx.AsyncBaseTransport):
         )
 
 
-_transport_wired: bool = False
-_keyvault_transport: KeyVaultTransport | None = None
 _keyvault_client: httpx.AsyncClient | None = None
 
 
 def _wire_transport_once() -> None:
-    global _transport_wired, _keyvault_transport, _keyvault_client
+    """
+    Wire KeyVaultTransport into LiteLLM's HTTP clients.
 
-    if _transport_wired:
-        return
+    Called on every forge request. Creates _keyvault_client once, then
+    re-applies the wiring on each call so that handlers replaced by
+    LiteLLM's 1-hour TTL cache eviction are always re-patched before use.
+    """
+    global _keyvault_client
 
     import litellm as _litellm
     from litellm.llms.custom_httpx.http_handler import get_async_httpx_client
@@ -246,36 +248,24 @@ def _wire_transport_once() -> None:
             "current LiteLLM build does not expose that path"
         )
 
-    _keyvault_transport = KeyVaultTransport()
-    _keyvault_client = httpx.AsyncClient(transport=_keyvault_transport)
+    if _keyvault_client is None:
+        _keyvault_client = httpx.AsyncClient(transport=KeyVaultTransport())
+
     _litellm.module_level_aclient.client = _keyvault_client
     _litellm.aclient_session = _keyvault_client
 
-    anthropic_handler = get_async_httpx_client(
-        llm_provider=_litellm.LlmProviders.ANTHROPIC
-    )
-    groq_handler = get_async_httpx_client(
-        llm_provider=_litellm.LlmProviders.GROQ,
-        params={"ssl_verify": None},
-    )
-    deepseek_handler = get_async_httpx_client(
-        llm_provider=_litellm.LlmProviders.DEEPSEEK,
-        params={"ssl_verify": None},
-    )
-
-    for provider_name, handler in (
-        ("anthropic", anthropic_handler),
-        ("groq", groq_handler),
-        ("deepseek", deepseek_handler),
+    for provider_name, provider, params in (
+        ("anthropic", _litellm.LlmProviders.ANTHROPIC, None),
+        ("groq",      _litellm.LlmProviders.GROQ,      {"ssl_verify": None}),
+        ("deepseek",  _litellm.LlmProviders.DEEPSEEK,  {"ssl_verify": None}),
     ):
+        handler = get_async_httpx_client(llm_provider=provider, params=params)
         if not hasattr(handler, "client"):
             raise RuntimeError(
                 f"KeyVault transport wiring requires "
                 f"get_async_httpx_client({provider_name}).client"
             )
         handler.client = _keyvault_client
-
-    _transport_wired = True
 
 
 # ─────────────────────────────────────────────────────────────────────────────

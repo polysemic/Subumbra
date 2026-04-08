@@ -1,6 +1,6 @@
 # PROJECT_STATUS
 *Current state — updated 2026-04-07*
-*Rounds 1–29 closed. See `council/COUNCIL.md` for round history and current status.*
+*Rounds 1–30 closed. See `council/COUNCIL.md` for round history and current status.*
 
 ---
 
@@ -54,7 +54,7 @@ Deferred by council consensus. Acceptable for current single-operator POC deploy
 | MEDIUM-7 | `/api/status` unauthenticated | Bound to `127.0.0.1:8080` (localhost only); add basic auth before multi-user |
 | G-MEDIUM-2 | Dashboard health reflects forge-keys only; no end-to-end health probe | Post-POC architecture change |
 | G-MEDIUM-3 | CF Worker buffers full body with no size limit (128 MB CF cap) | Low risk for small-team internal use |
-| G-LOW-1 | Audit log (`_request_counts`, `_recent_log`) wiped on container restart | SQLite persistence acceptable post-POC |
+| AUDIT-RETENTION | SQLite audit trail is durable across restarts but has no row-capping/retention management yet | Deferred to Round 32 |
 | LOW-5 | Dashboard loads Bootstrap CSS/JS from public CDN | Browser-only fetch; container is air-gapped |
 | CRITICAL-3 | CF Access header strip enforced at Worker edge only | Accepted as architectural constraint (Worker is version-controlled) |
 | DEV-AUDIT | `npm audit` vulnerabilities in wrangler dev tooling | Dev-only; never deployed to CF production |
@@ -63,6 +63,7 @@ Deferred by council consensus. Acceptable for current single-operator POC deploy
 | PROVIDER-COUPLING | Reduced further but not eliminated: the remaining meaningful adapter coupling is LiteLLM model declaration duplication in `litellm/config.yaml`; `api_base_path` in `worker/src/providers.json` is now vestigial after Round 22 cut-over | Full multi-adapter generalization remains a later round |
 | LITELLM-UI | LiteLLM admin UI login non-functional (no DB) | Use keyvault UI at `localhost:8080` instead |
 | TOKEN-SYNC | `post-bootstrap.sh` now detects and warns on stale container tokens for `litellm`, `forge-keys`, and `ui`; bootstrap summary, `README.md`, and `CLAUDE.md` all require `docker compose up -d --force-recreate` after full bootstrap | Closed by Round 13 |
+| TTL-FORGE-ONLY | forge-keys TTL prevents new record fetches after token expiry but does not remove Worker-side token authority. Replay of previously captured records plus a stolen token remains possible until re-bootstrap rotates Worker-side token state | Intentionally deferred beyond Round 30 |
 
 ---
 
@@ -153,27 +154,19 @@ Round 29 completed with:
 - enforcement that disallowed forge records cannot be fetched cross-adapter
 - host-facing verification that scoped access is actually enforced
 
-**6. Revocation And TTL Guardrails (Round 30)**
-After adapter identity is scoped, the next step should ensure stolen or stale
-adapter authority expires or fails predictably rather than remaining useful
-until manual discovery.
+**6. Revocation And TTL Guardrails — completed (Round 30)**
+Round 30 added bootstrap-time adapter TTL metadata, forge-side expiry enforcement, host-facing stale-authority proof, and the explicit carried-forward `TTL-FORGE-ONLY` limitation. See `council/closed/round-30-revocation-ttl-guardrails/` for the verification record.
 
-Round 30 should include:
+**7. Structured Audit Trail -- completed (Round 31)**
+Round 31 added a durable forge-local audit trail so secret access is auditable
+without exposing secret-bearing material in logs.
 
-- expiry / TTL semantics for adapter-facing forge authority
-- clear revocation or stale-authority failure behavior
-- operator-facing documentation for how authority is refreshed or invalidated
-- no lease-orchestration platform and no Worker private-key redesign
+Round 31 completed with:
 
-**7. Structured Audit Trail (Round 31)**
-Once identity and revocation boundaries exist, the project should make secret
-access auditable without exposing secret-bearing material in logs.
-
-Round 31 should include:
-
-- structured forge access events
-- adapter/key/timestamp/verdict visibility for operators
-- local forge logging and Cloudflare-side Worker logging kept separate
+- structured forge access events persisted in SQLite across restarts
+- operator-visible `adapter_id` / `endpoint` / `key_id` / `verdict` / `reason_code`
+  audit fields surfaced through the existing UI path
+- forge-local audit kept separate from Cloudflare-side Worker logging
 - no broad logging backend or observability platform decision
 
 **8. Rotation And Recovery Ergonomics (Round 32)**
