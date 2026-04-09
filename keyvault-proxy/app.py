@@ -2,12 +2,13 @@ import hashlib
 import hmac
 import logging
 import os
+import re
 import sys
 import time
 from typing import Any, Optional
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.background import BackgroundTasks
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -50,6 +51,10 @@ STRIP_HEADERS = {
     "alt-svc",
     "server",
 }
+KEY_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+TRANSPARENT_STRIP_HEADERS = {"authorization", "x-api-key", "x-api-key-id"}
+TRANSPARENT_STRIP_PREFIXES = ("x-forge-", "x-subumbra-")
+TRANSPARENT_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
 
 EXPECTED_RECORD_FIELDS = {
     "ciphertext",
@@ -124,36 +129,89 @@ def worker_headers():
     return headers
 
 
-@app.get("/health")
-async def health():
-    return {"status": "ok"}
+def extract_transparent_key_id(headers: dict[str, str]) -> tuple[Optional[str], bool]:
+    auth_value = None
+    x_api_key_value = None
+    for key, value in headers.items():
+        lower = key.lower()
+        if lower == "authorization":
+            auth_value = value
+        elif lower == "x-api-key":
+            x_api_key_value = value
+
+    parsed_auth = None
+    if auth_value is not None:
+        candidate = auth_value.strip()
+        if candidate.lower().startswith("bearer"):
+            candidate = candidate[6:].strip()
+        if candidate:
+            parsed_auth = candidate
+
+    parsed_x_api_key = None
+    if x_api_key_value is not None:
+        candidate = x_api_key_value.strip()
+        if candidate:
+            parsed_x_api_key = candidate
+
+    if parsed_auth is not None:
+        return parsed_auth, parsed_x_api_key is not None
+    if parsed_x_api_key is not None:
+        return parsed_x_api_key, False
+    return None, False
 
 
-@app.post("/v1/request")
-async def handle_request(req: ProxyRequest):
-    LOG.info(
-        "request key_id=%s method=%s target_url=%s",
-        req.key_id,
-        req.method,
-        req.target_url,
-    )
+def validate_transparent_key_id(key_id: str) -> bool:
+    return bool(KEY_ID_RE.fullmatch(key_id))
+
+
+def strip_transparent_headers(headers: dict[str, str]) -> dict[str, str]:
+    stripped = {}
+    for key, value in headers.items():
+        lower = key.lower()
+        if lower in TRANSPARENT_STRIP_HEADERS:
+            continue
+        if any(lower.startswith(prefix) for prefix in TRANSPARENT_STRIP_PREFIXES):
+            continue
+        stripped[key] = value
+    return stripped
+
+
+def build_transparent_target_url(target_host: str, path: str, query: str) -> str:
+    clean_path = path.lstrip("/")
+    if clean_path:
+        target_url = f"https://{target_host}/{clean_path}"
+    else:
+        target_url = f"https://{target_host}/"
+    if query:
+        target_url += f"?{query}"
+    return target_url
+
+
+async def proxy_via_worker(
+    key_id: str,
+    target_url: str,
+    method: str,
+    headers: dict,
+    body: Optional[Any],
+) -> StreamingResponse:
+    LOG.info("request key_id=%s method=%s target_url=%s", key_id, method, target_url)
 
     try:
-        record = await fetch_record(CLIENT, req.key_id)
+        record = await fetch_record(CLIENT, key_id)
     except httpx.ConnectError:
-        LOG.error("forge failure key_id=%s error=forge-keys unreachable", req.key_id)
+        LOG.error("forge failure key_id=%s error=forge-keys unreachable", key_id)
         raise HTTPException(502, detail="forge-keys unreachable")
     except Exception as exc:
-        LOG.error("forge failure key_id=%s error=%s", req.key_id, exc)
+        LOG.error("forge failure key_id=%s error=%s", key_id, exc)
         raise HTTPException(502, detail=f"forge record fetch failed: {exc}")
 
     payload = proxy_payload(
         record,
-        req.key_id,
-        target_url=req.target_url,
-        method=req.method,
-        headers=req.headers,
-        body=req.body,
+        key_id,
+        target_url=target_url,
+        method=method,
+        headers=headers,
+        body=body,
     )
 
     worker_req = CLIENT.build_request(
@@ -166,7 +224,7 @@ async def handle_request(req: ProxyRequest):
     worker_resp = await CLIENT.send(worker_req, stream=True)
 
     if worker_resp.status_code >= 400:
-        LOG.warning("worker failure key_id=%s status=%s", req.key_id, worker_resp.status_code)
+        LOG.warning("worker failure key_id=%s status=%s", key_id, worker_resp.status_code)
 
     response_headers = {
         key: value
@@ -177,10 +235,78 @@ async def handle_request(req: ProxyRequest):
     tasks = BackgroundTasks()
     tasks.add_task(worker_resp.aclose)
 
-    LOG.info("complete key_id=%s status=%s", req.key_id, worker_resp.status_code)
+    LOG.info("complete key_id=%s status=%s", key_id, worker_resp.status_code)
     return StreamingResponse(
         worker_resp.aiter_raw(),
         status_code=worker_resp.status_code,
         headers=response_headers,
         background=tasks,
+    )
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
+@app.post("/v1/request")
+async def handle_request(req: ProxyRequest):
+    return await proxy_via_worker(
+        req.key_id,
+        req.target_url,
+        req.method,
+        req.headers,
+        req.body,
+    )
+
+
+@app.api_route("/t/{path:path}", methods=TRANSPARENT_METHODS)
+async def handle_transparent_request(path: str, request: Request):
+    inbound_headers = dict(request.headers)
+    key_id, dual_header_present = extract_transparent_key_id(inbound_headers)
+
+    if key_id is None:
+        LOG.warning("transparent reject reason=missing_pseudo_key")
+        raise HTTPException(401, detail="missing pseudo-key")
+
+    if not validate_transparent_key_id(key_id):
+        LOG.warning("transparent reject reason=invalid_key_id")
+        raise HTTPException(400, detail="invalid key_id")
+
+    if dual_header_present:
+        LOG.warning("transparent warning reason=authorization_precedence key_id=%s", key_id)
+
+    body = None
+    raw_body = await request.body()
+    if raw_body:
+        content_type = request.headers.get("content-type", "")
+        if not content_type.lower().startswith("application/json"):
+            LOG.warning(
+                "transparent reject reason=unsupported_content_type key_id=%s",
+                key_id,
+            )
+            raise HTTPException(400, detail="unsupported content-type")
+        try:
+            body = await request.json()
+        except Exception:
+            LOG.warning("transparent reject reason=invalid_json_body key_id=%s", key_id)
+            raise HTTPException(400, detail="invalid JSON body")
+
+    try:
+        record = await fetch_record(CLIENT, key_id)
+    except httpx.ConnectError:
+        LOG.error("forge failure key_id=%s error=forge-keys unreachable", key_id)
+        raise HTTPException(502, detail="forge-keys unreachable")
+    except Exception as exc:
+        LOG.error("forge failure key_id=%s error=%s", key_id, exc)
+        raise HTTPException(502, detail=f"forge record fetch failed: {exc}")
+
+    target_url = build_transparent_target_url(record["target_host"], path, request.url.query)
+    stripped_headers = strip_transparent_headers(inbound_headers)
+    return await proxy_via_worker(
+        key_id,
+        target_url,
+        request.method,
+        stripped_headers,
+        body,
     )

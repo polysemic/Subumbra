@@ -22,4 +22,4 @@ COPY keyvault-bootstrap.py .
 RUN mkdir -p /app/data
 
 # -u = unbuffered so progress lines appear immediately in docker logs
-CMD ["python3", "-u", "keyvault-bootstrap.py"]
+ENTRYPOINT ["python3", "-u", "keyvault-bootstrap.py"]

@@ -45,6 +45,26 @@ the verifier documents that reason explicitly in the verification report.
 are diagnostic-only unless the approved plan explicitly requires an additional
 host-facing manual check.
 
+## `clean-run.sh` v1
+
+`./scripts/council/clean-run.sh` is a fresh-install style wrapper for development
+and verification runs. It executes the normal bootstrap and council harness
+sequence inside a temporary workspace, using:
+
+- `COMPOSE_PROJECT_NAME=subumbra-clean-run`
+- `CF_WORKER_NAME=subumbra-clean-run`
+
+V1 does not support parallel execution with the normal local stack. If the
+named Subumbra containers are already running, it aborts instead of trying to
+coexist with them.
+
+Artifacts for each run are written under:
+
+- `council/clean-run-harness/runs/<run-id>/`
+
+The fixed clean-run Cloudflare worker may persist after the run and may require
+manual deletion.
+
 ## Artifact Citation Example
 
 Prefer citing artifact paths instead of pasting long command output. Example:

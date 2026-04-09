@@ -318,7 +318,7 @@ or runtime tokens:
    The wizard prompts for the key_id to rotate and the new API key value. It re-encrypts
    only that record using the existing `public_key.pem` on disk — no Cloudflare interaction.
 
-No runtime tokens change. No service restart required because `forge-keys` automatically serves the new record on the very next request. The RSA key pair is unchanged.
+No runtime tokens change. No service restart required because `forge-keys` automatically serves the new record on the very next request. The RSA key pair is unchanged. For the full recovery playbook, see `docs/operator-guide.md`.
 
 ### Full re-bootstrap (new key pair + new tokens — requires full restart)
 

@@ -70,7 +70,58 @@ To rotate a provider token:
 This keeps forge records, local env state, and the deployed Worker configuration
 aligned.
 
-## 5. Adapter Authority Expiry And Emergency Expiry
+## 5. Recovery Playbook
+
+### Single-Key Rotation
+
+Use this when only one provider secret needs to change.
+
+```bash
+docker compose --profile bootstrap run --rm -it bootstrap --rotate
+```
+
+The wizard prompts for the `key_id` and replacement secret. After a successful
+per-key rotation, no service restart is required.
+
+### Full Re-Bootstrap
+
+Use this when rotating Worker/forge runtime tokens, replacing the RSA key pair,
+or rebuilding the retained provider set.
+
+```bash
+docker compose --profile bootstrap run --rm -it bootstrap
+./post-bootstrap.sh
+docker compose up -d --force-recreate
+```
+
+During a full bootstrap, re-enter every key you want to keep. Any omitted key is
+removed from the retained set.
+
+### Emergency Adapter Expiry
+
+Use this only to force forge-side denial for a specific adapter.
+
+```bash
+./scripts/forge-expire-adapter.sh <adapter_id>
+docker compose up -d --force-recreate forge-keys
+```
+
+Warning:
+
+- this is forge-side only
+- it blocks new forge record fetches for that adapter
+- it does not revoke Worker-side authority or remove already issued Worker tokens
+
+### Token Drift Recovery
+
+If `./post-bootstrap.sh` warns that container tokens are stale, recreate the
+containers so they pick up the new runtime state:
+
+```bash
+docker compose up -d --force-recreate
+```
+
+## 6. Adapter Authority Expiry And Emergency Expiry
 
 Round 30 adds `issued_at` and `expires_at` to each `FORGE_ADAPTER_REGISTRY`
 entry. `forge-keys` is the enforcement gate for this expiry metadata.
@@ -88,21 +139,10 @@ Forge-side emergency expiry is narrower:
 - it does not remove the token from the Cloudflare Worker
 - it is not full revocation
 
-Example forge-side emergency expiry for `keyvault-proxy`:
+Use the helper:
 
 ```bash
-python3 - <<'EOF'
-import json, re
-
-env = open(".env", encoding="utf-8").read()
-match = re.search(r"^FORGE_ADAPTER_REGISTRY=(.+)$", env, re.MULTILINE)
-registry = json.loads(match.group(1))
-registry["keyvault-proxy"]["expires_at"] = "2000-01-01T00:00:00+00:00"
-new_line = "FORGE_ADAPTER_REGISTRY=" + json.dumps(registry, separators=(",", ":"))
-updated = re.sub(r"^FORGE_ADAPTER_REGISTRY=.+$", new_line, env, flags=re.MULTILINE)
-with open(".env", "w", encoding="utf-8") as fh:
-    fh.write(updated)
-EOF
+./scripts/forge-expire-adapter.sh <adapter_id>
 docker compose up -d --force-recreate forge-keys
 ```
 
@@ -168,4 +208,36 @@ What is intentionally not in the audit trail:
 
 Current limitation carried forward:
 
-- durable audit retention/capping policy is not implemented yet (deferred to Round 32)
+- durable audit storage is forge-local and row-capped by `AUDIT_MAX_ROWS`, but there is still no archival or export system
+
+## 9. Transparent Sidecar (Round 33)
+
+Round 33 adds a bounded transparent ingress route:
+
+- `http://localhost:8090/t/{path}`
+
+Accepted pseudo-key header forms:
+
+- `Authorization: Bearer <key_id>`
+- `Authorization: <key_id>`
+- `x-api-key: <key_id>`
+
+Precedence rule:
+
+- if both `Authorization` and `x-api-key` are present, `Authorization` wins
+
+Default proof example:
+
+```bash
+curl -sS -X GET \
+  http://localhost:8090/t/user \
+  -H 'Authorization: Bearer github_prod' \
+  -H 'Accept: application/json'
+```
+
+Operational notes:
+
+- the sidecar derives the target hostname from the forge record, not from caller input
+- caller query strings are preserved on the upstream request
+- the transparent path currently supports JSON-only request bodies
+- transparent AI-provider calls are not available unless the operator re-bootstrap-scopes those keys into `keyvault-proxy`

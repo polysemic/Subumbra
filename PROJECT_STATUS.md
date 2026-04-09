@@ -1,6 +1,6 @@
 # PROJECT_STATUS
-*Current state — updated 2026-04-07*
-*Rounds 1–30 closed. See `council/COUNCIL.md` for round history and current status.*
+*Current state — updated 2026-04-09*
+*Rounds 1–32 closed. Round 33 proposal phase active. See `council/COUNCIL.md` for round history and current status.*
 
 ---
 
@@ -54,7 +54,7 @@ Deferred by council consensus. Acceptable for current single-operator POC deploy
 | MEDIUM-7 | `/api/status` unauthenticated | Bound to `127.0.0.1:8080` (localhost only); add basic auth before multi-user |
 | G-MEDIUM-2 | Dashboard health reflects forge-keys only; no end-to-end health probe | Post-POC architecture change |
 | G-MEDIUM-3 | CF Worker buffers full body with no size limit (128 MB CF cap) | Low risk for small-team internal use |
-| AUDIT-RETENTION | SQLite audit trail is durable across restarts but has no row-capping/retention management yet | Deferred to Round 32 |
+| AUDIT-RETENTION | SQLite audit trail is durable across restarts and row growth is capped by `AUDIT_MAX_ROWS`, but retention is still forge-local only with no archival/export path | Accepted as current local-ops limit |
 | LOW-5 | Dashboard loads Bootstrap CSS/JS from public CDN | Browser-only fetch; container is air-gapped |
 | CRITICAL-3 | CF Access header strip enforced at Worker edge only | Accepted as architectural constraint (Worker is version-controlled) |
 | DEV-AUDIT | `npm audit` vulnerabilities in wrangler dev tooling | Dev-only; never deployed to CF production |
@@ -170,16 +170,16 @@ Round 31 completed with:
 - no broad logging backend or observability platform decision
 
 **8. Rotation And Recovery Ergonomics (Round 32)**
-After identity, TTL, and audit are in place, the project should improve
-operator recovery and routine rotation flows without weakening the trust
-boundary.
+Completed. Round 32 made the existing rotation and recovery paths executable and
+verifier-provable without changing the split-decrypt architecture.
 
-Round 32 should include:
+Round 32 delivered:
 
-- documented and tested recovery playbooks
-- clearer rotation and compromise-handling ergonomics
-- phased work if needed, while remaining one roadmap round
-- no ratcheting or automatic global private-key churn model
+- a working bootstrap `--rotate` entry path
+- a validated `forge-expire-adapter.sh` helper for forge-side emergency expiry
+- a consolidated recovery playbook in `docs/operator-guide.md`
+- bounded forge-local audit retention via `AUDIT_MAX_ROWS`
+- official harness proofs for rotation, expiry, retention, and playbook presence
 
 **9. Transparent Sidecar (Round 33)**
 Only after identity and TTL hardening are verifier-closed should the project

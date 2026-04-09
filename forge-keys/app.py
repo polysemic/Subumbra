@@ -59,6 +59,9 @@ DATA_DIR = Path(os.environ.get("DATA_DIR", "/app/data"))
 KEYS_FILE = DATA_DIR / "keys.json"
 AUDIT_DIR = Path(os.environ.get("AUDIT_DIR", "/app/audit"))
 AUDIT_DB_PATH = AUDIT_DIR / "audit.db"
+AUDIT_MAX_ROWS = int(os.environ.get("AUDIT_MAX_ROWS", "10000"))
+if AUDIT_MAX_ROWS <= 0:
+    AUDIT_MAX_ROWS = 10000
 
 _required = ("FORGE_ADAPTER_REGISTRY", "FORGE_HMAC_KEY")
 for _var in _required:
@@ -173,6 +176,8 @@ _stats_lock = Lock()
 _request_counts: dict[str, int] = defaultdict(int)
 _last_access: dict[str, str] = {}
 _recent_log: deque[dict] = deque(maxlen=LOG_RING_SIZE)
+_audit_write_count: int = 0
+_audit_prune_logged: bool = False
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -269,6 +274,7 @@ def _record_audit(
         _recent_log.append(event)
 
         if _audit_conn is not None:
+            global _audit_write_count, _audit_prune_logged
             try:
                 _audit_conn.execute(
                     """
@@ -278,6 +284,26 @@ def _record_audit(
                     (ts, adapter_id, endpoint, key_id, verdict, reason_code, remote),
                 )
                 _audit_conn.commit()
+                _audit_write_count += 1
+                if _audit_write_count % 100 == 0:
+                    try:
+                        _audit_conn.execute(
+                            """
+                            DELETE FROM audit_events
+                            WHERE id NOT IN (
+                                SELECT id FROM audit_events
+                                ORDER BY id DESC
+                                LIMIT ?
+                            )
+                            """,
+                            (AUDIT_MAX_ROWS,),
+                        )
+                        _audit_conn.commit()
+                        if not _audit_prune_logged:
+                            log.info("audit_pruned retained=%s", AUDIT_MAX_ROWS)
+                            _audit_prune_logged = True
+                    except sqlite3.Error as exc:
+                        log.warning("audit_prune_error error=%s", exc)
             except sqlite3.Error as exc:
                 log.warning("audit_write_error error=%s", exc)
 
