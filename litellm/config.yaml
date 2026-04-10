@@ -62,6 +62,43 @@ model_list:
       model: deepseek/deepseek-reasoner
       api_key: "forge:deepseek_prod"
 
+  # ── Cerebras ───────────────────────────────────────────────────────────────
+  - model_name: cerebras-llama-3.3-70b
+    litellm_params:
+      model: cerebras/llama3.1-8b
+      api_key: "forge:cerebras_prod"
+
+  # ── Gemini (OpenAI-compatible mode only) ──────────────────────────────────
+  - model_name: gemini-2.0-flash
+    litellm_params:
+      model: openai/gemini-2.0-flash-001
+      api_base: https://generativelanguage.googleapis.com/v1beta/openai/
+      api_key: "forge:gemini_prod"
+
+  # ── Mistral ────────────────────────────────────────────────────────────────
+  - model_name: mistral-large
+    litellm_params:
+      model: mistral/mistral-large-latest
+      api_key: "forge:mistral_prod"
+
+  # ── OpenRouter ─────────────────────────────────────────────────────────────
+  - model_name: openrouter-claude-sonnet-4
+    litellm_params:
+      model: openrouter/anthropic/claude-sonnet-4
+      api_key: "forge:openrouter_prod"
+
+  # ── Together ───────────────────────────────────────────────────────────────
+  - model_name: together-llama-3.3-70b
+    litellm_params:
+      model: together_ai/meta-llama/Llama-3.3-70B-Instruct-Turbo
+      api_key: "forge:together_prod"
+
+  # ── xAI ────────────────────────────────────────────────────────────────────
+  - model_name: grok-2
+    litellm_params:
+      model: xai/grok-3
+      api_key: "forge:xai_prod"
+
 # ─────────────────────────────────────────────────────────────────────────────
 # LiteLLM settings
 # ─────────────────────────────────────────────────────────────────────────────

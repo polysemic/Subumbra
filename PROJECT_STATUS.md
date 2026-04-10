@@ -1,6 +1,6 @@
 # PROJECT_STATUS
-*Current state — updated 2026-04-09*
-*Rounds 1–32 closed. Round 33 proposal phase active. See `council/COUNCIL.md` for round history and current status.*
+*Current state — updated 2026-04-10*
+*Rounds 1–34 closed. Round 35 not started. See `council/COUNCIL.md` for round history and current status.*
 
 ---
 
@@ -79,119 +79,29 @@ Current pin: `main-latest@sha256:7c311546c25e7bb6e8cafede9fcd3d0d622ac636b5c9418
 
 ---
 
-## Next Rounds
+## Roadmap Arc (Rounds 34-36)
 
-The current agreed roadmap is to move from the proven adapter contract toward a
-reusable sidecar/service integration path without jumping straight into the
-more speculative transparent-proxy behavior.
+This arc focuses on evolving Subumbra from a static, bundled configuration into a flexible, operator-managed system. Approved 2026-04-09 in [provider-adapter-flexibility-roadmap.md](file:///home/eric/git/Subumbra/council/approved/provider-adapter-flexibility-roadmap.md).
 
-**1. Adapter Contract — defined (Round 19)**
-The canonical Subumbra core API is `POST /proxy`. Documented in
-`docs/adapter-contract.md`. LiteLLM is Adapter #1 using that contract today.
+### Round 34: Provider Flexibility (Closed 2026-04-10)
+- **Focus**: Built-in provider catalog expansion on the current architecture.
+- **Goal**: Add Cerebras, Gemini, Mistral, OpenRouter, Together, and xAI as bootstrapable LiteLLM providers.
+- **Outcome**: Closed with official proof plus six-provider end-to-end verification; the built-in AI provider set now covers 10 providers on the current architecture.
 
-**2. Explicit Sidecar Baseline — completed (Round 25)**
-The project now has a persistent sidecar/service that hides forge-fetch +
-canonical `POST /proxy` from the caller while keeping the app-facing request
-surface explicit and testable.
+### Round 35: Adapter Flexibility (Current Architecture)
+- **Focus**: Identity/Token generalization across bootstrap and runtime.
+- **Goal**: Move from 4 hardcoded apps to arbitrary named adapters.
+- **Outcome**: Isolated authority for any gateway/app (Open WebUI, Portkey, etc.).
 
-Round 25 in-bounds request surface:
+### Round 36: Live Provider Registry
+- **Focus**: KV-backed Worker registry.
+- **Goal**: Move allowlist to Cloudflare KV.
+- **Outcome**: No Worker redeploys for new providers; fixes the "Custom Provider" wizard path.
 
-- `key_id`
-- `target_url`
-- `method`
-- `headers`
-- `body`
+---
 
-Round 25 completed with:
+**Cross-round invariants**:
+- Split-decrypt boundary remains intact.
+- No durable decrypt power on operator-controlled hosts.
+- Worker-side hostname/provider validation must remain fail-closed.
 
-- persistent sidecar/service
-- explicit app-facing five-field request shape
-- internal forge-fetch + canonical `/proxy`
-- streaming passthrough
-
-**3. Provider Expansion + Operator Usability — completed (Round 26)**
-The explicit sidecar now supports three additional JSON-native non-AI providers:
-
-- `github`
-- `slack`
-- `sendgrid`
-
-Round 26 also completed:
-
-- sidecar smoke-test proof for the added providers
-- provider catalog / operator guide collateral
-- sidecar-specific Docker Compose drop-in template
-- explicit CF infrastructure response-header cleanup in the sidecar
-
-**4. Fresh Verification Harness — completed (Round 28)**
-Round 28 standardized repeated council mechanics so verification starts from a
-consistent host-facing baseline rather than inheriting stale containers, stale
-tokens, partial rebuilds, or inconsistent host-path state.
-
-Round 28 completed with:
-
-- `scripts/council/preflight.sh` for host-path readiness and UI WARN handling
-- `scripts/council/reset.sh` for non-destructive recreate flow plus optional
-  image-service rebuilds
-- `scripts/council/verify.sh` for standard host-path proof capture and per-run
-  artifacts
-- fallback recreation of `.env.bootstrap` from `.env.bootstrap_bak`
-- per-run unique IDs and archived artifacts/logs under the round folder
-- explicit separation between official PASS evidence and diagnostic-only
-  artifacts
-
-See `council/closed/round-28-verification-harness/` for the close-out record.
-
-**5. Adapter Identity And Forge Access Scope — completed (Round 29)**
-Round 29 replaced shared unrestricted forge authority with per-adapter scoped
-authority so one compromised adapter cannot fetch records outside its intended
-scope.
-
-Round 29 completed with:
-
-- per-adapter forge credentials instead of one shared unrestricted token
-- current-deployment-compatible scoping rather than a workload-identity platform leap
-- enforcement that disallowed forge records cannot be fetched cross-adapter
-- host-facing verification that scoped access is actually enforced
-
-**6. Revocation And TTL Guardrails — completed (Round 30)**
-Round 30 added bootstrap-time adapter TTL metadata, forge-side expiry enforcement, host-facing stale-authority proof, and the explicit carried-forward `TTL-FORGE-ONLY` limitation. See `council/closed/round-30-revocation-ttl-guardrails/` for the verification record.
-
-**7. Structured Audit Trail -- completed (Round 31)**
-Round 31 added a durable forge-local audit trail so secret access is auditable
-without exposing secret-bearing material in logs.
-
-Round 31 completed with:
-
-- structured forge access events persisted in SQLite across restarts
-- operator-visible `adapter_id` / `endpoint` / `key_id` / `verdict` / `reason_code`
-  audit fields surfaced through the existing UI path
-- forge-local audit kept separate from Cloudflare-side Worker logging
-- no broad logging backend or observability platform decision
-
-**8. Rotation And Recovery Ergonomics (Round 32)**
-Completed. Round 32 made the existing rotation and recovery paths executable and
-verifier-provable without changing the split-decrypt architecture.
-
-Round 32 delivered:
-
-- a working bootstrap `--rotate` entry path
-- a validated `forge-expire-adapter.sh` helper for forge-side emergency expiry
-- a consolidated recovery playbook in `docs/operator-guide.md`
-- bounded forge-local audit retention via `AUDIT_MAX_ROWS`
-- official harness proofs for rotation, expiry, retention, and playbook presence
-
-**9. Transparent Sidecar (Round 33)**
-Only after identity and TTL hardening are verifier-closed should the project
-take on the higher-complexity transparent sidecar path.
-
-Round 33 should include:
-
-- sidecar-owned path rewriting / translation
-- pseudo-key extraction
-- zero-code-change integration ideas
-- no sidecar-local durable decrypt power
-
-Cross-round rule:
-- no round in this sequence should weaken the split-decrypt boundary or move
-  durable decrypt power onto operator-controlled hosts

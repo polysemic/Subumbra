@@ -32,6 +32,54 @@
     "api_base_path": "/v1"
   },
   {
+    "provider_id": "cerebras",
+    "target_host": "api.cerebras.ai",
+    "auth_header": "authorization",
+    "auth_prefix": "Bearer ",
+    "env_var": "CEREBRAS_API_KEY",
+    "api_base_path": "/v1"
+  },
+  {
+    "provider_id": "gemini",
+    "target_host": "generativelanguage.googleapis.com",
+    "auth_header": "authorization",
+    "auth_prefix": "Bearer ",
+    "env_var": "GEMINI_API_KEY",
+    "api_base_path": "/v1beta/openai"
+  },
+  {
+    "provider_id": "mistral",
+    "target_host": "api.mistral.ai",
+    "auth_header": "authorization",
+    "auth_prefix": "Bearer ",
+    "env_var": "MISTRAL_API_KEY",
+    "api_base_path": "/v1"
+  },
+  {
+    "provider_id": "openrouter",
+    "target_host": "openrouter.ai",
+    "auth_header": "authorization",
+    "auth_prefix": "Bearer ",
+    "env_var": "OPENROUTER_API_KEY",
+    "api_base_path": "/api/v1"
+  },
+  {
+    "provider_id": "together",
+    "target_host": "api.together.xyz",
+    "auth_header": "authorization",
+    "auth_prefix": "Bearer ",
+    "env_var": "TOGETHER_AI_API_KEY",
+    "api_base_path": "/v1"
+  },
+  {
+    "provider_id": "xai",
+    "target_host": "api.x.ai",
+    "auth_header": "authorization",
+    "auth_prefix": "Bearer ",
+    "env_var": "XAI_API_KEY",
+    "api_base_path": "/v1"
+  },
+  {
     "provider_id": "github",
     "target_host": "api.github.com",
     "auth_header": "authorization",

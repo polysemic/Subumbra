@@ -255,9 +255,15 @@ def _wire_transport_once() -> None:
     _litellm.aclient_session = _keyvault_client
 
     for provider_name, provider, params in (
-        ("anthropic", _litellm.LlmProviders.ANTHROPIC, None),
-        ("groq",      _litellm.LlmProviders.GROQ,      {"ssl_verify": None}),
-        ("deepseek",  _litellm.LlmProviders.DEEPSEEK,  {"ssl_verify": None}),
+        ("anthropic",  _litellm.LlmProviders.ANTHROPIC,   None),
+        ("groq",       _litellm.LlmProviders.GROQ,         {"ssl_verify": None}),
+        ("deepseek",   _litellm.LlmProviders.DEEPSEEK,     {"ssl_verify": None}),
+        # These providers use base_llm_http_handler → AsyncHTTPHandler (not AsyncOpenAI SDK).
+        # Wire their handler.client directly so KeyVaultTransport intercepts their requests.
+        # params must match what BaseLLMHTTPHandler passes: {"ssl_verify": None}
+        ("openrouter", _litellm.LlmProviders.OPENROUTER,   {"ssl_verify": None}),
+        ("mistral",    _litellm.LlmProviders.MISTRAL,      {"ssl_verify": None}),
+        ("xai",        _litellm.LlmProviders.XAI,          {"ssl_verify": None}),
     ):
         handler = get_async_httpx_client(llm_provider=provider, params=params)
         if not hasattr(handler, "client"):

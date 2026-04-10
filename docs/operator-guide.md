@@ -2,6 +2,25 @@
 
 *Round 26 operator notes for the explicit sidecar.*
 
+Round 34 expands the built-in AI provider set to:
+
+- Anthropic
+- OpenAI
+- Groq
+- DeepSeek
+- Cerebras
+- Gemini
+- Mistral
+- OpenRouter
+- Together
+- xAI
+
+Operational notes:
+
+- adding these providers still requires re-running bootstrap
+- Gemini uses OpenAI-compatible mode in this project
+- Together uses `TOGETHER_AI_API_KEY`
+
 ## 1. Bootstrap Walkthrough For New Providers
 
 1. Add the provider entry to `worker/src/providers.json`.
