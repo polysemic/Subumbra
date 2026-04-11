@@ -1,6 +1,6 @@
 # PROJECT_STATUS
 *Current state — updated 2026-04-10*
-*Rounds 1–34 closed. Round 35 not started. See `council/COUNCIL.md` for round history and current status.*
+*Rounds 1–35 closed. Round 36 not started. See `council/COUNCIL.md` for round history and current status.*
 
 ---
 
@@ -88,10 +88,10 @@ This arc focuses on evolving Subumbra from a static, bundled configuration into 
 - **Goal**: Add Cerebras, Gemini, Mistral, OpenRouter, Together, and xAI as bootstrapable LiteLLM providers.
 - **Outcome**: Closed with official proof plus six-provider end-to-end verification; the built-in AI provider set now covers 10 providers on the current architecture.
 
-### Round 35: Adapter Flexibility (Current Architecture)
+### Round 35: Adapter Flexibility (Closed 2026-04-10)
 - **Focus**: Identity/Token generalization across bootstrap and runtime.
 - **Goal**: Move from 4 hardcoded apps to arbitrary named adapters.
-- **Outcome**: Isolated authority for any gateway/app (Open WebUI, Portkey, etc.).
+- **Outcome**: Closed with official multi-verifier PASS; bootstrap, post-bootstrap, and proof capture now support additive custom adapters such as Open WebUI or Portkey without changing the core runtime architecture.
 
 ### Round 36: Live Provider Registry
 - **Focus**: KV-backed Worker registry.
@@ -104,4 +104,3 @@ This arc focuses on evolving Subumbra from a static, bundled configuration into 
 - Split-decrypt boundary remains intact.
 - No durable decrypt power on operator-controlled hosts.
 - Worker-side hostname/provider validation must remain fail-closed.
-

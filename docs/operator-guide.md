@@ -116,6 +116,24 @@ docker compose up -d --force-recreate
 During a full bootstrap, re-enter every key you want to keep. Any omitted key is
 removed from the retained set.
 
+### Custom Adapters (Round 35)
+
+Automation-mode bootstrap can add custom adapters with `ADAPTER_IDS` in
+`.env.bootstrap`. This is additive-only: the built-in adapters remain
+provisioned automatically, and each custom adapter uses a matching
+`<NORMALIZED_ID>_ALLOWED_KEYS` variable, where normalization means uppercase
+with `-` replaced by `_`.
+
+Example:
+
+```bash
+ADAPTER_IDS=open-webui
+OPEN_WEBUI_ALLOWED_KEYS=github_prod
+```
+
+Custom adapters are a CI/automation-mode feature in this round. The interactive
+bootstrap wizard still supports only the built-in adapters.
+
 ### Emergency Adapter Expiry
 
 Use this only to force forge-side denial for a specific adapter.

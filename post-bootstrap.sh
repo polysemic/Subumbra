@@ -58,23 +58,26 @@ RUNTIME=$(docker compose run --rm -u 0 -T forge-keys cat /app/data/runtime.env 2
 # Its presence in runtime.env is for audit/diagnostic purposes only.
 
 FORGE_ADAPTER_REGISTRY=$(printf '%s\n' "$RUNTIME" | grep '^FORGE_ADAPTER_REGISTRY=' | cut -d= -f2-)
-FORGE_TOKEN_LITELLM=$(printf '%s\n' "$RUNTIME" | grep '^FORGE_TOKEN_LITELLM=' | cut -d= -f2-)
-FORGE_TOKEN_PROXY=$(printf '%s\n' "$RUNTIME" | grep '^FORGE_TOKEN_PROXY=' | cut -d= -f2-)
-FORGE_TOKEN_UI=$(printf '%s\n' "$RUNTIME" | grep '^FORGE_TOKEN_UI=' | cut -d= -f2-)
-FORGE_TOKEN_PROBE=$(printf '%s\n' "$RUNTIME" | grep '^FORGE_TOKEN_PROBE=' | cut -d= -f2-)
+mapfile -t FORGE_TOKEN_LINES < <(printf '%s\n' "$RUNTIME" | grep '^FORGE_TOKEN_' || true)
 FORGE_HMAC_KEY=$(printf '%s\n' "$RUNTIME" | grep '^FORGE_HMAC_KEY=' | cut -d= -f2-)
 CF_WORKER_URL=$(printf '%s\n' "$RUNTIME" | grep '^CF_WORKER_URL=' | cut -d= -f2-)
 
-if [[ -z "$FORGE_ADAPTER_REGISTRY" || -z "$FORGE_TOKEN_LITELLM" || -z "$FORGE_TOKEN_PROXY" || -z "$FORGE_TOKEN_UI" || -z "$FORGE_TOKEN_PROBE" || -z "$FORGE_HMAC_KEY" || -z "$CF_WORKER_URL" ]]; then
+FORGE_TOKEN_LITELLM=$(printf '%s\n' "${FORGE_TOKEN_LINES[@]}" | grep '^FORGE_TOKEN_LITELLM=' | cut -d= -f2-)
+FORGE_TOKEN_PROXY=$(printf '%s\n' "${FORGE_TOKEN_LINES[@]}" | grep '^FORGE_TOKEN_PROXY=' | cut -d= -f2-)
+FORGE_TOKEN_UI=$(printf '%s\n' "${FORGE_TOKEN_LINES[@]}" | grep '^FORGE_TOKEN_UI=' | cut -d= -f2-)
+FORGE_TOKEN_PROBE=$(printf '%s\n' "${FORGE_TOKEN_LINES[@]}" | grep '^FORGE_TOKEN_PROBE=' | cut -d= -f2-)
+
+if [[ -z "$FORGE_ADAPTER_REGISTRY" || ${#FORGE_TOKEN_LINES[@]} -eq 0 || -z "$FORGE_TOKEN_LITELLM" || -z "$FORGE_TOKEN_PROXY" || -z "$FORGE_TOKEN_UI" || -z "$FORGE_TOKEN_PROBE" || -z "$FORGE_HMAC_KEY" || -z "$CF_WORKER_URL" ]]; then
     echo "ERROR: runtime.env is missing one or more required values." >&2
     exit 1
 fi
 
 echo "  FORGE_ADAPTER_REGISTRY : present"
-echo "  FORGE_TOKEN_LITELLM   : ${FORGE_TOKEN_LITELLM:0:8}... (truncated for display)"
-echo "  FORGE_TOKEN_PROXY     : ${FORGE_TOKEN_PROXY:0:8}... (truncated for display)"
-echo "  FORGE_TOKEN_UI        : ${FORGE_TOKEN_UI:0:8}... (truncated for display)"
-echo "  FORGE_TOKEN_PROBE     : ${FORGE_TOKEN_PROBE:0:8}... (truncated for display)"
+for token_line in "${FORGE_TOKEN_LINES[@]}"; do
+    token_key="${token_line%%=*}"
+    token_value="${token_line#*=}"
+    printf '  %-21s: %s... (truncated for display)\n' "$token_key" "${token_value:0:8}"
+done
 echo "  FORGE_HMAC_KEY        : ${FORGE_HMAC_KEY:0:8}... (truncated for display)"
 echo "  CF_WORKER_URL         : $CF_WORKER_URL"
 
@@ -93,10 +96,9 @@ update_env() {
 echo ""
 echo "Writing to $ENV_FILE..."
 update_env "FORGE_ADAPTER_REGISTRY" "$FORGE_ADAPTER_REGISTRY"
-update_env "FORGE_TOKEN_LITELLM" "$FORGE_TOKEN_LITELLM"
-update_env "FORGE_TOKEN_PROXY" "$FORGE_TOKEN_PROXY"
-update_env "FORGE_TOKEN_UI" "$FORGE_TOKEN_UI"
-update_env "FORGE_TOKEN_PROBE" "$FORGE_TOKEN_PROBE"
+for token_line in "${FORGE_TOKEN_LINES[@]}"; do
+    update_env "${token_line%%=*}" "${token_line#*=}"
+done
 update_env "FORGE_HMAC_KEY"     "$FORGE_HMAC_KEY"
 update_env "CF_WORKER_URL"      "$CF_WORKER_URL"
 
@@ -106,6 +108,13 @@ VERIFY_FAILED=0
 for key in FORGE_ADAPTER_REGISTRY FORGE_TOKEN_LITELLM FORGE_TOKEN_PROXY FORGE_TOKEN_UI FORGE_TOKEN_PROBE FORGE_HMAC_KEY CF_WORKER_URL; do
     if ! grep -q "^${key}=" "$ENV_FILE"; then
         echo "ERROR: Failed to write ${key} to $ENV_FILE" >&2
+        VERIFY_FAILED=1
+    fi
+done
+for token_line in "${FORGE_TOKEN_LINES[@]}"; do
+    token_key="${token_line%%=*}"
+    if ! grep -q "^${token_key}=" "$ENV_FILE"; then
+        echo "ERROR: Failed to write ${token_key} to $ENV_FILE" >&2
         VERIFY_FAILED=1
     fi
 done

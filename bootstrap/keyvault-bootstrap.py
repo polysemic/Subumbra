@@ -88,6 +88,7 @@ BANNER = """
 
 # key_id validation: lowercase alphanumeric + underscores + hyphens, 3-64 chars
 KEY_ID_RE = re.compile(r'^[a-z0-9][a-z0-9_-]{2,63}$')
+ADAPTER_ID_RE = re.compile(r'^[a-z0-9][a-z0-9_-]{0,61}[a-z0-9]$')
 
 DATA_DIR        = Path(os.environ.get("DATA_DIR", "/app/data"))
 KEYS_FILE       = DATA_DIR / "keys.json"
@@ -101,6 +102,8 @@ ADAPTER_SCOPE_VARS: dict[str, str] = {
     "adapter-probe": "PROBE_ALLOWED_KEYS",
     "keyvault-ui": "UI_ALLOWED_KEYS",
 }
+BUILTIN_ADAPTER_IDS = tuple(ADAPTER_SCOPE_VARS.keys())
+BUILTIN_TOKEN_SUFFIXES = {"LITELLM", "PROXY", "UI", "PROBE"}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Logging helpers
@@ -206,6 +209,40 @@ def _parse_allowed_keys_csv(raw: str) -> list[str]:
     return [item.strip() for item in raw.split(",") if item.strip()]
 
 
+def _normalize_adapter_id(adapter_id: str) -> str:
+    return adapter_id.upper().replace("-", "_")
+
+
+def _parse_adapter_ids(raw: str) -> list[str]:
+    adapter_ids: list[str] = []
+    seen_normalized: dict[str, str] = {}
+    for adapter_id in (item.strip() for item in raw.split(",")):
+        if not adapter_id:
+            continue
+        if not ADAPTER_ID_RE.fullmatch(adapter_id):
+            die(f"Invalid adapter_id '{adapter_id}'")
+        if adapter_id in BUILTIN_ADAPTER_IDS:
+            die(f"Reserved built-in adapter_id '{adapter_id}'")
+        normalized = _normalize_adapter_id(adapter_id)
+        if normalized in BUILTIN_TOKEN_SUFFIXES:
+            die(f"Reserved built-in adapter token suffix '{normalized}' for adapter_id '{adapter_id}'")
+        if normalized in seen_normalized:
+            die(
+                f"Duplicate normalized adapter token suffix '{normalized}' for adapter_ids "
+                f"'{seen_normalized[normalized]}' and '{adapter_id}'"
+            )
+        seen_normalized[normalized] = adapter_id
+        adapter_ids.append(adapter_id)
+    return adapter_ids
+
+
+def _build_custom_adapter_scope_vars(adapter_ids: list[str]) -> dict[str, str]:
+    return {
+        adapter_id: f"{_normalize_adapter_id(adapter_id)}_ALLOWED_KEYS"
+        for adapter_id in adapter_ids
+    }
+
+
 def _validate_allowed_keys(
     api_keys: dict[str, tuple[str, str, str]],
     allowed_keys_by_adapter: dict[str, list[str]],
@@ -230,7 +267,7 @@ def _build_adapter_registry(
     expires_at_dt = issued_at_dt + timedelta(days=token_ttl_days)
     issued_at = issued_at_dt.isoformat(timespec="seconds")
     expires_at = expires_at_dt.isoformat(timespec="seconds")
-    return {
+    registry = {
         "litellm": {
             "token": adapter_tokens["litellm"],
             "allowed_keys": allowed_keys_by_adapter["litellm"],
@@ -264,6 +301,18 @@ def _build_adapter_registry(
             "expires_at": expires_at,
         },
     }
+    for adapter_id, token in adapter_tokens.items():
+        if adapter_id in BUILTIN_ADAPTER_IDS:
+            continue
+        registry[adapter_id] = {
+            "token": token,
+            "allowed_keys": allowed_keys_by_adapter[adapter_id],
+            "can_list_keys": False,
+            "can_read_stats": False,
+            "issued_at": issued_at,
+            "expires_at": expires_at,
+        }
+    return registry
 
 
 def _prompt_allowed_keys(adapter_label: str, available_key_ids: list[str]) -> list[str]:
@@ -415,12 +464,14 @@ def _load_env_fallback() -> tuple[dict[str, tuple[str, str, str]], dict[str, str
             + "    docker compose --profile bootstrap run --rm -it bootstrap"
         )
 
+    custom_adapter_ids = _parse_adapter_ids(os.environ.get("ADAPTER_IDS", ""))
+    custom_scope_vars = _build_custom_adapter_scope_vars(custom_adapter_ids)
     allowed_keys_by_adapter = {
-        "litellm": _parse_allowed_keys_csv(os.environ.get("LITELLM_ALLOWED_KEYS", "")),
-        "keyvault-proxy": _parse_allowed_keys_csv(os.environ.get("PROXY_ALLOWED_KEYS", "")),
-        "adapter-probe": _parse_allowed_keys_csv(os.environ.get("PROBE_ALLOWED_KEYS", "")),
-        "keyvault-ui": _parse_allowed_keys_csv(os.environ.get("UI_ALLOWED_KEYS", "")),
+        adapter_id: _parse_allowed_keys_csv(os.environ.get(scope_var, ""))
+        for adapter_id, scope_var in ADAPTER_SCOPE_VARS.items()
     }
+    for adapter_id, scope_var in custom_scope_vars.items():
+        allowed_keys_by_adapter[adapter_id] = _parse_allowed_keys_csv(os.environ.get(scope_var, ""))
     if allowed_keys_by_adapter["keyvault-ui"]:
         die("UI_ALLOWED_KEYS must remain empty")
 
@@ -1032,11 +1083,17 @@ def main() -> None:
         "keyvault-ui": secrets.token_hex(32),
         "adapter-probe": secrets.token_hex(32),
     }
+    for adapter_id in allowed_keys_by_adapter:
+        if adapter_id not in adapter_tokens:
+            adapter_tokens[adapter_id] = secrets.token_hex(32)
     forge_hmac_key = secrets.token_hex(32)   # 64-char hex
     ok("FORGE_TOKEN_LITELLM generated")
     ok("FORGE_TOKEN_PROXY generated")
     ok("FORGE_TOKEN_UI generated")
     ok("FORGE_TOKEN_PROBE generated")
+    for adapter_id in allowed_keys_by_adapter:
+        if adapter_id not in BUILTIN_ADAPTER_IDS:
+            ok(f"FORGE_TOKEN_{_normalize_adapter_id(adapter_id)} generated")
     ok("FORGE_HMAC_KEY generated")
     adapter_registry = _build_adapter_registry(
         adapter_tokens,
@@ -1099,19 +1156,29 @@ def main() -> None:
     # SECURITY: These tokens are privileged secrets.  Write with mode 0600
     # and do NOT print values to stdout (which may be captured in CI/CD logs).
     step(f"Writing runtime env → {RUNTIME_ENV_OUT}")
-    runtime_env_content = (
-        f"# Generated by keyvault-bootstrap on {now_iso}\n"
-        f"# PRIVILEGED — treat like an API key; restrict access to this file\n"
-        f"FORGE_ADAPTER_REGISTRY={json.dumps(adapter_registry, separators=(',', ':'))}\n"
-        f"FORGE_TOKEN_LITELLM={adapter_tokens['litellm']}\n"
-        f"FORGE_TOKEN_PROXY={adapter_tokens['keyvault-proxy']}\n"
-        f"FORGE_TOKEN_UI={adapter_tokens['keyvault-ui']}\n"
-        f"FORGE_TOKEN_PROBE={adapter_tokens['adapter-probe']}\n"
-        f"FORGE_HMAC_KEY={forge_hmac_key}\n"
-        f"CF_WORKER_URL={worker_url}\n"
-        f"# Public key fingerprint (audit trail — not sensitive)\n"
-        f"WORKER_KEY_FINGERPRINT={pub_key_fp}\n"
+    runtime_env_lines = [
+        f"# Generated by keyvault-bootstrap on {now_iso}",
+        "# PRIVILEGED — treat like an API key; restrict access to this file",
+        f"FORGE_ADAPTER_REGISTRY={json.dumps(adapter_registry, separators=(',', ':'))}",
+        f"FORGE_TOKEN_LITELLM={adapter_tokens['litellm']}",
+        f"FORGE_TOKEN_PROXY={adapter_tokens['keyvault-proxy']}",
+        f"FORGE_TOKEN_UI={adapter_tokens['keyvault-ui']}",
+        f"FORGE_TOKEN_PROBE={adapter_tokens['adapter-probe']}",
+    ]
+    for adapter_id in allowed_keys_by_adapter:
+        if adapter_id not in BUILTIN_ADAPTER_IDS:
+            runtime_env_lines.append(
+                f"FORGE_TOKEN_{_normalize_adapter_id(adapter_id)}={adapter_tokens[adapter_id]}"
+            )
+    runtime_env_lines.extend(
+        [
+            f"FORGE_HMAC_KEY={forge_hmac_key}",
+            f"CF_WORKER_URL={worker_url}",
+            "# Public key fingerprint (audit trail — not sensitive)",
+            f"WORKER_KEY_FINGERPRINT={pub_key_fp}",
+        ]
     )
+    runtime_env_content = "\n".join(runtime_env_lines) + "\n"
     try:
         fd = os.open(str(RUNTIME_ENV_OUT), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w") as fh:
