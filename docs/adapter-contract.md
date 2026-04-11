@@ -85,7 +85,7 @@ Request body (JSON, all fields required unless noted):
 | Field | Type | Description |
 |---|---|---|
 | `ciphertext` | string | AES-256-GCM encrypted API key, base64; from forge-keys record |
-| `provider` | string | Provider identity; must match `UPSTREAM_REGISTRY` entry for `target_url` hostname |
+| `provider` | string | Provider identity; must match the live provider-registry entry for the `target_url` hostname |
 | `target_url` | string | Full `https://` URL including path and query — adapter-owned |
 | `method` | string | HTTP method for the upstream call (e.g. `"POST"`) |
 | `headers` | object | Headers to forward to the upstream; adapter must include all provider-required headers (e.g. `content-type`, `anthropic-version`); the Worker strips hop-by-hop headers before forwarding |
@@ -104,13 +104,13 @@ The Worker enforces these security invariants before any upstream request is mad
 1. **Token authentication** — `X-Forge-Token` validated against `FORGE_ACCESS_TOKEN`
    via timing-safe comparison; any mismatch is rejected before parsing the body.
 
-2. **SSRF prevention** — `target_url` hostname must appear in `UPSTREAM_REGISTRY`
-   (derived from `worker/src/providers.json`); unlisted hostnames are rejected
-   with 403. Rejected with a warning log, no details surfaced to the caller.
+2. **SSRF prevention** — `target_url` hostname must appear in the live provider
+   registry stored in Cloudflare KV; unlisted hostnames are rejected with 403.
+   Rejected with a warning log, no details surfaced to the caller.
 
-3. **Provider/host consistency** — declared `provider` must match the
-   `UPSTREAM_REGISTRY` entry for the `target_url` hostname; mismatch rejected
-   with 400. Prevents decrypting one provider's key and sending it to a different
+3. **Provider/host consistency** — declared `provider` must match the live
+   registry entry for the `target_url` hostname; mismatch rejected with 400.
+   Prevents decrypting one provider's key and sending it to a different
    provider's endpoint.
 
 4. **V2 enforcement** — `enc_version !== 2` or missing `wrapped_dek` is
@@ -123,7 +123,7 @@ The Worker enforces these security invariants before any upstream request is mad
    in the error message to help operators diagnose key rotation issues.
 
 6. **Auth injection** — the Durable Object injects provider-specific auth
-   headers using auth policy from `UPSTREAM_REGISTRY` (`auth_header`,
+   headers using auth policy from the live provider registry (`auth_header`,
    `auth_prefix`). The adapter never receives or sees the decrypted API key.
 
 7. **Header stripping** — the Worker strips all hop-by-hop headers and all
@@ -135,6 +135,18 @@ The Worker enforces these security invariants before any upstream request is mad
 
 ---
 
+## Provider Registry Freshness
+
+The live provider registry is read from Cloudflare KV with a bounded cache TTL.
+
+- Newly published provider entries should become visible without Worker
+  redeployment.
+- Expect about 90 seconds worst-case before every Worker isolate sees a new
+  entry.
+- Adapter-facing request shape does not change.
+
+---
+
 ## Error Responses
 
 All error responses use `Content-Type: application/json` with body
@@ -143,7 +155,7 @@ All error responses use `Content-Type: application/json` with body
 | Condition | HTTP Status |
 |---|---|
 | Token missing or invalid | 401 |
-| `target_url` not in `UPSTREAM_REGISTRY` | 403 |
+| `target_url` not in the live provider registry | 403 |
 | Provider/host mismatch | 400 |
 | Missing or malformed required field | 400 |
 | Non-V2 `enc_version` or missing `wrapped_dek` | 400 |
@@ -151,6 +163,7 @@ All error responses use `Content-Type: application/json` with body
 | Decryption failure (generic) | 500 |
 | RSA fingerprint mismatch | 500 (message includes detail) |
 | CF Secrets not configured | 503 |
+| Provider registry binding missing / key missing / invalid | 503 |
 
 ---
 
@@ -185,7 +198,7 @@ explicitly include all headers the upstream provider requires (e.g.
 
 ## What Adapters Must NOT Do
 
-- Attempt to pass `target_url` hostnames not in `UPSTREAM_REGISTRY` — rejected
+- Attempt to pass `target_url` hostnames not in the live provider registry — rejected
   with 403.
 - Declare a `provider` that does not match the hostname's registry entry —
   rejected with 400.

@@ -1,6 +1,6 @@
 # PROJECT_STATUS
-*Current state — updated 2026-04-10*
-*Rounds 1–35 closed. Round 36 not started. See `council/COUNCIL.md` for round history and current status.*
+*Current state — updated 2026-04-11*
+*Rounds 1–36 closed. See `council/COUNCIL.md` for round history and current status.*
 
 ---
 
@@ -93,10 +93,10 @@ This arc focuses on evolving Subumbra from a static, bundled configuration into 
 - **Goal**: Move from 4 hardcoded apps to arbitrary named adapters.
 - **Outcome**: Closed with official multi-verifier PASS; bootstrap, post-bootstrap, and proof capture now support additive custom adapters such as Open WebUI or Portkey without changing the core runtime architecture.
 
-### Round 36: Live Provider Registry
+### Round 36: Live Provider Registry (Closed 2026-04-11)
 - **Focus**: KV-backed Worker registry.
 - **Goal**: Move allowlist to Cloudflare KV.
-- **Outcome**: No Worker redeploys for new providers; fixes the "Custom Provider" wizard path.
+- **Outcome**: Closed with verification PASS. Provider validation now comes from a live Cloudflare KV registry, `--push-registry` republishes without a Worker redeploy, custom provider metadata persists in `/app/data/custom-providers.json`, and Worker-side hostname/provider validation remains fail-closed.
 
 ---
 

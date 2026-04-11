@@ -24,8 +24,6 @@
 
 "use strict";
 
-import PROVIDER_REGISTRY from "./providers.json";
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
@@ -64,22 +62,43 @@ function validateProviderRegistry(registry) {
   }
 }
 
-validateProviderRegistry(PROVIDER_REGISTRY);
+async function getRegistryEntry(env, hostname) {
+  const raw = await env.PROVIDER_REGISTRY_KV.get("provider_registry_v1", {
+    cacheTtl: 30,
+  });
 
-const UPSTREAM_REGISTRY = Object.fromEntries(
-  PROVIDER_REGISTRY.map((p) => [
-    p.target_host,
-    {
-      provider_id: p.provider_id,
-      auth_header: p.auth_header,
-      auth_prefix: p.auth_prefix,
-    },
-  ])
-);
+  if (!raw) {
+    const err = new Error("provider registry not found in KV");
+    err.code = "registry_missing";
+    throw err;
+  }
 
-function registryEntryByHostname(hostname) {
-  const entry = UPSTREAM_REGISTRY[hostname];
-  return entry ? { hostname, ...entry } : null;
+  let registry;
+  try {
+    registry = JSON.parse(raw);
+  } catch {
+    const err = new Error("provider registry invalid JSON");
+    err.code = "registry_invalid_json";
+    throw err;
+  }
+
+  try {
+    validateProviderRegistry(registry);
+  } catch (cause) {
+    const err = new Error(cause.message);
+    err.code = "registry_invalid_schema";
+    throw err;
+  }
+
+  const entry = registry.find((candidate) => candidate.target_host === hostname);
+  return entry
+    ? {
+      hostname: entry.target_host,
+      provider_id: entry.provider_id,
+      auth_header: entry.auth_header,
+      auth_prefix: entry.auth_prefix,
+    }
+    : null;
 }
 
 // Headers that must not be forwarded to the upstream provider
@@ -403,8 +422,8 @@ export default {
 
 async function handleProxy(request, env) {
   // ── 1. Validate secrets are configured ────────────────────────────────────
-  if (!env.WORKER_PRIVATE_KEY || !env.FORGE_ADAPTER_TOKENS) {
-    console.error("keyvault: CF Secrets not configured (run bootstrap)");
+  if (!env.WORKER_PRIVATE_KEY || !env.FORGE_ADAPTER_TOKENS || !env.PROVIDER_REGISTRY_KV) {
+    console.error("keyvault: worker bindings not configured (run bootstrap)");
     return jsonError("worker not configured", 503);
   }
 
@@ -464,7 +483,19 @@ async function handleProxy(request, env) {
   if (parsedTarget.protocol !== "https:") {
     return jsonError("target_url must use https://", 400);
   }
-  const registryEntry = registryEntryByHostname(parsedTarget.hostname);
+  let registryEntry;
+  try {
+    registryEntry = await getRegistryEntry(env, parsedTarget.hostname);
+  } catch (err) {
+    if (err.code === "registry_missing") {
+      console.error("keyvault: provider registry not found in KV");
+    } else if (err.code === "registry_invalid_json") {
+      console.error("keyvault: provider registry invalid JSON");
+    } else {
+      console.error("keyvault: provider registry validation failed:", err.message);
+    }
+    return jsonError("worker not configured", 503);
+  }
   if (!registryEntry) {
     console.warn("keyvault: SSRF attempt — rejected target_url", parsedTarget.hostname);
     return jsonError("target_url not allowed", 403);

@@ -58,6 +58,8 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import urllib.error
+import urllib.request
 from base64 import b64encode
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -95,6 +97,9 @@ KEYS_FILE       = DATA_DIR / "keys.json"
 RUNTIME_ENV_OUT = DATA_DIR / "runtime.env"
 PUBLIC_KEY_FILE = DATA_DIR / "public_key.pem"
 WORKER_SRC      = Path("/app/worker")
+CUSTOM_PROVIDER_REGISTRY_FILE = DATA_DIR / "custom-providers.json"
+KV_CONFIG_FILE = DATA_DIR / "kv-config.json"
+PROVIDER_REGISTRY_KV_KEY = "provider_registry_v1"
 
 ADAPTER_SCOPE_VARS: dict[str, str] = {
     "litellm": "LITELLM_ALLOWED_KEYS",
@@ -175,6 +180,10 @@ def _load_provider_registry() -> list[dict]:
 
 
 _REGISTRY = _load_provider_registry()
+BUILTIN_PROVIDER_BY_ID = {
+    entry["provider_id"]: entry
+    for entry in _REGISTRY
+}
 PROVIDER_HOSTS: dict[str, str] = {
     entry["provider_id"]: entry["target_host"]
     for entry in _REGISTRY
@@ -183,6 +192,95 @@ KNOWN_PROVIDERS: list[tuple[str, str]] = [
     (entry["provider_id"], entry["env_var"])
     for entry in _REGISTRY
 ]
+
+
+def _validate_live_provider_registry(entries: list[dict], source: str) -> list[dict]:
+    required = {"provider_id", "target_host", "auth_header", "auth_prefix"}
+    if not isinstance(entries, list):
+        die(f"{source}: top-level value must be a JSON array")
+
+    seen_ids: set[str] = set()
+    seen_hosts: set[str] = set()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            die(f"{source}: each entry must be an object: {entry!r}")
+        missing = required - entry.keys()
+        if missing:
+            die(f"{source}: entry missing fields {sorted(missing)}: {entry}")
+        if not all(isinstance(entry[field], str) for field in required):
+            die(f"{source}: all fields must be strings: {entry}")
+        provider_id = entry["provider_id"]
+        target_host = entry["target_host"]
+        if provider_id in seen_ids:
+            die(f"{source}: duplicate provider_id '{provider_id}'")
+        if target_host in seen_hosts:
+            die(f"{source}: duplicate target_host '{target_host}'")
+        seen_ids.add(provider_id)
+        seen_hosts.add(target_host)
+    return entries
+
+
+def _load_custom_provider_registry() -> list[dict]:
+    if not CUSTOM_PROVIDER_REGISTRY_FILE.exists():
+        return []
+    try:
+        with CUSTOM_PROVIDER_REGISTRY_FILE.open() as fh:
+            entries = json.load(fh)
+    except (FileNotFoundError, json.JSONDecodeError) as exc:
+        die(f"Cannot load custom provider registry at {CUSTOM_PROVIDER_REGISTRY_FILE}: {exc}")
+    return _validate_live_provider_registry(entries, "custom-providers.json")
+
+
+def _project_builtin_provider_registry(entries: list[dict]) -> list[dict]:
+    projected = [
+        {
+            "provider_id": entry["provider_id"],
+            "target_host": entry["target_host"],
+            "auth_header": entry["auth_header"],
+            "auth_prefix": entry["auth_prefix"],
+        }
+        for entry in entries
+    ]
+    return _validate_live_provider_registry(projected, "projected built-in provider registry")
+
+
+def _build_live_provider_registry_json() -> str:
+    builtins = _project_builtin_provider_registry(_load_provider_registry())
+    custom = _load_custom_provider_registry()
+    merged = builtins + custom
+    _validate_live_provider_registry(merged, "merged live provider registry")
+    return json.dumps(merged, separators=(",", ":"))
+
+
+def _upsert_custom_provider_registry_entry(
+    provider_id: str,
+    target_host: str,
+    auth_header: str,
+    auth_prefix: str,
+) -> None:
+    entries = _load_custom_provider_registry()
+    replacement = {
+        "provider_id": provider_id,
+        "target_host": target_host,
+        "auth_header": auth_header,
+        "auth_prefix": auth_prefix,
+    }
+
+    for entry in entries:
+        same_id = entry["provider_id"] == provider_id
+        same_host = entry["target_host"] == target_host
+        if same_id or same_host:
+            if entry != replacement:
+                die(
+                    "custom provider metadata conflict for "
+                    f"provider_id='{provider_id}' or target_host='{target_host}'"
+                )
+            return
+
+    entries.append(replacement)
+    with CUSTOM_PROVIDER_REGISTRY_FILE.open("w") as fh:
+        json.dump(entries, fh, indent=2)
+        fh.write("\n")
 
 
 def _resolve_target_host(provider: str, *, prompt_if_missing: bool) -> str:
@@ -244,7 +342,7 @@ def _build_custom_adapter_scope_vars(adapter_ids: list[str]) -> dict[str, str]:
 
 
 def _validate_allowed_keys(
-    api_keys: dict[str, tuple[str, str, str]],
+    api_keys: dict[str, tuple[str, str, str, str, str]],
     allowed_keys_by_adapter: dict[str, list[str]],
 ) -> None:
     valid_key_ids = set(api_keys.keys())
@@ -404,6 +502,40 @@ def _has_env_credentials() -> bool:
     return has_provider
 
 
+def _has_cf_credentials() -> bool:
+    required = ("CF_API_TOKEN", "CF_ACCOUNT_ID", "CF_WORKER_NAME")
+    return all(os.environ.get(name, "").strip() for name in required)
+
+
+def _get_push_registry_cf_creds() -> dict[str, str]:
+    if _has_cf_credentials():
+        return {
+            "CF_API_TOKEN": os.environ["CF_API_TOKEN"].strip(),
+            "CF_ACCOUNT_ID": os.environ["CF_ACCOUNT_ID"].strip(),
+            "CF_WORKER_NAME": os.environ["CF_WORKER_NAME"].strip(),
+        }
+
+    if not sys.stdin.isatty():
+        die("Missing CF_API_TOKEN / CF_ACCOUNT_ID / CF_WORKER_NAME for --push-registry")
+
+    return {
+        "CF_API_TOKEN": getpass.getpass("  Cloudflare API token: ").strip(),
+        "CF_ACCOUNT_ID": input("  Cloudflare account ID: ").strip(),
+        "CF_WORKER_NAME": input("  Cloudflare Worker name: ").strip(),
+    }
+
+
+def _load_kv_namespace_id() -> str:
+    try:
+        with KV_CONFIG_FILE.open() as fh:
+            namespace_id = json.load(fh)["namespace_id"]
+    except (FileNotFoundError, KeyError, json.JSONDecodeError) as exc:
+        die(f"Provider registry KV not initialized at {KV_CONFIG_FILE}: {exc}")
+    if not isinstance(namespace_id, str) or not namespace_id.strip():
+        die(f"Provider registry KV not initialized at {KV_CONFIG_FILE}: invalid namespace_id")
+    return namespace_id
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Automation fallback (CI / headless mode)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -421,13 +553,13 @@ def _parse_token_ttl_days(raw: str) -> int:
     return token_ttl_days
 
 
-def _load_env_fallback() -> tuple[dict[str, tuple[str, str, str]], dict[str, str], dict[str, list[str]], int]:
+def _load_env_fallback() -> tuple[dict[str, tuple[str, str, str, str, str]], dict[str, str], dict[str, list[str]], int]:
     """
     Load credentials from environment variables.
     Returns (api_keys, cf_creds, allowed_keys_by_adapter, token_ttl_days) in the same shape as
     run_interactive_wizard().
 
-    api_keys: {key_id: (provider, target_host, raw_secret)}
+    api_keys: {key_id: (provider, target_host, auth_header, auth_prefix, raw_secret)}
     cf_creds: {"CF_API_TOKEN": ..., "CF_ACCOUNT_ID": ..., "CF_WORKER_NAME": ...}
     """
     missing: list[str] = []
@@ -445,13 +577,20 @@ def _load_env_fallback() -> tuple[dict[str, tuple[str, str, str]], dict[str, str
         os.environ.get("CF_WORKER_NAME", "").strip() or "keyvault-proxy"
     )
 
-    api_keys: dict[str, tuple[str, str, str]] = {}
+    api_keys: dict[str, tuple[str, str, str, str, str]] = {}
     for provider, env_var in KNOWN_PROVIDERS:
         val = os.environ.get(env_var, "").strip()
         if val:
             key_id = f"{provider}_prod"
-            target_host = PROVIDER_HOSTS[provider]
-            api_keys[key_id] = (provider, target_host, val)
+            provider_entry = BUILTIN_PROVIDER_BY_ID[provider]
+            target_host = provider_entry["target_host"]
+            api_keys[key_id] = (
+                provider,
+                target_host,
+                provider_entry["auth_header"],
+                provider_entry["auth_prefix"],
+                val,
+            )
 
     if not api_keys:
         missing.append(f"at least one of: {', '.join(ev for _, ev in KNOWN_PROVIDERS)}")
@@ -486,11 +625,11 @@ def _load_env_fallback() -> tuple[dict[str, tuple[str, str, str]], dict[str, str
 
 def run_interactive_wizard(
     existing_keys: dict,
-) -> tuple[dict[str, tuple[str, str, str]], dict[str, str], dict[str, list[str]], int]:
+) -> tuple[dict[str, tuple[str, str, str, str, str]], dict[str, str], dict[str, list[str]], int]:
     """
     Interactive terminal wizard. Requires a real TTY (run with -it).
     Returns (api_keys, cf_creds, allowed_keys_by_adapter, token_ttl_days):
-      api_keys: {key_id: (provider, target_host, raw_secret)}
+      api_keys: {key_id: (provider, target_host, auth_header, auth_prefix, raw_secret)}
       cf_creds: {"CF_API_TOKEN": ..., "CF_ACCOUNT_ID": ..., "CF_WORKER_NAME": ...}
     """
 
@@ -524,7 +663,7 @@ def run_interactive_wizard(
     }
 
     # ── Screen 2: Provider API Keys ───────────────────────────────────────────
-    api_keys: dict[str, tuple[str, str, str]] = {}
+    api_keys: dict[str, tuple[str, str, str, str, str]] = {}
     n_known = len(KNOWN_PROVIDERS)
 
     while True:
@@ -538,7 +677,7 @@ def run_interactive_wizard(
 
         if api_keys:
             print("  Added so far: " + ", ".join(
-                f"{kid} ({prov})" for kid, (prov, _, _) in api_keys.items()
+                f"{kid} ({prov})" for kid, (prov, _, _, _, _) in api_keys.items()
             ) + "\n")
 
         choice = input(f"  Select provider (1-{n_known + 1}, or Enter to finish): ").strip()
@@ -569,6 +708,18 @@ def run_interactive_wizard(
                 print("  ✗  Provider name must start with a letter and contain only lowercase alphanumeric, _ or -.\n")
 
         target_host = _resolve_target_host(provider, prompt_if_missing=(choice_num > n_known))
+        if choice_num <= n_known:
+            provider_entry = BUILTIN_PROVIDER_BY_ID[provider]
+            auth_header = provider_entry["auth_header"]
+            auth_prefix = provider_entry["auth_prefix"]
+        else:
+            while True:
+                auth_header = input("  Auth header name (e.g. authorization, x-api-key): ").strip()
+                if auth_header:
+                    break
+                print("  ✗  Auth header cannot be empty.\n")
+            auth_prefix = input("  Auth prefix (e.g. Bearer , leave blank for none): ")
+            _upsert_custom_provider_registry_entry(provider, target_host, auth_header, auth_prefix)
 
         # Prompt for key_id
         default_key_id = f"{provider}_prod"
@@ -606,7 +757,7 @@ def run_interactive_wizard(
                 continue
             break
 
-        api_keys[key_id] = (provider, target_host, api_key_1)
+        api_keys[key_id] = (provider, target_host, auth_header, auth_prefix, api_key_1)
         ok(f"{provider:12s}  →  {key_id}  (key hidden)")
 
     print("\n" + "═" * 70)
@@ -656,6 +807,51 @@ def _run(cmd: list[str], *, cwd: Path, env: dict, input_text: str | None = None)
     return result.stdout.strip()
 
 
+def _create_or_reuse_kv_namespace(cf_creds: dict[str, str]) -> str:
+    if KV_CONFIG_FILE.exists():
+        return _load_kv_namespace_id()
+
+    title = f"{cf_creds['CF_WORKER_NAME']}-PROVIDER_REGISTRY_KV"
+    url = (
+        "https://api.cloudflare.com/client/v4/accounts/"
+        f"{cf_creds['CF_ACCOUNT_ID']}/storage/kv/namespaces"
+    )
+    payload = json.dumps({"title": title}).encode()
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {cf_creds['CF_API_TOKEN']}",
+            "Content-Type": "application/json",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(req) as resp:
+            result = json.loads(resp.read())
+    except Exception as exc:
+        die(f"Failed to create provider-registry KV namespace: {exc}")
+
+    if not result.get("success") or "result" not in result or "id" not in result["result"]:
+        die("Failed to create provider-registry KV namespace")
+
+    namespace_id = result["result"]["id"]
+    with KV_CONFIG_FILE.open("w") as fh:
+        json.dump({"namespace_id": namespace_id, "title": title}, fh, indent=2)
+        fh.write("\n")
+    return namespace_id
+
+
+def _append_provider_registry_kv_binding(wrangler_toml: Path, namespace_id: str) -> None:
+    with wrangler_toml.open("a") as fh:
+        fh.write(
+            "\n[[kv_namespaces]]\n"
+            'binding = "PROVIDER_REGISTRY_KV"\n'
+            f'id = "{namespace_id}"\n'
+        )
+
+
 def deploy_worker(
     cf_creds: dict[str, str],
     private_key_b64: str,
@@ -697,6 +893,8 @@ def deploy_worker(
         tmp_dir = Path(tmp)
         shutil.copytree(WORKER_SRC, tmp_dir / "worker")
         work_dir = tmp_dir / "worker"
+        namespace_id = _create_or_reuse_kv_namespace(cf_creds)
+        _append_provider_registry_kv_binding(work_dir / "wrangler.toml", namespace_id)
 
         # ── deploy ────────────────────────────────────────────────────────────
         step(f"Deploying CF Worker '{worker_name}'")
@@ -708,6 +906,21 @@ def deploy_worker(
         ok("Deployed")
         for line in deploy_out.splitlines():
             info(line)
+
+        step("Pushing provider registry to Cloudflare KV")
+        registry_json = _build_live_provider_registry_json()
+        _run(
+            [
+                "wrangler", "kv", "key", "put",
+                PROVIDER_REGISTRY_KV_KEY,
+                registry_json,
+                "--namespace-id", namespace_id,
+                "--remote",
+            ],
+            cwd=work_dir,
+            env=env,
+        )
+        ok("Provider registry pushed")
 
         # ── push WORKER_PRIVATE_KEY (RSA-4096 PKCS#8 DER, base64) ────────────
         step("Pushing WORKER_PRIVATE_KEY to CF Secrets")
@@ -778,6 +991,32 @@ def deploy_worker(
                 break
 
     return worker_url
+
+
+def run_push_registry() -> None:
+    cf_creds = _get_push_registry_cf_creds()
+    namespace_id = _load_kv_namespace_id()
+    registry_json = _build_live_provider_registry_json()
+
+    env = {
+        **os.environ,
+        "CLOUDFLARE_API_TOKEN": cf_creds["CF_API_TOKEN"],
+        "CLOUDFLARE_ACCOUNT_ID": cf_creds["CF_ACCOUNT_ID"],
+        "CI": "true",
+    }
+
+    _run(
+        [
+            "wrangler", "kv", "key", "put",
+            PROVIDER_REGISTRY_KV_KEY,
+            registry_json,
+            "--namespace-id", namespace_id,
+            "--remote",
+        ],
+        cwd=DATA_DIR,
+        env=env,
+    )
+    ok("Provider registry pushed to Cloudflare KV")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1019,7 +1258,7 @@ def main() -> None:
         print(f"    Account: {masked}\n")
 
         print("  Keys to encrypt:")
-        for kid, (provider, target_host, _) in api_keys.items():
+        for kid, (provider, _target_host, _auth_header, _auth_prefix, _raw) in api_keys.items():
             print(f"    {kid:30s} → {provider}")
 
         if keys_to_remove:
@@ -1105,7 +1344,7 @@ def main() -> None:
     step("Encrypting API keys — V2 envelope (RSA-4096-OAEP + AES-256-GCM)")
     keys_payload: dict[str, dict] = {}
 
-    for key_id, (provider, target_host, raw) in api_keys.items():
+    for key_id, (provider, target_host, _auth_header, _auth_prefix, raw) in api_keys.items():
         dek = os.urandom(32)
         ciphertext = encrypt_api_key_v2(dek, raw, key_id)
         wrapped_dek = wrap_dek(pub_key, dek)
@@ -1197,8 +1436,8 @@ def main() -> None:
     del adapter_tokens
     # Zero raw API key values (tuples are immutable but we can overwrite the dict)
     for k in list(api_keys):
-        provider, target_host, raw = api_keys[k]
-        api_keys[k] = (provider, target_host, "\x00" * len(raw))
+        provider, target_host, auth_header, auth_prefix, raw = api_keys[k]
+        api_keys[k] = (provider, target_host, auth_header, auth_prefix, "\x00" * len(raw))
     del api_keys
     del allowed_keys_by_adapter
     del cf_creds
@@ -1235,7 +1474,11 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    if "--rotate" in sys.argv:
+    if "--push-registry" in sys.argv and "--rotate" in sys.argv:
+        die("--push-registry and --rotate are mutually exclusive")
+    if "--push-registry" in sys.argv:
+        run_push_registry()
+    elif "--rotate" in sys.argv:
         run_rotate_wizard()
     else:
         main()

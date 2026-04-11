@@ -1,6 +1,6 @@
 # KeyVault Operator Guide
 
-*Round 26 operator notes for the explicit sidecar.*
+*Operator notes for the explicit sidecar and live provider registry.*
 
 Round 34 expands the built-in AI provider set to:
 
@@ -17,23 +17,68 @@ Round 34 expands the built-in AI provider set to:
 
 Operational notes:
 
-- adding these providers still requires re-running bootstrap
 - Gemini uses OpenAI-compatible mode in this project
 - Together uses `TOGETHER_AI_API_KEY`
 
-## 1. Bootstrap Walkthrough For New Providers
+## 1. Live Provider Registry
+
+Provider validation now comes from Cloudflare KV rather than the Worker bundle.
+
+### Adding a built-in provider without redeploying the Worker
 
 1. Add the provider entry to `worker/src/providers.json`.
-2. Add the provider secret placeholder to `.env.bootstrap.example` or populate
-   `.env.bootstrap` for headless use.
-3. Run bootstrap:
+2. Run:
 
 ```bash
-docker compose --profile bootstrap run --rm bootstrap
-./post-bootstrap.sh
+docker compose --profile bootstrap run --rm bootstrap --push-registry
 ```
 
-This creates or updates forge records and redeploys the Worker bundle.
+3. No Worker redeploy is required for the new provider to become visible.
+
+Expected visibility window:
+
+- KV `cacheTtl: 30`
+- plus Cloudflare KV eventual consistency
+- about 90 seconds worst-case before every Worker isolate sees the new entry
+
+### Adding a custom provider permanently
+
+Run the interactive bootstrap wizard:
+
+```bash
+docker compose --profile bootstrap run --rm -it bootstrap
+```
+
+For a custom provider, the wizard now collects:
+
+- `target_host`
+- `auth_header`
+- `auth_prefix`
+
+Custom provider metadata is written to:
+
+- `/app/data/custom-providers.json`
+
+That file is merged with built-ins on every subsequent `--push-registry` run.
+
+### Diagnostic access to the KV namespace ID
+
+```bash
+docker compose run --rm -u 0 -T forge-keys cat /app/data/kv-config.json
+```
+
+### Minimal `.env.bootstrap` for `--push-registry`
+
+After full bootstrap has shredded the original automation file, a standalone
+registry publish needs only:
+
+```text
+CF_API_TOKEN=...
+CF_ACCOUNT_ID=...
+CF_WORKER_NAME=keyvault-proxy
+```
+
+No provider API keys are required for `--push-registry`.
 
 ## 2. Sidecar Startup
 
@@ -56,26 +101,23 @@ Applications call the sidecar using the five-field request contract:
 - `headers`
 - `body`
 
-## 3. Worker Redeploy Requirement
-
-Adding a provider requires re-running bootstrap.
+## 3. Registry Publish And Removal Guidance
 
 Editing local `worker/src/providers.json` alone is **not enough**.
 
-Why:
-
-- the deployed Worker statically bundles the provider registry
-- local file edits do not change the live Cloudflare Worker
-- bootstrap re-runs the Worker deploy path through `wrangler deploy`
-
-Operational rule:
+Operational rule for built-ins:
 
 - update `providers.json`
-- run bootstrap
-- then recreate the local containers
+- run `docker compose --profile bootstrap run --rm bootstrap --push-registry`
 
-If you skip the bootstrap redeploy step, new provider requests will fail with
-`403 target_url not allowed` even if the forge record exists locally.
+If you skip the registry publish step, new provider requests will still fail with
+`403 target_url not allowed`.
+
+Secure provider removal note:
+
+- removing a provider from KV is not an immediate global revoke
+- expect the same bounded staleness window as additions
+- for immediate security-intent removal, update the registry and redeploy the Worker
 
 ## 4. Rotation / Update Guidance
 
