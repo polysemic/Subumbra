@@ -28,7 +28,7 @@ volumes:
 services:
 
   # ───────────────────────────────────────────────────────────────────────────
-  # forge-keys  —  encrypted blob store, reachable only from litellm container
+  # forge-keys  —  encrypted blob store, reachable from internal-network services only
   # ───────────────────────────────────────────────────────────────────────────
   forge-keys:
     build:
@@ -129,6 +129,7 @@ services:
     environment:
       FORGE_ACCESS_TOKEN: ${FORGE_TOKEN_UI}
       FORGE_URL: http://forge-keys:9090
+      CF_WORKER_URL: ${CF_WORKER_URL}
     depends_on:
       forge-keys:
         condition: service_healthy

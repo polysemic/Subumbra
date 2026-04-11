@@ -106,10 +106,10 @@ subumbra/
 - Callback leaves LiteLLM's native provider URL intact
 - `KeyVaultTransport` intercepts the fully assembled outbound request and packages canonical `POST /proxy`
 - Transport owns the outer `/proxy` POST and its CF Access headers
-- Worker derives upstream base URL and auth policy from host-keyed `UPSTREAM_REGISTRY`, built from `worker/src/providers.json`
+- Worker derives upstream base URL and auth policy from the live Cloudflare KV provider registry
 - LiteLLM now uses canonical `POST /proxy`; the old header-gated compatibility route is removed
 - Worker no longer relies on separate `SUPPORTED_PROVIDERS` / `PROVIDER_BASES` / `PROVIDER_HOSTS` / duplicated `ALLOWED_HOSTS` structures
-- Built-in provider security metadata now lives in `worker/src/providers.json`; bootstrap CI env-var identity for built-in providers also comes from that registry; `litellm/config.yaml` model declarations remain a separate concern
+- `worker/src/providers.json` remains the built-in provider template and bootstrap merge base; it is no longer the Worker's runtime authority, and `litellm/config.yaml` model declarations remain a separate concern
 - LiteLLM is the current reference adapter path, not the only intended integration shape
 
 ### Bootstrap Process (one-shot)
@@ -124,9 +124,12 @@ subumbra/
    - For each key: generates random 32-byte DEK, wraps DEK with RSA public key, encrypts API key with AES-256-GCM using AAD `keyvault:v2:<key_id>`
    - Writes V2 records (ciphertext + wrapped_dek + pub_key_fp + enc_version) to forge-keys volume
    - Writes `public_key.pem` to data volume (for offline rotation)
+   - Creates or reuses the provider-registry KV namespace and persists its namespace ID in `/app/data/kv-config.json`
+   - Injects the `[[kv_namespaces]]` binding into the temporary deploy copy of `wrangler.toml`
    - Deploys CF Worker via wrangler
    - Pushes `WORKER_PRIVATE_KEY` (PKCS#8 DER base64) to CF Secrets
    - Pushes `WORKER_KEY_FINGERPRINT` (SHA-256 of DER SPKI) to CF Secrets
+   - Publishes the initial `provider_registry_v1` entry to Cloudflare KV
    - Deletes legacy `MASTER_DECRYPTION_KEY` from CF Secrets (`--force`)
    - Exits
 4. Run `./post-bootstrap.sh` to copy runtime env values to `.env` and shred `.env.bootstrap`
@@ -140,8 +143,8 @@ subumbra/
 
 ### Cloudflare Worker
 - Receives: canonical `/proxy` JSON-body requests from LiteLLM and future adapters
-- Loads built-in provider security metadata from `worker/src/providers.json`
-- Validates `target_url` hostname against `UPSTREAM_REGISTRY`
+- Reads provider security metadata from the live Cloudflare KV provider registry
+- Validates `target_url` hostname against the live registry entry (fail-closed)
 - Validates `provider` matches the resolved registry entry
 - Verifies: pub_key_fp matches WORKER_KEY_FINGERPRINT from CF Secrets
 - Unwraps: per-record DEK via RSA-OAEP using WORKER_PRIVATE_KEY (cached per isolate)
@@ -175,10 +178,19 @@ Round 25, which exposes a persistent HTTP API for non-LiteLLM integrations.
 
 ## Supported Providers
 - anthropic (Claude models)
-- openai (GPT models)  
+- openai (GPT models)
 - groq (Llama, Mixtral)
 - deepseek (DeepSeek models)
-- Easy to add more
+- cerebras
+- gemini
+- mistral
+- openrouter
+- together
+- xai
+- github
+- slack
+- sendgrid
+- Additional providers can be added via the live registry workflow (`--push-registry`) without making `worker/src/providers.json` the Worker's runtime authority.
 
 ## Environment Variables
 
