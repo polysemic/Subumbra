@@ -141,9 +141,13 @@
 <div class="topbar">
   <div class="topbar-brand">Key<span>Vault</span> Dashboard</div>
   <div class="d-flex align-items-center gap-3">
-    <div id="health-indicator" class="d-flex align-items-center" style="font-size:.85rem;">
-      <span class="health-dot err" id="health-dot"></span>
-      <span id="health-text">connecting…</span>
+    <div id="forge-health-indicator" class="d-flex align-items-center" style="font-size:.85rem;">
+      <span class="health-dot err" id="forge-health-dot"></span>
+      <span id="forge-health-text">forge connecting…</span>
+    </div>
+    <div id="worker-health-indicator" class="d-flex align-items-center" style="font-size:.85rem;">
+      <span class="health-dot err" id="worker-health-dot"></span>
+      <span id="worker-health-text">worker connecting…</span>
     </div>
     <div class="refresh-bar">
       refresh in <span id="countdown">30</span>s
@@ -334,16 +338,29 @@ function esc(s) {
 // ── render ────────────────────────────────────────────────────────────────────
 
 function renderHealth(data) {
-  const dot  = document.getElementById("health-dot");
-  const text = document.getElementById("health-text");
+  const forgeDot  = document.getElementById("forge-health-dot");
+  const forgeText = document.getElementById("forge-health-text");
+  const workerDot  = document.getElementById("worker-health-dot");
+  const workerText = document.getElementById("worker-health-text");
+
   if (data.forge_healthy) {
-    dot.className  = "health-dot ok";
-    text.textContent = "forge-keys healthy";
-    text.style.color = "";
+    forgeDot.className  = "health-dot ok";
+    forgeText.textContent = "forge-keys healthy";
+    forgeText.style.color = "";
   } else {
-    dot.className  = "health-dot err";
-    text.textContent = data.forge_error ?? "forge-keys error";
-    text.style.color = "#ef4444";
+    forgeDot.className  = "health-dot err";
+    forgeText.textContent = data.forge_error ?? "forge-keys error";
+    forgeText.style.color = "#ef4444";
+  }
+
+  if (data.worker_reachable) {
+    workerDot.className = "health-dot ok";
+    workerText.textContent = "worker reachable";
+    workerText.style.color = "";
+  } else {
+    workerDot.className = "health-dot err";
+    workerText.textContent = data.worker_error ?? "worker unreachable";
+    workerText.style.color = "#ef4444";
   }
 }
 
@@ -496,11 +513,16 @@ async function loadStatus() {
       auditWarn.classList.add("d-none");
     }
   } catch (err) {
-    const dot  = document.getElementById("health-dot");
-    const text = document.getElementById("health-text");
-    dot.className  = "health-dot err";
-    text.textContent = "dashboard error: " + err.message;
-    text.style.color = "#ef4444";
+    const forgeDot = document.getElementById("forge-health-dot");
+    const forgeText = document.getElementById("forge-health-text");
+    const workerDot = document.getElementById("worker-health-dot");
+    const workerText = document.getElementById("worker-health-text");
+    forgeDot.className = "health-dot err";
+    forgeText.textContent = "dashboard error: " + err.message;
+    forgeText.style.color = "#ef4444";
+    workerDot.className = "health-dot err";
+    workerText.textContent = "dashboard error";
+    workerText.style.color = "#ef4444";
   }
 }
 

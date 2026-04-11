@@ -1,8 +1,9 @@
 # Subumbra — Split-Trust Secret Mediation
 
-A Docker-based security layer that ensures API keys (Anthropic, OpenAI, Groq, DeepSeek)
-**never exist in plaintext on any system you operate**. Keys are encrypted with per-record
-envelope encryption — neither the host nor Cloudflare alone can decrypt.
+A Docker-based security layer that ensures API keys for 10+ built-in AI providers
+and non-AI API services **never exist in plaintext on any system you operate**.
+Keys are encrypted with per-record envelope encryption — neither the host nor
+Cloudflare alone can decrypt.
 
 ---
 
@@ -23,7 +24,7 @@ Cloudflare Worker
 Durable Object  (fresh isolate per request)
       ↓  holds decrypted key ~100 ms
       ↓  makes direct API call
-API Provider (Anthropic / OpenAI / Groq / DeepSeek)
+API Provider (10+ AI providers / non-AI API services)
       ↓  response streams back through CF Worker → LiteLLM → your app
 ```
 
@@ -82,6 +83,15 @@ subumbra/
 ├── litellm/                     ← LiteLLM proxy config + callback
 │   ├── config.yaml
 │   └── custom_callbacks.py
+│
+├── keyvault-proxy/              ← universal sidecar for non-LiteLLM integrations
+│   ├── Dockerfile
+│   ├── app.py
+│   └── requirements.txt
+│
+├── adapter-probe/               ← second-adapter proof container (`--profile probe` only)
+│   ├── Dockerfile
+│   └── probe.py
 │
 └── ui/                          ← management dashboard
     ├── Dockerfile
@@ -147,12 +157,15 @@ The bootstrap container detects populated environment variables and skips the wi
 4. For each API key: generates a random 32-byte DEK, wraps DEK with the RSA public key,
    encrypts the API key with AES-256-GCM using AAD `keyvault:v2:<key_id>`
 5. Writes `public_key.pem` to the data volume (for offline rotation)
-6. Deploys the CF Worker via wrangler
-7. Pushes `WORKER_PRIVATE_KEY`, `WORKER_KEY_FINGERPRINT`, `FORGE_ACCESS_TOKEN`,
-   and `FORGE_HMAC_KEY` to CF Secrets
-8. Deletes legacy `MASTER_DECRYPTION_KEY` from CF Secrets (V1 cleanup, best-effort)
-9. Writes V2 records and runtime secrets to the shared volume (mode 0600)
-10. Zeros sensitive memory and exits
+6. Creates or reuses the Cloudflare KV namespace for the live provider registry
+7. Injects the KV binding into the temporary `wrangler.toml`
+8. Deploys the CF Worker via wrangler
+9. Publishes `provider_registry_v1` to Cloudflare KV
+10. Pushes `WORKER_PRIVATE_KEY`, `WORKER_KEY_FINGERPRINT`, `FORGE_ADAPTER_TOKENS`,
+    and `FORGE_HMAC_KEY` to CF Secrets
+11. Deletes legacy `MASTER_DECRYPTION_KEY` from CF Secrets (V1 cleanup, best-effort)
+12. Writes V2 records and runtime secrets to the shared volume (mode 0600)
+13. Zeros sensitive memory and exits
 
 Token values are **not** printed to stdout (to avoid CI/CD log capture). They are
 written to `runtime.env` on the shared Docker volume.
@@ -166,9 +179,9 @@ written to `runtime.env` on the shared Docker volume.
 ```
 
 This script:
-1. Reads `FORGE_ACCESS_TOKEN`, `FORGE_HMAC_KEY`, and `CF_WORKER_URL` from the Docker volume
+1. Reads `FORGE_TOKEN_*`, `FORGE_HMAC_KEY`, and `CF_WORKER_URL` from `runtime.env`
 2. Writes them into your `.env` file
-3. Verifies all three values landed correctly
+3. Verifies all required values landed correctly
 4. Shreds `.env.bootstrap` if it exists (automation path only — wizard path has nothing to shred)
 
 Your real API keys are now gone from your machine. The encrypted records in the shared volume are useless without the RSA private key, which only lives in CF Secrets.
@@ -196,6 +209,7 @@ Expected output:
 NAME             STATUS          PORTS
 forge-keys       Up (healthy)
 litellm          Up              0.0.0.0:4000->4000/tcp
+keyvault-proxy   Up              127.0.0.1:8090->8090/tcp
 keyvault-ui      Up              127.0.0.1:8080->8080/tcp
 ```
 
@@ -204,7 +218,7 @@ keyvault-ui      Up              127.0.0.1:8080->8080/tcp
 
 ---
 
-### Step 6 — Verify End-to-End
+### Step 5 — Verify End-to-End
 
 **Check forge-keys health** (from inside the litellm container — forge-keys has no host port):
 ```bash
@@ -249,6 +263,7 @@ You should see all keys listed with request counts incrementing as you make call
 ```
 Host machine
 ├── port 4000  →  litellm (OpenAI-compatible API)
+├── port 8090  →  keyvault-proxy (sidecar API, localhost only)
 └── port 8080  →  keyvault-ui (dashboard, localhost only)
 
 Docker network: external  (has internet access)
@@ -256,12 +271,14 @@ Docker network: external  (has internet access)
 └── cloudflared (optional, --profile tunnel)
 
 Docker network: internal  (NO internet, isolated)
-├── forge-keys   ← only reachable via Docker DNS from litellm/ui
-├── litellm      ← also on external (needs both)
+├── forge-keys      ← reachable via Docker DNS from internal-network services
+├── litellm         ← also on external (needs both)
+├── keyvault-proxy
 └── keyvault-ui
 ```
 
-`forge-keys` has zero host port exposure. The only way to reach it is from another container on the `internal` network using the DNS name `forge-keys`.
+`forge-keys` has zero host port exposure. The only way to reach it is from another
+container on the `internal` network using the DNS name `forge-keys`.
 
 ---
 
@@ -295,9 +312,10 @@ This is a JSON map of provider name to path prefix. The prefix is appended to th
 CF Worker adapter base URL before the SDK adds its own endpoint path.
 
 > **Important:** Setting a path prefix alone does NOT enable a new provider.
-> You must also add the provider to `worker/src/providers.json` (the shared
-> built-in provider registry used by bootstrap and the CF Worker), and add the
-> relevant LiteLLM model configuration.
+> You must also add the provider to `worker/src/providers.json` (the bootstrap
+> seed/template), republish the live registry via re-bootstrap or `--push-registry`,
+> and add the relevant LiteLLM model configuration. See
+> [docs/operator-guide.md](docs/operator-guide.md) for the live registry workflow.
 
 ---
 
@@ -346,6 +364,13 @@ To rotate the RSA key pair itself, or to add/remove providers:
 
 ## Troubleshooting
 
+### Token expiry and adapter authority recovery
+
+If an adapter token has expired or been compromised, see
+[`docs/operator-guide.md`](docs/operator-guide.md) §5-§6 for the recovery sequence.
+Forge-side expiry stops new forge record fetches, but full revocation still requires
+re-running bootstrap to rotate Worker-side token state.
+
 ### `forge-keys` healthcheck failing
 
 ```bash
@@ -353,7 +378,7 @@ docker compose logs forge-keys
 ```
 
 Common causes:
-- Missing `FORGE_ACCESS_TOKEN` or `FORGE_HMAC_KEY` in `.env`
+- Missing `FORGE_TOKEN_LITELLM` (or another `FORGE_TOKEN_*` per-adapter token) or `FORGE_HMAC_KEY` in `.env`
 - `keys.json` not yet written (bootstrap hasn't run)
 
 ### LiteLLM returning 500 on forge: keys
@@ -447,8 +472,11 @@ To expose LiteLLM via a Cloudflare Tunnel (instead of a direct open port):
 - **Windows users:** `shred` is not available — use `Remove-Item .env.bootstrap -Force`
   or Sysinternals [`sdelete`](https://learn.microsoft.com/en-us/sysinternals/downloads/sdelete)
 - `forge-keys` is never accessible from the host or internet — Docker enforces this with `internal: true` on the network
-- The CF Worker rejects requests with the wrong `FORGE_ACCESS_TOKEN` before any decryption is attempted
+- The CF Worker rejects requests with the wrong forge adapter token before any decryption is attempted
 - The Worker validates `target_url` against an allowlist to prevent SSRF
 - All token comparisons are constant-time to prevent timing oracles
 - The Durable Object uses `newUniqueId()` — no state persists between requests
 - The dashboard (`localhost:8080`) shows key IDs and request counts only — never ciphertext or key values
+
+For live registry operations, sidecar usage, and advanced custom-provider workflows,
+see [docs/operator-guide.md](docs/operator-guide.md).

@@ -13,7 +13,7 @@ V2 Asymmetric Envelope Encryption (deployed, verified by all three council membe
 - AAD binding: `keyvault:v2:<key_id>`
 - Offline per-key rotation via `--rotate` (no CF interaction)
 - LiteLLM now uses canonical `POST /proxy` to reach the Worker; the old header-gated compatibility route has been removed
-- Worker upstream routing uses a host-keyed `UPSTREAM_REGISTRY`; provider-specific auth branches are removed from Worker/DO logic
+- Worker-side provider validation and upstream routing policy now come from the live Cloudflare KV provider registry; provider-specific auth branches are removed from Worker/DO logic
 - V1 symmetric `MASTER_DECRYPTION_KEY` path fully removed from code
 - Current status of project is proof of concept with no userbase. No backward compatibility required or should be considered, unless required for functionality or security. This will be updated as the project grows into an MVP with a userbase.
 
@@ -104,3 +104,45 @@ This arc focuses on evolving Subumbra from a static, bundled configuration into 
 - Split-decrypt boundary remains intact.
 - No durable decrypt power on operator-controlled hosts.
 - Worker-side hostname/provider validation must remain fail-closed.
+
+### Round 38: System Review (Closed 2026-04-11)
+- **Focus**: Documentation truth-alignment and bootstrap reliability.
+- **Goal**: Sync README.md, CLAUDE.md, and docker-compose.yml with current post-Round 36 architecture; triage wrangler secret race conditions.
+- **Outcome**: Closed with verification PASS. Public and operator docs now correctly describe the 13+ supported providers, the live KV registry model, and the keyvault-proxy sidecar. Bootstrap race condition identified as transient/environmental.
+
+### Round 39: POC Deployment Hardening (Closed 2026-04-11)
+- **Focus**: Deployment readiness for the current POC.
+- **Goal**: Add end-to-end Worker health visibility, clarify recovery/runbook paths, optionally tighten the localhost UI surface, and clean up the duplicate Round 38 entry.
+- **Outcome**: Closed with verification PASS. The dashboard now surfaces independent Worker reachability, README points operators to the authority-recovery runbook, optional minimal Basic Auth can protect the localhost UI, and the duplicate Round 38 status entry was removed.
+
+## Path Forward
+
+Current direction after Round 39:
+
+1. **Round 40 — Broader Decoupling And Security Hardening**
+   Focus on the protocol and integration hardening needed before meaningful
+   live stress testing across additional systems and users.
+
+   Direction:
+   - resolve replay-hardening scope honestly across the forge protocol and its
+     current producers
+   - reduce remaining LiteLLM- or test-shaped assumptions in the integration layer
+   - improve drop-in support so new apps can inherit hardening through the
+     adapter/sidecar path rather than custom application logic
+
+2. **Round 41 — Real App Validation**
+   Focus on testing Subumbra through real applications and realistic workflows
+   after the Round 40 hardening baseline is in place.
+
+   Intended validation targets:
+   - full LiteLLM deployment in normal app usage
+   - OpenWebUI as a practical integration target
+   - real non-AI service flows for GitHub, Slack, and SendGrid
+   - sidecar/drop-in behavior as experienced by actual applications
+
+Guiding note:
+- Keep project language as **POC** for now.
+- Prioritize deployment/testing readiness first, then the hardening needed for
+  credible live testing, then real-app validation.
+- Treat broader universality as part of the hardening path, not as a
+  post-validation cleanup step.
