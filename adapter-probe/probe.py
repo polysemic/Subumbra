@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import json
 import os
+import secrets
 import sys
 import time
 
@@ -74,14 +75,16 @@ def require_env():
 
 def forge_headers(key_id):
     timestamp = str(int(time.time()))
+    nonce = secrets.token_hex(16)
     signature = hmac.new(
         FORGE_HMAC_KEY.encode(),
-        f"{key_id}:{timestamp}".encode(),
+        f"{key_id}:{timestamp}:{nonce}".encode(),
         hashlib.sha256,
     ).hexdigest()
     return {
         "X-Forge-Token": FORGE_ACCESS_TOKEN,
         "X-Forge-Timestamp": timestamp,
+        "X-Forge-Nonce": nonce,
         "X-Forge-Signature": signature,
     }
 

@@ -49,7 +49,6 @@ Deferred by council consensus. Acceptable for current single-operator POC deploy
 | ID | Description | Rationale |
 |----|-------------|-----------|
 | MEDIUM-1 | Python memory scrubbing is best-effort; `bytearray` zeroing does not prevent copies in `os.environ` or immutable `str` objects | No code fix possible in CPython |
-| MEDIUM-4 | HMAC replay within the 30 s window requires a nonce store shared across gunicorn workers | Significant complexity for Docker-internal-only endpoint |
 | MEDIUM-5 | `/health` leaks `keys_loaded` count unauthenticated | Acceptable on Docker internal network with no host exposure |
 | MEDIUM-7 | `/api/status` unauthenticated | Bound to `127.0.0.1:8080` (localhost only); add basic auth before multi-user |
 | G-MEDIUM-2 | Dashboard health reflects forge-keys only; no end-to-end health probe | Post-POC architecture change |
