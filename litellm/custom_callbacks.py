@@ -57,6 +57,7 @@ import hmac
 import json
 import logging
 import os
+import secrets
 import time
 from typing import Optional
 
@@ -297,23 +298,26 @@ class ForgeKeyCallback(CustomLogger):
 
     def _forge_headers(self, key_id: str) -> dict[str, str]:
         """
-        Build the three headers required by forge-keys for a ciphertext fetch:
+        Build the four headers required by forge-keys for a ciphertext fetch:
           X-Forge-Token      — bearer token
           X-Forge-Timestamp  — current epoch seconds
-          X-Forge-Signature  — HMAC-SHA256(f"{key_id}:{timestamp}", FORGE_HMAC_KEY)
+          X-Forge-Nonce      — single-use hex nonce
+          X-Forge-Signature  — HMAC-SHA256(f"{key_id}:{timestamp}:{nonce}", FORGE_HMAC_KEY)
 
-        The signature prevents replay attacks; forge-keys rejects requests
-        whose timestamp is more than 30 s old.
+        The signature and nonce prevent replay attacks; forge-keys rejects
+        reused requests and timestamps older than 30 s.
         """
         timestamp = str(int(time.time()))
+        nonce = secrets.token_hex(16)
         sig = hmac.new(
             FORGE_HMAC_KEY,
-            f"{key_id}:{timestamp}".encode(),
+            f"{key_id}:{timestamp}:{nonce}".encode(),
             hashlib.sha256,
         ).hexdigest()
         return {
             "X-Forge-Token":     FORGE_ACCESS_TOKEN,
             "X-Forge-Timestamp": timestamp,
+            "X-Forge-Nonce":     nonce,
             "X-Forge-Signature": sig,
         }
 

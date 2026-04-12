@@ -42,18 +42,20 @@ Required headers:
 ```text
 X-Forge-Token: <FORGE_ACCESS_TOKEN>
 X-Forge-Timestamp: <unix epoch seconds>
+X-Forge-Nonce: <single-use hex nonce>
 X-Forge-Signature: <hex hmac>
 ```
 
 Signature algorithm:
 
 ```text
-HMAC-SHA256(f"{key_id}:{timestamp}", FORGE_HMAC_KEY)
+HMAC-SHA256(f"{key_id}:{timestamp}:{nonce}", FORGE_HMAC_KEY)
 ```
 
-Replay window:
+Replay protection:
 
-- approximately `±30s`
+- single-use nonce per fetch
+- timestamp window remains approximately `±30s`
 
 Expected forge response fields:
 

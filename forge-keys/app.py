@@ -11,10 +11,11 @@ Auth model:
   GET /keys/<key_id> additionally requires a per-request HMAC signature to
   prevent replay attacks:
     X-Forge-Timestamp: <unix epoch, seconds>
-    X-Forge-Signature: HMAC-SHA256(f"{key_id}:{timestamp}", FORGE_HMAC_KEY)
+    X-Forge-Nonce: <single-use hex nonce>
+    X-Forge-Signature: HMAC-SHA256(f"{key_id}:{timestamp}:{nonce}", FORGE_HMAC_KEY)
 
-  The timestamp must be within ±TIMESTAMP_TOLERANCE seconds of server time.
-  This means a captured request cannot be replayed after ~30 s.
+  The timestamp must be within ±TIMESTAMP_TOLERANCE seconds of server time,
+  and the nonce must be unique per key fetch.
 
 Keys file (written by bootstrap, read-only at runtime):
   /app/data/keys.json
@@ -178,6 +179,7 @@ _last_access: dict[str, str] = {}
 _recent_log: deque[dict] = deque(maxlen=LOG_RING_SIZE)
 _audit_write_count: int = 0
 _audit_prune_logged: bool = False
+_nonce_write_count: int = 0
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -234,6 +236,16 @@ def _init_audit_db() -> sqlite3.Connection | None:
                 verdict TEXT NOT NULL,
                 reason_code TEXT NOT NULL,
                 remote TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS forge_nonces (
+                nonce TEXT NOT NULL CHECK(length(nonce) BETWEEN 1 AND 64),
+                key_id TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                PRIMARY KEY (nonce, key_id)
             )
             """
         )
@@ -328,36 +340,73 @@ def _resolve_adapter() -> dict | _AdapterDenial:
     return matched
 
 
-def _hmac_ok(key_id: str) -> tuple[bool, str]:
+def _hmac_ok(key_id: str, nonce: str) -> tuple[bool, str]:
     """
     Validate per-request HMAC signature for ciphertext endpoints.
-    Returns (valid: bool, reason: str).
+    Returns (valid: bool, reason_code: str).
     """
     timestamp_str = request.headers.get("X-Forge-Timestamp", "")
     signature = request.headers.get("X-Forge-Signature", "")
 
+    if not nonce:
+        return False, "nonce_missing"
+    if len(nonce) > 64:
+        return False, "nonce_too_long"
     if not timestamp_str or not signature:
-        return False, "missing timestamp or signature headers"
+        return False, "forge_header_missing"
 
     try:
         ts = int(timestamp_str)
     except ValueError:
-        return False, "invalid timestamp"
+        return False, "timestamp_invalid"
 
     now = int(time.time())
     if abs(now - ts) > TIMESTAMP_TOLERANCE:
-        return False, f"timestamp outside ±{TIMESTAMP_TOLERANCE}s window"
+        return False, "timestamp_outside_window"
 
     expected = hmac.new(
         FORGE_HMAC_KEY,
-        f"{key_id}:{timestamp_str}".encode(),
+        f"{key_id}:{timestamp_str}:{nonce}".encode(),
         hashlib.sha256,
     ).hexdigest()
 
     if not hmac.compare_digest(signature, expected):
-        return False, "invalid HMAC signature"
+        return False, "signature_invalid"
 
     return True, ""
+
+
+def _nonce_ok(key_id: str, nonce: str) -> tuple[bool, str]:
+    # Round 40 makes the nonce store a required dependency for secure key fetches.
+    if _audit_conn is None:
+        return False, "nonce_store_unavailable"
+
+    created_at = int(time.time())
+    prune_before = created_at - TIMESTAMP_TOLERANCE - 5
+
+    with _stats_lock:
+        global _nonce_write_count
+        try:
+            cursor = _audit_conn.execute(
+                """
+                INSERT OR IGNORE INTO forge_nonces (nonce, key_id, created_at)
+                VALUES (?, ?, ?)
+                """,
+                (nonce, key_id, created_at),
+            )
+            _audit_conn.commit()
+            if cursor.rowcount == 0:
+                return False, "nonce_reused"
+            _nonce_write_count += 1
+            if _nonce_write_count % 50 == 0:
+                _audit_conn.execute(
+                    "DELETE FROM forge_nonces WHERE created_at < ?",
+                    (prune_before,),
+                )
+                _audit_conn.commit()
+            return True, ""
+        except sqlite3.Error:
+            return False, "nonce_store_error"
 
 
 def _err(msg: str, code: int) -> tuple[Response, int]:
@@ -459,23 +508,40 @@ def get_key(key_id: str) -> tuple[Response, int]:
         return _err("unauthorized", 401)
 
     adapter = adapter_result
-    valid, reason = _hmac_ok(key_id)
+    nonce = request.headers.get("X-Forge-Nonce", "")
+    valid, reason = _hmac_ok(key_id, nonce)
     if not valid:
-        log.warning(
-            "get_key: rejected — bad HMAC key_id=%s remote=%s reason=%s",
-            key_id,
-            remote,
-            reason,
-        )
+        status = 400 if reason in {"nonce_missing", "nonce_too_long", "forge_header_missing", "timestamp_invalid"} else 401
+        log.warning("get_key: rejected key_id=%s remote=%s reason=%s", key_id, remote, reason)
         _record_audit(
             adapter_id=adapter["adapter_id"],
             key_id=key_id,
             endpoint="get_key",
             verdict="deny",
-            reason_code="hmac_invalid",
+            reason_code=reason,
             remote=remote,
         )
-        return _err("unauthorized", 401)
+        return _err("bad request" if status == 400 else "unauthorized", status)
+
+    valid, reason = _nonce_ok(key_id, nonce)
+    if not valid:
+        if reason == "nonce_reused":
+            log.warning("get_key: rejected key_id=%s remote=%s reason=%s", key_id, remote, reason)
+            message = "unauthorized"
+            status = 401
+        else:
+            log.error("get_key: nonce_store_failure key_id=%s reason=%s", key_id, reason)
+            message = "internal error"
+            status = 500
+        _record_audit(
+            adapter_id=adapter["adapter_id"],
+            key_id=key_id,
+            endpoint="get_key",
+            verdict="deny",
+            reason_code=reason,
+            remote=remote,
+        )
+        return _err(message, status)
 
     if key_id not in adapter["allowed_keys"]:
         log.warning(
