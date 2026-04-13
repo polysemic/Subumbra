@@ -368,7 +368,7 @@ Precedence rule:
 Default proof example:
 
 ```bash
-curl -sS -X GET \
+curl -sS -w "\nHTTP %{http_code}\n" -X GET \
   http://localhost:8090/t/user \
   -H 'Authorization: Bearer github_main' \
   -H 'Accept: application/json'

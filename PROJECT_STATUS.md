@@ -1,5 +1,5 @@
 # PROJECT_STATUS
-*Current state — updated 2026-04-11*
+*Current state — updated 2026-04-13*
 *Rounds 1–36 closed. See `council/COUNCIL.md` for round history and current status.*
 
 ---
@@ -133,7 +133,16 @@ Current direction after Round 39:
    Focus on testing Subumbra through real applications and realistic workflows
    after the Round 40 hardening baseline is in place.
 
-   Intended validation targets:
+   Sub-rounds:
+   - **Round 41.1 — VPS Test Environment Planning** (Closed): approved
+     `council/approved/vps-test-environment.md`; `docs/vps-deployment.md` and
+     `docs/cursor-github-vps-workflow.md` created.
+   - **Round 41.2 — VPS Stabilization** (Approved): approved plan at
+     `council/approved/vps-stabilization.md`. One code change (bootstrap KV
+     namespace idempotency) and five doc patches. Pending implementation and
+     verification.
+
+   Intended validation targets (remaining):
    - full LiteLLM deployment in normal app usage
    - OpenWebUI as a practical integration target
    - real non-AI service flows for GitHub, Slack, and SendGrid

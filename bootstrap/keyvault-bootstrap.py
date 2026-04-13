@@ -870,23 +870,50 @@ def _create_or_reuse_kv_namespace(cf_creds: dict[str, str]) -> str:
         return _load_kv_namespace_id()
 
     title = f"{cf_creds['CF_WORKER_NAME']}-PROVIDER_REGISTRY_KV"
-    url = (
+    base_url = (
         "https://api.cloudflare.com/client/v4/accounts/"
         f"{cf_creds['CF_ACCOUNT_ID']}/storage/kv/namespaces"
     )
+    auth_headers = {
+        "Authorization": f"Bearer {cf_creds['CF_API_TOKEN']}",
+        "Content-Type": "application/json",
+    }
+
+    # List existing namespaces and reuse if a matching title is found.
+    list_req = urllib.request.Request(base_url, headers=auth_headers)
+    try:
+        with urllib.request.urlopen(list_req) as resp:
+            list_result = json.loads(resp.read())
+    except Exception as exc:
+        die(f"Failed to list KV namespaces: {exc}")
+
+    existing = list_result.get("result") or []
+    if len(existing) >= 100:
+        warn(
+            "KV namespace list returned 100 results; the account may have more "
+            "namespaces than the page limit. If a matching namespace exists on "
+            "a later page it will not be found and a new one will be created."
+        )
+    for entry in existing:
+        if entry.get("title") == title:
+            namespace_id = entry["id"]
+            info(f"Reusing existing KV namespace: {title}")
+            with KV_CONFIG_FILE.open("w") as fh:
+                json.dump({"namespace_id": namespace_id, "title": title}, fh, indent=2)
+                fh.write("\n")
+            return namespace_id
+
+    # No match found — create a new namespace.
     payload = json.dumps({"title": title}).encode()
-    req = urllib.request.Request(
-        url,
+    create_req = urllib.request.Request(
+        base_url,
         data=payload,
         method="POST",
-        headers={
-            "Authorization": f"Bearer {cf_creds['CF_API_TOKEN']}",
-            "Content-Type": "application/json",
-        },
+        headers=auth_headers,
     )
 
     try:
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(create_req) as resp:
             result = json.loads(resp.read())
     except Exception as exc:
         die(f"Failed to create provider-registry KV namespace: {exc}")

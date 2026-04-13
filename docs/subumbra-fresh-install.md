@@ -384,9 +384,16 @@ Check container state:
 docker compose ps
 ```
 
-Do **not** run `source .env`. This project stores `FORGE_ADAPTER_REGISTRY` as JSON
-in `.env`, which can break shell parsing and later `docker compose` runs. Export
-only the scalar values you need:
+> **WARNING — do not `source .env`**
+>
+> `FORGE_ADAPTER_REGISTRY` is a JSON blob stored unquoted in `.env`. Running
+> `source .env` or `set -a; source .env; set +a` mangles the JSON in your shell
+> environment. Docker Compose then passes the broken value to the `forge-keys`
+> container, which crashes at startup with `RuntimeError: FORGE_ADAPTER_REGISTRY
+> must be valid JSON`. If you have already run `source .env` in this shell,
+> open a new shell before running any `docker compose` command.
+>
+> Export only the scalar values you need:
 
 ```bash
 export LITELLM_MASTER_KEY="$(sed -n 's/^LITELLM_MASTER_KEY=//p' .env)"
@@ -396,10 +403,8 @@ export CF_WORKER_URL="$(sed -n 's/^CF_WORKER_URL=//p' .env)"
 Check forge health from inside the LiteLLM container:
 
 ```bash
-docker exec -i litellm python - <<'PY'
-import urllib.request
-print(urllib.request.urlopen("http://forge-keys:9090/health").read().decode())
-PY
+docker exec litellm python3 -c \
+  "import urllib.request; print(urllib.request.urlopen('http://forge-keys:9090/health').read().decode())"
 ```
 
 Check Worker health:

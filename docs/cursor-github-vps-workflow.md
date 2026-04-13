@@ -173,6 +173,8 @@ instructions for reset/build/clean-run instead.
 Examples:
 
 ```bash
+# Do NOT: set -a; source .env; set +a  — mangles FORGE_ADAPTER_REGISTRY JSON,
+# causes forge-keys crash on next docker compose start. Open a new shell if you ran it.
 export LITELLM_MASTER_KEY="$(sed -n 's/^LITELLM_MASTER_KEY=//p' .env)"
 export CF_WORKER_URL="$(sed -n 's/^CF_WORKER_URL=//p' .env)"
 docker compose ps
