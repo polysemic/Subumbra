@@ -209,7 +209,21 @@ After a successful bootstrap, the summary prints copy/paste hints such as
 
 ---
 
-### Step 3 — Run `post-bootstrap.sh`
+### Step 3 — Create `.env` and run `post-bootstrap.sh`
+
+If you do not already have a `.env`, create one from the template:
+
+```bash
+cp .env.example .env
+```
+
+Set `LITELLM_MASTER_KEY` to a strong random value (edit `.env` and replace the placeholder):
+
+```bash
+openssl rand -hex 32   # copy the output into .env as LITELLM_MASTER_KEY
+```
+
+Then run:
 
 ```bash
 ./post-bootstrap.sh

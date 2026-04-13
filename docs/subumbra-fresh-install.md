@@ -207,28 +207,19 @@ directories. This guide assumes you are working only inside `/opt/subumbra`.
 
 ### Create the minimal `.env`
 
-There is currently no committed `.env.example`, so create a minimal one
-manually:
+Copy the committed template:
 
 ```bash
-cat > .env <<'EOF'
-LITELLM_MASTER_KEY=change-this-to-a-long-random-value
-AUDIT_MAX_ROWS=10000
-CF_ACCESS_CLIENT_ID=
-CF_ACCESS_CLIENT_SECRET=
-TUNNEL_TOKEN=
-EOF
+cp .env.example .env
 ```
 
-Replace `LITELLM_MASTER_KEY` with a strong random value.
-
-Example:
+Then set `LITELLM_MASTER_KEY` to a strong random value:
 
 ```bash
 openssl rand -hex 32
 ```
 
-Then edit `.env`:
+Edit `.env` and replace `change-me-use-openssl-rand-hex-32` with the output:
 
 ```bash
 nano .env
@@ -236,9 +227,8 @@ nano .env
 
 Notes:
 
-- `post-bootstrap.sh` will later add the generated `FORGE_*` runtime values and
-  `CF_WORKER_URL` plus the adapter `*_ALLOWED_KEYS` lists into this same
-  repo-local `.env`
+- `post-bootstrap.sh` will later fill in all `FORGE_*` runtime values,
+  `CF_WORKER_URL`, and the adapter `*_ALLOWED_KEYS` lists automatically
 - leaving `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`, and `TUNNEL_TOKEN`
   blank is fine for a fresh local install
 - this file is gitignored and should remain local to this checkout
