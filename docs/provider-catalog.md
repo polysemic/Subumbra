@@ -14,6 +14,8 @@ Every sidecar request uses the same five fields:
 
 Callers must **not** include the provider authorization header in `headers`.
 The Worker/Durable Object injects provider auth from the forge record.
+`key_id` must exactly match the key ID you entered during bootstrap for that
+provider record.
 
 ## Providers
 
@@ -37,7 +39,7 @@ The Worker/Durable Object injects provider auth from the forge record.
 ```bash
 curl -s -X POST http://localhost:8090/v1/request \
   -H "Content-Type: application/json" \
-  -d '{"key_id":"anthropic_prod","target_url":"https://api.anthropic.com/v1/messages","method":"POST","headers":{"content-type":"application/json","anthropic-version":"2023-06-01"},"body":{"model":"claude-3-5-haiku-latest","max_tokens":16,"messages":[{"role":"user","content":"Say test"}]}}'
+  -d '{"key_id":"<your_anthropic_key_id>","target_url":"https://api.anthropic.com/v1/messages","method":"POST","headers":{"content-type":"application/json","anthropic-version":"2023-06-01"},"body":{"model":"claude-3-5-haiku-latest","max_tokens":16,"messages":[{"role":"user","content":"Say test"}]}}'
 ```
 
 ### openai
@@ -59,7 +61,7 @@ curl -s -X POST http://localhost:8090/v1/request \
 ```bash
 curl -s -X POST http://localhost:8090/v1/request \
   -H "Content-Type: application/json" \
-  -d '{"key_id":"openai_prod","target_url":"https://api.openai.com/v1/chat/completions","method":"POST","headers":{"content-type":"application/json"},"body":{"model":"gpt-4o-mini","messages":[{"role":"user","content":"Say test"}],"max_tokens":16}}'
+  -d '{"key_id":"<your_openai_key_id>","target_url":"https://api.openai.com/v1/chat/completions","method":"POST","headers":{"content-type":"application/json"},"body":{"model":"gpt-4o-mini","messages":[{"role":"user","content":"Say test"}],"max_tokens":16}}'
 ```
 
 ### groq
@@ -81,7 +83,7 @@ curl -s -X POST http://localhost:8090/v1/request \
 ```bash
 curl -s -X POST http://localhost:8090/v1/request \
   -H "Content-Type: application/json" \
-  -d '{"key_id":"groq_prod","target_url":"https://api.groq.com/openai/v1/chat/completions","method":"POST","headers":{"content-type":"application/json"},"body":{"model":"llama-3.1-8b-instant","messages":[{"role":"user","content":"Say test"}],"max_tokens":16}}'
+  -d '{"key_id":"<your_groq_key_id>","target_url":"https://api.groq.com/openai/v1/chat/completions","method":"POST","headers":{"content-type":"application/json"},"body":{"model":"llama-3.1-8b-instant","messages":[{"role":"user","content":"Say test"}],"max_tokens":16}}'
 ```
 
 ### deepseek
@@ -103,7 +105,7 @@ curl -s -X POST http://localhost:8090/v1/request \
 ```bash
 curl -s -X POST http://localhost:8090/v1/request \
   -H "Content-Type: application/json" \
-  -d '{"key_id":"deepseek_prod","target_url":"https://api.deepseek.com/v1/chat/completions","method":"POST","headers":{"content-type":"application/json"},"body":{"model":"deepseek-chat","messages":[{"role":"user","content":"Say test"}],"max_tokens":16}}'
+  -d '{"key_id":"<your_deepseek_key_id>","target_url":"https://api.deepseek.com/v1/chat/completions","method":"POST","headers":{"content-type":"application/json"},"body":{"model":"deepseek-chat","messages":[{"role":"user","content":"Say test"}],"max_tokens":16}}'
 ```
 
 ### github
@@ -123,7 +125,7 @@ null
 ```bash
 curl -s -X POST http://localhost:8090/v1/request \
   -H "Content-Type: application/json" \
-  -d '{"key_id":"github_prod","target_url":"https://api.github.com/user","method":"GET","headers":{"accept":"application/vnd.github+json","x-github-api-version":"2022-11-28","user-agent":"keyvault-proxy/1.0"},"body":null}'
+  -d '{"key_id":"<your_github_key_id>","target_url":"https://api.github.com/user","method":"GET","headers":{"accept":"application/vnd.github+json","x-github-api-version":"2022-11-28","user-agent":"keyvault-proxy/1.0"},"body":null}'
 ```
 
 ### slack
@@ -141,7 +143,7 @@ curl -s -X POST http://localhost:8090/v1/request \
 ```bash
 curl -s -X POST http://localhost:8090/v1/request \
   -H "Content-Type: application/json" \
-  -d '{"key_id":"slack_prod","target_url":"https://slack.com/api/auth.test","method":"POST","headers":{"content-type":"application/json"},"body":{}}'
+  -d '{"key_id":"<your_slack_key_id>","target_url":"https://slack.com/api/auth.test","method":"POST","headers":{"content-type":"application/json"},"body":{}}'
 ```
 
 ### sendgrid
@@ -159,5 +161,5 @@ null
 ```bash
 curl -s -X POST http://localhost:8090/v1/request \
   -H "Content-Type: application/json" \
-  -d '{"key_id":"sendgrid_prod","target_url":"https://api.sendgrid.com/v3/scopes","method":"GET","headers":{"content-type":"application/json"},"body":null}'
+  -d '{"key_id":"<your_sendgrid_key_id>","target_url":"https://api.sendgrid.com/v3/scopes","method":"GET","headers":{"content-type":"application/json"},"body":null}'
 ```
