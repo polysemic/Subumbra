@@ -131,9 +131,20 @@ The wizard will prompt you for:
 1. Your Cloudflare API Token (hidden input)
 2. Your Cloudflare Account ID
 3. CF Worker name (default: `keyvault-proxy`)
-4. Each provider API key, with a `key_id` label of your choice (e.g. `anthropic_prod`)
+4. Each provider API key, with a `key_id` label of your choice (default suggestions like `anthropic_prod`)
+5. Adapter key scopes for `litellm`, `keyvault-proxy`, and `adapter-probe`
 
 All values exist in RAM only for the duration of the session. Nothing is written to disk until after you confirm on the summary screen.
+
+The `key_id` is the label your adapters use later. Examples:
+
+- LiteLLM: `api_key: "forge:<key_id>"`
+- Transparent sidecar: `Authorization: Bearer <key_id>`
+- Explicit sidecar: `"key_id": "<key_id>"`
+
+You may keep the default suggestions or enter your own labels such as
+`anthropic_test` or `anthropic_prod`. Multiple keys for the same provider are valid
+as long as each `key_id` is unique.
 
 #### Automation / CI mode (optional)
 
@@ -146,6 +157,10 @@ docker compose --profile bootstrap run --rm bootstrap
 ```
 
 The bootstrap container detects populated environment variables and skips the wizard automatically.
+
+Optional automation-mode `key_id` overrides are available via matching `*_KEY_ID`
+variables in `.env.bootstrap`. If omitted, bootstrap uses the same default
+suggestions as the interactive wizard, such as `anthropic_prod`.
 
 ---
 
@@ -170,6 +185,28 @@ The bootstrap container detects populated environment variables and skips the wi
 Token values are **not** printed to stdout (to avoid CI/CD log capture). They are
 written to `runtime.env` on the shared Docker volume.
 
+#### Adapter key scopes
+
+Bootstrap Step 3 assigns per-adapter `key_id` allowlists inside
+`FORGE_ADAPTER_REGISTRY`. `forge-keys` enforces those lists when an adapter tries
+to fetch a ciphertext record.
+
+- `LiteLLM` scope:
+  Use this for key IDs referenced by `forge:<key_id>` in
+  `litellm/config.yaml`.
+- `keyvault-proxy` scope:
+  Use this for sidecar-driven keys such as GitHub, Slack, SendGrid, or any
+  direct non-LiteLLM API calls routed through `keyvault-proxy`.
+- `adapter-probe` scope:
+  Use this for proof and verification runs. In a test environment it is often
+  broader than the other adapter scopes.
+- `keyvault-ui`:
+  Metadata only. It can list keys and stats, but it must never receive
+  ciphertext fetch scope.
+
+After a successful bootstrap, the summary prints copy/paste hints such as
+`api_key: "forge:<key_id>"` for the key IDs scoped into LiteLLM.
+
 ---
 
 ### Step 3 — Run `post-bootstrap.sh`
@@ -179,7 +216,7 @@ written to `runtime.env` on the shared Docker volume.
 ```
 
 This script:
-1. Reads `FORGE_TOKEN_*`, `FORGE_HMAC_KEY`, and `CF_WORKER_URL` from `runtime.env`
+1. Reads `FORGE_TOKEN_*`, `FORGE_HMAC_KEY`, `CF_WORKER_URL`, and the adapter `*_ALLOWED_KEYS` lists from `runtime.env`
 2. Writes them into your `.env` file
 3. Verifies all required values landed correctly
 4. Shreds `.env.bootstrap` if it exists (automation path only — wizard path has nothing to shred)
@@ -220,33 +257,63 @@ keyvault-ui      Up              127.0.0.1:8080->8080/tcp
 
 ### Step 5 — Verify End-to-End
 
+Do **not** run `source .env`. This project stores `FORGE_ADAPTER_REGISTRY` as JSON
+in `.env`, which can break shell parsing and later `docker compose` runs. Export
+only the scalar values you actually need:
+
+```bash
+export LITELLM_MASTER_KEY="$(sed -n 's/^LITELLM_MASTER_KEY=//p' .env)"
+export CF_WORKER_URL="$(sed -n 's/^CF_WORKER_URL=//p' .env)"
+```
+
 **Check forge-keys health** (from inside the litellm container — forge-keys has no host port):
 ```bash
-docker exec litellm curl -s http://forge-keys:9090/health
+docker exec -i litellm python - <<'PY'
+import urllib.request
+print(urllib.request.urlopen("http://forge-keys:9090/health").read().decode())
+PY
 # → {"status":"ok","keys_loaded":4,"timestamp":"..."}
 ```
 
 **Check CF Worker health:**
 ```bash
-curl https://keyvault-proxy.your-subdomain.workers.dev/health
+curl -sS "$CF_WORKER_URL/health"
 # → {"status":"ok","timestamp":"..."}
 ```
 
 **Check LiteLLM:**
 ```bash
-curl http://localhost:4000/health
+curl -sS \
+  -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+  http://127.0.0.1:4000/health
 # → {"status":"healthy",...}
 ```
 
 **Send a test completion:**
 ```bash
-curl http://localhost:4000/v1/chat/completions \
+curl -sS http://localhost:4000/v1/chat/completions \
+  -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "claude-sonnet-4",
     "messages": [{"role": "user", "content": "say hi in 3 words"}],
     "max_tokens": 20
   }'
+```
+
+Make sure the `forge:<key_id>` values in `litellm/config.yaml` exactly match the
+key IDs you entered during bootstrap. The committed config uses the default
+bootstrap suggestions such as `anthropic_prod`; if you chose different key IDs,
+update the config before testing.
+
+**Debug sidecar responses with status codes and headers:**
+```bash
+curl -i -sS -X GET \
+  http://localhost:8090/t/user \
+  -H 'Authorization: Bearer <your_github_key_id>' \
+  -H 'Accept: application/vnd.github+json' \
+  -H 'X-GitHub-Api-Version: 2022-11-28' \
+  -H 'User-Agent: subumbra-test'
 ```
 
 **Open the dashboard:**

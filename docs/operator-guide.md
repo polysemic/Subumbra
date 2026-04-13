@@ -101,6 +101,8 @@ Applications call the sidecar using the five-field request contract:
 - `headers`
 - `body`
 
+`key_id` must exactly match the key ID chosen during bootstrap for that record.
+
 ## 3. Registry Publish And Removal Guidance
 
 Editing local `worker/src/providers.json` alone is **not enough**.
@@ -170,7 +172,7 @@ Example:
 
 ```bash
 ADAPTER_IDS=open-webui
-OPEN_WEBUI_ALLOWED_KEYS=github_prod
+OPEN_WEBUI_ALLOWED_KEYS=github_main
 ```
 
 Custom adapters are a CI/automation-mode feature in this round. The interactive
@@ -217,6 +219,64 @@ Forge-side emergency expiry is narrower:
 - it blocks new forge record fetches for the targeted adapter
 - it does not remove the token from the Cloudflare Worker
 - it is not full revocation
+
+## 7. Cloudflare Deployment Defaults
+
+### Pricing Links
+
+- Workers Logs pricing:
+  `https://developers.cloudflare.com/workers/observability/logs/workers-logs/`
+- Durable Objects pricing:
+  `https://developers.cloudflare.com/durable-objects/platform/pricing/`
+
+### Current Observability Defaults
+
+The committed Worker config currently uses:
+
+```toml
+[observability]
+enabled            = true
+head_sampling_rate = 1
+```
+
+Current default posture:
+
+- basic Worker observability is on
+- invocation logs are **not** enabled by default
+- tracing is **not** enabled by default
+
+### Manual Tunnel / Domain Steps
+
+A recommended deployment topology may use:
+
+- `api.subumbra.<domain>`
+- `ui.subumbra.<domain>`
+
+In this round, those are documentation targets only. DNS records and tunnel
+ingress must be configured manually in the Cloudflare dashboard or equivalent
+Cloudflare API workflow.
+
+Important routing note:
+
+- if the UI is exposed through a tunnel, route cloudflared to the
+  Docker-internal UI service path rather than assuming host-loopback routing
+
+### Cloudflare Decisions For Now
+
+- keep the current single KV namespace design
+- keep the single `provider_registry_v1` object
+- do **not** split provider registry KV by provider
+- do **not** enable tracing by default
+- do **not** enable verbose invocation logs by default
+
+### Cloudflare Questions Disposition
+
+- Data Studio is not relevant to the current Durable Object design because the
+  current DO is ephemeral and does not use persistent storage
+- Actors are future work
+- Workers VPC is future work
+- real-time logs are future work
+- log-based cost analytics are future work
 
 Use the helper:
 
@@ -310,7 +370,7 @@ Default proof example:
 ```bash
 curl -sS -X GET \
   http://localhost:8090/t/user \
-  -H 'Authorization: Bearer github_prod' \
+  -H 'Authorization: Bearer github_main' \
   -H 'Accept: application/json'
 ```
 

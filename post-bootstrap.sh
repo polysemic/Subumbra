@@ -3,7 +3,8 @@
 #
 # Security properties:
 #   - This script never reads raw API keys. It only reads the scoped forge
-#     runtime secrets already destined for .env plus CF_WORKER_URL.
+#     runtime secrets plus operator-safe adapter allowlists already destined
+#     for .env.
 #   - Those values are runtime tokens already destined for .env — no new
 #     exposure.
 #   - Values pass through bash variables (RAM only, never written to a temp file).
@@ -61,6 +62,10 @@ FORGE_ADAPTER_REGISTRY=$(printf '%s\n' "$RUNTIME" | grep '^FORGE_ADAPTER_REGISTR
 mapfile -t FORGE_TOKEN_LINES < <(printf '%s\n' "$RUNTIME" | grep '^FORGE_TOKEN_' || true)
 FORGE_HMAC_KEY=$(printf '%s\n' "$RUNTIME" | grep '^FORGE_HMAC_KEY=' | cut -d= -f2-)
 CF_WORKER_URL=$(printf '%s\n' "$RUNTIME" | grep '^CF_WORKER_URL=' | cut -d= -f2-)
+LITELLM_ALLOWED_KEYS=$(printf '%s\n' "$RUNTIME" | grep '^LITELLM_ALLOWED_KEYS=' | cut -d= -f2-)
+PROXY_ALLOWED_KEYS=$(printf '%s\n' "$RUNTIME" | grep '^PROXY_ALLOWED_KEYS=' | cut -d= -f2-)
+PROBE_ALLOWED_KEYS=$(printf '%s\n' "$RUNTIME" | grep '^PROBE_ALLOWED_KEYS=' | cut -d= -f2-)
+UI_ALLOWED_KEYS=$(printf '%s\n' "$RUNTIME" | grep '^UI_ALLOWED_KEYS=' | cut -d= -f2-)
 
 FORGE_TOKEN_LITELLM=$(printf '%s\n' "${FORGE_TOKEN_LINES[@]}" | grep '^FORGE_TOKEN_LITELLM=' | cut -d= -f2-)
 FORGE_TOKEN_PROXY=$(printf '%s\n' "${FORGE_TOKEN_LINES[@]}" | grep '^FORGE_TOKEN_PROXY=' | cut -d= -f2-)
@@ -101,6 +106,10 @@ for token_line in "${FORGE_TOKEN_LINES[@]}"; do
 done
 update_env "FORGE_HMAC_KEY"     "$FORGE_HMAC_KEY"
 update_env "CF_WORKER_URL"      "$CF_WORKER_URL"
+update_env "LITELLM_ALLOWED_KEYS" "$LITELLM_ALLOWED_KEYS"
+update_env "PROXY_ALLOWED_KEYS"   "$PROXY_ALLOWED_KEYS"
+update_env "PROBE_ALLOWED_KEYS"   "$PROBE_ALLOWED_KEYS"
+update_env "UI_ALLOWED_KEYS"      "$UI_ALLOWED_KEYS"
 
 # ── Verify all required values landed in .env ────────────────────────────────
 

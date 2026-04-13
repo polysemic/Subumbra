@@ -13,6 +13,7 @@ FORGE_ACCESS_TOKEN = os.environ.get("FORGE_ACCESS_TOKEN", "")
 FORGE_HMAC_KEY = os.environ.get("FORGE_HMAC_KEY", "")
 FORGE_URL = os.environ.get("FORGE_URL", "")
 CF_WORKER_URL = os.environ.get("CF_WORKER_URL", "").rstrip("/")
+PROBE_ALLOWED_KEYS = os.environ.get("PROBE_ALLOWED_KEYS", "")
 
 REQUIRED_ENV = {
     "FORGE_ACCESS_TOKEN": FORGE_ACCESS_TOKEN,
@@ -39,22 +40,22 @@ PROVIDER_HEADERS = {
 }
 
 PROVIDER_PAYLOADS = {
-    "openai_prod": {
+    "openai": {
         "model": "gpt-4o-mini",
         "messages": [{"role": "user", "content": "Say test"}],
         "max_tokens": 10,
     },
-    "groq_prod": {
+    "groq": {
         "model": "llama-3.1-8b-instant",
         "messages": [{"role": "user", "content": "Say test"}],
         "max_tokens": 10,
     },
-    "deepseek_prod": {
+    "deepseek": {
         "model": "deepseek-chat",
         "messages": [{"role": "user", "content": "Say test"}],
         "max_tokens": 10,
     },
-    "anthropic_prod": {
+    "anthropic": {
         "model": "claude-haiku-4-5-20251001",
         "messages": [{"role": "user", "content": "Say test"}],
         "max_tokens": 10,
@@ -71,6 +72,14 @@ def require_env():
     missing = [name for name, value in REQUIRED_ENV.items() if not value]
     if missing:
         fail(f"missing required env vars: {', '.join(missing)}")
+
+
+def resolve_probe_key_ids():
+    raw = PROBE_ALLOWED_KEYS.strip() or os.environ.get("PROBE_KEY_IDS", "").strip()
+    key_ids = [item.strip() for item in raw.split(",") if item.strip()]
+    if not key_ids:
+        fail("no probe key_ids configured; set PROBE_ALLOWED_KEYS or PROBE_KEY_IDS")
+    return key_ids
 
 
 def forge_headers(key_id):
@@ -121,7 +130,7 @@ def proxy_payload(record, key_id, provider=None, target_url=None):
         "target_url": target_url or target_url_for(record),
         "method": "POST",
         "headers": PROVIDER_HEADERS[record["provider"]],
-        "body": PROVIDER_PAYLOADS[key_id],
+        "body": PROVIDER_PAYLOADS[record["provider"]],
         "wrapped_dek": record["wrapped_dek"],
         "pub_key_fp": record["pub_key_fp"],
         "key_id": record["key_id"],
@@ -136,8 +145,9 @@ def worker_headers():
     }
 
 
-def run_provider_success(client, key_id):
-    record = fetch_record(client, key_id)
+def run_provider_success(client, key_id, record=None):
+    if record is None:
+        record = fetch_record(client, key_id)
     payload = proxy_payload(record, key_id)
     response = client.post(
         f"{CF_WORKER_URL}/proxy",
@@ -208,13 +218,27 @@ def run_worker_non_json(client):
 
 def main():
     require_env()
-    keys = ["openai_prod", "groq_prod", "anthropic_prod", "deepseek_prod"]
     with httpx.Client() as client:
         records = {}
-        for key_id in keys:
-            records[key_id] = run_provider_success(client, key_id)
-        run_provider_mismatch(client, records["openai_prod"], "openai_prod")
-        run_ssrf_check(client, records["openai_prod"], "openai_prod")
+        skipped = []
+        for key_id in resolve_probe_key_ids():
+            record = fetch_record(client, key_id)
+            provider = record["provider"]
+            if provider not in PROVIDER_PAYLOADS:
+                skipped.append(f"{key_id} ({provider})")
+                continue
+            if provider in records:
+                continue
+            records[provider] = (key_id, run_provider_success(client, key_id, record=record))
+
+        if not records:
+            detail = ", ".join(skipped) if skipped else "none"
+            fail(f"no compatible probe keys found; skipped unsupported providers: {detail}")
+
+        baseline_provider = "openai" if "openai" in records else next(iter(records))
+        baseline_key_id, baseline_record = records[baseline_provider]
+        run_provider_mismatch(client, baseline_record, baseline_key_id)
+        run_ssrf_check(client, baseline_record, baseline_key_id)
         run_worker_non_json(client)
     print("PASS adapter-probe complete")
 

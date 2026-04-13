@@ -1,9 +1,12 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # LiteLLM Proxy Config — KeyVault
 #
-# All models use  api_key: "forge:<key_id>"
+# All models use api_key: "forge:<key_id>"
 # The ForgeKeyCallback intercepts these and routes through the CF Worker.
 # Real API keys never appear in this file.
+# The committed forge:key_id examples below match the bootstrap default suggestions.
+# If you enter custom key_ids during bootstrap, update these forge: references
+# to match your chosen key_ids exactly.
 # ─────────────────────────────────────────────────────────────────────────────
 
 model_list:
