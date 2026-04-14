@@ -1,4 +1,4 @@
-name              = "keyvault-proxy"
+name              = "subumbra-proxy"
 main              = "src/worker.js"
 compatibility_date = "2024-09-23"
 
@@ -7,13 +7,17 @@ compatibility_date = "2024-09-23"
 
 # ── Durable Objects ───────────────────────────────────────────────────────────
 [[durable_objects.bindings]]
-name       = "KEY_VAULT_PROXY"     # env.KEY_VAULT_PROXY in Worker code
-class_name = "KeyVaultProxy"       # exported class name in worker.js
+name       = "SUBUMBRA_PROXY"      # env.SUBUMBRA_PROXY in Worker code
+class_name = "SubumbraProxy"       # exported class name in worker.js
 
 # Required: tell CF about the DO class so it can provision storage
 [[migrations]]
 tag         = "v1"
 new_classes = ["KeyVaultProxy"]
+
+[[migrations]]
+tag             = "v2"
+renamed_classes = [{ from = "KeyVaultProxy", to = "SubumbraProxy" }]
 
 # ── Observability ─────────────────────────────────────────────────────────────
 [observability]
@@ -26,7 +30,7 @@ head_sampling_rate = 1
 #
 #   WORKER_PRIVATE_KEY      — base64(RSA-4096 PKCS#8 DER), set by bootstrap
 #   WORKER_KEY_FINGERPRINT  — sha256:<hex> of SPKI DER, set by bootstrap
-#   FORGE_ACCESS_TOKEN      — hex bearer token, set by bootstrap
+#   SUBUMBRA_ACCESS_TOKEN   — hex bearer token, set by bootstrap
 #
 # KV binding used by the live provider registry.
 # Bootstrap appends this binding to the temp wrangler.toml during deploy.

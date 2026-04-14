@@ -15,21 +15,21 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 
-FORGE_ACCESS_TOKEN = os.environ.get("FORGE_ACCESS_TOKEN", "")
-FORGE_HMAC_KEY = os.environ.get("FORGE_HMAC_KEY", "")
-FORGE_URL = os.environ.get("FORGE_URL", "").rstrip("/")
+SUBUMBRA_ACCESS_TOKEN = os.environ.get("SUBUMBRA_ACCESS_TOKEN", "")
+SUBUMBRA_HMAC_KEY = os.environ.get("SUBUMBRA_HMAC_KEY", "")
+SUBUMBRA_KEYS_URL = os.environ.get("SUBUMBRA_KEYS_URL", "").rstrip("/")
 CF_WORKER_URL = os.environ.get("CF_WORKER_URL", "").rstrip("/")
 CF_ACCESS_CLIENT_ID = os.environ.get("CF_ACCESS_CLIENT_ID", "")
 CF_ACCESS_CLIENT_SECRET = os.environ.get("CF_ACCESS_CLIENT_SECRET", "")
 
-REQUIRED = ("FORGE_ACCESS_TOKEN", "FORGE_HMAC_KEY", "FORGE_URL", "CF_WORKER_URL")
+REQUIRED = ("SUBUMBRA_ACCESS_TOKEN", "SUBUMBRA_HMAC_KEY", "SUBUMBRA_KEYS_URL", "CF_WORKER_URL")
 MISSING = [name for name in REQUIRED if not os.environ.get(name)]
 if MISSING:
     print(f"ERROR: missing env vars: {MISSING}", file=sys.stderr)
     sys.exit(1)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-LOG = logging.getLogger("keyvault-proxy")
+LOG = logging.getLogger("subumbra-proxy")
 
 STRIP_HEADERS = {
     # Standard hop-by-hop (Round 25)
@@ -54,7 +54,7 @@ STRIP_HEADERS = {
 }
 KEY_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 TRANSPARENT_STRIP_HEADERS = {"authorization", "x-api-key", "x-api-key-id"}
-TRANSPARENT_STRIP_PREFIXES = ("x-forge-", "x-subumbra-")
+TRANSPARENT_STRIP_PREFIXES = ("x-subumbra-",)
 TRANSPARENT_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
 
 EXPECTED_RECORD_FIELDS = {
@@ -79,24 +79,24 @@ class ProxyRequest(BaseModel):
     body: Optional[Any] = None
 
 
-def forge_headers(key_id):
+def subumbra_headers(key_id):
     timestamp = str(int(time.time()))
     nonce = secrets.token_hex(16)
     signature = hmac.new(
-        FORGE_HMAC_KEY.encode(),
+        SUBUMBRA_HMAC_KEY.encode(),
         f"{key_id}:{timestamp}:{nonce}".encode(),
         hashlib.sha256,
     ).hexdigest()
     return {
-        "X-Forge-Token": FORGE_ACCESS_TOKEN,
-        "X-Forge-Timestamp": timestamp,
-        "X-Forge-Nonce": nonce,
-        "X-Forge-Signature": signature,
+        "X-Subumbra-Token": SUBUMBRA_ACCESS_TOKEN,
+        "X-Subumbra-Timestamp": timestamp,
+        "X-Subumbra-Nonce": nonce,
+        "X-Subumbra-Signature": signature,
     }
 
 
 async def fetch_record(client, key_id):
-    response = await client.get(f"{FORGE_URL}/keys/{key_id}", headers=forge_headers(key_id))
+    response = await client.get(f"{SUBUMBRA_KEYS_URL}/keys/{key_id}", headers=subumbra_headers(key_id))
     if response.status_code != 200:
         raise RuntimeError(f"status {response.status_code}")
     record = response.json()
@@ -124,7 +124,7 @@ def proxy_payload(record, key_id, *, target_url, method, headers, body):
 def worker_headers():
     headers = {
         "Content-Type": "application/json",
-        "X-Forge-Token": FORGE_ACCESS_TOKEN,
+        "X-Subumbra-Token": SUBUMBRA_ACCESS_TOKEN,
     }
     if CF_ACCESS_CLIENT_ID:
         headers["CF-Access-Client-Id"] = CF_ACCESS_CLIENT_ID
@@ -202,11 +202,11 @@ async def proxy_via_worker(
     try:
         record = await fetch_record(CLIENT, key_id)
     except httpx.ConnectError:
-        LOG.error("forge failure key_id=%s error=forge-keys unreachable", key_id)
-        raise HTTPException(502, detail="forge-keys unreachable")
+        LOG.error("subumbra failure key_id=%s error=subumbra-keys unreachable", key_id)
+        raise HTTPException(502, detail="subumbra-keys unreachable")
     except Exception as exc:
-        LOG.error("forge failure key_id=%s error=%s", key_id, exc)
-        raise HTTPException(502, detail=f"forge record fetch failed: {exc}")
+        LOG.error("subumbra failure key_id=%s error=%s", key_id, exc)
+        raise HTTPException(502, detail=f"subumbra record fetch failed: {exc}")
 
     payload = proxy_payload(
         record,
@@ -298,11 +298,11 @@ async def handle_transparent_request(path: str, request: Request):
     try:
         record = await fetch_record(CLIENT, key_id)
     except httpx.ConnectError:
-        LOG.error("forge failure key_id=%s error=forge-keys unreachable", key_id)
-        raise HTTPException(502, detail="forge-keys unreachable")
+        LOG.error("subumbra failure key_id=%s error=subumbra-keys unreachable", key_id)
+        raise HTTPException(502, detail="subumbra-keys unreachable")
     except Exception as exc:
-        LOG.error("forge failure key_id=%s error=%s", key_id, exc)
-        raise HTTPException(502, detail=f"forge record fetch failed: {exc}")
+        LOG.error("subumbra failure key_id=%s error=%s", key_id, exc)
+        raise HTTPException(502, detail=f"subumbra record fetch failed: {exc}")
 
     target_url = build_transparent_target_url(record["target_host"], path, request.url.query)
     stripped_headers = strip_transparent_headers(inbound_headers)

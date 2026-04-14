@@ -1,24 +1,7 @@
-# KeyVault Operator Guide
+# Subumbra Operator Guide
 
-*Operator notes for the explicit sidecar and live provider registry.*
-
-Round 34 expands the built-in AI provider set to:
-
-- Anthropic
-- OpenAI
-- Groq
-- DeepSeek
-- Cerebras
-- Gemini
-- Mistral
-- OpenRouter
-- Together
-- xAI
-
-Operational notes:
-
-- Gemini uses OpenAI-compatible mode in this project
-- Together uses `TOGETHER_AI_API_KEY`
+*Operational reference for the live provider registry, sidecar, rotation,
+recovery, and Cloudflare deployment defaults.*
 
 ## 1. Live Provider Registry
 
@@ -64,7 +47,7 @@ That file is merged with built-ins on every subsequent `--push-registry` run.
 ### Diagnostic access to the KV namespace ID
 
 ```bash
-docker compose run --rm -u 0 -T forge-keys cat /app/data/kv-config.json
+docker compose run --rm -u 0 -T subumbra-keys cat /app/data/kv-config.json
 ```
 
 ### Minimal `.env.bootstrap` for `--push-registry`
@@ -75,7 +58,7 @@ registry publish needs only:
 ```text
 CF_API_TOKEN=...
 CF_ACCOUNT_ID=...
-CF_WORKER_NAME=keyvault-proxy
+CF_WORKER_NAME=subumbra-proxy
 ```
 
 No provider API keys are required for `--push-registry`.
@@ -85,7 +68,7 @@ No provider API keys are required for `--push-registry`.
 Start the sidecar stack with the normal project Compose file:
 
 ```bash
-docker compose up -d --force-recreate forge-keys keyvault-proxy
+docker compose up -d --force-recreate subumbra-keys subumbra-proxy
 ```
 
 The sidecar listens on:
@@ -184,7 +167,7 @@ Use this only to force forge-side denial for a specific adapter.
 
 ```bash
 ./scripts/forge-expire-adapter.sh <adapter_id>
-docker compose up -d --force-recreate forge-keys
+docker compose up -d --force-recreate subumbra-keys
 ```
 
 Warning:
@@ -204,11 +187,11 @@ docker compose up -d --force-recreate
 
 ## 6. Adapter Authority Expiry And Emergency Expiry
 
-Round 30 adds `issued_at` and `expires_at` to each `FORGE_ADAPTER_REGISTRY`
-entry. `forge-keys` is the enforcement gate for this expiry metadata.
+Round 30 adds `issued_at` and `expires_at` to each `SUBUMBRA_ADAPTER_REGISTRY`
+entry. `subumbra-keys` is the enforcement gate for this expiry metadata.
 
 - `issued_at`: when the adapter authority was issued during bootstrap
-- `expires_at`: when `forge-keys` should stop honoring that adapter token for new
+- `expires_at`: when `subumbra-keys` should stop honoring that adapter token for new
   record fetches
 
 Routine refresh and full revocation still mean re-running bootstrap so the local
@@ -282,78 +265,30 @@ Use the helper:
 
 ```bash
 ./scripts/forge-expire-adapter.sh <adapter_id>
-docker compose up -d --force-recreate forge-keys
+docker compose up -d --force-recreate subumbra-keys
 ```
 
 Important warning:
 
 - forge-side emergency expiry stops new forge record fetches only
 - it does **not** remove the token from the Cloudflare Worker
-- if an attacker has a stolen token plus previously captured record material,
-  replay remains possible until full re-bootstrap rotates Worker-side token state
+- for full revocation, run full re-bootstrap to rotate Worker-side token state
 
-## 6. Slack Host-Only Trust Tradeoff
+## 6. Audit Trail
 
-Slack is approved under the current host-only trust model.
+The forge-local audit trail is stored in SQLite at `/app/audit/audit.db`.
 
-The Worker validates `target_url` by hostname, not by path prefix. Registering
-`slack.com` therefore permits any HTTPS path on `slack.com`, not only
-`/api/...`.
+Audit entry fields: `timestamp`, `adapter_id`, `endpoint`, `key_id`, `verdict`,
+`reason_code`, `remote`.
 
-This is a conscious Round 26 policy tradeoff. Path-level enforcement is
-deferred.
+What is intentionally never logged: decrypted provider secrets, forge tokens,
+`ciphertext`, `wrapped_dek`, `SUBUMBRA_HMAC_KEY`.
 
-## 7. JSON-Only Limitation
+See [`docs/subumbra-testing.md`](./subumbra-testing.md) for audit query examples.
 
-The current Worker/Durable Object path supports JSON-style upstream bodies only.
+## 7. Transparent Sidecar Route
 
-That is why Stripe is still deferred:
-
-- much of Stripe’s API depends on `application/x-www-form-urlencoded`
-- the current core path serializes bodies as JSON
-
-Round 26 only adds JSON-native providers:
-
-- GitHub
-- Slack
-- SendGrid
-
-## 8. Structured Audit Trail (Round 31)
-
-Round 31 adds a forge-local durable audit trail stored in SQLite at:
-
-- `/app/audit/audit.db`
-
-Operationally this means:
-
-- recent dashboard activity now comes from forge `/audit` (durable), not only in-memory `/stats` recent logs
-- audit entries are structured with operator-safe fields such as:
-  - `timestamp`
-  - `adapter_id`
-  - `endpoint`
-  - `key_id`
-  - `verdict`
-  - `reason_code`
-  - `remote`
-- client-facing deny bodies remain terse (`401` / `403` / `404`), while reason detail stays in operator audit data
-
-What is intentionally not in the audit trail:
-
-- decrypted provider secrets
-- forge auth headers/tokens
-- `ciphertext` payloads
-- `wrapped_dek` values
-- `FORGE_HMAC_KEY`
-
-Current limitation carried forward:
-
-- durable audit storage is forge-local and row-capped by `AUDIT_MAX_ROWS`, but there is still no archival or export system
-
-## 9. Transparent Sidecar (Round 33)
-
-Round 33 adds a bounded transparent ingress route:
-
-- `http://localhost:8090/t/{path}`
+Bounded transparent ingress at `http://localhost:8090/t/{path}`.
 
 Accepted pseudo-key header forms:
 
@@ -361,22 +296,12 @@ Accepted pseudo-key header forms:
 - `Authorization: <key_id>`
 - `x-api-key: <key_id>`
 
-Precedence rule:
+`Authorization` takes precedence if both headers are present.
 
-- if both `Authorization` and `x-api-key` are present, `Authorization` wins
+Notes:
 
-Default proof example:
-
-```bash
-curl -sS -w "\nHTTP %{http_code}\n" -X GET \
-  http://localhost:8090/t/user \
-  -H 'Authorization: Bearer github_main' \
-  -H 'Accept: application/json'
-```
-
-Operational notes:
-
-- the sidecar derives the target hostname from the forge record, not from caller input
+- sidecar derives target hostname from the forge record, not caller input
 - caller query strings are preserved on the upstream request
-- the transparent path currently supports JSON-only request bodies
-- transparent AI-provider calls are not available unless the operator re-bootstrap-scopes those keys into `keyvault-proxy`
+- JSON-only request bodies currently supported
+- AI provider keys are not available on the transparent route unless scoped into
+  `subumbra-proxy` during bootstrap

@@ -6,8 +6,8 @@
 #   1. Copy worker/.dev.vars.example to worker/.dev.vars and fill in your local test secrets:
 #        WORKER_PRIVATE_KEY=<base64 RSA-4096 PKCS#8 DER test key>
 #        WORKER_KEY_FINGERPRINT=sha256:<hex fingerprint of test key>
-#        FORGE_ACCESS_TOKEN=<any hex string, must match what you send>
-#        FORGE_HMAC_KEY=<any hex string>
+#        SUBUMBRA_ACCESS_TOKEN=<any hex string, must match what you send>
+#        SUBUMBRA_HMAC_KEY=<any hex string>
 #   2. Start the dev server in a separate terminal:
 #        cd worker && npx wrangler dev --local
 #   3. Run this script: bash test-local.sh
@@ -20,12 +20,12 @@ set -euo pipefail
 BASE_URL="${WORKER_URL:-http://localhost:8787}"
 DEV_VARS_FILE="$(dirname "$0")/.dev.vars"
 
-# ── Read FORGE_ACCESS_TOKEN from .dev.vars ────────────────────────────────────
+# ── Read SUBUMBRA_ACCESS_TOKEN from .dev.vars ────────────────────────────────────
 if [[ -f "$DEV_VARS_FILE" ]]; then
-  VALID_TOKEN="$(grep '^FORGE_ACCESS_TOKEN=' "$DEV_VARS_FILE" | cut -d= -f2- | tr -d '[:space:]')"
+  VALID_TOKEN="$(grep '^SUBUMBRA_ACCESS_TOKEN=' "$DEV_VARS_FILE" | cut -d= -f2- | tr -d '[:space:]')"
 else
   echo "WARNING: $DEV_VARS_FILE not found."
-  echo "         Copy worker/.dev.vars.example and set FORGE_ACCESS_TOKEN=<value> and WORKER_PRIVATE_KEY=<value>"
+  echo "         Copy worker/.dev.vars.example and set SUBUMBRA_ACCESS_TOKEN=<value> and WORKER_PRIVATE_KEY=<value>"
   echo "         Using placeholder token — tests 1 and 2 will still pass; 3 and 4 may not."
   echo ""
   VALID_TOKEN="test-token-placeholder"
@@ -74,11 +74,11 @@ fi
 echo "  OK — server is up at $BASE_URL"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Test 1 — Missing X-Forge-Token header → 401
+# Test 1 — Missing X-Subumbra-Token header → 401
 # ─────────────────────────────────────────────────────────────────────────────
 
 echo ""
-echo "── Test 1: Missing X-Forge-Token header ─────────────────────────────────"
+echo "── Test 1: Missing X-Subumbra-Token header ─────────────────────────────────"
 echo "   Expect: HTTP 401 (no token supplied — should be rejected immediately)"
 
 BODY=$(curl -s -X POST "$BASE_URL/proxy" \
@@ -88,26 +88,26 @@ STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE_URL/proxy" \
   -H "Content-Type: application/json" \
   -d '{"ciphertext":"abc","provider":"anthropic","target_url":"https://api.anthropic.com/v1/messages"}')
 
-check "Missing X-Forge-Token → 401" "401" "$STATUS" "$BODY"
+check "Missing X-Subumbra-Token → 401" "401" "$STATUS" "$BODY"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Test 2 — Wrong X-Forge-Token → 401
+# Test 2 — Wrong X-Subumbra-Token → 401
 # ─────────────────────────────────────────────────────────────────────────────
 
 echo ""
-echo "── Test 2: Wrong X-Forge-Token ──────────────────────────────────────────"
+echo "── Test 2: Wrong X-Subumbra-Token ──────────────────────────────────────────"
 echo "   Expect: HTTP 401 (token mismatch — timing-safe comparison must reject)"
 
 BODY=$(curl -s -X POST "$BASE_URL/proxy" \
   -H "Content-Type: application/json" \
-  -H "X-Forge-Token: definitely-wrong-token" \
+  -H "X-Subumbra-Token: definitely-wrong-token" \
   -d '{"ciphertext":"abc","provider":"anthropic","target_url":"https://api.anthropic.com/v1/messages"}')
 STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE_URL/proxy" \
   -H "Content-Type: application/json" \
-  -H "X-Forge-Token: definitely-wrong-token" \
+  -H "X-Subumbra-Token: definitely-wrong-token" \
   -d '{"ciphertext":"abc","provider":"anthropic","target_url":"https://api.anthropic.com/v1/messages"}')
 
-check "Wrong X-Forge-Token → 401" "401" "$STATUS" "$BODY"
+check "Wrong X-Subumbra-Token → 401" "401" "$STATUS" "$BODY"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Test 3 — Valid token, missing ciphertext field → 400
@@ -119,11 +119,11 @@ echo "   Expect: HTTP 400 (ciphertext field absent — input validation should f
 
 BODY=$(curl -s -X POST "$BASE_URL/proxy" \
   -H "Content-Type: application/json" \
-  -H "X-Forge-Token: $VALID_TOKEN" \
+  -H "X-Subumbra-Token: $VALID_TOKEN" \
   -d '{"provider":"anthropic","target_url":"https://api.anthropic.com/v1/messages","enc_version":2}')
 STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE_URL/proxy" \
   -H "Content-Type: application/json" \
-  -H "X-Forge-Token: $VALID_TOKEN" \
+  -H "X-Subumbra-Token: $VALID_TOKEN" \
   -d '{"provider":"anthropic","target_url":"https://api.anthropic.com/v1/messages","enc_version":2}')
 
 check "Valid token, missing ciphertext → 400" "400" "$STATUS" "$BODY"
@@ -139,7 +139,7 @@ echo "   OR:     HTTP 503 if WORKER_PRIVATE_KEY is not set in .dev.vars"
 
 BODY=$(curl -s -X POST "$BASE_URL/proxy" \
   -H "Content-Type: application/json" \
-  -H "X-Forge-Token: $VALID_TOKEN" \
+  -H "X-Subumbra-Token: $VALID_TOKEN" \
   -d "{
     \"ciphertext\": \"$DUMMY_CIPHERTEXT\",
     \"wrapped_dek\": \"$DUMMY_CIPHERTEXT\",
@@ -152,7 +152,7 @@ BODY=$(curl -s -X POST "$BASE_URL/proxy" \
   }")
 STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE_URL/proxy" \
   -H "Content-Type: application/json" \
-  -H "X-Forge-Token: $VALID_TOKEN" \
+  -H "X-Subumbra-Token: $VALID_TOKEN" \
   -d "{
     \"ciphertext\": \"$DUMMY_CIPHERTEXT\",
     \"wrapped_dek\": \"$DUMMY_CIPHERTEXT\",

@@ -15,7 +15,6 @@ normal hosted site:
 - UTC timekeeping
 - `nginx`
 - Let's Encrypt
-- `mariadb`
 - standard host utilities
 
 Use this as the clean host baseline. Add Docker, Subumbra, and any
@@ -593,65 +592,6 @@ This is a common good baseline for small VPS deployments.
 
 ---
 
-## 12. Optional: Install MariaDB
-
-Install:
-
-```bash
-sudo apt install -y mariadb-server mariadb-client
-```
-
-Enable and start:
-
-```bash
-sudo systemctl enable mariadb
-sudo systemctl start mariadb
-sudo systemctl status mariadb
-```
-
-Run the security setup:
-
-```bash
-sudo mysql_secure_installation
-```
-
-Typical good answers:
-
-- switch to unix socket auth for root: yes
-- change root password: optional if using socket auth only
-- remove anonymous users: yes
-- disallow remote root login: yes
-- remove test database: yes
-- reload privilege tables: yes
-
-### Create a database and user
-
-```bash
-sudo mariadb
-```
-
-Then:
-
-```sql
-CREATE DATABASE appdb CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER 'appuser'@'localhost' IDENTIFIED BY 'strong-password-here';
-GRANT ALL PRIVILEGES ON appdb.* TO 'appuser'@'localhost';
-FLUSH PRIVILEGES;
-EXIT;
-```
-
-Baseline recommendation:
-
-- keep MariaDB bound to localhost unless remote DB access is explicitly needed
-
-Check bind address:
-
-```bash
-sudo rg "bind-address" /etc/mysql /etc/mysql/mariadb.conf.d
-```
-
----
-
 ## 13. Optional: Basic App Runtime Packages
 
 Depending on what you host later, common additions are:
@@ -724,12 +664,6 @@ sudo systemctl status nginx
 curl -I http://127.0.0.1
 ```
 
-MariaDB:
-
-```bash
-sudo systemctl status mariadb
-```
-
 TLS:
 
 ```bash
@@ -767,5 +701,4 @@ At the end of this guide, a typical VPS should have:
 - optional `fail2ban` protecting SSH
 - `nginx` installed and running
 - Let's Encrypt ready or installed
-- `mariadb` installed and secured
 - a clean baseline ready for app or Docker deployment
