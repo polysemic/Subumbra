@@ -9,16 +9,16 @@ import time
 import httpx
 
 
-FORGE_ACCESS_TOKEN = os.environ.get("FORGE_ACCESS_TOKEN", "")
-FORGE_HMAC_KEY = os.environ.get("FORGE_HMAC_KEY", "")
-FORGE_URL = os.environ.get("FORGE_URL", "")
+SUBUMBRA_ACCESS_TOKEN = os.environ.get("SUBUMBRA_ACCESS_TOKEN", "")
+SUBUMBRA_HMAC_KEY = os.environ.get("SUBUMBRA_HMAC_KEY", "")
+SUBUMBRA_KEYS_URL = os.environ.get("SUBUMBRA_KEYS_URL", "")
 CF_WORKER_URL = os.environ.get("CF_WORKER_URL", "").rstrip("/")
 PROBE_ALLOWED_KEYS = os.environ.get("PROBE_ALLOWED_KEYS", "")
 
 REQUIRED_ENV = {
-    "FORGE_ACCESS_TOKEN": FORGE_ACCESS_TOKEN,
-    "FORGE_HMAC_KEY": FORGE_HMAC_KEY,
-    "FORGE_URL": FORGE_URL,
+    "SUBUMBRA_ACCESS_TOKEN": SUBUMBRA_ACCESS_TOKEN,
+    "SUBUMBRA_HMAC_KEY": SUBUMBRA_HMAC_KEY,
+    "SUBUMBRA_KEYS_URL": SUBUMBRA_KEYS_URL,
     "CF_WORKER_URL": CF_WORKER_URL,
 }
 
@@ -82,24 +82,24 @@ def resolve_probe_key_ids():
     return key_ids
 
 
-def forge_headers(key_id):
+def subumbra_headers(key_id):
     timestamp = str(int(time.time()))
     nonce = secrets.token_hex(16)
     signature = hmac.new(
-        FORGE_HMAC_KEY.encode(),
+        SUBUMBRA_HMAC_KEY.encode(),
         f"{key_id}:{timestamp}:{nonce}".encode(),
         hashlib.sha256,
     ).hexdigest()
     return {
-        "X-Forge-Token": FORGE_ACCESS_TOKEN,
-        "X-Forge-Timestamp": timestamp,
-        "X-Forge-Nonce": nonce,
-        "X-Forge-Signature": signature,
+        "X-Subumbra-Token": SUBUMBRA_ACCESS_TOKEN,
+        "X-Subumbra-Timestamp": timestamp,
+        "X-Subumbra-Nonce": nonce,
+        "X-Subumbra-Signature": signature,
     }
 
 
 def fetch_record(client, key_id):
-    response = client.get(f"{FORGE_URL}/keys/{key_id}", headers=forge_headers(key_id))
+    response = client.get(f"{SUBUMBRA_KEYS_URL}/keys/{key_id}", headers=subumbra_headers(key_id))
     response.raise_for_status()
     record = response.json()
     expected_fields = {
@@ -113,7 +113,7 @@ def fetch_record(client, key_id):
     }
     missing = sorted(field for field in expected_fields if field not in record)
     if missing:
-        fail(f"{key_id}: forge record missing fields: {', '.join(missing)}")
+        fail(f"{key_id}: subumbra record missing fields: {', '.join(missing)}")
     return record
 
 
@@ -141,7 +141,7 @@ def proxy_payload(record, key_id, provider=None, target_url=None):
 def worker_headers():
     return {
         "Content-Type": "application/json",
-        "X-Forge-Token": FORGE_ACCESS_TOKEN,
+        "X-Subumbra-Token": SUBUMBRA_ACCESS_TOKEN,
     }
 
 
@@ -199,7 +199,7 @@ def run_worker_non_json(client):
         f"{CF_WORKER_URL}/proxy",
         headers={
             "Content-Type": "text/plain",
-            "X-Forge-Token": FORGE_ACCESS_TOKEN,
+            "X-Subumbra-Token": SUBUMBRA_ACCESS_TOKEN,
         },
         content=b"not json",
     )
@@ -240,7 +240,7 @@ def main():
         run_provider_mismatch(client, baseline_record, baseline_key_id)
         run_ssrf_check(client, baseline_record, baseline_key_id)
         run_worker_non_json(client)
-    print("PASS adapter-probe complete")
+    print("PASS subumbra-probe complete")
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 # post-bootstrap.sh — finalize bootstrap: copy runtime tokens into .env, shred .env.bootstrap
 #
 # Security properties:
-#   - This script never reads raw API keys. It only reads the scoped forge
+#   - This script never reads raw API keys. It only reads the scoped Subumbra
 #     runtime secrets plus operator-safe adapter allowlists already destined
 #     for .env.
 #   - Those values are runtime tokens already destined for .env — no new
@@ -15,7 +15,7 @@
 #
 # Prerequisites:
 #   - Bootstrap has completed successfully
-#   - forge-keys container is running  (docker compose ps)
+#   - subumbra-keys container is running  (docker compose ps)
 #   - .env exists (copy from .env.example if not)
 #   - .env.bootstrap exists only if you used automation/CI mode (wizard path has no file to shred)
 
@@ -41,12 +41,12 @@ if [[ ! -f "$BOOTSTRAP_FILE" ]]; then
     WIZARD_MODE=true
 fi
 
-# ── Read runtime tokens from the forge-keys volume ───────────────────────────
+# ── Read runtime tokens from the subumbra-keys volume ────────────────────────
 
-echo "Reading runtime tokens from forge volume..."
-RUNTIME=$(docker compose run --rm -u 0 -T forge-keys cat /app/data/runtime.env 2>/dev/null) || {
-    echo "ERROR: Could not read /app/data/runtime.env from the forge-keys container." >&2
-    echo "  Make sure forge-keys is running: docker compose ps" >&2
+echo "Reading runtime tokens from Subumbra volume..."
+RUNTIME=$(docker compose run --rm -u 0 -T subumbra-keys cat /app/data/runtime.env 2>/dev/null) || {
+    echo "ERROR: Could not read /app/data/runtime.env from the subumbra-keys container." >&2
+    echo "  Make sure subumbra-keys is running: docker compose ps" >&2
     echo "  If bootstrap failed mid-run, re-run:" >&2
     echo "    Interactive: docker compose --profile bootstrap run --rm -it bootstrap" >&2
     echo "    Automation:  docker compose --profile bootstrap run --rm bootstrap" >&2
@@ -58,9 +58,12 @@ RUNTIME=$(docker compose run --rm -u 0 -T forge-keys cat /app/data/runtime.env 2
 # directly to CF Secrets by bootstrap and is not consumed by any Docker service.
 # Its presence in runtime.env is for audit/diagnostic purposes only.
 
-FORGE_ADAPTER_REGISTRY=$(printf '%s\n' "$RUNTIME" | grep '^FORGE_ADAPTER_REGISTRY=' | cut -d= -f2-)
+SUBUMBRA_ADAPTER_REGISTRY=$(printf '%s\n' "$RUNTIME" | grep '^SUBUMBRA_ADAPTER_REGISTRY=' | cut -d= -f2-)
 mapfile -t FORGE_TOKEN_LINES < <(printf '%s\n' "$RUNTIME" | grep '^FORGE_TOKEN_' || true)
-FORGE_HMAC_KEY=$(printf '%s\n' "$RUNTIME" | grep '^FORGE_HMAC_KEY=' | cut -d= -f2-)
+SUBUMBRA_TOKEN_PROXY=$(printf '%s\n' "$RUNTIME" | grep '^SUBUMBRA_TOKEN_PROXY=' | cut -d= -f2-)
+SUBUMBRA_TOKEN_UI=$(printf '%s\n' "$RUNTIME" | grep '^SUBUMBRA_TOKEN_UI=' | cut -d= -f2-)
+SUBUMBRA_TOKEN_PROBE=$(printf '%s\n' "$RUNTIME" | grep '^SUBUMBRA_TOKEN_PROBE=' | cut -d= -f2-)
+SUBUMBRA_HMAC_KEY=$(printf '%s\n' "$RUNTIME" | grep '^SUBUMBRA_HMAC_KEY=' | cut -d= -f2-)
 CF_WORKER_URL=$(printf '%s\n' "$RUNTIME" | grep '^CF_WORKER_URL=' | cut -d= -f2-)
 LITELLM_ALLOWED_KEYS=$(printf '%s\n' "$RUNTIME" | grep '^LITELLM_ALLOWED_KEYS=' | cut -d= -f2-)
 PROXY_ALLOWED_KEYS=$(printf '%s\n' "$RUNTIME" | grep '^PROXY_ALLOWED_KEYS=' | cut -d= -f2-)
@@ -68,22 +71,18 @@ PROBE_ALLOWED_KEYS=$(printf '%s\n' "$RUNTIME" | grep '^PROBE_ALLOWED_KEYS=' | cu
 UI_ALLOWED_KEYS=$(printf '%s\n' "$RUNTIME" | grep '^UI_ALLOWED_KEYS=' | cut -d= -f2-)
 
 FORGE_TOKEN_LITELLM=$(printf '%s\n' "${FORGE_TOKEN_LINES[@]}" | grep '^FORGE_TOKEN_LITELLM=' | cut -d= -f2-)
-FORGE_TOKEN_PROXY=$(printf '%s\n' "${FORGE_TOKEN_LINES[@]}" | grep '^FORGE_TOKEN_PROXY=' | cut -d= -f2-)
-FORGE_TOKEN_UI=$(printf '%s\n' "${FORGE_TOKEN_LINES[@]}" | grep '^FORGE_TOKEN_UI=' | cut -d= -f2-)
-FORGE_TOKEN_PROBE=$(printf '%s\n' "${FORGE_TOKEN_LINES[@]}" | grep '^FORGE_TOKEN_PROBE=' | cut -d= -f2-)
-
-if [[ -z "$FORGE_ADAPTER_REGISTRY" || ${#FORGE_TOKEN_LINES[@]} -eq 0 || -z "$FORGE_TOKEN_LITELLM" || -z "$FORGE_TOKEN_PROXY" || -z "$FORGE_TOKEN_UI" || -z "$FORGE_TOKEN_PROBE" || -z "$FORGE_HMAC_KEY" || -z "$CF_WORKER_URL" ]]; then
+if [[ -z "$SUBUMBRA_ADAPTER_REGISTRY" || ${#FORGE_TOKEN_LINES[@]} -eq 0 || -z "$FORGE_TOKEN_LITELLM" || -z "$SUBUMBRA_TOKEN_PROXY" || -z "$SUBUMBRA_TOKEN_UI" || -z "$SUBUMBRA_TOKEN_PROBE" || -z "$SUBUMBRA_HMAC_KEY" || -z "$CF_WORKER_URL" ]]; then
     echo "ERROR: runtime.env is missing one or more required values." >&2
     exit 1
 fi
 
-echo "  FORGE_ADAPTER_REGISTRY : present"
+echo "  SUBUMBRA_ADAPTER_REGISTRY : present"
 for token_line in "${FORGE_TOKEN_LINES[@]}"; do
     token_key="${token_line%%=*}"
     token_value="${token_line#*=}"
     printf '  %-21s: %s... (truncated for display)\n' "$token_key" "${token_value:0:8}"
 done
-echo "  FORGE_HMAC_KEY        : ${FORGE_HMAC_KEY:0:8}... (truncated for display)"
+echo "  SUBUMBRA_HMAC_KEY     : ${SUBUMBRA_HMAC_KEY:0:8}... (truncated for display)"
 echo "  CF_WORKER_URL         : $CF_WORKER_URL"
 
 # ── Write into .env (replace existing lines, append if missing) ───────────────
@@ -100,11 +99,14 @@ update_env() {
 
 echo ""
 echo "Writing to $ENV_FILE..."
-update_env "FORGE_ADAPTER_REGISTRY" "$FORGE_ADAPTER_REGISTRY"
+update_env "SUBUMBRA_ADAPTER_REGISTRY" "$SUBUMBRA_ADAPTER_REGISTRY"
 for token_line in "${FORGE_TOKEN_LINES[@]}"; do
     update_env "${token_line%%=*}" "${token_line#*=}"
 done
-update_env "FORGE_HMAC_KEY"     "$FORGE_HMAC_KEY"
+update_env "SUBUMBRA_TOKEN_PROXY" "$SUBUMBRA_TOKEN_PROXY"
+update_env "SUBUMBRA_TOKEN_UI"    "$SUBUMBRA_TOKEN_UI"
+update_env "SUBUMBRA_TOKEN_PROBE" "$SUBUMBRA_TOKEN_PROBE"
+update_env "SUBUMBRA_HMAC_KEY"    "$SUBUMBRA_HMAC_KEY"
 update_env "CF_WORKER_URL"      "$CF_WORKER_URL"
 update_env "LITELLM_ALLOWED_KEYS" "$LITELLM_ALLOWED_KEYS"
 update_env "PROXY_ALLOWED_KEYS"   "$PROXY_ALLOWED_KEYS"
@@ -114,7 +116,7 @@ update_env "UI_ALLOWED_KEYS"      "$UI_ALLOWED_KEYS"
 # ── Verify all required values landed in .env ────────────────────────────────
 
 VERIFY_FAILED=0
-for key in FORGE_ADAPTER_REGISTRY FORGE_TOKEN_LITELLM FORGE_TOKEN_PROXY FORGE_TOKEN_UI FORGE_TOKEN_PROBE FORGE_HMAC_KEY CF_WORKER_URL; do
+for key in SUBUMBRA_ADAPTER_REGISTRY FORGE_TOKEN_LITELLM SUBUMBRA_TOKEN_PROXY SUBUMBRA_TOKEN_UI SUBUMBRA_TOKEN_PROBE SUBUMBRA_HMAC_KEY CF_WORKER_URL; do
     if ! grep -q "^${key}=" "$ENV_FILE"; then
         echo "ERROR: Failed to write ${key} to $ENV_FILE" >&2
         VERIFY_FAILED=1
@@ -142,10 +144,10 @@ DRIFT=false
 container_for_service() {
     case "$1" in
         litellm) echo "litellm" ;;
-        forge-keys) echo "forge-keys" ;;
-        ui) echo "keyvault-ui" ;;
-        keyvault-proxy) echo "keyvault-proxy" ;;
-        adapter-probe) echo "adapter-probe" ;;
+        subumbra-keys) echo "subumbra-keys" ;;
+        subumbra-ui) echo "subumbra-ui" ;;
+        subumbra-proxy) echo "subumbra-proxy" ;;
+        subumbra-probe) echo "subumbra-probe" ;;
         *)
             return 1
             ;;
@@ -154,11 +156,11 @@ container_for_service() {
 
 expected_value_for_service() {
     case "$1" in
-        forge-keys) printf '%s' "$FORGE_ADAPTER_REGISTRY" ;;
+        subumbra-keys) printf '%s' "$SUBUMBRA_ADAPTER_REGISTRY" ;;
         litellm) printf '%s' "$FORGE_TOKEN_LITELLM" ;;
-        ui) printf '%s' "$FORGE_TOKEN_UI" ;;
-        keyvault-proxy) printf '%s' "$FORGE_TOKEN_PROXY" ;;
-        adapter-probe) printf '%s' "$FORGE_TOKEN_PROBE" ;;
+        subumbra-ui) printf '%s' "$SUBUMBRA_TOKEN_UI" ;;
+        subumbra-proxy) printf '%s' "$SUBUMBRA_TOKEN_PROXY" ;;
+        subumbra-probe) printf '%s' "$SUBUMBRA_TOKEN_PROBE" ;;
         *)
             return 1
             ;;
@@ -167,12 +169,12 @@ expected_value_for_service() {
 
 env_key_for_service() {
     case "$1" in
-        forge-keys) printf '%s' "FORGE_ADAPTER_REGISTRY" ;;
-        *) printf '%s' "FORGE_ACCESS_TOKEN" ;;
+        subumbra-keys) printf '%s' "SUBUMBRA_ADAPTER_REGISTRY" ;;
+        *) printf '%s' "SUBUMBRA_ACCESS_TOKEN" ;;
     esac
 }
 
-for svc in forge-keys litellm ui keyvault-proxy adapter-probe; do
+for svc in subumbra-keys litellm subumbra-ui subumbra-proxy subumbra-probe; do
     if docker compose ps --status running "$svc" 2>/dev/null | grep -q "$svc"; then
         container_name="$(container_for_service "$svc")"
         env_key="$(env_key_for_service "$svc")"
@@ -192,7 +194,7 @@ if [[ "$DRIFT" == "true" ]]; then
     echo "" >&2
     echo "════════════════════════════════════════════════════════════════════" >&2
     echo "  WARNING: Token drift detected." >&2
-    echo "  Running containers hold stale forge runtime auth configuration." >&2
+    echo "  Running containers hold stale Subumbra runtime auth configuration." >&2
     echo "  The CF Worker will reject requests until services are recreated." >&2
     echo "" >&2
     echo "  Required action:" >&2

@@ -19,14 +19,14 @@ LiteLLM (Adapter #1) today
 or future sidecar/service adapters
     ↓ fetch forge records, then call canonical POST /proxy
     ↓
-forge-keys (docker internal network only)
+subumbra-keys (docker internal network only)
     ↓ returns V2 record: ciphertext + wrapped_dek + pub_key_fp + enc_version
     ↓ (useless without RSA private key in CF Secrets)
     ↓
 Cloudflare Worker
     ↓ verifies pub_key_fp matches WORKER_KEY_FINGERPRINT
     ↓ RSA-OAEP unwraps per-record DEK using WORKER_PRIVATE_KEY
-    ↓ AES-256-GCM decrypts API key with AAD binding (keyvault:v2:<key_id>)
+    ↓ AES-256-GCM decrypts API key with AAD binding (subumbra:v2:<key_id>)
     ↓ spins up Durable Object
     ↓
 Durable Object
@@ -42,10 +42,10 @@ API Provider (Anthropic/OpenAI/Groq/DeepSeek)
 - Real API keys never exist in plaintext on any system you operate
 - Decrypted keys exist briefly in CF Durable Object memory (~100ms) and transit to API providers over HTTPS
 - Asymmetric hybrid envelope encryption (V2): RSA-4096 wraps per-record AES-256-GCM DEKs
-- forge-keys container: holds wrapped DEK + AES-GCM ciphertext only (useless without RSA private key)
+- subumbra-keys container: holds wrapped DEK + AES-GCM ciphertext only (useless without RSA private key)
 - CF Secrets: holds RSA-4096 private key (WORKER_PRIVATE_KEY) + fingerprint only
 - Neither side can reconstruct keys alone
-- AAD binding (`keyvault:v2:<key_id>`) prevents ciphertext transplant between records
+- AAD binding (`subumbra:v2:<key_id>`) prevents ciphertext transplant between records
 - pub_key_fp verified by Worker before decryption — mismatched keys fail fast
 - Decrypted key exists only in CF Durable Object memory for ~100ms
 - One-shot bootstrap process: keys exist in RAM only during generation
@@ -65,7 +65,7 @@ subumbra/
 │   ├── keyvault-bootstrap.py    ← encrypts keys, deploys CF Worker, clears memory
 │   └── requirements.txt
 │
-├── forge-keys/                  ← encrypted blob storage service
+├── subumbra-keys/                  ← encrypted blob storage service
 │   ├── Dockerfile
 │   ├── app.py                   ← Flask REST API, Docker internal only
 │   ├── requirements.txt
@@ -79,7 +79,7 @@ subumbra/
 │
 ├── litellm/                     ← LiteLLM integration
 │   ├── custom_callbacks.py      ← intercepts calls, fetches from forge, routes to CF
-│   └── config.yaml              ← model config using "forge:key_id" references
+│   └── config.yaml              ← model config using "subumbra:key_id" references
 │
 └── ui/                          ← basic management dashboard
     ├── Dockerfile
@@ -92,19 +92,19 @@ subumbra/
 ## Key Design Decisions
 
 ### Docker Networking
-- `internal` network: forge-keys, bootstrap, ui, adapter-probe, keyvault-proxy — NO internet access
-- `external` network: litellm, cloudflared, keyvault-proxy, adapter-probe — internet access
-- forge-keys is reachable from services on the internal network via Docker DNS (`http://forge-keys:9090`)
-- forge-keys never exposed to host or internet
+- `internal` network: subumbra-keys, bootstrap, ui, subumbra-probe, subumbra-proxy — NO internet access
+- `external` network: litellm, cloudflared, subumbra-proxy, subumbra-probe — internet access
+- subumbra-keys is reachable from services on the internal network via Docker DNS (`http://subumbra-keys:9090`)
+- subumbra-keys never exposed to host or internet
 
 ### LiteLLM Integration
-- api_key format: `"forge:key_id"` triggers the callback
-- Example: `api_key: "forge:anthropic_prod"`
-- Callback fetches full V2 record from forge-keys via `_fetch_forge_record()`
+- api_key format: `"subumbra:key_id"` triggers the callback
+- Example: `api_key: "subumbra:anthropic_prod"`
+- Callback fetches full V2 record from subumbra-keys via `_fetch_forge_record()`
 - Hard-rejects non-V2 records (enc_version != 2 or missing wrapped_dek)
-- Injects `X-Forge-Key-Id`, `X-Forge-Wrapped-Dek`, `X-Forge-Pub-Key-Fp`, and `X-Forge-Provider` headers
+- Injects `X-Subumbra-Key-Id`, `X-Subumbra-Wrapped-Dek`, `X-Subumbra-Pub-Key-Fp`, and `X-Subumbra-Provider` headers
 - Callback leaves LiteLLM's native provider URL intact
-- `KeyVaultTransport` intercepts the fully assembled outbound request and packages canonical `POST /proxy`
+- `SubumbraTransport` intercepts the fully assembled outbound request and packages canonical `POST /proxy`
 - Transport owns the outer `/proxy` POST and its CF Access headers
 - Worker derives upstream base URL and auth policy from the live Cloudflare KV provider registry
 - LiteLLM now uses canonical `POST /proxy`; the old header-gated compatibility route is removed
@@ -121,8 +121,8 @@ subumbra/
    - Reads keys from env (RAM only)
    - Loads built-in provider `target_host` mappings and derives built-in `KNOWN_PROVIDERS` from `worker/src/providers.json`
    - Generates RSA-4096 key pair (RAM only)
-   - For each key: generates random 32-byte DEK, wraps DEK with RSA public key, encrypts API key with AES-256-GCM using AAD `keyvault:v2:<key_id>`
-   - Writes V2 records (ciphertext + wrapped_dek + pub_key_fp + enc_version) to forge-keys volume
+   - For each key: generates random 32-byte DEK, wraps DEK with RSA public key, encrypts API key with AES-256-GCM using AAD `subumbra:v2:<key_id>`
+   - Writes V2 records (ciphertext + wrapped_dek + pub_key_fp + enc_version) to subumbra-keys volume
    - Writes `public_key.pem` to data volume (for offline rotation)
    - Creates or reuses the provider-registry KV namespace and persists its namespace ID in `/app/data/kv-config.json`
    - Injects the `[[kv_namespaces]]` binding into the temporary deploy copy of `wrangler.toml`
@@ -148,7 +148,7 @@ subumbra/
 - Validates `provider` matches the resolved registry entry
 - Verifies: pub_key_fp matches WORKER_KEY_FINGERPRINT from CF Secrets
 - Unwraps: per-record DEK via RSA-OAEP using WORKER_PRIVATE_KEY (cached per isolate)
-- Decrypts: AES-256-GCM with AAD `keyvault:v2:<key_id>`
+- Decrypts: AES-256-GCM with AAD `subumbra:v2:<key_id>`
 - Hard-rejects: non-V2 records, fingerprint mismatches
 - Resolves auth policy from the registry and passes generic auth config into the Durable Object
 - Creates: Durable Object per request
@@ -156,7 +156,7 @@ subumbra/
 - Durable Object no longer branches on provider identity to choose auth headers
 - Worker accepts canonical `/proxy` requests only
 - Returns: streaming response back to the adapter
-- Strips: all X-Forge-* headers before upstream calls
+- Strips: all X-Subumbra-* headers before upstream calls
 
 ### Adapter Contract
 
@@ -166,13 +166,13 @@ for the full normative contract.
 
 The current LiteLLM integration (`litellm/custom_callbacks.py`) is Adapter #1.
 It already uses canonical `POST /proxy` via transport-owned packaging.
-Adapter #2 is the universal explicit sidecar (`keyvault-proxy`), completed in 
+Adapter #2 is the universal explicit sidecar (`subumbra-proxy`), completed in 
 Round 25, which exposes a persistent HTTP API for non-LiteLLM integrations.
 
 ### Forge Key Service
 - Minimal Flask API
 - Binds to Docker internal network only
-- Validates: X-Forge-Token header
+- Validates: X-Subumbra-Token header
 - Returns: V2 record metadata including `provider`, `target_host`, `ciphertext`, `wrapped_dek`, `pub_key_fp`, `enc_version`
 - Logs: every access attempt with timestamp
 
@@ -202,18 +202,18 @@ GROQ_KEY=<your_groq_key>
 DEEPSEEK_KEY=<your_deepseek_key>
 CF_API_TOKEN=...
 CF_ACCOUNT_ID=...
-CF_WORKER_NAME=keyvault-proxy
+CF_WORKER_NAME=subumbra-proxy
 ```
 
 ### Runtime docker-compose (non-sensitive)
 ```
-FORGE_ADAPTER_REGISTRY=<generated by bootstrap>
+SUBUMBRA_ADAPTER_REGISTRY=<generated by bootstrap>
 FORGE_TOKEN_LITELLM=<generated by bootstrap>
-FORGE_TOKEN_PROXY=<generated by bootstrap>
-FORGE_TOKEN_UI=<generated by bootstrap>
-FORGE_TOKEN_PROBE=<generated by bootstrap>
-FORGE_HMAC_KEY=<generated by bootstrap>
-CF_WORKER_URL=https://keyvault-proxy.your-subdomain.workers.dev
+SUBUMBRA_TOKEN_PROXY=<generated by bootstrap>
+SUBUMBRA_TOKEN_UI=<generated by bootstrap>
+SUBUMBRA_TOKEN_PROBE=<generated by bootstrap>
+SUBUMBRA_HMAC_KEY=<generated by bootstrap>
+CF_WORKER_URL=https://subumbra-proxy.your-subdomain.workers.dev
 CF_ACCESS_CLIENT_ID=<from CF Access dashboard>
 CF_ACCESS_CLIENT_SECRET=<from CF Access dashboard>
 ```
@@ -222,13 +222,13 @@ CF_ACCESS_CLIENT_SECRET=<from CF Access dashboard>
 - List of key IDs loaded (names only, never values)
 - Last request time per key
 - Request count per key  
-- Health status of forge-keys container
+- Health status of subumbra-keys container
 - Key rotation trigger (re-runs bootstrap for specific key)
 - Recent request log (provider, timestamp, status)
 
 ## Build Order
 1. docker-compose.yml skeleton
-2. forge-keys/app.py (simplest component)
+2. subumbra-keys/app.py (simplest component)
 3. bootstrap/keyvault-bootstrap.py (key generation + wrangler)
 4. worker/src/worker.js (CF Worker with Durable Object)
 5. litellm/custom_callbacks.py (LiteLLM integration)

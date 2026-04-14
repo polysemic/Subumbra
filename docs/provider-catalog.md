@@ -1,4 +1,4 @@
-# KeyVault Provider Catalog
+# Subumbra Provider Catalog
 
 *Round 26 operator reference for the explicit sidecar.*
 
@@ -125,7 +125,7 @@ null
 ```bash
 curl -s -X POST http://localhost:8090/v1/request \
   -H "Content-Type: application/json" \
-  -d '{"key_id":"<your_github_key_id>","target_url":"https://api.github.com/user","method":"GET","headers":{"accept":"application/vnd.github+json","x-github-api-version":"2022-11-28","user-agent":"keyvault-proxy/1.0"},"body":null}'
+  -d '{"key_id":"<your_github_key_id>","target_url":"https://api.github.com/user","method":"GET","headers":{"accept":"application/vnd.github+json","x-github-api-version":"2022-11-28","user-agent":"subumbra-proxy/1.0"},"body":null}'
 ```
 
 ### slack
