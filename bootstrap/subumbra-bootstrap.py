@@ -99,7 +99,7 @@ PUBLIC_KEY_FILE = DATA_DIR / "public_key.pem"
 WORKER_SRC      = Path("/app/worker")
 CUSTOM_PROVIDER_REGISTRY_FILE = DATA_DIR / "custom-providers.json"
 KV_CONFIG_FILE = DATA_DIR / "kv-config.json"
-PROVIDER_REGISTRY_KV_KEY = "provider_registry_v1"
+PROVIDER_REGISTRY_KV_KEY = "subumbra_registry_v1"
 
 ADAPTER_SCOPE_VARS: dict[str, str] = {
     "litellm": "LITELLM_ALLOWED_KEYS",
@@ -523,11 +523,11 @@ def encrypt_api_key_v2(dek_bytes: bytes, plaintext: str, key_id: str) -> str:
     Wire format (base64-encoded):
         nonce[12] || ciphertext[n] || GCM-tag[16]
 
-    AAD: "keyvault:v2:<key_id>" — binds ciphertext to this specific record.
+    AAD: "subumbra:v2:<key_id>" — binds ciphertext to this specific record.
     """
     nonce = os.urandom(12)
     aesgcm = AESGCM(dek_bytes)
-    aad = f"keyvault:v2:{key_id}".encode("utf-8")
+    aad = f"subumbra:v2:{key_id}".encode("utf-8")
     ct = aesgcm.encrypt(nonce, plaintext.encode("utf-8"), aad)
     return b64encode(nonce + ct).decode("ascii")
 
@@ -975,7 +975,7 @@ def deploy_worker(
     private_key_b64: str,
     pub_key_fp: str,
     adapter_tokens: dict[str, str],
-    forge_hmac_key: str,
+    subumbra_hmac_key: str,
     provider_id_filter: "set[str] | None" = None,
 ) -> str:
     """
@@ -1097,23 +1097,10 @@ def deploy_worker(
              "--name", worker_name],
             cwd=work_dir,
             env=env,
-            input_text=forge_hmac_key + "\n",
+            input_text=subumbra_hmac_key + "\n",
         )
         ok("SUBUMBRA_HMAC_KEY pushed")
 
-        step("Cleaning up stale FORGE_ADAPTER_TOKENS / FORGE_HMAC_KEY secrets")
-        for secret_name in ("FORGE_ADAPTER_TOKENS", "FORGE_HMAC_KEY"):
-            del_result = subprocess.run(
-                ["wrangler", "secret", "delete", secret_name, "--name", worker_name, "--force"],
-                cwd=work_dir,
-                env=env,
-                capture_output=True,
-                text=True,
-            )
-            if del_result.returncode == 0:
-                ok(f"Deleted stale {secret_name} secret")
-            else:
-                info(f"{secret_name} not present — already clean")
 
     # Derive URL — wrangler prints it, but it's also deterministic
     worker_url = f"https://{worker_name}.workers.dev"
@@ -1459,14 +1446,14 @@ def main() -> None:
     for adapter_id in allowed_keys_by_adapter:
         if adapter_id not in adapter_tokens:
             adapter_tokens[adapter_id] = secrets.token_hex(32)
-    forge_hmac_key = secrets.token_hex(32)   # 64-char hex
-    ok("FORGE_TOKEN_LITELLM generated")
+    subumbra_hmac_key = secrets.token_hex(32)   # 64-char hex
+    ok("SUBUMBRA_TOKEN_LITELLM generated")
     ok("SUBUMBRA_TOKEN_PROXY generated")
     ok("SUBUMBRA_TOKEN_UI generated")
     ok("SUBUMBRA_TOKEN_PROBE generated")
     for adapter_id in allowed_keys_by_adapter:
         if adapter_id not in BUILTIN_ADAPTER_IDS:
-            ok(f"FORGE_TOKEN_{_normalize_adapter_id(adapter_id)} generated")
+            ok(f"SUBUMBRA_TOKEN_{_normalize_adapter_id(adapter_id)} generated")
     ok("SUBUMBRA_HMAC_KEY generated")
     adapter_registry = _build_adapter_registry(
         adapter_tokens,
@@ -1503,7 +1490,7 @@ def main() -> None:
     bootstrapped_providers = {v[0] for v in api_keys.values()}
     worker_url = deploy_worker(
         cf_creds, private_key_b64, pub_key_fp,
-        adapter_tokens, forge_hmac_key,
+        adapter_tokens, subumbra_hmac_key,
         provider_id_filter=bootstrapped_providers,
     )
     ok(f"Worker URL: {worker_url}")
@@ -1539,7 +1526,7 @@ def main() -> None:
         f"PROXY_ALLOWED_KEYS={','.join(allowed_keys_by_adapter['subumbra-proxy'])}",
         f"PROBE_ALLOWED_KEYS={','.join(allowed_keys_by_adapter['subumbra-probe'])}",
         f"UI_ALLOWED_KEYS={','.join(allowed_keys_by_adapter['subumbra-ui'])}",
-        f"FORGE_TOKEN_LITELLM={adapter_tokens['litellm']}",
+        f"SUBUMBRA_TOKEN_LITELLM={adapter_tokens['litellm']}",
         f"SUBUMBRA_TOKEN_PROXY={adapter_tokens['subumbra-proxy']}",
         f"SUBUMBRA_TOKEN_UI={adapter_tokens['subumbra-ui']}",
         f"SUBUMBRA_TOKEN_PROBE={adapter_tokens['subumbra-probe']}",
@@ -1547,11 +1534,11 @@ def main() -> None:
     for adapter_id in allowed_keys_by_adapter:
         if adapter_id not in BUILTIN_ADAPTER_IDS:
             runtime_env_lines.append(
-                f"FORGE_TOKEN_{_normalize_adapter_id(adapter_id)}={adapter_tokens[adapter_id]}"
+                f"SUBUMBRA_TOKEN_{_normalize_adapter_id(adapter_id)}={adapter_tokens[adapter_id]}"
             )
     runtime_env_lines.extend(
         [
-            f"SUBUMBRA_HMAC_KEY={forge_hmac_key}",
+            f"SUBUMBRA_HMAC_KEY={subumbra_hmac_key}",
             f"CF_WORKER_URL={worker_url}",
             "# Public key fingerprint (audit trail — not sensitive)",
             f"WORKER_KEY_FINGERPRINT={pub_key_fp}",
@@ -1599,6 +1586,9 @@ def main() -> None:
     ./post-bootstrap.sh
 
   Next steps:
+    0. ⚠  If you used .env.bootstrap (automation path), back it up NOW if you
+       want to keep a copy — post-bootstrap.sh will shred it.
+       You do NOT need it after this point; your real keys are in CF Secrets.
     1. ./post-bootstrap.sh
        (copies SUBUMBRA_ADAPTER_REGISTRY, per-adapter Subumbra tokens, SUBUMBRA_HMAC_KEY, CF_WORKER_URL into .env)
     2. ⚠  Update litellm/config.yaml with the correct subumbra:key_id values — see
@@ -1606,7 +1596,11 @@ def main() -> None:
        match exactly. Do this BEFORE restarting services.
     3. Start/restart ALL services (new tokens generated):
        docker compose up -d --force-recreate
-    4. Check subumbra-keys health:    docker compose ps
+    4. Check all containers running:  docker compose ps
+       Check subumbra-keys health:   docker exec -i litellm python - <<'PY'
+         import urllib.request
+         print(urllib.request.urlopen("http://subumbra-keys:9090/health").read().decode())
+         PY
     5. Check worker health:           curl {worker_url}/health
 
 {chr(10).join(litellm_alignment_lines)}

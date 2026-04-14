@@ -22,8 +22,8 @@ local-archive/
 scripts/legacy/
 
 # Encrypted key blobs — safe cryptographically, but no reason to commit
-forge-keys/keys.json
-forge-keys/data/
+subumbra-keys/keys.json
+subumbra-keys/data/
 
 # Wrangler artifacts
 worker/.wrangler/

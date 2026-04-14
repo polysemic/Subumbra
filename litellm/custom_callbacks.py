@@ -279,7 +279,7 @@ def _wire_transport_once() -> None:
 # Subumbra callback
 # ─────────────────────────────────────────────────────────────────────────────
 
-class ForgeKeyCallback(CustomLogger):
+class SubumbraCallback(CustomLogger):
     """
     LiteLLM CustomLogger that intercepts "subumbra:" api_key values, fetches the
     V2 Subumbra envelope, and prepares the request for transport-owned /proxy
@@ -469,7 +469,7 @@ class ForgeKeyCallback(CustomLogger):
 # LiteLLM imports this module and reads this name directly; the config value
 # must be "custom_callbacks.proxy_handler_instance" (instance, not class).
 # ─────────────────────────────────────────────────────────────────────────────
-proxy_handler_instance = ForgeKeyCallback()
+proxy_handler_instance = SubumbraCallback()
 
 # ── Self-register with LiteLLM (intentionally redundant) ───────────────
 # LiteLLM's config resolution via initialize_callbacks_on_proxy() will also

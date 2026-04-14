@@ -113,7 +113,7 @@ To rotate a provider token:
 3. run `./post-bootstrap.sh`
 4. recreate the local services if needed
 
-This keeps forge records, local env state, and the deployed Worker configuration
+This keeps subumbra records, local env state, and the deployed Worker configuration
 aligned.
 
 ## 5. Recovery Playbook
@@ -131,7 +131,7 @@ per-key rotation, no service restart is required.
 
 ### Full Re-Bootstrap
 
-Use this when rotating Worker/forge runtime tokens, replacing the RSA key pair,
+Use this when rotating Worker/subumbra runtime tokens, replacing the RSA key pair,
 or rebuilding the retained provider set.
 
 ```bash
@@ -163,17 +163,17 @@ bootstrap wizard still supports only the built-in adapters.
 
 ### Emergency Adapter Expiry
 
-Use this only to force forge-side denial for a specific adapter.
+Use this only to force subumbra-side denial for a specific adapter.
 
 ```bash
-./scripts/forge-expire-adapter.sh <adapter_id>
+./scripts/subumbra-expire-adapter.sh <adapter_id>
 docker compose up -d --force-recreate subumbra-keys
 ```
 
 Warning:
 
-- this is forge-side only
-- it blocks new forge record fetches for that adapter
+- this is subumbra-keys-side only
+- it blocks new subumbra record fetches for that adapter
 - it does not revoke Worker-side authority or remove already issued Worker tokens
 
 ### Token Drift Recovery
@@ -197,9 +197,9 @@ entry. `subumbra-keys` is the enforcement gate for this expiry metadata.
 Routine refresh and full revocation still mean re-running bootstrap so the local
 runtime state and Cloudflare-side Worker token state rotate together.
 
-Forge-side emergency expiry is narrower:
+Subumbra-keys-side emergency expiry is narrower:
 
-- it blocks new forge record fetches for the targeted adapter
+- it blocks new record fetches for the targeted adapter
 - it does not remove the token from the Cloudflare Worker
 - it is not full revocation
 
@@ -264,24 +264,24 @@ Important routing note:
 Use the helper:
 
 ```bash
-./scripts/forge-expire-adapter.sh <adapter_id>
+./scripts/subumbra-expire-adapter.sh <adapter_id>
 docker compose up -d --force-recreate subumbra-keys
 ```
 
 Important warning:
 
-- forge-side emergency expiry stops new forge record fetches only
+- subumbra-keys-side emergency expiry stops new record fetches only
 - it does **not** remove the token from the Cloudflare Worker
 - for full revocation, run full re-bootstrap to rotate Worker-side token state
 
 ## 6. Audit Trail
 
-The forge-local audit trail is stored in SQLite at `/app/audit/audit.db`.
+The subumbra-keys audit trail is stored in SQLite at `/app/audit/audit.db`.
 
 Audit entry fields: `timestamp`, `adapter_id`, `endpoint`, `key_id`, `verdict`,
 `reason_code`, `remote`.
 
-What is intentionally never logged: decrypted provider secrets, forge tokens,
+What is intentionally never logged: decrypted provider secrets, subumbra tokens,
 `ciphertext`, `wrapped_dek`, `SUBUMBRA_HMAC_KEY`.
 
 See [`docs/subumbra-testing.md`](./subumbra-testing.md) for audit query examples.
@@ -300,7 +300,7 @@ Accepted pseudo-key header forms:
 
 Notes:
 
-- sidecar derives target hostname from the forge record, not caller input
+- sidecar derives target hostname from the subumbra record, not caller input
 - caller query strings are preserved on the upstream request
 - JSON-only request bodies currently supported
 - AI provider keys are not available on the transparent route unless scoped into

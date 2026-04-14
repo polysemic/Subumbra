@@ -53,16 +53,16 @@ Deferred by council consensus. Acceptable for current single-operator POC deploy
 | MEDIUM-7 | `/api/status` unauthenticated | Bound to `127.0.0.1:8080` (localhost only); add basic auth before multi-user |
 | G-MEDIUM-2 | Dashboard health reflects subumbra-keys only; no end-to-end health probe | Post-POC architecture change |
 | G-MEDIUM-3 | CF Worker buffers full body with no size limit (128 MB CF cap) | Low risk for small-team internal use |
-| AUDIT-RETENTION | SQLite audit trail is durable across restarts and row growth is capped by `AUDIT_MAX_ROWS`, but retention is still forge-local only with no archival/export path | Accepted as current local-ops limit |
+| AUDIT-RETENTION | SQLite audit trail is durable across restarts and row growth is capped by `AUDIT_MAX_ROWS`, but retention is still local only with no archival/export path | Accepted as current local-ops limit |
 | LOW-5 | Dashboard loads Bootstrap CSS/JS from public CDN | Browser-only fetch; container is air-gapped |
 | CRITICAL-3 | CF Access header strip enforced at Worker edge only | Accepted as architectural constraint (Worker is version-controlled) |
 | DEV-AUDIT | `npm audit` vulnerabilities in wrangler dev tooling | Dev-only; never deployed to CF production |
 | DASH-COUNT | Occasional missing entries in dashboard request log | Likely silent LiteLLM retry; not investigated |
 | DASH-FLICKER | Recent Requests table briefly shows fewer entries on some poll cycles | UI polling race; entries return on next poll |
 | PROVIDER-COUPLING | Reduced further but not eliminated: the remaining meaningful adapter coupling is LiteLLM model declaration duplication in `litellm/config.yaml`; `api_base_path` in `worker/src/providers.json` is now vestigial after Round 22 cut-over | Full multi-adapter generalization remains a later round |
-| LITELLM-UI | LiteLLM admin UI login non-functional (no DB) | Use keyvault UI at `localhost:8080` instead |
+| LITELLM-UI | LiteLLM admin UI login non-functional (no DB) | Use subumbra UI at `localhost:8080` instead |
 | TOKEN-SYNC | `post-bootstrap.sh` now detects and warns on stale container tokens for `litellm`, `subumbra-keys`, and `ui`; bootstrap summary, `README.md`, and `CLAUDE.md` all require `docker compose up -d --force-recreate` after full bootstrap | Closed by Round 13 |
-| TTL-FORGE-ONLY | subumbra-keys TTL prevents new record fetches after token expiry but does not remove Worker-side token authority. Replay of previously captured records plus a stolen token remains possible until re-bootstrap rotates Worker-side token state | Intentionally deferred beyond Round 30 |
+| TTL-EXPIRY-ONLY | subumbra-keys TTL prevents new record fetches after token expiry but does not remove Worker-side token authority. Replay of previously captured records plus a stolen token remains possible until re-bootstrap rotates Worker-side token state | Intentionally deferred beyond Round 30 |
 
 ---
 
@@ -123,7 +123,7 @@ Current direction after Round 39:
    live stress testing across additional systems and users.
 
    Direction:
-   - resolve replay-hardening scope honestly across the forge protocol and its
+   - resolve replay-hardening scope honestly across the subumbra protocol and its
      current producers
    - reduce remaining LiteLLM- or test-shaped assumptions in the integration layer
    - improve drop-in support so new apps can inherit hardening through the
@@ -147,7 +147,7 @@ Current direction after Round 39:
      not immediately at the entry step. A typo forces a full wizard restart.
      Fix: validate each adapter scope on entry; re-prompt on mismatch. Companion
      UX upgrade: replace free-text name entry with numbered list selection.
-     (`bootstrap/keyvault-bootstrap.py`, adapter scope collection step)
+     (`bootstrap/subumbra-bootstrap.py`, adapter scope collection step)
 
    **Immediate investigation — LiteLLM config alignment:**
    Bootstrap generates key_ids interactively (or from `*_KEY_ID` env vars in

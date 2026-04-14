@@ -1,6 +1,6 @@
 #!/bin/bash
 LITELLM_ALLOWED_KEYS="anthropic_prod,openai_prod,groq"
-CONFIG_KEYS=$(grep -oE 'api_key:[ ]*"forge:[^"]*"' litellm/config.yaml | sed -n 's/.*"forge:\(.*\)".*/\1/p' | sort -u)
+CONFIG_KEYS=$(grep -oE 'api_key:[ ]*"subumbra:[^"]*"' litellm/config.yaml | sed -n 's/.*"subumbra:\(.*\)".*/\1/p' | sort -u)
 
 IFS=',' read -ra ALLOWED_ARRAY <<< "$LITELLM_ALLOWED_KEYS"
 DRIFT=false

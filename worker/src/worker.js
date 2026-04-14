@@ -63,7 +63,7 @@ function validateProviderRegistry(registry) {
 }
 
 async function getRegistryEntry(env, hostname) {
-  const raw = await env.PROVIDER_REGISTRY_KV.get("provider_registry_v1", {
+  const raw = await env.PROVIDER_REGISTRY_KV.get("subumbra_registry_v1", {
     cacheTtl: 30,
   });
 
@@ -202,8 +202,8 @@ async function decryptV2(env, ciphertextB64, wrappedDekB64, pubKeyFp, keyId) {
     "raw", dekBytes, { name: "AES-GCM" }, false, ["decrypt"],
   );
 
-  // 4. Decrypt API key with AAD = "keyvault:v2:<key_id>"
-  const aad = new TextEncoder().encode(`keyvault:v2:${keyId}`);
+  // 4. Decrypt API key with AAD = "subumbra:v2:<key_id>"
+  const aad = new TextEncoder().encode(`subumbra:v2:${keyId}`);
   const ctBlob = base64ToBytes(ciphertextB64);
   const plaintext = await crypto.subtle.decrypt(
     { name: "AES-GCM", iv: ctBlob.slice(0, 12), additionalData: aad },
@@ -231,8 +231,8 @@ async function timingSafeEqual(a, b) {
   const kb = await crypto.subtle.importKey(
     "raw", enc.encode(b), { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
   );
-  const sigA = await crypto.subtle.sign("HMAC", ka, enc.encode("keyvault"));
-  const sigB = await crypto.subtle.sign("HMAC", kb, enc.encode("keyvault"));
+  const sigA = await crypto.subtle.sign("HMAC", ka, enc.encode("subumbra"));
+  const sigB = await crypto.subtle.sign("HMAC", kb, enc.encode("subumbra"));
 
   // Both signatures are the same length (HMAC-SHA256 = 32 bytes), so
   // comparing them leaks only whether the keys were equal, not the keys.

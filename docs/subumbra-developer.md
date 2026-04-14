@@ -190,7 +190,7 @@ Then bootstrap fresh (section 4 above).
 > wiping the volume, the local `kv-config.json` holds a dead namespace ID.
 > Fix:
 > ```bash
-> docker run --rm -v subumbra_forge_keys_data:/data alpine rm /data/kv-config.json
+> docker run --rm -v subumbra_keys_data:/data alpine rm /data/kv-config.json
 > ```
 > Then rerun bootstrap.
 
@@ -255,14 +255,14 @@ If `post-bootstrap.sh` warns about stale container tokens:
 docker compose up -d --force-recreate
 ```
 
-### Emergency adapter expiry (forge-side only)
+### Emergency adapter expiry (subumbra-keys-side only)
 
 ```bash
-./scripts/forge-expire-adapter.sh <adapter_id>
+./scripts/subumbra-expire-adapter.sh <adapter_id>
 docker compose up -d --force-recreate subumbra-keys
 ```
 
-This blocks new forge record fetches for that adapter. It does **not** revoke
+This blocks new subumbra record fetches for that adapter. It does **not** revoke
 Worker-side token authority. For full revocation, run full re-bootstrap.
 
 ---
