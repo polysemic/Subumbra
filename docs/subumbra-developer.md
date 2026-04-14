@@ -33,6 +33,10 @@ git commit -m "Round 42: description"
 git push -u origin round-42-topic
 ```
 
+Preferred rule: push the branch to GitHub before asking another LLM to test it.
+That keeps the VPS test target tied to a real commit SHA instead of a local-only
+workspace state.
+
 ### VPS (pull + run + verify only)
 
 ```bash
@@ -45,6 +49,70 @@ git branch --show-current
 git rev-parse --short HEAD   # confirm expected SHA
 git status                   # must be clean
 ```
+
+For council verification reports, always record:
+
+- VPS path under test
+- branch name
+- commit SHA
+- whether the checkout was clean or required a temporary staging path
+
+### If the VPS cannot pull the branch cleanly
+
+Use this only as a fallback when the branch is not yet reachable from GitHub or
+when you need to test a local commit exactly as-built.
+
+1. Create a local bundle:
+
+```bash
+git bundle create subumbra-round.bundle <branch-name>
+```
+
+2. Copy the bundle to the VPS:
+
+```bash
+scp subumbra-round.bundle subumbra:/tmp/
+```
+
+3. On the VPS, fetch and check out a test branch:
+
+```bash
+ssh subumbra
+cd ~/subumbra-r41test
+git fetch /tmp/subumbra-round.bundle <branch-name>:<vps-test-branch>
+git checkout <vps-test-branch>
+```
+
+Document this in the verification report as a staging workaround.
+
+### If bootstrap files or harness files are missing on the VPS
+
+If a full smoke test requires live bootstrap inputs or the council harness is
+not present in the VPS checkout, use `scp` deliberately and document it:
+
+```bash
+scp .env.bootstrap_bak subumbra:/tmp/
+scp -r council scripts/council subumbra:subumbra-r41test/
+```
+
+This is acceptable for verification when:
+
+- the missing file is an operator input such as `.env.bootstrap_bak`, or
+- the missing file is harness scaffolding needed to run official proof capture
+
+Any such copy step must be logged in the verification report.
+
+### Copy proof artifacts back into the local round folder
+
+After a VPS proof run succeeds, copy the resulting `runs/<run-id>/` artifacts
+back into the local repo so the council record stays with the branch:
+
+```bash
+mkdir -p council/<round>/runs
+scp -r subumbra:subumbra-r41test/council/<round>/runs/<run-id> council/<round>/runs/
+```
+
+Do not leave the only official PASS evidence stranded on the VPS.
 
 ### Merge to main (only after VPS passes)
 
@@ -255,3 +323,5 @@ Before testing on the VPS, confirm:
 4. Did I rebuild/recreate if runtime code changed?
 5. Is `git status` clean on the VPS?
 6. Did I write down what passed or failed?
+7. If I used `scp`, bundle staging, or a temporary VPS checkout, did I log it?
+8. Did I copy PASS proof artifacts back into the local round folder?

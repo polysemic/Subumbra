@@ -16,10 +16,10 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
 
-COPY keyvault-bootstrap.py .
+COPY subumbra-bootstrap.py .
 
 # Data volume (shared with subumbra-keys)
 RUN mkdir -p /app/data
 
 # -u = unbuffered so progress lines appear immediately in docker logs
-ENTRYPOINT ["python3", "-u", "keyvault-bootstrap.py"]
+ENTRYPOINT ["python3", "-u", "subumbra-bootstrap.py"]
