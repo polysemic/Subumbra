@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-keyvault-bootstrap — V2 Asymmetric Envelope Encryption & Deployment.
+subumbra-bootstrap — V2 Asymmetric Envelope Encryption & Deployment.
 
 Usage (interactive — primary):
     docker compose --profile bootstrap run --rm -it bootstrap
@@ -19,7 +19,7 @@ What it does (full bootstrap, in order):
   4. Confirms with the operator before proceeding (interactive mode only)
   5. Generates an RSA-4096 key pair (RAM only)
   6. Writes public key to /app/data/public_key.pem (not sensitive)
-  7. Generates NEW runtime auth tokens (per-adapter forge tokens, FORGE_HMAC_KEY)
+  7. Generates NEW runtime auth tokens (per-adapter Subumbra tokens, SUBUMBRA_HMAC_KEY)
   8. Encrypts each API key: per-key DEK -> AES-256-GCM (AAD bound), DEK -> RSA-OAEP wrap
   9. Copies worker source to a temp dir and deploys via wrangler
  10. Pushes WORKER_PRIVATE_KEY + WORKER_KEY_FINGERPRINT + auth tokens to CF Secrets
@@ -41,7 +41,7 @@ ROTATION NOTE (full bootstrap):
 ROTATION NOTE (--rotate mode):
   Single-key rotation uses the existing public key on disk.  Only the
   targeted record changes.  No Cloudflare interaction or service restart
-  needed.  forge-keys serves the new record on next request automatically.
+  needed.  subumbra-keys serves the new record on next request automatically.
 """
 
 from __future__ import annotations
@@ -75,7 +75,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 BANNER = """
 ╔══════════════════════════════════════════════════════════════════╗
-║       KeyVault Bootstrap — V2 Envelope Encryption                ║
+║       Subumbra Bootstrap — V2 Envelope Encryption                ║
 ║  API keys exist in RAM only.  Nothing sensitive is written.      ║
 ║                                                                  ║
 ║  Full:     docker compose --profile bootstrap run --rm -it       ║
@@ -103,9 +103,9 @@ PROVIDER_REGISTRY_KV_KEY = "provider_registry_v1"
 
 ADAPTER_SCOPE_VARS: dict[str, str] = {
     "litellm": "LITELLM_ALLOWED_KEYS",
-    "keyvault-proxy": "PROXY_ALLOWED_KEYS",
-    "adapter-probe": "PROBE_ALLOWED_KEYS",
-    "keyvault-ui": "UI_ALLOWED_KEYS",
+    "subumbra-proxy": "PROXY_ALLOWED_KEYS",
+    "subumbra-probe": "PROBE_ALLOWED_KEYS",
+    "subumbra-ui": "UI_ALLOWED_KEYS",
 }
 BUILTIN_ADAPTER_IDS = tuple(ADAPTER_SCOPE_VARS.keys())
 BUILTIN_TOKEN_SUFFIXES = {"LITELLM", "PROXY", "UI", "PROBE"}
@@ -244,8 +244,18 @@ def _project_builtin_provider_registry(entries: list[dict]) -> list[dict]:
     return _validate_live_provider_registry(projected, "projected built-in provider registry")
 
 
-def _build_live_provider_registry_json() -> str:
+def _build_live_provider_registry_json(
+    provider_id_filter: "set[str] | None" = None,
+) -> str:
+    """Build the JSON blob pushed to Cloudflare KV.
+
+    provider_id_filter: when set, only built-in entries whose provider_id is in
+    the filter are included.  Custom provider entries are always included.
+    Pass None (default) to include all built-ins, e.g. for --push-registry.
+    """
     builtins = _project_builtin_provider_registry(_load_provider_registry())
+    if provider_id_filter is not None:
+        builtins = [e for e in builtins if e["provider_id"] in provider_id_filter]
     custom = _load_custom_provider_registry()
     merged = builtins + custom
     _validate_live_provider_registry(merged, "merged live provider registry")
@@ -397,24 +407,24 @@ def _build_adapter_registry(
             "issued_at": issued_at,
             "expires_at": expires_at,
         },
-        "keyvault-proxy": {
-            "token": adapter_tokens["keyvault-proxy"],
-            "allowed_keys": allowed_keys_by_adapter["keyvault-proxy"],
+        "subumbra-proxy": {
+            "token": adapter_tokens["subumbra-proxy"],
+            "allowed_keys": allowed_keys_by_adapter["subumbra-proxy"],
             "can_list_keys": False,
             "can_read_stats": False,
             "issued_at": issued_at,
             "expires_at": expires_at,
         },
-        "adapter-probe": {
-            "token": adapter_tokens["adapter-probe"],
-            "allowed_keys": allowed_keys_by_adapter["adapter-probe"],
+        "subumbra-probe": {
+            "token": adapter_tokens["subumbra-probe"],
+            "allowed_keys": allowed_keys_by_adapter["subumbra-probe"],
             "can_list_keys": False,
             "can_read_stats": False,
             "issued_at": issued_at,
             "expires_at": expires_at,
         },
-        "keyvault-ui": {
-            "token": adapter_tokens["keyvault-ui"],
+        "subumbra-ui": {
+            "token": adapter_tokens["subumbra-ui"],
             "allowed_keys": [],
             "can_list_keys": True,
             "can_read_stats": True,
@@ -437,10 +447,18 @@ def _build_adapter_registry(
 
 
 def _prompt_allowed_keys(adapter_label: str, available_key_ids: list[str]) -> list[str]:
-    print(f"\n  {adapter_label} allowed key_ids (comma-separated, Enter for none)")
-    print("    Available: " + ", ".join(available_key_ids))
-    raw = input("    Allowed key_ids: ").strip()
-    return _parse_allowed_keys_csv(raw)
+    available_set = set(available_key_ids)
+    while True:
+        print(f"\n  {adapter_label} allowed key_ids (comma-separated, Enter for none)")
+        print("    Available: " + ", ".join(available_key_ids))
+        raw = input("    Allowed key_ids: ").strip()
+        result = _parse_allowed_keys_csv(raw)
+        invalid = [k for k in result if k not in available_set]
+        if invalid:
+            print(f"  ✗  Unknown key_id(s): {', '.join(sorted(invalid))}")
+            print(f"     Valid options: {', '.join(available_key_ids)}\n")
+            continue
+        return result
 
 
 def _build_litellm_alignment_lines(
@@ -449,7 +467,7 @@ def _build_litellm_alignment_lines(
 ) -> list[str]:
     lines = [
         "  LiteLLM key_id alignment:",
-        "    Update litellm/config.yaml so each model uses the exact forge key_id entered during bootstrap.",
+        "    Update litellm/config.yaml so each model uses the exact Subumbra key_id entered during bootstrap.",
         "    Copy/paste hints for LiteLLM-scoped keys:",
     ]
     litellm_key_ids = allowed_keys_by_adapter.get("litellm", [])
@@ -459,7 +477,7 @@ def _build_litellm_alignment_lines(
 
     for key_id in litellm_key_ids:
         provider = api_keys[key_id][0]
-        lines.append(f'      {provider:12s} {key_id:20s} api_key: "forge:{key_id}"')
+        lines.append(f'      {provider:12s} {key_id:20s} api_key: "subumbra:{key_id}"')
     return lines
 
 
@@ -561,10 +579,25 @@ def _get_push_registry_cf_creds() -> dict[str, str]:
     if not sys.stdin.isatty():
         die("Missing CF_API_TOKEN / CF_ACCOUNT_ID / CF_WORKER_NAME for --push-registry")
 
+    while True:
+        cf_token = getpass.getpass("  Cloudflare API token: ").strip()
+        if cf_token:
+            break
+        print("  ✗  API token cannot be empty.\n")
+    while True:
+        cf_account_id = input("  Cloudflare account ID: ").strip()
+        if cf_account_id:
+            break
+        print("  ✗  Account ID cannot be empty.\n")
+    while True:
+        cf_worker_name = input("  Cloudflare Worker name: ").strip()
+        if cf_worker_name:
+            break
+        print("  ✗  Worker name cannot be empty.\n")
     return {
-        "CF_API_TOKEN": getpass.getpass("  Cloudflare API token: ").strip(),
-        "CF_ACCOUNT_ID": input("  Cloudflare account ID: ").strip(),
-        "CF_WORKER_NAME": input("  Cloudflare Worker name: ").strip(),
+        "CF_API_TOKEN":   cf_token,
+        "CF_ACCOUNT_ID":  cf_account_id,
+        "CF_WORKER_NAME": cf_worker_name,
     }
 
 
@@ -617,7 +650,7 @@ def _load_env_fallback() -> tuple[dict[str, tuple[str, str, str, str, str]], dic
 
     # CF_WORKER_NAME may default
     cf_creds["CF_WORKER_NAME"] = (
-        os.environ.get("CF_WORKER_NAME", "").strip() or "keyvault-proxy"
+        os.environ.get("CF_WORKER_NAME", "").strip() or "subumbra-proxy"
     )
 
     api_keys: dict[str, tuple[str, str, str, str, str]] = {}
@@ -663,7 +696,7 @@ def _load_env_fallback() -> tuple[dict[str, tuple[str, str, str, str, str]], dic
     }
     for adapter_id, scope_var in custom_scope_vars.items():
         allowed_keys_by_adapter[adapter_id] = _parse_allowed_keys_csv(os.environ.get(scope_var, ""))
-    if allowed_keys_by_adapter["keyvault-ui"]:
+    if allowed_keys_by_adapter["subumbra-ui"]:
         die("UI_ALLOWED_KEYS must remain empty")
 
     token_ttl_days = _parse_token_ttl_days(os.environ.get("TOKEN_TTL_DAYS", "90"))
@@ -687,7 +720,7 @@ def run_interactive_wizard(
 
     # ── Screen 1: Cloudflare Credentials ─────────────────────────────────────
     print("\n" + "═" * 70)
-    print("  KeyVault Bootstrap — Step 1 of 4: Cloudflare Credentials")
+    print("  Subumbra Bootstrap — Step 1 of 4: Cloudflare Credentials")
     print("  These values exist in RAM only for the duration of this session.")
     print("═" * 70 + "\n")
     print("  Minimum required CF API Token scopes:")
@@ -706,7 +739,7 @@ def run_interactive_wizard(
             break
         print("  ✗  Account ID cannot be empty. Please try again.\n")
 
-    cf_worker_name = input("  CF Worker name [keyvault-proxy]: ").strip() or "keyvault-proxy"
+    cf_worker_name = input("  CF Worker name [subumbra-proxy]: ").strip() or "subumbra-proxy"
 
     cf_creds: dict[str, str] = {
         "CF_API_TOKEN":   cf_token,
@@ -720,7 +753,7 @@ def run_interactive_wizard(
 
     while True:
         print("\n" + "═" * 70)
-        print("  KeyVault Bootstrap — Step 2 of 4: Provider API Keys")
+        print("  Subumbra Bootstrap — Step 2 of 4: Provider API Keys")
         print("  Add one key per provider. Press Enter when finished.\n")
         print("  Known providers:")
         for i, (provider, _) in enumerate(KNOWN_PROVIDERS, 1):
@@ -813,21 +846,21 @@ def run_interactive_wizard(
         ok(f"{provider:12s}  →  {key_id}  (key hidden)")
 
     print("\n" + "═" * 70)
-    print("  KeyVault Bootstrap — Step 3 of 4: Adapter Key Scopes")
+    print("  Subumbra Bootstrap — Step 3 of 4: Adapter Key Scopes")
     print("═" * 70)
-    print("  Choose which key_ids each built-in adapter may fetch from forge-keys.")
-    print("  1. LiteLLM: keys referenced by forge:key_id values in litellm/config.yaml")
-    print("  2. keyvault-proxy: keys available through the explicit/transparent sidecar")
-    print("  3. adapter-probe: keys available to the verification/proof container")
-    print("  keyvault-ui is metadata-only and never receives ciphertext fetch scope.")
+    print("  Choose which key_ids each built-in adapter may fetch from subumbra-keys.")
+    print("  1. LiteLLM: keys referenced by subumbra:key_id values in litellm/config.yaml")
+    print("  2. subumbra-proxy: keys available through the explicit/transparent sidecar")
+    print("  3. subumbra-probe: keys available to the verification/proof container")
+    print("  subumbra-ui is metadata-only and never receives ciphertext fetch scope.")
     print("═" * 70 + "\n")
 
     available_key_ids = sorted(api_keys.keys())
     allowed_keys_by_adapter = {
         "litellm": _prompt_allowed_keys("LiteLLM", available_key_ids),
-        "keyvault-proxy": _prompt_allowed_keys("keyvault-proxy", available_key_ids),
-        "adapter-probe": _prompt_allowed_keys("adapter-probe", available_key_ids),
-        "keyvault-ui": [],
+        "subumbra-proxy": _prompt_allowed_keys("subumbra-proxy", available_key_ids),
+        "subumbra-probe": _prompt_allowed_keys("subumbra-probe", available_key_ids),
+        "subumbra-ui": [],
     }
 
     while True:
@@ -870,23 +903,50 @@ def _create_or_reuse_kv_namespace(cf_creds: dict[str, str]) -> str:
         return _load_kv_namespace_id()
 
     title = f"{cf_creds['CF_WORKER_NAME']}-PROVIDER_REGISTRY_KV"
-    url = (
+    base_url = (
         "https://api.cloudflare.com/client/v4/accounts/"
         f"{cf_creds['CF_ACCOUNT_ID']}/storage/kv/namespaces"
     )
+    auth_headers = {
+        "Authorization": f"Bearer {cf_creds['CF_API_TOKEN']}",
+        "Content-Type": "application/json",
+    }
+
+    # List existing namespaces and reuse if a matching title is found.
+    list_req = urllib.request.Request(base_url, headers=auth_headers)
+    try:
+        with urllib.request.urlopen(list_req) as resp:
+            list_result = json.loads(resp.read())
+    except Exception as exc:
+        die(f"Failed to list KV namespaces: {exc}")
+
+    existing = list_result.get("result") or []
+    if len(existing) >= 100:
+        warn(
+            "KV namespace list returned 100 results; the account may have more "
+            "namespaces than the page limit. If a matching namespace exists on "
+            "a later page it will not be found and a new one will be created."
+        )
+    for entry in existing:
+        if entry.get("title") == title:
+            namespace_id = entry["id"]
+            info(f"Reusing existing KV namespace: {title}")
+            with KV_CONFIG_FILE.open("w") as fh:
+                json.dump({"namespace_id": namespace_id, "title": title}, fh, indent=2)
+                fh.write("\n")
+            return namespace_id
+
+    # No match found — create a new namespace.
     payload = json.dumps({"title": title}).encode()
-    req = urllib.request.Request(
-        url,
+    create_req = urllib.request.Request(
+        base_url,
         data=payload,
         method="POST",
-        headers={
-            "Authorization": f"Bearer {cf_creds['CF_API_TOKEN']}",
-            "Content-Type": "application/json",
-        },
+        headers=auth_headers,
     )
 
     try:
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(create_req) as resp:
             result = json.loads(resp.read())
     except Exception as exc:
         die(f"Failed to create provider-registry KV namespace: {exc}")
@@ -916,6 +976,7 @@ def deploy_worker(
     pub_key_fp: str,
     adapter_tokens: dict[str, str],
     forge_hmac_key: str,
+    provider_id_filter: "set[str] | None" = None,
 ) -> str:
     """
     Deploy the CF Worker and push V2 secrets.  Returns the worker URL.
@@ -926,8 +987,8 @@ def deploy_worker(
       3. wrangler secret put WORKER_PRIVATE_KEY
       4. wrangler secret put WORKER_KEY_FINGERPRINT
       5. wrangler secret delete MASTER_DECRYPTION_KEY (V1 cleanup, best-effort)
-      6. wrangler secret put FORGE_ADAPTER_TOKENS
-      7. wrangler secret put FORGE_HMAC_KEY
+      6. wrangler secret put SUBUMBRA_ADAPTER_TOKENS
+      7. wrangler secret put SUBUMBRA_HMAC_KEY
     """
     if not WORKER_SRC.exists():
         die(
@@ -947,7 +1008,7 @@ def deploy_worker(
         "CI": "true",
     }
 
-    with tempfile.TemporaryDirectory(prefix="keyvault-worker-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="subumbra-worker-") as tmp:
         tmp_dir = Path(tmp)
         shutil.copytree(WORKER_SRC, tmp_dir / "worker")
         work_dir = tmp_dir / "worker"
@@ -966,7 +1027,7 @@ def deploy_worker(
             info(line)
 
         step("Pushing provider registry to Cloudflare KV")
-        registry_json = _build_live_provider_registry_json()
+        registry_json = _build_live_provider_registry_json(provider_id_filter=provider_id_filter)
         _run(
             [
                 "wrangler", "kv", "key", "put",
@@ -1017,28 +1078,42 @@ def deploy_worker(
         else:
             info("MASTER_DECRYPTION_KEY not present — already clean")
 
-        # ── push FORGE_ADAPTER_TOKENS ─────────────────────────────────────────
-        step("Pushing FORGE_ADAPTER_TOKENS to CF Secrets")
+        # ── push SUBUMBRA_ADAPTER_TOKENS ─────────────────────────────────────
+        step("Pushing SUBUMBRA_ADAPTER_TOKENS to CF Secrets")
         adapter_tokens_json = json.dumps(list(adapter_tokens.values()), separators=(",", ":"))
         _run(
-            ["wrangler", "secret", "put", "FORGE_ADAPTER_TOKENS",
+            ["wrangler", "secret", "put", "SUBUMBRA_ADAPTER_TOKENS",
              "--name", worker_name],
             cwd=work_dir,
             env=env,
             input_text=adapter_tokens_json + "\n",
         )
-        ok("FORGE_ADAPTER_TOKENS pushed")
+        ok("SUBUMBRA_ADAPTER_TOKENS pushed")
 
-        # ── push FORGE_HMAC_KEY ───────────────────────────────────────────────
-        step("Pushing FORGE_HMAC_KEY to CF Secrets")
+        # ── push SUBUMBRA_HMAC_KEY ────────────────────────────────────────────
+        step("Pushing SUBUMBRA_HMAC_KEY to CF Secrets")
         _run(
-            ["wrangler", "secret", "put", "FORGE_HMAC_KEY",
+            ["wrangler", "secret", "put", "SUBUMBRA_HMAC_KEY",
              "--name", worker_name],
             cwd=work_dir,
             env=env,
             input_text=forge_hmac_key + "\n",
         )
-        ok("FORGE_HMAC_KEY pushed")
+        ok("SUBUMBRA_HMAC_KEY pushed")
+
+        step("Cleaning up stale FORGE_ADAPTER_TOKENS / FORGE_HMAC_KEY secrets")
+        for secret_name in ("FORGE_ADAPTER_TOKENS", "FORGE_HMAC_KEY"):
+            del_result = subprocess.run(
+                ["wrangler", "secret", "delete", secret_name, "--name", worker_name, "--force"],
+                cwd=work_dir,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            if del_result.returncode == 0:
+                ok(f"Deleted stale {secret_name} secret")
+            else:
+                info(f"{secret_name} not present — already clean")
 
     # Derive URL — wrangler prints it, but it's also deterministic
     worker_url = f"https://{worker_name}.workers.dev"
@@ -1105,7 +1180,7 @@ def run_rotate_wizard() -> None:
 
     # ── 2. Display info ──────────────────────────────────────────────────
     print("\n" + "═" * 70)
-    print("  KeyVault — Per-Key Rotation")
+    print("  Subumbra — Per-Key Rotation")
     print("  Uses existing RSA public key — no Cloudflare interaction needed")
     print("═" * 70)
     print(f"\n  Public key fingerprint: {fp}")
@@ -1236,7 +1311,7 @@ def run_rotate_wizard() -> None:
     ok(f"Updated {key_id} — only this record changed")
     info("All other records are untouched")
     info("No Cloudflare interaction, no runtime token changes")
-    info("forge-keys will serve the new record on next request")
+    info("subumbra-keys will serve the new record on next request")
     print()
 
 
@@ -1307,7 +1382,7 @@ def main() -> None:
     # ── Screen 3: confirmation (interactive path only) ────────────────────
     if use_wizard:
         print("\n" + "═" * 70)
-        print("  KeyVault Bootstrap — Step 4 of 4: Confirm")
+        print("  Subumbra Bootstrap — Step 4 of 4: Confirm")
         print("═" * 70 + "\n")
 
         account_id = cf_creds["CF_ACCOUNT_ID"]
@@ -1377,22 +1452,22 @@ def main() -> None:
     step("Generating runtime auth tokens")
     adapter_tokens = {
         "litellm": secrets.token_hex(32),
-        "keyvault-proxy": secrets.token_hex(32),
-        "keyvault-ui": secrets.token_hex(32),
-        "adapter-probe": secrets.token_hex(32),
+        "subumbra-proxy": secrets.token_hex(32),
+        "subumbra-ui": secrets.token_hex(32),
+        "subumbra-probe": secrets.token_hex(32),
     }
     for adapter_id in allowed_keys_by_adapter:
         if adapter_id not in adapter_tokens:
             adapter_tokens[adapter_id] = secrets.token_hex(32)
     forge_hmac_key = secrets.token_hex(32)   # 64-char hex
     ok("FORGE_TOKEN_LITELLM generated")
-    ok("FORGE_TOKEN_PROXY generated")
-    ok("FORGE_TOKEN_UI generated")
-    ok("FORGE_TOKEN_PROBE generated")
+    ok("SUBUMBRA_TOKEN_PROXY generated")
+    ok("SUBUMBRA_TOKEN_UI generated")
+    ok("SUBUMBRA_TOKEN_PROBE generated")
     for adapter_id in allowed_keys_by_adapter:
         if adapter_id not in BUILTIN_ADAPTER_IDS:
             ok(f"FORGE_TOKEN_{_normalize_adapter_id(adapter_id)} generated")
-    ok("FORGE_HMAC_KEY generated")
+    ok("SUBUMBRA_HMAC_KEY generated")
     adapter_registry = _build_adapter_registry(
         adapter_tokens,
         allowed_keys_by_adapter,
@@ -1425,17 +1500,19 @@ def main() -> None:
     # CRITICAL ORDER: remote secrets are pushed BEFORE keys.json is written.
     # If the deploy fails here, keys.json still holds the old blobs that match
     # the old key pair — the system remains consistent.
+    bootstrapped_providers = {v[0] for v in api_keys.values()}
     worker_url = deploy_worker(
         cf_creds, private_key_b64, pub_key_fp,
         adapter_tokens, forge_hmac_key,
+        provider_id_filter=bootstrapped_providers,
     )
     ok(f"Worker URL: {worker_url}")
 
     # ── Step 9: atomically write encrypted blobs ─────────────────────────
     # Write to a temp file in the same directory, then os.replace() for atomic
-    # promotion.  forge-keys will never read a partially written file.
+    # promotion.  subumbra-keys will never read a partially written file.
     # Mode 0o644: keys.json holds ciphertext only — safe to be world-readable.
-    # The forge-keys container runs as a non-root 'forge' user and must be able
+    # The subumbra-keys container runs as a non-root 'subumbra' user and must be able
     # to read this file.  runtime.env (auth tokens) stays at 0o600.
     step(f"Atomically writing encrypted blobs → {KEYS_FILE}")
     tmp_keys = KEYS_FILE.with_suffix(".json.tmp")
@@ -1455,17 +1532,17 @@ def main() -> None:
     # and do NOT print values to stdout (which may be captured in CI/CD logs).
     step(f"Writing runtime env → {RUNTIME_ENV_OUT}")
     runtime_env_lines = [
-        f"# Generated by keyvault-bootstrap on {now_iso}",
+        f"# Generated by subumbra-bootstrap on {now_iso}",
         "# PRIVILEGED — treat like an API key; restrict access to this file",
-        f"FORGE_ADAPTER_REGISTRY={json.dumps(adapter_registry, separators=(',', ':'))}",
+        f"SUBUMBRA_ADAPTER_REGISTRY={json.dumps(adapter_registry, separators=(',', ':'))}",
         f"LITELLM_ALLOWED_KEYS={','.join(allowed_keys_by_adapter['litellm'])}",
-        f"PROXY_ALLOWED_KEYS={','.join(allowed_keys_by_adapter['keyvault-proxy'])}",
-        f"PROBE_ALLOWED_KEYS={','.join(allowed_keys_by_adapter['adapter-probe'])}",
-        f"UI_ALLOWED_KEYS={','.join(allowed_keys_by_adapter['keyvault-ui'])}",
+        f"PROXY_ALLOWED_KEYS={','.join(allowed_keys_by_adapter['subumbra-proxy'])}",
+        f"PROBE_ALLOWED_KEYS={','.join(allowed_keys_by_adapter['subumbra-probe'])}",
+        f"UI_ALLOWED_KEYS={','.join(allowed_keys_by_adapter['subumbra-ui'])}",
         f"FORGE_TOKEN_LITELLM={adapter_tokens['litellm']}",
-        f"FORGE_TOKEN_PROXY={adapter_tokens['keyvault-proxy']}",
-        f"FORGE_TOKEN_UI={adapter_tokens['keyvault-ui']}",
-        f"FORGE_TOKEN_PROBE={adapter_tokens['adapter-probe']}",
+        f"SUBUMBRA_TOKEN_PROXY={adapter_tokens['subumbra-proxy']}",
+        f"SUBUMBRA_TOKEN_UI={adapter_tokens['subumbra-ui']}",
+        f"SUBUMBRA_TOKEN_PROBE={adapter_tokens['subumbra-probe']}",
     ]
     for adapter_id in allowed_keys_by_adapter:
         if adapter_id not in BUILTIN_ADAPTER_IDS:
@@ -1474,7 +1551,7 @@ def main() -> None:
             )
     runtime_env_lines.extend(
         [
-            f"FORGE_HMAC_KEY={forge_hmac_key}",
+            f"SUBUMBRA_HMAC_KEY={forge_hmac_key}",
             f"CF_WORKER_URL={worker_url}",
             "# Public key fingerprint (audit trail — not sensitive)",
             f"WORKER_KEY_FINGERPRINT={pub_key_fp}",
@@ -1523,11 +1600,14 @@ def main() -> None:
 
   Next steps:
     1. ./post-bootstrap.sh
-       (copies FORGE_ADAPTER_REGISTRY, per-adapter forge tokens, FORGE_HMAC_KEY, CF_WORKER_URL into .env)
-    2. Start/restart ALL services (new tokens generated):
+       (copies SUBUMBRA_ADAPTER_REGISTRY, per-adapter Subumbra tokens, SUBUMBRA_HMAC_KEY, CF_WORKER_URL into .env)
+    2. ⚠  Update litellm/config.yaml with the correct subumbra:key_id values — see
+       copy/paste hints below. LiteLLM will fail to load models if key_ids do not
+       match exactly. Do this BEFORE restarting services.
+    3. Start/restart ALL services (new tokens generated):
        docker compose up -d --force-recreate
-    3. Check forge-keys health:       docker compose ps
-    4. Check worker health:           curl {worker_url}/health
+    4. Check subumbra-keys health:    docker compose ps
+    5. Check worker health:           curl {worker_url}/health
 
 {chr(10).join(litellm_alignment_lines)}
 

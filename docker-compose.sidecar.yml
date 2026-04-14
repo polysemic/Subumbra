@@ -1,21 +1,21 @@
 services:
-  forge-keys:
+  subumbra-keys:
     build:
-      context: ./forge-keys
+      context: ./subumbra-keys
       dockerfile: Dockerfile
     restart: unless-stopped
     networks:
       - internal
     volumes:
-      - forge_keys_data:/app/data
+      - subumbra_keys_data:/app/data
     environment:
-      FORGE_ACCESS_TOKEN: ${FORGE_ACCESS_TOKEN}
-      FORGE_HMAC_KEY: ${FORGE_HMAC_KEY}
+      SUBUMBRA_ACCESS_TOKEN: ${SUBUMBRA_ACCESS_TOKEN}
+      SUBUMBRA_HMAC_KEY: ${SUBUMBRA_HMAC_KEY}
       DATA_DIR: /app/data
 
-  keyvault-proxy:
+  subumbra-proxy:
     build:
-      context: ./keyvault-proxy
+      context: ./subumbra-proxy
       dockerfile: Dockerfile
     restart: unless-stopped
     networks:
@@ -24,14 +24,14 @@ services:
     ports:
       - "127.0.0.1:8090:8090"
     environment:
-      FORGE_ACCESS_TOKEN: ${FORGE_ACCESS_TOKEN}
-      FORGE_HMAC_KEY: ${FORGE_HMAC_KEY}
-      FORGE_URL: http://forge-keys:9090
+      SUBUMBRA_ACCESS_TOKEN: ${SUBUMBRA_ACCESS_TOKEN}
+      SUBUMBRA_HMAC_KEY: ${SUBUMBRA_HMAC_KEY}
+      SUBUMBRA_KEYS_URL: http://subumbra-keys:9090
       CF_WORKER_URL: ${CF_WORKER_URL}
       CF_ACCESS_CLIENT_ID: ${CF_ACCESS_CLIENT_ID:-}
       CF_ACCESS_CLIENT_SECRET: ${CF_ACCESS_CLIENT_SECRET:-}
     depends_on:
-      forge-keys:
+      subumbra-keys:
         condition: service_healthy
 
 networks:
@@ -42,5 +42,5 @@ networks:
     driver: bridge
 
 volumes:
-  forge_keys_data:
+  subumbra_keys_data:
     driver: local

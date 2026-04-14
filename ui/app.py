@@ -1,8 +1,8 @@
 """
-KeyVault UI — management dashboard
+Subumbra UI — management dashboard
 ────────────────────────────────────
 Read-only dashboard; never exposes or fetches key values.
-Talks to forge-keys over the Docker internal network.
+Talks to subumbra-keys over the Docker internal network.
 
 Routes:
   GET /           → dashboard HTML
@@ -24,8 +24,8 @@ from flask import Flask, Response, jsonify, render_template, request
 # Config
 # ─────────────────────────────────────────────────────────────────────────────
 
-FORGE_URL = os.environ.get("FORGE_URL", "http://forge-keys:9090").rstrip("/")
-FORGE_ACCESS_TOKEN = os.environ.get("FORGE_ACCESS_TOKEN", "")
+SUBUMBRA_KEYS_URL = os.environ.get("SUBUMBRA_KEYS_URL", "http://subumbra-keys:9090").rstrip("/")
+SUBUMBRA_ACCESS_TOKEN = os.environ.get("SUBUMBRA_ACCESS_TOKEN", "")
 WORKER_URL = os.environ.get("CF_WORKER_URL", "").rstrip("/")
 UI_USERNAME = os.environ.get("UI_USERNAME", "")
 UI_PASSWORD = os.environ.get("UI_PASSWORD", "")
@@ -35,7 +35,7 @@ UI_PASSWORD = os.environ.get("UI_PASSWORD", "")
 # ─────────────────────────────────────────────────────────────────────────────
 
 app = Flask(__name__)
-log = logging.getLogger("keyvault-ui")
+log = logging.getLogger("subumbra-ui")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -43,8 +43,8 @@ logging.basicConfig(
     datefmt="%Y-%m-%dT%H:%M:%SZ",
 )
 
-if not FORGE_ACCESS_TOKEN:
-    logging.warning("ui: FORGE_ACCESS_TOKEN not set — dashboard will show errors")
+if not SUBUMBRA_ACCESS_TOKEN:
+    logging.warning("subumbra-ui: SUBUMBRA_ACCESS_TOKEN not set — dashboard will show errors")
 if not UI_USERNAME:
     log.info("ui: UI auth not configured; running unauthenticated (localhost only)")
 
@@ -54,7 +54,7 @@ if not UI_USERNAME:
 
 _http = httpx.Client(
     timeout=httpx.Timeout(connect=2.0, read=5.0, write=2.0, pool=2.0),
-    headers={"X-Forge-Token": FORGE_ACCESS_TOKEN},
+    headers={"X-Subumbra-Token": SUBUMBRA_ACCESS_TOKEN},
 )
 
 _worker_http = httpx.Client(
@@ -62,19 +62,19 @@ _worker_http = httpx.Client(
 )
 
 
-def _forge_get(path: str) -> tuple[dict | list | None, str | None]:
+def _subumbra_get(path: str) -> tuple[dict | list | None, str | None]:
     """
-    GET {FORGE_URL}{path}.  Returns (data, error_string).
+    GET {SUBUMBRA_KEYS_URL}{path}.  Returns (data, error_string).
     error_string is None on success.
     """
     try:
-        r = _http.get(f"{FORGE_URL}{path}")
+        r = _http.get(f"{SUBUMBRA_KEYS_URL}{path}")
         r.raise_for_status()
         return r.json(), None
     except httpx.HTTPStatusError as e:
-        return None, f"forge-keys returned {e.response.status_code}"
+        return None, f"subumbra-keys returned {e.response.status_code}"
     except httpx.RequestError as e:
-        return None, f"forge-keys unreachable: {type(e).__name__}"
+        return None, f"subumbra-keys unreachable: {type(e).__name__}"
 
 
 def _require_auth(view):
@@ -86,13 +86,13 @@ def _require_auth(view):
         auth = request.authorization
         if not auth:
             log.warning("ui: auth failed remote=%s", request.remote_addr)
-            return Response("Unauthorized", 401, {"WWW-Authenticate": 'Basic realm="KeyVault"'})
+            return Response("Unauthorized", 401, {"WWW-Authenticate": 'Basic realm="Subumbra"'})
 
         user_ok = hmac.compare_digest(auth.username or "", UI_USERNAME)
         pass_ok = hmac.compare_digest(auth.password or "", UI_PASSWORD)
         if not (user_ok and pass_ok):
             log.warning("ui: auth failed remote=%s", request.remote_addr)
-            return Response("Unauthorized", 401, {"WWW-Authenticate": 'Basic realm="KeyVault"'})
+            return Response("Unauthorized", 401, {"WWW-Authenticate": 'Basic realm="Subumbra"'})
 
         return view(*args, **kwargs)
 
@@ -148,22 +148,22 @@ def api_status():
     """
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
-    health_data, health_err = _forge_get("/health")
+    health_data, health_err = _subumbra_get("/health")
     forge_healthy = health_err is None and (health_data or {}).get("status") == "ok"
 
     worker_data, worker_err = _worker_get("/health")
     worker_reachable = worker_err is None and (worker_data or {}).get("status") == "ok"
 
-    keys_data, keys_err = _forge_get("/keys")
+    keys_data, keys_err = _subumbra_get("/keys")
     keys_list = (keys_data or {}).get("keys", []) if keys_err is None else []
 
-    stats_data, stats_err = _forge_get("/stats")
+    stats_data, stats_err = _subumbra_get("/stats")
     stats_map: dict[str, dict] = {}
     if stats_err is None and stats_data:
         for entry in stats_data.get("per_key", []):
             stats_map[entry["key_id"]] = entry
 
-    audit_data, audit_err = _forge_get("/audit")
+    audit_data, audit_err = _subumbra_get("/audit")
     audit_available = audit_err is None
     audit_events: list[dict] = []
     if audit_available and audit_data:

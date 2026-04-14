@@ -13,7 +13,7 @@ otherwise misunderstand.
 - Subumbra is a **universal zero-trust secret broker**, not a LiteLLM plugin.
 - LiteLLM is Adapter #1, not the product boundary.
 - The core product shape is:
-  - `forge-keys` for encrypted record storage and limited metadata access
+  - `subumbra-keys` for encrypted record storage and limited metadata access
   - Cloudflare Worker for decrypt/proxy enforcement
   - adapters/sidecars for app-facing integration
 
@@ -36,7 +36,7 @@ them.
 ## 3. Current Architecture Reality
 
 - The canonical core API is `POST /proxy`.
-- `forge-keys` is Docker-internal only and is not the public app-facing API.
+- `subumbra-keys` is Docker-internal only and is not the public app-facing API.
 - The Worker is the only place where provider secrets become usable plaintext.
 - The explicit sidecar/service path exists and is a real product direction, not
   just an experiment.
@@ -77,9 +77,9 @@ These docs are the main fresh-session anchors:
 - `README.md` for current install/use flow
 - `CLAUDE.md` for architecture overview
 - `docs/vps-deployment.md` for generic Ubuntu 24.04 VPS baseline
-- `docs/subumbra-fresh-install.md` for the clean reference install path
+- `docs/subumbra-install.md` for the clean reference install path
 - `docs/operator-guide.md` for live registry / operational flows
-- `docs/verification-policy.md` for harness and proof policy
+- `docs/subumbra-testing.md` for harness and proof policy
 
 ---
 
