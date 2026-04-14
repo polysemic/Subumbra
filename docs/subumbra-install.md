@@ -121,7 +121,7 @@ these down — you will need them in step 7.
 Bootstrap will:
 
 - generate a fresh RSA-4096 key pair
-- encrypt provider secrets into forge records
+- encrypt provider secrets into subumbra records
 - deploy the Worker via wrangler
 - create or reuse the KV namespace
 - push Worker secrets to Cloudflare
@@ -138,13 +138,13 @@ If bootstrap fails, read the error and rerun. Do not continue until it succeeds.
 ```
 
 This reads runtime state from the Docker volume and writes it into `.env`:
-`SUBUMBRA_ADAPTER_REGISTRY`, `FORGE_TOKEN_*`, `SUBUMBRA_HMAC_KEY`, `CF_WORKER_URL`,
+`SUBUMBRA_ADAPTER_REGISTRY`, `SUBUMBRA_TOKEN_*`, `SUBUMBRA_HMAC_KEY`, `CF_WORKER_URL`,
 and the `*_ALLOWED_KEYS` lists.
 
 Verify it landed:
 
 ```bash
-grep -E '^(FORGE_|CF_WORKER_URL|LITELLM_MASTER_KEY)' .env
+grep -E '^(SUBUMBRA_TOKEN_|CF_WORKER_URL|LITELLM_MASTER_KEY)' .env
 ```
 
 ---
@@ -201,7 +201,7 @@ Port exposure notes:
 export LITELLM_MASTER_KEY="$(sed -n 's/^LITELLM_MASTER_KEY=//p' .env)"
 export CF_WORKER_URL="$(sed -n 's/^CF_WORKER_URL=//p' .env)"
 
-# Forge health (from inside LiteLLM container — subumbra-keys is internal only)
+# subumbra-keys health (from inside LiteLLM container — subumbra-keys is internal only)
 docker exec litellm python3 -c \
   "import urllib.request; print(urllib.request.urlopen('http://subumbra-keys:9090/health').read().decode())"
 

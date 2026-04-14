@@ -241,7 +241,7 @@ def _init_audit_db() -> sqlite3.Connection | None:
         )
         conn.execute(
             """
-            CREATE TABLE IF NOT EXISTS forge_nonces (
+            CREATE TABLE IF NOT EXISTS subumbra_nonces (
                 nonce TEXT NOT NULL CHECK(length(nonce) BETWEEN 1 AND 64),
                 key_id TEXT NOT NULL,
                 created_at INTEGER NOT NULL,
@@ -389,7 +389,7 @@ def _nonce_ok(key_id: str, nonce: str) -> tuple[bool, str]:
         try:
             cursor = _audit_conn.execute(
                 """
-                INSERT OR IGNORE INTO forge_nonces (nonce, key_id, created_at)
+                INSERT OR IGNORE INTO subumbra_nonces (nonce, key_id, created_at)
                 VALUES (?, ?, ?)
                 """,
                 (nonce, key_id, created_at),
@@ -400,7 +400,7 @@ def _nonce_ok(key_id: str, nonce: str) -> tuple[bool, str]:
             _nonce_write_count += 1
             if _nonce_write_count % 50 == 0:
                 _audit_conn.execute(
-                    "DELETE FROM forge_nonces WHERE created_at < ?",
+                    "DELETE FROM subumbra_nonces WHERE created_at < ?",
                     (prune_before,),
                 )
                 _audit_conn.commit()

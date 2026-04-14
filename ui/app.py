@@ -133,8 +133,8 @@ def api_status():
 
     Shape:
     {
-      "forge_healthy":   bool,
-      "forge_error":     str | null,
+      "subumbra_keys_healthy":   bool,
+      "subumbra_keys_error":     str | null,
       "worker_reachable": bool,
       "worker_error":    str | null,
       "stats_available": bool,
@@ -149,7 +149,7 @@ def api_status():
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     health_data, health_err = _subumbra_get("/health")
-    forge_healthy = health_err is None and (health_data or {}).get("status") == "ok"
+    subumbra_keys_healthy = health_err is None and (health_data or {}).get("status") == "ok"
 
     worker_data, worker_err = _worker_get("/health")
     worker_reachable = worker_err is None and (worker_data or {}).get("status") == "ok"
@@ -187,8 +187,8 @@ def api_status():
 
     error = health_err or keys_err
     return jsonify({
-        "forge_healthy": forge_healthy,
-        "forge_error": error,
+        "subumbra_keys_healthy": subumbra_keys_healthy,
+        "subumbra_keys_error": error,
         "worker_reachable": worker_reachable,
         "worker_error": worker_err,
         "stats_available": stats_err is None,
