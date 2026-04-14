@@ -59,7 +59,7 @@ RUNTIME=$(docker compose run --rm -u 0 -T subumbra-keys cat /app/data/runtime.en
 # Its presence in runtime.env is for audit/diagnostic purposes only.
 
 SUBUMBRA_ADAPTER_REGISTRY=$(printf '%s\n' "$RUNTIME" | grep '^SUBUMBRA_ADAPTER_REGISTRY=' | cut -d= -f2-)
-mapfile -t SUBUMBRA_TOKEN_LINES < <(printf '%s\n' "$RUNTIME" | grep '^SUBUMBRA_TOKEN_' || true)
+mapfile -t SUBUMBRA_TOKEN_LINES < <(printf '%s\n' "$RUNTIME" | grep '^SUBUMBRA_TOKEN_' | grep -Ev '^SUBUMBRA_TOKEN_(LITELLM|PROXY|UI|PROBE)=' || true)
 SUBUMBRA_TOKEN_PROXY=$(printf '%s\n' "$RUNTIME" | grep '^SUBUMBRA_TOKEN_PROXY=' | cut -d= -f2-)
 SUBUMBRA_TOKEN_UI=$(printf '%s\n' "$RUNTIME" | grep '^SUBUMBRA_TOKEN_UI=' | cut -d= -f2-)
 SUBUMBRA_TOKEN_PROBE=$(printf '%s\n' "$RUNTIME" | grep '^SUBUMBRA_TOKEN_PROBE=' | cut -d= -f2-)
@@ -71,7 +71,7 @@ PROBE_ALLOWED_KEYS=$(printf '%s\n' "$RUNTIME" | grep '^PROBE_ALLOWED_KEYS=' | cu
 UI_ALLOWED_KEYS=$(printf '%s\n' "$RUNTIME" | grep '^UI_ALLOWED_KEYS=' | cut -d= -f2-)
 
 SUBUMBRA_TOKEN_LITELLM=$(printf '%s\n' "${SUBUMBRA_TOKEN_LINES[@]}" | grep '^SUBUMBRA_TOKEN_LITELLM=' | cut -d= -f2-)
-if [[ -z "$SUBUMBRA_ADAPTER_REGISTRY" || ${#SUBUMBRA_TOKEN_LINES[@]} -eq 0 || -z "$SUBUMBRA_TOKEN_LITELLM" || -z "$SUBUMBRA_TOKEN_PROXY" || -z "$SUBUMBRA_TOKEN_UI" || -z "$SUBUMBRA_TOKEN_PROBE" || -z "$SUBUMBRA_HMAC_KEY" || -z "$CF_WORKER_URL" ]]; then
+if [[ -z "$SUBUMBRA_ADAPTER_REGISTRY" || -z "$SUBUMBRA_TOKEN_LITELLM" || -z "$SUBUMBRA_TOKEN_PROXY" || -z "$SUBUMBRA_TOKEN_UI" || -z "$SUBUMBRA_TOKEN_PROBE" || -z "$SUBUMBRA_HMAC_KEY" || -z "$CF_WORKER_URL" ]]; then
     echo "ERROR: runtime.env is missing one or more required values." >&2
     exit 1
 fi
