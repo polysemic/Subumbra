@@ -1586,6 +1586,9 @@ def main() -> None:
     ./post-bootstrap.sh
 
   Next steps:
+    0. ⚠  If you used .env.bootstrap (automation path), back it up NOW if you
+       want to keep a copy — post-bootstrap.sh will shred it.
+       You do NOT need it after this point; your real keys are in CF Secrets.
     1. ./post-bootstrap.sh
        (copies SUBUMBRA_ADAPTER_REGISTRY, per-adapter Subumbra tokens, SUBUMBRA_HMAC_KEY, CF_WORKER_URL into .env)
     2. ⚠  Update litellm/config.yaml with the correct subumbra:key_id values — see
@@ -1593,7 +1596,11 @@ def main() -> None:
        match exactly. Do this BEFORE restarting services.
     3. Start/restart ALL services (new tokens generated):
        docker compose up -d --force-recreate
-    4. Check subumbra-keys health:    docker compose ps
+    4. Check all containers running:  docker compose ps
+       Check subumbra-keys health:   docker exec -i litellm python - <<'PY'
+         import urllib.request
+         print(urllib.request.urlopen("http://subumbra-keys:9090/health").read().decode())
+         PY
     5. Check worker health:           curl {worker_url}/health
 
 {chr(10).join(litellm_alignment_lines)}
