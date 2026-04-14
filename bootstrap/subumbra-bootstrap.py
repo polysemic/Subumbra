@@ -975,7 +975,7 @@ def deploy_worker(
     private_key_b64: str,
     pub_key_fp: str,
     adapter_tokens: dict[str, str],
-    forge_hmac_key: str,
+    subumbra_hmac_key: str,
     provider_id_filter: "set[str] | None" = None,
 ) -> str:
     """
@@ -1097,7 +1097,7 @@ def deploy_worker(
              "--name", worker_name],
             cwd=work_dir,
             env=env,
-            input_text=forge_hmac_key + "\n",
+            input_text=subumbra_hmac_key + "\n",
         )
         ok("SUBUMBRA_HMAC_KEY pushed")
 
@@ -1446,7 +1446,7 @@ def main() -> None:
     for adapter_id in allowed_keys_by_adapter:
         if adapter_id not in adapter_tokens:
             adapter_tokens[adapter_id] = secrets.token_hex(32)
-    forge_hmac_key = secrets.token_hex(32)   # 64-char hex
+    subumbra_hmac_key = secrets.token_hex(32)   # 64-char hex
     ok("SUBUMBRA_TOKEN_LITELLM generated")
     ok("SUBUMBRA_TOKEN_PROXY generated")
     ok("SUBUMBRA_TOKEN_UI generated")
@@ -1490,7 +1490,7 @@ def main() -> None:
     bootstrapped_providers = {v[0] for v in api_keys.values()}
     worker_url = deploy_worker(
         cf_creds, private_key_b64, pub_key_fp,
-        adapter_tokens, forge_hmac_key,
+        adapter_tokens, subumbra_hmac_key,
         provider_id_filter=bootstrapped_providers,
     )
     ok(f"Worker URL: {worker_url}")
@@ -1538,7 +1538,7 @@ def main() -> None:
             )
     runtime_env_lines.extend(
         [
-            f"SUBUMBRA_HMAC_KEY={forge_hmac_key}",
+            f"SUBUMBRA_HMAC_KEY={subumbra_hmac_key}",
             f"CF_WORKER_URL={worker_url}",
             "# Public key fingerprint (audit trail — not sensitive)",
             f"WORKER_KEY_FINGERPRINT={pub_key_fp}",
