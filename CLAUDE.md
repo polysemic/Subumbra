@@ -169,7 +169,7 @@ It already uses canonical `POST /proxy` via transport-owned packaging.
 Adapter #2 is the universal explicit sidecar (`subumbra-proxy`), completed in 
 Round 25, which exposes a persistent HTTP API for non-LiteLLM integrations.
 
-### Forge Key Service
+### subumbra-keys Service
 - Minimal Flask API
 - Binds to Docker internal network only
 - Validates: X-Subumbra-Token header

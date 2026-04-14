@@ -201,7 +201,7 @@ Port exposure notes:
 export LITELLM_MASTER_KEY="$(sed -n 's/^LITELLM_MASTER_KEY=//p' .env)"
 export CF_WORKER_URL="$(sed -n 's/^CF_WORKER_URL=//p' .env)"
 
-# Forge health (from inside LiteLLM container — subumbra-keys is internal only)
+# subumbra-keys health (from inside LiteLLM container — subumbra-keys is internal only)
 docker exec litellm python3 -c \
   "import urllib.request; print(urllib.request.urlopen('http://subumbra-keys:9090/health').read().decode())"
 
