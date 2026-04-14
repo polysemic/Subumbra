@@ -11,10 +11,10 @@
         crossorigin="anonymous">
   <style>
     :root {
-      --forge-green:  #22c55e;
-      --forge-red:    #ef4444;
-      --forge-yellow: #f59e0b;
-      --forge-blue:   #3b82f6;
+      --subumbra-green:  #22c55e;
+      --subumbra-red:    #ef4444;
+      --subumbra-yellow: #f59e0b;
+      --subumbra-blue:   #3b82f6;
     }
 
     body { background: #0f172a; color: #e2e8f0; font-family: 'Segoe UI', system-ui, sans-serif; }
@@ -32,7 +32,7 @@
       z-index: 100;
     }
     .topbar-brand { font-size: 1.1rem; font-weight: 700; letter-spacing: .03em; color: #f8fafc; }
-    .topbar-brand span { color: var(--forge-blue); }
+    .topbar-brand span { color: var(--subumbra-blue); }
 
     /* ── health badge ── */
     .health-dot {
@@ -42,8 +42,8 @@
       margin-right: 6px;
       animation: pulse 2s infinite;
     }
-    .health-dot.ok  { background: var(--forge-green); }
-    .health-dot.err { background: var(--forge-red);   animation: none; }
+    .health-dot.ok  { background: var(--subumbra-green); }
+    .health-dot.err { background: var(--subumbra-red);   animation: none; }
     @keyframes pulse {
       0%, 100% { opacity: 1; }
       50%       { opacity: .4; }
@@ -75,7 +75,7 @@
       padding: 1rem 1.25rem;
       transition: border-color .2s;
     }
-    .key-card:hover { border-color: var(--forge-blue); }
+    .key-card:hover { border-color: var(--subumbra-blue); }
     .key-card .provider-badge {
       display: inline-block;
       font-size: .7rem;
@@ -103,9 +103,9 @@
                     text-transform: uppercase; letter-spacing: .06em; font-size: .72rem; }
     .log-table td { border-color: #1e293b !important; color: #cbd5e1; vertical-align: middle; }
     .log-table tr:hover td { background: #263044; }
-    .status-ok      { color: var(--forge-green); font-weight: 600; }
-    .status-err     { color: var(--forge-red);   font-weight: 600; }
-    .status-denied  { color: var(--forge-yellow); font-weight: 600; }
+    .status-ok      { color: var(--subumbra-green); font-weight: 600; }
+    .status-err     { color: var(--subumbra-red);   font-weight: 600; }
+    .status-denied  { color: var(--subumbra-yellow); font-weight: 600; }
     .status-unknown { color: #64748b; }
 
     /* ── rotation modal ── */
@@ -139,11 +139,11 @@
 
 <!-- ── top bar ─────────────────────────────────────────────────────────────── -->
 <div class="topbar">
-  <div class="topbar-brand">Key<span>Vault</span> Dashboard</div>
+  <div class="topbar-brand">Sub<span>umbra</span> Dashboard</div>
   <div class="d-flex align-items-center gap-3">
-    <div id="forge-health-indicator" class="d-flex align-items-center" style="font-size:.85rem;">
-      <span class="health-dot err" id="forge-health-dot"></span>
-      <span id="forge-health-text">forge connecting…</span>
+    <div id="subumbra-health-indicator" class="d-flex align-items-center" style="font-size:.85rem;">
+      <span class="health-dot err" id="subumbra-health-dot"></span>
+      <span id="subumbra-health-text">subumbra connecting…</span>
     </div>
     <div id="worker-health-indicator" class="d-flex align-items-center" style="font-size:.85rem;">
       <span class="health-dot err" id="worker-health-dot"></span>
@@ -338,19 +338,19 @@ function esc(s) {
 // ── render ────────────────────────────────────────────────────────────────────
 
 function renderHealth(data) {
-  const forgeDot  = document.getElementById("forge-health-dot");
-  const forgeText = document.getElementById("forge-health-text");
+  const subumbraDot  = document.getElementById("subumbra-health-dot");
+  const subumbraText = document.getElementById("subumbra-health-text");
   const workerDot  = document.getElementById("worker-health-dot");
   const workerText = document.getElementById("worker-health-text");
 
-  if (data.forge_healthy) {
-    forgeDot.className  = "health-dot ok";
-    forgeText.textContent = "subumbra-keys healthy";
-    forgeText.style.color = "";
+  if (data.subumbra_keys_healthy) {
+    subumbraDot.className  = "health-dot ok";
+    subumbraText.textContent = "subumbra-keys healthy";
+    subumbraText.style.color = "";
   } else {
-    forgeDot.className  = "health-dot err";
-    forgeText.textContent = data.forge_error ?? "subumbra-keys error";
-    forgeText.style.color = "#ef4444";
+    subumbraDot.className  = "health-dot err";
+    subumbraText.textContent = data.subumbra_keys_error ?? "subumbra-keys error";
+    subumbraText.style.color = "#ef4444";
   }
 
   if (data.worker_reachable) {
@@ -366,8 +366,8 @@ function renderHealth(data) {
 
 function renderErrorBanner(data) {
   const banner = document.getElementById("error-banner");
-  if (!data.forge_healthy && data.forge_error) {
-    document.getElementById("error-text").textContent = data.forge_error;
+  if (!data.subumbra_keys_healthy && data.subumbra_keys_error) {
+    document.getElementById("error-text").textContent = data.subumbra_keys_error;
     banner.classList.remove("d-none");
   } else {
     banner.classList.add("d-none");
@@ -513,13 +513,13 @@ async function loadStatus() {
       auditWarn.classList.add("d-none");
     }
   } catch (err) {
-    const forgeDot = document.getElementById("forge-health-dot");
-    const forgeText = document.getElementById("forge-health-text");
+    const subumbraDot = document.getElementById("subumbra-health-dot");
+    const subumbraText = document.getElementById("subumbra-health-text");
     const workerDot = document.getElementById("worker-health-dot");
     const workerText = document.getElementById("worker-health-text");
-    forgeDot.className = "health-dot err";
-    forgeText.textContent = "dashboard error: " + err.message;
-    forgeText.style.color = "#ef4444";
+    subumbraDot.className = "health-dot err";
+    subumbraText.textContent = "dashboard error: " + err.message;
+    subumbraText.style.color = "#ef4444";
     workerDot.className = "health-dot err";
     workerText.textContent = "dashboard error";
     workerText.style.color = "#ef4444";

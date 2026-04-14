@@ -13,11 +13,7 @@ class_name = "SubumbraProxy"       # exported class name in worker.js
 # Required: tell CF about the DO class so it can provision storage
 [[migrations]]
 tag         = "v1"
-new_classes = ["KeyVaultProxy"]
-
-[[migrations]]
-tag             = "v2"
-renamed_classes = [{ from = "KeyVaultProxy", to = "SubumbraProxy" }]
+new_classes = ["SubumbraProxy"]
 
 # ── Observability ─────────────────────────────────────────────────────────────
 [observability]

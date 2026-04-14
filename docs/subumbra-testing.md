@@ -28,7 +28,7 @@ export CF_WORKER_URL="$(sed -n 's/^CF_WORKER_URL=//p' .env)"
 # Container status
 docker compose ps
 
-# Forge health (internal — must run from inside another container)
+# subumbra-keys health (internal — must run from inside another container)
 docker exec litellm python3 -c \
   "import urllib.request; print(urllib.request.urlopen('http://subumbra-keys:9090/health').read().decode())"
 
@@ -64,7 +64,7 @@ curl http://127.0.0.1:4000/v1/chat/completions \
   }'
 ```
 
-A streaming response from the provider confirms: forge record fetch → nonce
+A streaming response from the provider confirms: subumbra record fetch → nonce
 validation → CF Worker decrypt → Durable Object upstream call → response.
 
 ---
@@ -165,7 +165,7 @@ for r in db.execute('SELECT timestamp, adapter_id, key_id, verdict, reason_code 
     print(r)
 
 print()
-print('Nonce table count:', db.execute('SELECT COUNT(*) FROM forge_nonces').fetchone()[0])
+print('Nonce table count:', db.execute('SELECT COUNT(*) FROM subumbra_nonces').fetchone()[0])
 "
 ```
 

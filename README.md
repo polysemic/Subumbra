@@ -230,7 +230,7 @@ Then run:
 ```
 
 This script:
-1. Reads `FORGE_TOKEN_*`, `SUBUMBRA_HMAC_KEY`, `CF_WORKER_URL`, and the adapter `*_ALLOWED_KEYS` lists from `runtime.env`
+1. Reads `SUBUMBRA_TOKEN_*`, `SUBUMBRA_HMAC_KEY`, `CF_WORKER_URL`, and the adapter `*_ALLOWED_KEYS` lists from `runtime.env`
 2. Writes them into your `.env` file
 3. Verifies all required values landed correctly
 4. Shreds `.env.bootstrap` if it exists (automation path only — wizard path has nothing to shred)
@@ -383,10 +383,10 @@ docker compose restart litellm
 
 The callback dynamically resolves each provider's API path prefix using LiteLLM's
 internal registry. If a provider isn't auto-detected (or you need to override the
-default), set `KEYVAULT_PROVIDER_PREFIXES` in your `.env`:
+default), set `SUBUMBRA_PROVIDER_PREFIXES` in your `.env`:
 
 ```bash
-KEYVAULT_PROVIDER_PREFIXES={"my_provider":"/api/v2"}
+SUBUMBRA_PROVIDER_PREFIXES={"my_provider":"/api/v2"}
 ```
 
 This is a JSON map of provider name to path prefix. The prefix is appended to the
@@ -449,7 +449,7 @@ To rotate the RSA key pair itself, or to add/remove providers:
 
 If an adapter token has expired or been compromised, see
 [`docs/operator-guide.md`](docs/operator-guide.md) §5-§6 for the recovery sequence.
-Forge-side expiry stops new forge record fetches, but full revocation still requires
+Subumbra-side expiry stops new record fetches, but full revocation still requires
 re-running bootstrap to rotate Worker-side token state.
 
 ### `subumbra-keys` healthcheck failing
@@ -459,7 +459,7 @@ docker compose logs subumbra-keys
 ```
 
 Common causes:
-- Missing `FORGE_TOKEN_LITELLM` (or another `FORGE_TOKEN_*` per-adapter token) or `SUBUMBRA_HMAC_KEY` in `.env`
+- Missing `SUBUMBRA_TOKEN_LITELLM` (or another `SUBUMBRA_TOKEN_*` per-adapter token) or `SUBUMBRA_HMAC_KEY` in `.env`
 - `keys.json` not yet written (bootstrap hasn't run)
 
 ### LiteLLM returning 500 on subumbra: keys
@@ -468,7 +468,7 @@ Common causes:
 docker compose logs litellm
 ```
 
-Look for lines from `forge-callback`. Common causes:
+Look for lines from `subumbra-callback`. Common causes:
 - `CF_WORKER_URL` not set in `.env`
 - CF Worker not deployed (run bootstrap)
 - `subumbra-keys` container unhealthy
@@ -553,7 +553,7 @@ To expose LiteLLM via a Cloudflare Tunnel (instead of a direct open port):
 - **Windows users:** `shred` is not available — use `Remove-Item .env.bootstrap -Force`
   or Sysinternals [`sdelete`](https://learn.microsoft.com/en-us/sysinternals/downloads/sdelete)
 - `subumbra-keys` is never accessible from the host or internet — Docker enforces this with `internal: true` on the network
-- The CF Worker rejects requests with the wrong forge adapter token before any decryption is attempted
+- The CF Worker rejects requests with the wrong adapter token before any decryption is attempted
 - The Worker validates `target_url` against an allowlist to prevent SSRF
 - All token comparisons are constant-time to prevent timing oracles
 - The Durable Object uses `newUniqueId()` — no state persists between requests

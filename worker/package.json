@@ -1,8 +1,8 @@
 {
-  "name": "keyvault-worker",
+  "name": "subumbra-worker",
   "version": "1.0.0",
   "private": true,
-  "description": "KeyVault CF Worker — decrypts API keys inside CF infrastructure",
+  "description": "Subumbra CF Worker — decrypts API keys inside CF infrastructure",
   "scripts": {
     "deploy": "wrangler deploy",
     "dev": "wrangler dev --local"

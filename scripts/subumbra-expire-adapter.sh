@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ $# -ne 1 ]]; then
-    echo "Usage: ./scripts/forge-expire-adapter.sh <adapter_id>" >&2
+    echo "Usage: ./scripts/subumbra-expire-adapter.sh <adapter_id>" >&2
     exit 1
 fi
 

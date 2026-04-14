@@ -13,7 +13,7 @@ Every sidecar request uses the same five fields:
 - `body`
 
 Callers must **not** include the provider authorization header in `headers`.
-The Worker/Durable Object injects provider auth from the forge record.
+The Worker/Durable Object injects provider auth from the subumbra record.
 `key_id` must exactly match the key ID you entered during bootstrap for that
 provider record.
 

@@ -59,7 +59,7 @@ RUNTIME=$(docker compose run --rm -u 0 -T subumbra-keys cat /app/data/runtime.en
 # Its presence in runtime.env is for audit/diagnostic purposes only.
 
 SUBUMBRA_ADAPTER_REGISTRY=$(printf '%s\n' "$RUNTIME" | grep '^SUBUMBRA_ADAPTER_REGISTRY=' | cut -d= -f2-)
-mapfile -t FORGE_TOKEN_LINES < <(printf '%s\n' "$RUNTIME" | grep '^FORGE_TOKEN_' || true)
+mapfile -t SUBUMBRA_TOKEN_LINES < <(printf '%s\n' "$RUNTIME" | grep '^SUBUMBRA_TOKEN_' || true)
 SUBUMBRA_TOKEN_PROXY=$(printf '%s\n' "$RUNTIME" | grep '^SUBUMBRA_TOKEN_PROXY=' | cut -d= -f2-)
 SUBUMBRA_TOKEN_UI=$(printf '%s\n' "$RUNTIME" | grep '^SUBUMBRA_TOKEN_UI=' | cut -d= -f2-)
 SUBUMBRA_TOKEN_PROBE=$(printf '%s\n' "$RUNTIME" | grep '^SUBUMBRA_TOKEN_PROBE=' | cut -d= -f2-)
@@ -70,14 +70,14 @@ PROXY_ALLOWED_KEYS=$(printf '%s\n' "$RUNTIME" | grep '^PROXY_ALLOWED_KEYS=' | cu
 PROBE_ALLOWED_KEYS=$(printf '%s\n' "$RUNTIME" | grep '^PROBE_ALLOWED_KEYS=' | cut -d= -f2-)
 UI_ALLOWED_KEYS=$(printf '%s\n' "$RUNTIME" | grep '^UI_ALLOWED_KEYS=' | cut -d= -f2-)
 
-FORGE_TOKEN_LITELLM=$(printf '%s\n' "${FORGE_TOKEN_LINES[@]}" | grep '^FORGE_TOKEN_LITELLM=' | cut -d= -f2-)
-if [[ -z "$SUBUMBRA_ADAPTER_REGISTRY" || ${#FORGE_TOKEN_LINES[@]} -eq 0 || -z "$FORGE_TOKEN_LITELLM" || -z "$SUBUMBRA_TOKEN_PROXY" || -z "$SUBUMBRA_TOKEN_UI" || -z "$SUBUMBRA_TOKEN_PROBE" || -z "$SUBUMBRA_HMAC_KEY" || -z "$CF_WORKER_URL" ]]; then
+SUBUMBRA_TOKEN_LITELLM=$(printf '%s\n' "${SUBUMBRA_TOKEN_LINES[@]}" | grep '^SUBUMBRA_TOKEN_LITELLM=' | cut -d= -f2-)
+if [[ -z "$SUBUMBRA_ADAPTER_REGISTRY" || ${#SUBUMBRA_TOKEN_LINES[@]} -eq 0 || -z "$SUBUMBRA_TOKEN_LITELLM" || -z "$SUBUMBRA_TOKEN_PROXY" || -z "$SUBUMBRA_TOKEN_UI" || -z "$SUBUMBRA_TOKEN_PROBE" || -z "$SUBUMBRA_HMAC_KEY" || -z "$CF_WORKER_URL" ]]; then
     echo "ERROR: runtime.env is missing one or more required values." >&2
     exit 1
 fi
 
 echo "  SUBUMBRA_ADAPTER_REGISTRY : present"
-for token_line in "${FORGE_TOKEN_LINES[@]}"; do
+for token_line in "${SUBUMBRA_TOKEN_LINES[@]}"; do
     token_key="${token_line%%=*}"
     token_value="${token_line#*=}"
     printf '  %-21s: %s... (truncated for display)\n' "$token_key" "${token_value:0:8}"
@@ -100,7 +100,7 @@ update_env() {
 echo ""
 echo "Writing to $ENV_FILE..."
 update_env "SUBUMBRA_ADAPTER_REGISTRY" "$SUBUMBRA_ADAPTER_REGISTRY"
-for token_line in "${FORGE_TOKEN_LINES[@]}"; do
+for token_line in "${SUBUMBRA_TOKEN_LINES[@]}"; do
     update_env "${token_line%%=*}" "${token_line#*=}"
 done
 update_env "SUBUMBRA_TOKEN_PROXY" "$SUBUMBRA_TOKEN_PROXY"
@@ -116,13 +116,13 @@ update_env "UI_ALLOWED_KEYS"      "$UI_ALLOWED_KEYS"
 # ── Verify all required values landed in .env ────────────────────────────────
 
 VERIFY_FAILED=0
-for key in SUBUMBRA_ADAPTER_REGISTRY FORGE_TOKEN_LITELLM SUBUMBRA_TOKEN_PROXY SUBUMBRA_TOKEN_UI SUBUMBRA_TOKEN_PROBE SUBUMBRA_HMAC_KEY CF_WORKER_URL; do
+for key in SUBUMBRA_ADAPTER_REGISTRY SUBUMBRA_TOKEN_LITELLM SUBUMBRA_TOKEN_PROXY SUBUMBRA_TOKEN_UI SUBUMBRA_TOKEN_PROBE SUBUMBRA_HMAC_KEY CF_WORKER_URL; do
     if ! grep -q "^${key}=" "$ENV_FILE"; then
         echo "ERROR: Failed to write ${key} to $ENV_FILE" >&2
         VERIFY_FAILED=1
     fi
 done
-for token_line in "${FORGE_TOKEN_LINES[@]}"; do
+for token_line in "${SUBUMBRA_TOKEN_LINES[@]}"; do
     token_key="${token_line%%=*}"
     if ! grep -q "^${token_key}=" "$ENV_FILE"; then
         echo "ERROR: Failed to write ${token_key} to $ENV_FILE" >&2
@@ -157,7 +157,7 @@ container_for_service() {
 expected_value_for_service() {
     case "$1" in
         subumbra-keys) printf '%s' "$SUBUMBRA_ADAPTER_REGISTRY" ;;
-        litellm) printf '%s' "$FORGE_TOKEN_LITELLM" ;;
+        litellm) printf '%s' "$SUBUMBRA_TOKEN_LITELLM" ;;
         subumbra-ui) printf '%s' "$SUBUMBRA_TOKEN_UI" ;;
         subumbra-proxy) printf '%s' "$SUBUMBRA_TOKEN_PROXY" ;;
         subumbra-probe) printf '%s' "$SUBUMBRA_TOKEN_PROBE" ;;
