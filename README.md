@@ -67,7 +67,7 @@ subumbra/
 │
 ├── bootstrap/                   ← one-shot key generation + CF Worker deploy
 │   ├── Dockerfile
-│   ├── keyvault-bootstrap.py
+│   ├── subumbra-bootstrap.py
 │   └── requirements.txt
 │
 ├── subumbra-keys/                  ← encrypted blob store (internal network only)
