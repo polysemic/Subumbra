@@ -1,13 +1,13 @@
-# KeyVault Adapter Contract
+# Subumbra Adapter Contract
 
-*Canonical reference for the KeyVault core API.*
+*Canonical reference for the Subumbra core API.*
 *Source: `worker/src/worker.js` — see implementation for current behavior.*
 
 ---
 
 ## Overview
 
-KeyVault is a zero-trust key-broker core. The decrypt/proxy contract is:
+Subumbra is a zero-trust key-broker core. The decrypt/proxy contract is:
 
 - **Adapters** request narrow capability by supplying a V2 envelope, a target
   destination, and transport payload.
@@ -20,7 +20,7 @@ KeyVault is a zero-trust key-broker core. The decrypt/proxy contract is:
 
 ### `POST /proxy` — Canonical Core API
 
-The canonical KeyVault core API. The adapter owns the complete request and
+The canonical Subumbra core API. The adapter owns the complete request and
 provides a fully-qualified `target_url`. This is the interface future adapters
 should target.
 
@@ -29,7 +29,7 @@ should target.
 ## Prerequisites — Obtaining a V2 Envelope
 
 Before an adapter can call `POST /proxy`, it must first obtain a V2 envelope
-record from `forge-keys`.
+record from `subumbra-keys`.
 
 Request:
 
@@ -40,16 +40,16 @@ GET /keys/<key_id>
 Required headers:
 
 ```text
-X-Forge-Token: <FORGE_ACCESS_TOKEN>
-X-Forge-Timestamp: <unix epoch seconds>
-X-Forge-Nonce: <single-use hex nonce>
-X-Forge-Signature: <hex hmac>
+X-Subumbra-Token: <SUBUMBRA_ACCESS_TOKEN>
+X-Subumbra-Timestamp: <unix epoch seconds>
+X-Subumbra-Nonce: <single-use hex nonce>
+X-Subumbra-Signature: <hex hmac>
 ```
 
 Signature algorithm:
 
 ```text
-HMAC-SHA256(f"{key_id}:{timestamp}:{nonce}", FORGE_HMAC_KEY)
+HMAC-SHA256(f"{key_id}:{timestamp}:{nonce}", SUBUMBRA_HMAC_KEY)
 ```
 
 Replay protection:
@@ -79,14 +79,14 @@ forge response before making the Worker call.
 Authentication header (required on every request):
 
 ```
-X-Forge-Token: <FORGE_ACCESS_TOKEN>
+X-Subumbra-Token: <SUBUMBRA_ACCESS_TOKEN>
 ```
 
 Request body (JSON, all fields required unless noted):
 
 | Field | Type | Description |
 |---|---|---|
-| `ciphertext` | string | AES-256-GCM encrypted API key, base64; from forge-keys record |
+| `ciphertext` | string | AES-256-GCM encrypted API key, base64; from subumbra-keys record |
 | `provider` | string | Provider identity; must match the live provider-registry entry for the `target_url` hostname |
 | `target_url` | string | Full `https://` URL including path and query — adapter-owned |
 | `method` | string | HTTP method for the upstream call (e.g. `"POST"`) |
@@ -94,7 +94,7 @@ Request body (JSON, all fields required unless noted):
 | `body` | JSON-serializable or null | Request body; must be null for GET/HEAD; see payload limitation below |
 | `wrapped_dek` | string | RSA-OAEP-wrapped per-record DEK, base64 |
 | `pub_key_fp` | string | SHA-256 fingerprint of the RSA key pair used for wrapping (`sha256:<hex>`) |
-| `key_id` | string | Record identity; used as AAD: `keyvault:v2:<key_id>` |
+| `key_id` | string | Record identity; used as AAD: `subumbra:v2:<key_id>` |
 | `enc_version` | number | Must be `2`; non-V2 records are hard-rejected |
 
 ---
@@ -103,7 +103,7 @@ Request body (JSON, all fields required unless noted):
 
 The Worker enforces these security invariants before any upstream request is made:
 
-1. **Token authentication** — `X-Forge-Token` validated against `FORGE_ACCESS_TOKEN`
+1. **Token authentication** — `X-Subumbra-Token` validated against `SUBUMBRA_ACCESS_TOKEN`
    via timing-safe comparison; any mismatch is rejected before parsing the body.
 
 2. **SSRF prevention** — `target_url` hostname must appear in the live provider
@@ -120,7 +120,7 @@ The Worker enforces these security invariants before any upstream request is mad
 
 5. **Decryption** — RSA-OAEP unwraps the per-record DEK using `WORKER_PRIVATE_KEY`
    (from CF Secrets); AES-256-GCM decrypts the ciphertext with
-   AAD `keyvault:v2:<key_id>`; pub_key_fp fingerprint must match
+   AAD `subumbra:v2:<key_id>`; pub_key_fp fingerprint must match
    `WORKER_KEY_FINGERPRINT` (from CF Secrets). Fingerprint mismatch surfaced
    in the error message to help operators diagnose key rotation issues.
 
@@ -129,7 +129,7 @@ The Worker enforces these security invariants before any upstream request is mad
    `auth_prefix`). The adapter never receives or sees the decrypted API key.
 
 7. **Header stripping** — the Worker strips all hop-by-hop headers and all
-   `X-Forge-*` / `CF-Access-*` headers before the upstream fetch.
+   `X-Subumbra-*` / `CF-Access-*` headers before the upstream fetch.
 
 8. **Streaming** — `POST /proxy` streams the Durable Object response body back
    to the caller unchanged. Callers do not need to buffer the full upstream
@@ -211,7 +211,7 @@ explicitly include all headers the upstream provider requires (e.g.
 
 ## Adapter #1 — LiteLLM
 
-`litellm/custom_callbacks.py` is the current KeyVault adapter implementation.
+`litellm/custom_callbacks.py` is the current Subumbra adapter implementation.
 It now uses the canonical `POST /proxy` core API via a custom
 `httpx.AsyncTransport`.
 

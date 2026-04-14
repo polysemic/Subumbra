@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>KeyVault Dashboard</title>
+  <title>Subumbra Dashboard</title>
   <!-- Bootstrap 5 — fetched by the user's browser, not the container -->
   <link rel="stylesheet"
         href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
@@ -163,14 +163,14 @@
   <!-- error banner (hidden by default) -->
   <div id="error-banner" class="alert mb-4 d-none"
        style="background:#450a0a;border:1px solid #991b1b;color:#fca5a5;">
-    <strong>forge-keys unreachable:</strong> <span id="error-text"></span>
+    <strong>subumbra-keys unreachable:</strong> <span id="error-text"></span>
   </div>
 
   <!-- stats warning (hidden by default) -->
   <div id="stats-warning" class="alert mb-4 d-none"
        style="background:#451a03;border:1px solid #92400e;color:#fcd34d;">
     <strong>&#9888; Stats unavailable:</strong>
-    Request counts and last-access times may be stale — the forge-keys stats endpoint is unreachable.
+    Request counts and last-access times may be stale — the subumbra-keys stats endpoint is unreachable.
   </div>
 
   <!-- audit warning (hidden by default) -->
@@ -345,11 +345,11 @@ function renderHealth(data) {
 
   if (data.forge_healthy) {
     forgeDot.className  = "health-dot ok";
-    forgeText.textContent = "forge-keys healthy";
+    forgeText.textContent = "subumbra-keys healthy";
     forgeText.style.color = "";
   } else {
     forgeDot.className  = "health-dot err";
-    forgeText.textContent = data.forge_error ?? "forge-keys error";
+    forgeText.textContent = data.forge_error ?? "subumbra-keys error";
     forgeText.style.color = "#ef4444";
   }
 

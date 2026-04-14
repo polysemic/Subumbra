@@ -1,18 +1,18 @@
 """
-forge-keys — encrypted envelope store
+subumbra-keys — encrypted envelope store
 ──────────────────────────────────────
 Runs on the Docker-internal network only.  External callers cannot reach this
 service; only the litellm container (and ui) can.
 
 Auth model:
   All endpoints except /health require:
-    X-Forge-Token: <adapter token from FORGE_ADAPTER_REGISTRY>
+    X-Subumbra-Token: <adapter token from SUBUMBRA_ADAPTER_REGISTRY>
 
   GET /keys/<key_id> additionally requires a per-request HMAC signature to
   prevent replay attacks:
-    X-Forge-Timestamp: <unix epoch, seconds>
-    X-Forge-Nonce: <single-use hex nonce>
-    X-Forge-Signature: HMAC-SHA256(f"{key_id}:{timestamp}:{nonce}", FORGE_HMAC_KEY)
+    X-Subumbra-Timestamp: <unix epoch, seconds>
+    X-Subumbra-Nonce: <single-use hex nonce>
+    X-Subumbra-Signature: HMAC-SHA256(f"{key_id}:{timestamp}:{nonce}", SUBUMBRA_HMAC_KEY)
 
   The timestamp must be within ±TIMESTAMP_TOLERANCE seconds of server time,
   and the nonce must be unique per key fetch.
@@ -64,7 +64,7 @@ AUDIT_MAX_ROWS = int(os.environ.get("AUDIT_MAX_ROWS", "10000"))
 if AUDIT_MAX_ROWS <= 0:
     AUDIT_MAX_ROWS = 10000
 
-_required = ("FORGE_ADAPTER_REGISTRY", "FORGE_HMAC_KEY")
+_required = ("SUBUMBRA_ADAPTER_REGISTRY", "SUBUMBRA_HMAC_KEY")
 for _var in _required:
     if not os.environ.get(_var):
         raise RuntimeError(f"Required environment variable {_var!r} is not set")
@@ -78,17 +78,17 @@ class _AdapterDenial:
 
 def _parse_registry_timestamp(adapter_id: str, field: str, raw_value: object) -> tuple[str, datetime]:
     if not isinstance(raw_value, str) or not raw_value:
-        raise RuntimeError(f"FORGE_ADAPTER_REGISTRY[{adapter_id!r}].{field} must be a non-empty string")
+        raise RuntimeError(f"SUBUMBRA_ADAPTER_REGISTRY[{adapter_id!r}].{field} must be a non-empty string")
     normalized = raw_value[:-1] + "+00:00" if raw_value.endswith("Z") else raw_value
     try:
         parsed = datetime.fromisoformat(normalized)
     except ValueError as exc:
         raise RuntimeError(
-            f"FORGE_ADAPTER_REGISTRY[{adapter_id!r}].{field} must be a valid ISO-8601 UTC timestamp"
+            f"SUBUMBRA_ADAPTER_REGISTRY[{adapter_id!r}].{field} must be a valid ISO-8601 UTC timestamp"
         ) from exc
     if parsed.tzinfo is None:
         raise RuntimeError(
-            f"FORGE_ADAPTER_REGISTRY[{adapter_id!r}].{field} must include a timezone offset"
+            f"SUBUMBRA_ADAPTER_REGISTRY[{adapter_id!r}].{field} must include a timezone offset"
         )
     return raw_value, parsed.astimezone(timezone.utc)
 
@@ -97,17 +97,17 @@ def _load_adapter_registry(raw: str) -> dict[str, dict]:
     try:
         registry = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise RuntimeError("FORGE_ADAPTER_REGISTRY must be valid JSON") from exc
+        raise RuntimeError("SUBUMBRA_ADAPTER_REGISTRY must be valid JSON") from exc
 
     if not isinstance(registry, dict) or not registry:
-        raise RuntimeError("FORGE_ADAPTER_REGISTRY must be a non-empty JSON object")
+        raise RuntimeError("SUBUMBRA_ADAPTER_REGISTRY must be a non-empty JSON object")
 
     parsed: dict[str, dict] = {}
     for adapter_id, config in registry.items():
         if not isinstance(adapter_id, str) or not adapter_id:
-            raise RuntimeError("FORGE_ADAPTER_REGISTRY keys must be non-empty strings")
+            raise RuntimeError("SUBUMBRA_ADAPTER_REGISTRY keys must be non-empty strings")
         if not isinstance(config, dict):
-            raise RuntimeError(f"FORGE_ADAPTER_REGISTRY[{adapter_id!r}] must be an object")
+            raise RuntimeError(f"SUBUMBRA_ADAPTER_REGISTRY[{adapter_id!r}] must be an object")
 
         token = config.get("token")
         allowed_keys = config.get("allowed_keys")
@@ -117,13 +117,13 @@ def _load_adapter_registry(raw: str) -> dict[str, dict]:
         expires_at_raw, expires_at_dt = _parse_registry_timestamp(adapter_id, "expires_at", config.get("expires_at"))
 
         if not isinstance(token, str) or not token:
-            raise RuntimeError(f"FORGE_ADAPTER_REGISTRY[{adapter_id!r}].token must be a non-empty string")
+            raise RuntimeError(f"SUBUMBRA_ADAPTER_REGISTRY[{adapter_id!r}].token must be a non-empty string")
         if not isinstance(allowed_keys, list) or any(not isinstance(key_id, str) or not key_id for key_id in allowed_keys):
-            raise RuntimeError(f"FORGE_ADAPTER_REGISTRY[{adapter_id!r}].allowed_keys must be a list of non-empty strings")
+            raise RuntimeError(f"SUBUMBRA_ADAPTER_REGISTRY[{adapter_id!r}].allowed_keys must be a list of non-empty strings")
         if not isinstance(can_list_keys, bool):
-            raise RuntimeError(f"FORGE_ADAPTER_REGISTRY[{adapter_id!r}].can_list_keys must be true/false")
+            raise RuntimeError(f"SUBUMBRA_ADAPTER_REGISTRY[{adapter_id!r}].can_list_keys must be true/false")
         if not isinstance(can_read_stats, bool):
-            raise RuntimeError(f"FORGE_ADAPTER_REGISTRY[{adapter_id!r}].can_read_stats must be true/false")
+            raise RuntimeError(f"SUBUMBRA_ADAPTER_REGISTRY[{adapter_id!r}].can_read_stats must be true/false")
 
         parsed[adapter_id] = {
             "adapter_id": adapter_id,
@@ -140,8 +140,8 @@ def _load_adapter_registry(raw: str) -> dict[str, dict]:
     return parsed
 
 
-FORGE_ADAPTER_REGISTRY: dict[str, dict] = _load_adapter_registry(os.environ["FORGE_ADAPTER_REGISTRY"])
-FORGE_HMAC_KEY: bytes = os.environ["FORGE_HMAC_KEY"].encode()
+SUBUMBRA_ADAPTER_REGISTRY: dict[str, dict] = _load_adapter_registry(os.environ["SUBUMBRA_ADAPTER_REGISTRY"])
+SUBUMBRA_HMAC_KEY: bytes = os.environ["SUBUMBRA_HMAC_KEY"].encode()
 
 TIMESTAMP_TOLERANCE: int = 30   # seconds; adjust down for tighter replay window
 LOG_RING_SIZE: int = 200        # recent request log kept in memory
@@ -155,11 +155,11 @@ logging.basicConfig(
     format="%(asctime)s  %(levelname)-7s  %(message)s",
     datefmt="%Y-%m-%dT%H:%M:%SZ",
 )
-log = logging.getLogger("forge-keys")
+log = logging.getLogger("subumbra-keys")
 
 _expired_at_startup = sorted(
     adapter["adapter_id"]
-    for adapter in FORGE_ADAPTER_REGISTRY.values()
+    for adapter in SUBUMBRA_ADAPTER_REGISTRY.values()
     if adapter["expires_at_dt"] <= datetime.now(timezone.utc)
 )
 if _expired_at_startup:
@@ -208,10 +208,10 @@ def _load_keys() -> dict:
     except FileNotFoundError:
         return {}
     except json.JSONDecodeError as exc:
-        log.error("forge-keys: keys.json is corrupt — returning empty set: %s", exc)
+        log.error("subumbra-keys: keys.json is corrupt — returning empty set: %s", exc)
         return {}
     except OSError as exc:
-        log.error("forge-keys: cannot read keys.json: %s", exc)
+        log.error("subumbra-keys: cannot read keys.json: %s", exc)
         return {}
 
 
@@ -321,10 +321,10 @@ def _record_audit(
 
 
 def _resolve_adapter() -> dict | _AdapterDenial:
-    """Resolve X-Forge-Token to an adapter config using constant-time comparison."""
-    token = request.headers.get("X-Forge-Token", "")
+    """Resolve X-Subumbra-Token to an adapter config using constant-time comparison."""
+    token = request.headers.get("X-Subumbra-Token", "")
     matched: dict | None = None
-    for adapter in FORGE_ADAPTER_REGISTRY.values():
+    for adapter in SUBUMBRA_ADAPTER_REGISTRY.values():
         if hmac.compare_digest(token, adapter["token"]):
             matched = adapter
     if matched is None:
@@ -345,15 +345,15 @@ def _hmac_ok(key_id: str, nonce: str) -> tuple[bool, str]:
     Validate per-request HMAC signature for ciphertext endpoints.
     Returns (valid: bool, reason_code: str).
     """
-    timestamp_str = request.headers.get("X-Forge-Timestamp", "")
-    signature = request.headers.get("X-Forge-Signature", "")
+    timestamp_str = request.headers.get("X-Subumbra-Timestamp", "")
+    signature = request.headers.get("X-Subumbra-Signature", "")
 
     if not nonce:
         return False, "nonce_missing"
     if len(nonce) > 64:
         return False, "nonce_too_long"
     if not timestamp_str or not signature:
-        return False, "forge_header_missing"
+        return False, "subumbra_header_missing"
 
     try:
         ts = int(timestamp_str)
@@ -365,7 +365,7 @@ def _hmac_ok(key_id: str, nonce: str) -> tuple[bool, str]:
         return False, "timestamp_outside_window"
 
     expected = hmac.new(
-        FORGE_HMAC_KEY,
+        SUBUMBRA_HMAC_KEY,
         f"{key_id}:{timestamp_str}:{nonce}".encode(),
         hashlib.sha256,
     ).hexdigest()
@@ -508,10 +508,10 @@ def get_key(key_id: str) -> tuple[Response, int]:
         return _err("unauthorized", 401)
 
     adapter = adapter_result
-    nonce = request.headers.get("X-Forge-Nonce", "")
+    nonce = request.headers.get("X-Subumbra-Nonce", "")
     valid, reason = _hmac_ok(key_id, nonce)
     if not valid:
-        status = 400 if reason in {"nonce_missing", "nonce_too_long", "forge_header_missing", "timestamp_invalid"} else 401
+        status = 400 if reason in {"nonce_missing", "nonce_too_long", "subumbra_header_missing", "timestamp_invalid"} else 401
         log.warning("get_key: rejected key_id=%s remote=%s reason=%s", key_id, remote, reason)
         _record_audit(
             adapter_id=adapter["adapter_id"],
@@ -687,7 +687,7 @@ if __name__ == "__main__":
     # Development only — gunicorn used in production
     keys = _load_keys()
     log.info(
-        "forge-keys starting keys_loaded=%d data_dir=%s audit_db=%s",
+        "subumbra-keys starting keys_loaded=%d data_dir=%s audit_db=%s",
         len(keys),
         DATA_DIR,
         AUDIT_DB_PATH,
@@ -697,7 +697,7 @@ else:
     # Log once at gunicorn worker startup
     _startup_keys = _load_keys()
     log.info(
-        "forge-keys ready keys_loaded=%d data_dir=%s audit_db=%s",
+        "subumbra-keys ready keys_loaded=%d data_dir=%s audit_db=%s",
         len(_startup_keys),
         DATA_DIR,
         AUDIT_DB_PATH,

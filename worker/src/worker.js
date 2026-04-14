@@ -1,5 +1,5 @@
 /**
- * KeyVault Proxy — Cloudflare Worker + Durable Object
+ * Subumbra Proxy — Cloudflare Worker + Durable Object
  * ─────────────────────────────────────────────────────────────────────────────
  * V2 Asymmetric Envelope Encryption:
  *   - WORKER_PRIVATE_KEY (RSA-4096 PKCS#8 DER, base64) lives in CF Secrets
@@ -11,15 +11,15 @@
  *
  * Endpoints:
  *   GET  /health   → liveness check (no auth required)
- *   POST /proxy    → canonical KeyVault core API; see docs/adapter-contract.md
+ *   POST /proxy    → canonical Subumbra core API; see docs/adapter-contract.md
  *
  * Auth header required on /proxy:
- *   X-Forge-Token: <one adapter token from FORGE_ADAPTER_TOKENS>
+ *   X-Subumbra-Token: <one adapter token from SUBUMBRA_ADAPTER_TOKENS>
  *
  * CF Secrets consumed:
  *   WORKER_PRIVATE_KEY      — base64(RSA-4096 PKCS#8 DER), set by bootstrap
  *   WORKER_KEY_FINGERPRINT  — sha256:<hex> of SPKI DER, set by bootstrap
- *   FORGE_ADAPTER_TOKENS    — JSON array of adapter tokens, set by bootstrap
+ *   SUBUMBRA_ADAPTER_TOKENS — JSON array of adapter tokens, set by bootstrap
  */
 
 "use strict";
@@ -113,9 +113,9 @@ const HOP_BY_HOP_HEADERS = new Set([
   "trailers",
   "transfer-encoding",
   "upgrade",
-  "x-forge-token",
-  "x-forge-timestamp",
-  "x-forge-signature",
+  "x-subumbra-token",
+  "x-subumbra-timestamp",
+  "x-subumbra-signature",
   "cf-connecting-ip",
   "cf-ray",
   "cf-visitor",
@@ -250,15 +250,15 @@ function parseAdapterTokens(raw) {
   try {
     parsed = JSON.parse(raw);
   } catch {
-    throw new Error("FORGE_ADAPTER_TOKENS must be valid JSON");
+    throw new Error("SUBUMBRA_ADAPTER_TOKENS must be valid JSON");
   }
 
   if (!Array.isArray(parsed) || parsed.length === 0) {
-    throw new Error("FORGE_ADAPTER_TOKENS must be a non-empty JSON array");
+    throw new Error("SUBUMBRA_ADAPTER_TOKENS must be a non-empty JSON array");
   }
   for (const token of parsed) {
     if (typeof token !== "string" || !token) {
-      throw new Error("FORGE_ADAPTER_TOKENS entries must be non-empty strings");
+      throw new Error("SUBUMBRA_ADAPTER_TOKENS entries must be non-empty strings");
     }
   }
   return parsed;
@@ -286,11 +286,11 @@ function jsonError(message, status) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Durable Object — KeyVaultProxy
+// Durable Object — SubumbraProxy
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * KeyVaultProxy Durable Object
+ * SubumbraProxy Durable Object
  *
  * One instance per request (created with newUniqueId()).  Receives the
  * decrypted API key + full proxy request from the Worker, makes the upstream
@@ -299,7 +299,7 @@ function jsonError(message, status) {
  * The decrypted key exists ONLY inside this V8 isolate for ~100 ms.
  * No state is persisted to Durable Object storage.
  */
-export class KeyVaultProxy {
+export class SubumbraProxy {
   constructor(state, env) {
     // state.storage is available but we intentionally never use it —
     // the DO is purely ephemeral for this use case.
@@ -391,8 +391,8 @@ export default {
   /**
    * @param {Request}         request
    * @param {{ WORKER_PRIVATE_KEY: string, WORKER_KEY_FINGERPRINT: string,
-   *           FORGE_ADAPTER_TOKENS: string,
-   *           KEY_VAULT_PROXY: DurableObjectNamespace }} env
+   *           SUBUMBRA_ADAPTER_TOKENS: string,
+   *           SUBUMBRA_PROXY: DurableObjectNamespace }} env
    * @param {ExecutionContext} ctx
    */
   async fetch(request, env, ctx) {
@@ -422,25 +422,25 @@ export default {
 
 async function handleProxy(request, env) {
   // ── 1. Validate secrets are configured ────────────────────────────────────
-  if (!env.WORKER_PRIVATE_KEY || !env.FORGE_ADAPTER_TOKENS || !env.PROVIDER_REGISTRY_KV) {
-    console.error("keyvault: worker bindings not configured (run bootstrap)");
+  if (!env.WORKER_PRIVATE_KEY || !env.SUBUMBRA_ADAPTER_TOKENS || !env.PROVIDER_REGISTRY_KV) {
+    console.error("subumbra: worker bindings not configured (run bootstrap)");
     return jsonError("worker not configured", 503);
   }
 
   let validTokens;
   try {
-    validTokens = parseAdapterTokens(env.FORGE_ADAPTER_TOKENS);
+    validTokens = parseAdapterTokens(env.SUBUMBRA_ADAPTER_TOKENS);
   } catch (err) {
-    console.error("keyvault: FORGE_ADAPTER_TOKENS invalid:", err.message);
+    console.error("subumbra: SUBUMBRA_ADAPTER_TOKENS invalid:", err.message);
     return jsonError("worker not configured", 503);
   }
 
   // ── 2. Authenticate caller ────────────────────────────────────────────────
-  const incomingToken = request.headers.get("X-Forge-Token") ?? "";
+  const incomingToken = request.headers.get("X-Subumbra-Token") ?? "";
   const tokenOk = await tokenSetContains(incomingToken, validTokens);
   if (!tokenOk) {
     // Log IP for audit but nothing else — don't log the token
-    console.warn("keyvault: unauthorized request from", request.headers.get("CF-Connecting-IP"));
+    console.warn("subumbra: unauthorized request from", request.headers.get("CF-Connecting-IP"));
     return jsonError("unauthorized", 401);
   }
 
@@ -468,7 +468,7 @@ async function handleProxy(request, env) {
   // ── Hard reject non-V2 records ────────────────────────────────────────────
   const version = enc_version ?? 1;
   if (version !== 2 || !wrapped_dek) {
-    console.error("keyvault: unsupported enc_version", version,
+    console.error("subumbra: unsupported enc_version", version,
       "— re-run bootstrap to migrate to V2 format");
     return jsonError("key format not supported — re-bootstrap required", 400);
   }
@@ -477,7 +477,7 @@ async function handleProxy(request, env) {
   try {
     parsedTarget = new URL(target_url);
   } catch (e) {
-    console.error("keyvault: URL parse error", e);
+    console.error("subumbra: URL parse error", e);
     return jsonError("invalid target_url", 400);
   }
   if (parsedTarget.protocol !== "https:") {
@@ -488,23 +488,23 @@ async function handleProxy(request, env) {
     registryEntry = await getRegistryEntry(env, parsedTarget.hostname);
   } catch (err) {
     if (err.code === "registry_missing") {
-      console.error("keyvault: provider registry not found in KV");
+      console.error("subumbra: provider registry not found in KV");
     } else if (err.code === "registry_invalid_json") {
-      console.error("keyvault: provider registry invalid JSON");
+      console.error("subumbra: provider registry invalid JSON");
     } else {
-      console.error("keyvault: provider registry validation failed:", err.message);
+      console.error("subumbra: provider registry validation failed:", err.message);
     }
     return jsonError("worker not configured", 503);
   }
   if (!registryEntry) {
-    console.warn("keyvault: SSRF attempt — rejected target_url", parsedTarget.hostname);
+    console.warn("subumbra: SSRF attempt — rejected target_url", parsedTarget.hostname);
     return jsonError("target_url not allowed", 403);
   }
   // Verify provider/target_url consistency: prevents decrypting one provider's
   // key and sending it to a different provider's endpoint.
   if (provider !== registryEntry.provider_id) {
     console.warn(
-      "keyvault: provider/target_url mismatch — provider=%s target=%s",
+      "subumbra: provider/target_url mismatch — provider=%s target=%s",
       provider, parsedTarget.hostname,
     );
     return jsonError("target_url host does not match declared provider", 400);
@@ -523,7 +523,7 @@ async function handleProxy(request, env) {
   try {
     apiKey = await decryptV2(env, ciphertext, wrapped_dek, pub_key_fp, key_id);
   } catch (err) {
-    console.error("keyvault: decryption failed:", err.message);
+    console.error("subumbra: decryption failed:", err.message);
     // Surface fingerprint mismatch details to help operators diagnose
     if (err.message.includes("wrapped with unknown key pair")) {
       return jsonError(err.message, 500);
@@ -534,8 +534,8 @@ async function handleProxy(request, env) {
   // ── 6. Forward to Durable Object ──────────────────────────────────────────
   //   The DO lives in CF infrastructure, so apiKey is never in transit
   //   outside of CF.  The DO will zero its reference once the fetch returns.
-  const doId = env.KEY_VAULT_PROXY.newUniqueId();
-  const doStub = env.KEY_VAULT_PROXY.get(doId);
+  const doId = env.SUBUMBRA_PROXY.newUniqueId();
+  const doStub = env.SUBUMBRA_PROXY.get(doId);
 
   const doPayload = JSON.stringify({
     apiKey,         // decrypted — lives in DO memory only
@@ -558,7 +558,7 @@ async function handleProxy(request, env) {
 
   // ── 7. Stream DO response back to caller ──────────────────────────────────
   const responseHeaders = new Headers(doResponse.headers);
-  responseHeaders.set("X-KeyVault-Provider", registryEntry.provider_id);  // audit trail
+  responseHeaders.set("X-Subumbra-Provider", registryEntry.provider_id);  // audit trail
 
   return new Response(doResponse.body, {
     status: doResponse.status,

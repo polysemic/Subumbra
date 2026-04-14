@@ -1,7 +1,7 @@
 FROM python:3.12-slim
 
 # Non-root user for least-privilege execution
-RUN useradd --no-create-home --shell /bin/false forge
+RUN useradd --no-create-home --shell /bin/false subumbra
 
 WORKDIR /app
 
@@ -10,10 +10,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app.py .
 
-# Data dir owned by forge user; bootstrap writes here via shared volume
-RUN mkdir -p /app/data /app/audit && chown forge:forge /app/data /app/audit
+# Data dir owned by subumbra user; bootstrap writes here via shared volume
+RUN mkdir -p /app/data /app/audit && chown subumbra:subumbra /app/data /app/audit
 
-USER forge
+USER subumbra
 
 EXPOSE 9090
 
