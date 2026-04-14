@@ -57,7 +57,7 @@ Replay protection:
 - single-use nonce per fetch
 - timestamp window remains approximately `±30s`
 
-Expected forge response fields:
+Expected subumbra-keys response fields:
 
 | Field | Type | Description |
 |---|---|---|
@@ -70,7 +70,7 @@ Expected forge response fields:
 | `enc_version` | number | Must be `2` |
 
 Adapters are expected to derive the canonical `/proxy` payload fields from this
-forge response before making the Worker call.
+subumbra-keys response before making the Worker call.
 
 ---
 
@@ -215,7 +215,7 @@ explicitly include all headers the upstream provider requires (e.g.
 It now uses the canonical `POST /proxy` core API via a custom
 `httpx.AsyncTransport`.
 
-The callback fetches forge records and injects the V2 envelope metadata into
+The callback fetches subumbra records and injects the V2 envelope metadata into
 request headers. The transport intercepts the fully assembled provider request,
 derives `target_url = str(request.url)`, packages the canonical `/proxy`
 payload, and sends it to the Worker.
