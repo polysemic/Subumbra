@@ -127,6 +127,33 @@ Bootstrap supports two modes. Use the **interactive wizard** for normal first-ti
 docker compose --profile bootstrap run --rm -it bootstrap
 ```
 
+#### Existing standalone app migration (interactive import path)
+
+If you already have provider keys in a host `.env` file and want the bootstrap
+wizard to import them instead of retyping them, mount that directory read-only
+into the bootstrap container:
+
+```bash
+docker compose --profile bootstrap run --rm \
+  -v /opt/litellm:/host_litellm:ro \
+  -it bootstrap
+```
+
+Then choose the import option in Step 2 and enter the in-container path:
+
+```text
+/host_litellm/.env
+```
+
+To mount multiple app directories:
+
+```bash
+docker compose --profile bootstrap run --rm \
+  -v /opt/litellm:/host_litellm:ro \
+  -v /opt/open-webui:/host_openwebui:ro \
+  -it bootstrap
+```
+
 The wizard will prompt you for:
 1. Your Cloudflare API Token (hidden input)
 2. Your Cloudflare Account ID
