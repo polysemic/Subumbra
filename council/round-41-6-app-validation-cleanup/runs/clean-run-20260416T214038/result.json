@@ -1,0 +1,10 @@
+{
+  "clean_run_id": "clean-run-20260416T214038",
+  "round": "round-41-6-app-validation-cleanup",
+  "agent": "codex",
+  "overall": "PASS",
+  "verify_run_id": "codex-20260416T214125",
+  "failed_step": null,
+  "proof_path": "council/round-41-6-app-validation-cleanup/runs/codex-20260416T214125/",
+  "workspace": "/tmp/subumbra-clean-run-RDJzAX"
+}

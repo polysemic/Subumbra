@@ -141,6 +141,14 @@ Current direction after Round 39:
      `council/approved/vps-stabilization.md`. One code change (bootstrap KV
      namespace idempotency) and five doc patches. Pending implementation and
      verification.
+   - **Round 41.5 — App Validation Re-Verification** (Closed): closure-audit
+     round completed. Council consensus: Round 41 core implementation largely
+     landed, but Round 41 was not yet closure-grade. Remaining blockers were
+     narrowed into Round 41.6 rather than reopening the full round.
+   - **Round 41.6 — App Validation Cleanup** (Open): narrow follow-up round to
+     make Round 41 honestly closeable by stabilizing the proof path,
+     eliminating out-of-band verifier dependencies, and deciding any minimal
+     remaining live-app recheck.
 
    Known Round 41.3 candidates:
    - Bootstrap wizard validates adapter key_id inputs only at final submission,
