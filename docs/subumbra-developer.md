@@ -210,6 +210,20 @@ Use this before handing the branch to another verifier.
 ./scripts/council/clean-run.sh --round <round-dir-name> --agent <your-name>
 ```
 
+> **Precondition:** local `clean-run.sh` fails immediately if any of
+> `subumbra-keys`, `subumbra-proxy`, or `subumbra-ui` are already running.
+> Stop the local stack first: `docker compose down` before running locally.
+> VPS clean-run is the preferred lane for this round anyway — use Lane C.
+>
+> **Image rebuild:** if this round changed any image-built service
+> (`bootstrap/`, `ui/`, `subumbra-keys/`, `subumbra-proxy/`), pass
+> `--build <service>` so the workspace rebuilds from current source.
+> Otherwise the clean-run uses whatever image is cached on the host.
+>
+> **Failing clean-run artifacts:** a failing `verify.sh` step still produces
+> a run folder (e.g. `runs/claude-20260416T181938/`). Fetch it alongside the
+> clean-run wrapper folder — both are useful for diagnosis.
+
 - fix any issues found by the clean run
 - rerun until the fresh-state path is clean
 - then push the branch
