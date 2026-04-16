@@ -183,7 +183,8 @@ Reference:
 | 40 | Broader Decoupling And Security Hardening | Closed | `council/closed/round-40-broader-decoupling-and-security-hardening/` |
 | 41 | Real App Validation | Closed | `council/closed/round-41-real-app-validation/` |
 | 41.1 | VPS Test Environment Planning | Closed | (planning only; absorbed into Round 41.2 VPS setup) |
-| 41.5 | App Validation Re-Verification | Open | `council/round-41-5-app-validation/` |
+| 41.5 | App Validation Re-Verification | Closed | `council/closed/round-41-5-app-validation/` |
+| 41.6 | App Validation Cleanup | Open | `council/round-41-6-app-validation-cleanup/` |
 | 41.2 | VPS Stabilization and Full E2E Verification | Closed | `council/closed/round-41-2-vps-testing/` |
 | 41.3 | Subumbra Rebrand | Closed | `council/closed/round-41-3-rebrand/` |
 | 41.4 | Full Subumbra Rebrand | Closed | `council/closed/round-41-4-full-rebrand/` |

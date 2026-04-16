@@ -1,0 +1,25 @@
+[clean-run 21:40:38] run id creation: clean-run-20260416T214038
+[clean-run 21:40:38] credential source selected: .env.bootstrap_bak
+[clean-run 21:40:38] stack-running gate result: clear
+[clean-run 21:40:38] temp workspace path creation: /tmp/subumbra-clean-run-RDJzAX
+[clean-run 21:40:39] workspace env initialized from .env.example
+[clean-run 21:40:39] bootstrap overlay applied: bootstrap-overlay.env
+[clean-run 21:40:39] build start
+[clean-run 21:40:41] build end
+[clean-run 21:40:41] bootstrap start
+[clean-run 21:41:05] bootstrap end
+[clean-run 21:41:05] post-bootstrap start
+[clean-run 21:41:07] post-bootstrap end
+[clean-run 21:41:07] reset start
+[clean-run 21:41:15] reset end
+[clean-run 21:41:15] preflight start
+[clean-run 21:41:25] preflight end
+[clean-run 21:41:25] verify start
+[clean-run 21:41:28] verify end
+[clean-run 21:41:28] artifact export path: /opt/subumbra/council/round-41-6-app-validation-cleanup/runs/clean-run-20260416T214038
+[clean-run 21:41:28] cleanup start
+[clean-run 21:41:28] diagnostics captured
+[clean-run 21:41:30] cleanup end
+[clean-run 21:41:30] note: fixed clean-run worker subumbra-clean-run may persist and may require manual deletion
+[clean-run 21:41:30] run id: clean-run-20260416T214038
+[clean-run 21:41:30] artifacts: /opt/subumbra/council/round-41-6-app-validation-cleanup/runs/clean-run-20260416T214038

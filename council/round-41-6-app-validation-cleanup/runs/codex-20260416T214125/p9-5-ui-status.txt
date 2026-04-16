@@ -1,0 +1,14 @@
+# PROOF: host-facing path
+command: curl --compressed -sS -N -D - -o - -X GET http://127.0.0.1:8080/api/status
+exit_code: 0
+http_status: 200
+response_headers:
+  HTTP/1.1 200 OK
+  Server: gunicorn
+  Date: Thu, 16 Apr 2026 21:41:25 GMT
+  Connection: close
+  Content-Type: application/json
+  Content-Length: 1898
+  
+response_body_excerpt:
+  {"audit_available":false,"audit_error":"subumbra-keys returned 503","dashboard_time":"2026-04-16T21:41:25+00:00","keys":[{"created_at":"2026-04-16T21:40:43+00:00","key_id":"anthropic_prod","last_access":null,"provider":"anthropic","request_count":0},{"created_at":"2026-04-16T21:40:43+00:00","key_id":"cerebras_prod","last_access":null,"provider":"cerebras","request_count":0},{"created_at":"2026-04-16T21:40:43+00:00","key_id":"deepseek_prod","last_access":null,"provider":"deepseek","request_count":0},{"created_at":"2026-04-16T21:40:43+00:00","key_id":"gemini_prod","last_access":null,"provider":"gemini","request_count":0},{"created_at":"2026-04-16T21:40:43+00:00","key_id":"github_prod","last_access":null,"provider":"github","request_count":0},{"created_at":"2026-04-16T21:40:43+00:00","key_id":"groq_prod","last_access":null,"provider":"groq","request_count":0},{"created_at":"2026-04-16T21:40:43+00:00","key_id":"mistral_prod","last_access":null,"provider":"mistral","request_count":0},{"created_at":"2026-04-16T21:40:43+00:00","key_id":"openai_prod","last_access":null,"provider":"openai","request_count":0},{"created_at":"2026-04-16T21:40:43+00:00","key_id":"openrouter_prod","last_access":null,"provider":"openrouter","request_count":0},{"created_at":"2026-04-16T21:40:43+00:00","key_id":"sendgrid_prod","last_access":null,"provider":"sendgrid","request_count":0},{"created_at":"2026-04-16T21:40:43+00:00","key_id":"slack_prod","last_access":null,"provider":"slack","request_count":0},{"created_at":"2026-04-16T21:40:43+00:00","key_id":"together_prod","last_access":null,"provider":"together","request_count":0},{"created_at":"2026-04-16T21:40:43+00:00","key_id":"xai_prod","last_access":null,"provider":"xai","request_count":0}],"keys_loaded":13,"recent_log":[],"stats_available":true,"subumbra_keys_error":null,"subumbra_keys_healthy":true,"worker_error":null,"worker_reachable":true}
