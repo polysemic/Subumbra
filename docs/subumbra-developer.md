@@ -57,6 +57,15 @@ For council verification reports, always record:
 - commit SHA
 - whether the checkout was clean or required a temporary staging path
 
+Preferred verification rule:
+
+- use `/opt/subumbra` for normal VPS verification, or
+- use `./scripts/council/clean-run.sh` for isolated fresh-state proof
+
+Do not bounce casually between `/opt/subumbra` and ad hoc `~/subumbra-*test`
+checkouts in the same verification attempt. Pick one path, record it, and keep
+the run self-consistent.
+
 ### If the VPS cannot pull the branch cleanly
 
 Use this only as a fallback when the branch is not yet reachable from GitHub or
@@ -74,16 +83,19 @@ git bundle create subumbra-round.bundle <branch-name>
 scp subumbra-round.bundle subumbra:/tmp/
 ```
 
-3. On the VPS, fetch and check out a test branch:
+3. On the VPS, fetch and check out a one-off staging branch in a one-off path:
 
 ```bash
 ssh subumbra
-cd ~/subumbra-r41test
+mkdir -p ~/subumbra-stage
+cd ~/subumbra-stage
 git fetch /tmp/subumbra-round.bundle <branch-name>:<vps-test-branch>
 git checkout <vps-test-branch>
 ```
 
-Document this in the verification report as a staging workaround.
+Document this in the verification report as a staging workaround, and delete the
+staging checkout after the run. Do not reuse long-lived `~/subumbra-r41test`
+style directories across verifiers.
 
 ### If bootstrap files or harness files are missing on the VPS
 
@@ -92,7 +104,7 @@ not present in the VPS checkout, use `scp` deliberately and document it:
 
 ```bash
 scp .env.bootstrap_bak subumbra:/tmp/
-scp -r council scripts/council subumbra:subumbra-r41test/
+scp -r council scripts/council subumbra:subumbra-stage/
 ```
 
 This is acceptable for verification when:
@@ -104,15 +116,47 @@ Any such copy step must be logged in the verification report.
 
 ### Copy proof artifacts back into the local round folder
 
-After a VPS proof run succeeds, copy the resulting `runs/<run-id>/` artifacts
-back into the local repo so the council record stays with the branch:
+After a VPS proof run succeeds, copy back only the round-scoped proof and
+clean-run logs if the branch-local repo does not already contain them:
 
 ```bash
 mkdir -p council/<round>/runs
-scp -r subumbra:subumbra-r41test/council/<round>/runs/<run-id> council/<round>/runs/
+scp -r subumbra:/opt/subumbra/council/<round>/runs/<run-id> council/<round>/runs/
 ```
 
-Do not leave the only official PASS evidence stranded on the VPS.
+Or use the helper:
+
+```bash
+./scripts/council/fetch-run-artifacts.sh <round> <run-id>
+```
+
+If you want to fetch and then remove the remote run directory after confirming
+the local copy:
+
+```bash
+./scripts/council/fetch-run-artifacts.sh <round> <run-id> subumbra /opt/subumbra --delete-remote
+```
+
+Do not copy `/tmp/subumbra-clean-run-*` workspaces back to your machine. Those
+are disposable server-side scratch space and should be deleted by the harness
+or manually purged if `--keep-workspace` was used for debugging.
+
+### Optional round-local verification hooks
+
+`scripts/council/verify.sh` is the round-agnostic core verifier. If a round
+needs extra proof beyond the shared baseline, add one of these local hook files:
+
+- `council/<round>/verify-round.sh`
+- `council/<round>/verify-round-*.sh`
+
+The core verifier will run any matching hook scripts after the shared checks and
+capture each hook's stdout/stderr into the current run folder as:
+
+- `council/<round>/runs/<run-id>/verify-round.log`
+- `council/<round>/runs/<run-id>/verify-round-<name>.log`
+
+Hook scripts should write any round-specific proof artifacts into the provided
+run directory via the `VERIFY_ARTIFACT_DIR` environment variable.
 
 ### Merge to main (only after VPS passes)
 
@@ -133,6 +177,89 @@ git push origin main
 | Mounted config / `.env` values | `docker compose up -d --force-recreate` |
 | Image-built service code | `docker compose up -d --build --force-recreate` |
 | Bootstrap / tokens / RSA key pair | Full bootstrap sequence (section 4) |
+
+---
+
+## 3.5 Verification Workflow Policy
+
+Use different lanes for different goals. Do not pay the full fresh-install cost
+for every tiny edit, but do require one clean proof before asking other council
+members to verify.
+
+### Lane A — local development
+
+Use this while implementing and iterating quickly.
+
+- edit code locally
+- run the narrowest checks that prove the changed behavior
+- use `docker compose up -d --force-recreate` or `./scripts/council/reset.sh`
+  when the running state must be refreshed
+- do not run `clean-run.sh` for every small edit unless the round touches
+  install, bootstrap, reset, or proof-capture behavior
+
+### Lane B — pre-push certification
+
+Use this before handing the branch to another verifier.
+
+- finish the implementation locally
+- run targeted local checks first
+- if the round changes fresh-state behavior, user-facing install flow, or the
+  verification harness, run:
+
+```bash
+./scripts/council/clean-run.sh --round <round-dir-name> --agent <your-name>
+```
+
+- fix any issues found by the clean run
+- rerun until the fresh-state path is clean
+- then push the branch
+
+This is the "do not waste the verifier's time" gate.
+
+Run a local clean run before push when the round changes any of:
+
+- `bootstrap/`
+- `post-bootstrap.sh`
+- `scripts/council/reset.sh`
+- `scripts/council/verify.sh`
+- `scripts/council/clean-run.sh`
+- `docker-compose.yml`
+- docs that claim exact install or verification steps
+- token/bootstrap/fresh-install behavior
+
+### Lane C — VPS verification
+
+Use the VPS for the checks that cannot be reproduced credibly on the local
+machine, especially real-app or real-environment validation.
+
+- pull the branch on `/opt/subumbra`
+- run one fresh-state `clean-run.sh` for official verification when the round
+  requires certification-style proof
+- if that first clean run exposes a small fix, patch locally, push, pull, then
+  use `reset.sh` + `verify.sh` for focused follow-up reruns or diagnostics
+- rerun VPS `clean-run.sh` only if the fix changed bootstrap, install, reset,
+  or fresh-state behavior again
+
+Examples of VPS-only proof:
+
+- Open WebUI cutover
+- n8n workflow execution
+- standalone LiteLLM coexistence proof
+- any host-specific or multi-app validation not available locally
+
+### Practical default
+
+Use this default sequence unless the round explicitly requires something else:
+
+1. Implement locally.
+2. Run fast local checks.
+3. If the round touches fresh-state/install/harness behavior, run local
+   `clean-run.sh`.
+4. Push the branch only after that path is clean.
+5. Pull on the VPS.
+6. Run one fresh VPS `clean-run.sh` for official verification.
+7. Use `reset.sh` + `verify.sh` only for focused follow-up reruns unless the
+   fix changed fresh-state behavior again.
 
 ---
 
@@ -193,6 +320,38 @@ Then bootstrap fresh (section 4 above).
 > docker run --rm -v subumbra_keys_data:/data alpine rm /data/kv-config.json
 > ```
 > Then rerun bootstrap.
+
+---
+
+## 5.5 VPS Sweep For Staging Leftovers
+
+Use this on the VPS when previous verification attempts left behind one-off
+staging directories, clean-run temp workspaces, or Docker resources tied to old
+staging project names.
+
+Inspect first:
+
+```bash
+./scripts/council/vps-sweep.sh
+```
+
+Purge the scoped leftovers:
+
+```bash
+./scripts/council/vps-sweep.sh --purge
+```
+
+Scope of this helper:
+
+- `~/subumbra-stage`
+- `~/subumbra-r41test*`
+- `/tmp/subumbra-clean-run-*`
+- Docker containers, networks, and volumes labeled with compose projects
+  `subumbra-clean-run`, `subumbra-stage`, or `subumbra-r41test`
+
+This helper is intended for verification leftovers only. It does not target the
+normal `/opt/subumbra` checkout or a standard long-lived stack unless those
+resources were started under one of the scoped staging project names above.
 
 ---
 
