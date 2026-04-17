@@ -225,7 +225,9 @@ standalone LiteLLM:
 cd /opt/subumbra
 docker compose down
 docker compose up -d
-docker compose ps  # subumbra-keys and litellm should be healthy
+docker compose ps  # subumbra-keys, subumbra-ui, and subumbra-proxy should be healthy
+                   # bundled litellm is profile-gated (--profile litellm) and must NOT
+                   # be expected here
 ```
 
 Verify the `internal` network now has the stable name:
