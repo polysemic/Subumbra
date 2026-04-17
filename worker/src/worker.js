@@ -349,10 +349,20 @@ export class SubumbraProxy {
       upstreamHeaders.delete("authorization");
     }
 
+    // Strip API-key query parameters from the target URL — auth is always
+    // injected via headers above. Some providers (e.g. Gemini native API)
+    // have LiteLLM embed a ?key=<value> param in the URL; that value is a
+    // pre-substituted Subumbra token, not a valid API key, so it must be
+    // removed before the upstream call or it overrides the injected header.
+    const cleanUrl = new URL(targetUrl);
+    cleanUrl.searchParams.delete("key");
+    cleanUrl.searchParams.delete("api_key");
+    cleanUrl.searchParams.delete("apikey");
+
     // Make the upstream call — stream the response body through
     let upstreamResponse;
     try {
-      upstreamResponse = await fetch(targetUrl, {
+      upstreamResponse = await fetch(cleanUrl.toString(), {
         method: method ?? "POST",
         headers: upstreamHeaders,
         body: body != null ? JSON.stringify(body) : undefined,
