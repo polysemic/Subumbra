@@ -6,6 +6,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 networks:
   internal:
+    name: subumbra_internal
     driver: bridge
     internal: true # Docker enforces: no outbound routing
   external:
