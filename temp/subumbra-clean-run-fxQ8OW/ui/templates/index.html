@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Subumbra Dashboard</title>
+  <!-- Bootstrap 5 — fetched by the user's browser, not the container -->
+  <link rel="stylesheet"
+        href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+        integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH"
+        crossorigin="anonymous">
+  <style>
+    :root {
+      --subumbra-green:  #22c55e;
+      --subumbra-red:    #ef4444;
+      --subumbra-yellow: #f59e0b;
+      --subumbra-blue:   #3b82f6;
+    }
+
+    body { background: #0f172a; color: #e2e8f0; font-family: 'Segoe UI', system-ui, sans-serif; }
+
+    /* ── top bar ── */
+    .topbar {
+      background: #1e293b;
+      border-bottom: 1px solid #334155;
+      padding: 0.75rem 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .topbar-brand { font-size: 1.1rem; font-weight: 700; letter-spacing: .03em; color: #f8fafc; }
+    .topbar-brand span { color: var(--subumbra-blue); }
+
+    /* ── health badge ── */
+    .health-dot {
+      display: inline-block;
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      margin-right: 6px;
+      animation: pulse 2s infinite;
+    }
+    .health-dot.ok  { background: var(--subumbra-green); }
+    .health-dot.err { background: var(--subumbra-red);   animation: none; }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: .4; }
+    }
+
+    /* ── cards ── */
+    .card-dark {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 10px;
+    }
+    .card-dark .card-header {
+      background: #263044;
+      border-bottom: 1px solid #334155;
+      border-radius: 10px 10px 0 0;
+      font-weight: 600;
+      font-size: .85rem;
+      letter-spacing: .05em;
+      text-transform: uppercase;
+      color: #94a3b8;
+      padding: .6rem 1rem;
+    }
+
+    /* ── key cards ── */
+    .key-card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      padding: 1rem 1.25rem;
+      transition: border-color .2s;
+    }
+    .key-card:hover { border-color: var(--subumbra-blue); }
+    .key-card .provider-badge {
+      display: inline-block;
+      font-size: .7rem;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      padding: 2px 8px;
+      border-radius: 4px;
+      margin-bottom: .5rem;
+    }
+    .provider-anthropic { background: #451a03; color: #fb923c; }
+    .provider-openai    { background: #052e16; color: #4ade80; }
+    .provider-groq      { background: #1e1b4b; color: #a78bfa; }
+    .provider-deepseek  { background: #082f49; color: #38bdf8; }
+    .provider-unknown   { background: #1e293b; color: #94a3b8; }
+
+    .key-id    { font-size: 1rem; font-weight: 600; color: #f1f5f9; font-family: monospace; }
+    .key-meta  { font-size: .78rem; color: #64748b; margin-top: .25rem; }
+    .req-count { font-size: 1.6rem; font-weight: 700; color: #f1f5f9; line-height: 1; }
+    .req-label { font-size: .7rem; color: #64748b; text-transform: uppercase; letter-spacing: .06em; }
+
+    /* ── log table ── */
+    .log-table { font-size: .82rem; }
+    .log-table th { color: #64748b; font-weight: 600; border-color: #334155 !important;
+                    text-transform: uppercase; letter-spacing: .06em; font-size: .72rem; }
+    .log-table td { border-color: #1e293b !important; color: #cbd5e1; vertical-align: middle; }
+    .log-table tr:hover td { background: #263044; }
+    .status-ok      { color: var(--subumbra-green); font-weight: 600; }
+    .status-err     { color: var(--subumbra-red);   font-weight: 600; }
+    .status-denied  { color: var(--subumbra-yellow); font-weight: 600; }
+    .status-unknown { color: #64748b; }
+
+    /* ── rotation modal ── */
+    .modal-dark .modal-content  { background: #1e293b; border: 1px solid #334155; color: #e2e8f0; }
+    .modal-dark .modal-header   { border-bottom: 1px solid #334155; }
+    .modal-dark .modal-footer   { border-top: 1px solid #334155; }
+    .modal-dark .btn-close      { filter: invert(1); }
+    .code-block {
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      padding: .75rem 1rem;
+      font-family: monospace;
+      font-size: .82rem;
+      color: #a5f3fc;
+      word-break: break-all;
+    }
+
+    /* ── refresh bar ── */
+    .refresh-bar { font-size: .8rem; color: #475569; }
+    #countdown   { font-weight: 600; color: #64748b; }
+
+    /* ── spinner ── */
+    .spinner-sm { width: 14px; height: 14px; border-width: 2px; }
+
+    /* ── empty state ── */
+    .empty-state { color: #475569; font-size: .9rem; padding: 2rem; text-align: center; }
+  </style>
+</head>
+<body>
+
+<!-- ── top bar ─────────────────────────────────────────────────────────────── -->
+<div class="topbar">
+  <div class="topbar-brand">Sub<span>umbra</span> Dashboard</div>
+  <div class="d-flex align-items-center gap-3">
+    <div id="subumbra-health-indicator" class="d-flex align-items-center" style="font-size:.85rem;">
+      <span class="health-dot err" id="subumbra-health-dot"></span>
+      <span id="subumbra-health-text">subumbra-keys connecting…</span>
+    </div>
+    <div id="worker-health-indicator" class="d-flex align-items-center" style="font-size:.85rem;">
+      <span class="health-dot err" id="worker-health-dot"></span>
+      <span id="worker-health-text">worker connecting…</span>
+    </div>
+    <div class="refresh-bar">
+      refresh in <span id="countdown">30</span>s
+      <button class="btn btn-sm btn-outline-secondary ms-2 py-0 px-2"
+              style="font-size:.75rem;" onclick="loadStatus()">↺ now</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── main content ─────────────────────────────────────────────────────────── -->
+<div class="container-fluid px-4 py-4" style="max-width:1200px;">
+
+  <!-- error banner (hidden by default) -->
+  <div id="error-banner" class="alert mb-4 d-none"
+       style="background:#450a0a;border:1px solid #991b1b;color:#fca5a5;">
+    <strong>subumbra-keys unreachable:</strong> <span id="error-text"></span>
+  </div>
+
+  <!-- stats warning (hidden by default) -->
+  <div id="stats-warning" class="alert mb-4 d-none"
+       style="background:#451a03;border:1px solid #92400e;color:#fcd34d;">
+    <strong>&#9888; Stats unavailable:</strong>
+    Request counts and last-access times may be stale — the subumbra-keys stats endpoint is unreachable.
+  </div>
+
+  <!-- audit warning (hidden by default) -->
+  <div id="audit-warning" class="alert mb-4 d-none"
+       style="background:#1e3a8a;border:1px solid #1d4ed8;color:#bfdbfe;">
+    <strong>&#9888; Audit unavailable:</strong>
+    <span id="audit-warning-text">Recent structured audit entries are temporarily unavailable.</span>
+  </div>
+
+  <!-- ── summary row ────────────────────────────────────────────────────────── -->
+  <div class="row g-3 mb-4">
+    <div class="col-6 col-md-3">
+      <div class="card-dark p-3 text-center">
+        <div class="req-count" id="stat-keys">–</div>
+        <div class="req-label mt-1">Keys Loaded</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card-dark p-3 text-center">
+        <div class="req-count" id="stat-total-reqs">–</div>
+        <div class="req-label mt-1">Total Requests</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card-dark p-3 text-center">
+        <div class="req-count" id="stat-active-keys">–</div>
+        <div class="req-label mt-1">Active Keys</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card-dark p-3 text-center">
+        <div id="stat-last-req" style="font-size:.85rem;color:#94a3b8;line-height:1.4;">–</div>
+        <div class="req-label mt-1">Last Request</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── key cards ─────────────────────────────────────────────────────────── -->
+  <div class="card-dark mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <span>Encryption Keys</span>
+      <span class="text-muted" style="font-size:.75rem;text-transform:none;letter-spacing:0;">
+        ciphertext only — real keys never stored
+      </span>
+    </div>
+    <div class="p-3">
+      <div id="keys-grid" class="row g-3">
+        <div class="empty-state col-12">Loading…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── recent request log ────────────────────────────────────────────────── -->
+  <div class="card-dark">
+    <div class="card-header">Recent Requests <span id="log-count" class="text-muted ms-1" style="font-size:.75rem;text-transform:none;letter-spacing:0;"></span></div>
+    <div class="p-0">
+      <div id="log-container" style="overflow-x:auto;">
+        <table class="table table-borderless log-table mb-0" style="min-width:960px;">
+          <thead>
+            <tr>
+              <th class="ps-3">Timestamp</th>
+              <th>Adapter</th>
+              <th>Endpoint</th>
+              <th>Key ID</th>
+              <th>Provider</th>
+              <th>Remote</th>
+              <th>Verdict</th>
+              <th>Reason</th>
+            </tr>
+          </thead>
+          <tbody id="log-body">
+            <tr><td colspan="8" class="empty-state">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /container -->
+
+<!-- ── key rotation modal ────────────────────────────────────────────────────── -->
+<div class="modal fade modal-dark" id="rotateModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Rotate Key: <span id="rotate-key-id" class="text-info font-monospace"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-3" style="color:#94a3b8;font-size:.9rem;">
+          <strong>Single-key rotation</strong> re-encrypts one key using the existing
+          RSA public key on disk. No Cloudflare interaction, no token changes, no full restart.
+        </p>
+        <p style="font-size:.82rem;color:#64748b;margin-bottom:.4rem;">1. Get the new key value from your provider dashboard</p>
+        <p style="font-size:.82rem;color:#64748b;margin-bottom:.4rem;">2. Run:</p>
+        <div class="code-block mb-3" id="rotate-cmd"></div>
+        <div class="alert mt-3 mb-0" style="background:#0c2d48;border:1px solid #1e6091;color:#7ec8e3;font-size:.82rem;">
+          <strong>Note:</strong> Single-key rotation does not change runtime tokens or the RSA key pair.
+          To rotate the key pair itself, run a full re-bootstrap instead.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+        integrity="sha384-YvpcrYf0tY3lHB60NNkmXc4s9bIOgUxi8T/jzmDGgO/r+Bb9nQGsRQv8u+GKp3TY"
+        crossorigin="anonymous"></script>
+<script>
+"use strict";
+
+// ── state ─────────────────────────────────────────────────────────────────────
+let _status   = null;
+let _countdown = 30;
+let _timer    = null;
+let _rotateModal = null;
+
+// ── provider label → CSS class ─────────────────────────────────────────────────
+const PROVIDER_CLASS = {
+  anthropic: "provider-anthropic",
+  openai:    "provider-openai",
+  groq:      "provider-groq",
+  deepseek:  "provider-deepseek",
+};
+
+// ── helpers ───────────────────────────────────────────────────────────────────
+
+function fmtTimestamp(iso) {
+  if (!iso) return "—";
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString(undefined, {
+      month: "short", day: "numeric",
+      hour: "2-digit", minute: "2-digit", second: "2-digit",
+    });
+  } catch { return iso; }
+}
+
+function fmtRelative(iso) {
+  if (!iso) return null;
+  const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (diff < 60)   return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
+  return `${Math.floor(diff/86400)}d ago`;
+}
+
+function verdictClass(verdict) {
+  if (verdict === "allow") return "status-ok";
+  if (verdict === "deny") return "status-denied";
+  return "status-unknown";
+}
+
+function esc(s) {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+// ── render ────────────────────────────────────────────────────────────────────
+
+function renderHealth(data) {
+  const subumbraDot  = document.getElementById("subumbra-health-dot");
+  const subumbraText = document.getElementById("subumbra-health-text");
+  const workerDot  = document.getElementById("worker-health-dot");
+  const workerText = document.getElementById("worker-health-text");
+
+  if (data.subumbra_keys_healthy) {
+    subumbraDot.className  = "health-dot ok";
+    subumbraText.textContent = "subumbra-keys healthy";
+    subumbraText.style.color = "";
+  } else {
+    subumbraDot.className  = "health-dot err";
+    subumbraText.textContent = data.subumbra_keys_error ?? "subumbra-keys error";
+    subumbraText.style.color = "#ef4444";
+  }
+
+  if (data.worker_reachable) {
+    workerDot.className = "health-dot ok";
+    workerText.textContent = "worker reachable";
+    workerText.style.color = "";
+  } else {
+    workerDot.className = "health-dot err";
+    workerText.textContent = data.worker_error ?? "worker unreachable";
+    workerText.style.color = "#ef4444";
+  }
+}
+
+function renderErrorBanner(data) {
+  const banner = document.getElementById("error-banner");
+  if (!data.subumbra_keys_healthy && data.subumbra_keys_error) {
+    document.getElementById("error-text").textContent = data.subumbra_keys_error;
+    banner.classList.remove("d-none");
+  } else {
+    banner.classList.add("d-none");
+  }
+}
+
+function renderSummary(data) {
+  const totalReqs = data.keys.reduce((s, k) => s + (k.request_count || 0), 0);
+  const activeKeys = data.keys.filter(k => k.request_count > 0).length;
+
+  // Most recent access across all keys
+  const lastAccesses = data.keys
+    .map(k => k.last_access)
+    .filter(Boolean)
+    .sort()
+    .reverse();
+  const lastReq = lastAccesses[0];
+
+  document.getElementById("stat-keys").textContent      = data.keys_loaded;
+  document.getElementById("stat-total-reqs").textContent = totalReqs;
+  document.getElementById("stat-active-keys").textContent = activeKeys;
+
+  const el = document.getElementById("stat-last-req");
+  if (lastReq) {
+    el.innerHTML = `<div>${esc(fmtRelative(lastReq))}</div>
+                    <div style="font-size:.72rem;color:#475569;">${esc(fmtTimestamp(lastReq))}</div>`;
+  } else {
+    el.textContent = "No requests yet";
+  }
+}
+
+function renderKeys(keys) {
+  const grid = document.getElementById("keys-grid");
+  if (!keys.length) {
+    grid.innerHTML = `<div class="empty-state col-12">
+      No keys loaded. Run bootstrap first:
+      <div class="code-block mt-2 d-inline-block">docker compose --profile bootstrap run --rm -it bootstrap</div>
+    </div>`;
+    return;
+  }
+
+  grid.innerHTML = keys.map(k => {
+    const pClass  = PROVIDER_CLASS[k.provider] ?? "provider-unknown";
+    const relTime = k.last_access ? fmtRelative(k.last_access) : null;
+    const created = k.created_at ? fmtTimestamp(k.created_at) : "—";
+
+    return `
+    <div class="col-12 col-sm-6 col-lg-4">
+      <div class="key-card h-100">
+        <span class="provider-badge ${esc(pClass)}">${esc(k.provider)}</span>
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <div class="key-id">${esc(k.key_id)}</div>
+            <div class="key-meta">Created: ${esc(created)}</div>
+            ${relTime ? `<div class="key-meta">Last used: ${esc(relTime)}</div>` : `<div class="key-meta" style="color:#334155;">Never used</div>`}
+          </div>
+          <div class="text-end">
+            <div class="req-count">${(k.request_count || 0).toLocaleString()}</div>
+            <div class="req-label">requests</div>
+          </div>
+        </div>
+        <div class="mt-2 pt-2" style="border-top:1px solid #334155;">
+          <button class="btn btn-sm py-0 px-2"
+                  style="font-size:.72rem;background:#263044;color:#94a3b8;border:1px solid #334155;"
+                  onclick="showRotateModal('${esc(k.key_id)}', '${esc(k.provider)}')">
+            ↺ Rotate
+          </button>
+        </div>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+function renderLog(log, auditAvailable) {
+  const tbody = document.getElementById("log-body");
+  const count = document.getElementById("log-count");
+  count.textContent = log.length ? `(${log.length} entries)` : "";
+
+  if (!auditAvailable) {
+    tbody.innerHTML = `<tr><td colspan="8" class="empty-state">Audit trail unavailable. See warning above.</td></tr>`;
+    return;
+  }
+
+  if (!log.length) {
+    tbody.innerHTML = `<tr><td colspan="8" class="empty-state">No requests recorded yet.</td></tr>`;
+    return;
+  }
+
+  const provMap = {};
+  if (_status) {
+    for (const k of _status.keys) provMap[k.key_id] = k.provider;
+  }
+
+  tbody.innerHTML = log.map(entry => {
+    const prov = provMap[entry.key_id] ?? "—";
+    const pClass = PROVIDER_CLASS[prov] ?? "provider-unknown";
+    const vClass = verdictClass(entry.verdict);
+    const timeStr = fmtTimestamp(entry.timestamp);
+    return `
+    <tr>
+      <td class="ps-3" style="white-space:nowrap;color:#475569;font-family:monospace;">${esc(timeStr)}</td>
+      <td class="font-monospace">${esc(entry.adapter_id ?? "—")}</td>
+      <td>${esc(entry.endpoint ?? "—")}</td>
+      <td class="font-monospace">${esc(entry.key_id ?? "—")}</td>
+      <td><span class="provider-badge ${esc(pClass)}" style="margin-bottom:0;">${esc(prov)}</span></td>
+      <td style="color:#475569;">${esc(entry.remote ?? "—")}</td>
+      <td class="${vClass}">${esc(entry.verdict ?? "—")}</td>
+      <td>${esc(entry.reason_code ?? "—")}</td>
+    </tr>`;
+  }).join("");
+}
+
+// ── fetch & refresh ───────────────────────────────────────────────────────────
+
+async function loadStatus() {
+  resetCountdown();
+  try {
+    const resp = await fetch("/api/status");
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    _status = await resp.json();
+
+    renderHealth(_status);
+    renderErrorBanner(_status);
+    renderSummary(_status);
+    renderKeys(_status.keys);
+    renderLog(_status.recent_log, _status.audit_available !== false);
+
+    // Show stats warning when request counts / last-access data is unavailable
+    const statsWarn = document.getElementById("stats-warning");
+    if (_status.stats_available === false) {
+      statsWarn.classList.remove("d-none");
+    } else {
+      statsWarn.classList.add("d-none");
+    }
+
+    // Show audit warning when durable audit entries are unavailable
+    const auditWarn = document.getElementById("audit-warning");
+    const auditWarnText = document.getElementById("audit-warning-text");
+    if (_status.audit_available === false) {
+      auditWarnText.textContent = _status.audit_error || "Recent structured audit entries are temporarily unavailable.";
+      auditWarn.classList.remove("d-none");
+    } else {
+      auditWarn.classList.add("d-none");
+    }
+  } catch (err) {
+    const subumbraDot = document.getElementById("subumbra-health-dot");
+    const subumbraText = document.getElementById("subumbra-health-text");
+    const workerDot = document.getElementById("worker-health-dot");
+    const workerText = document.getElementById("worker-health-text");
+    subumbraDot.className = "health-dot err";
+    subumbraText.textContent = "dashboard error: " + err.message;
+    subumbraText.style.color = "#ef4444";
+    workerDot.className = "health-dot err";
+    workerText.textContent = "dashboard error";
+    workerText.style.color = "#ef4444";
+  }
+}
+
+function resetCountdown() {
+  _countdown = 30;
+  document.getElementById("countdown").textContent = _countdown;
+}
+
+function startTimer() {
+  if (_timer) clearInterval(_timer);
+  _timer = setInterval(() => {
+    _countdown--;
+    document.getElementById("countdown").textContent = Math.max(0, _countdown);
+    if (_countdown <= 0) loadStatus();
+  }, 1000);
+}
+
+// ── key rotation modal ─────────────────────────────────────────────────────────
+
+function showRotateModal(keyId, provider) {
+  document.getElementById("rotate-key-id").textContent = keyId;
+  const cmd = `docker compose --profile bootstrap run --rm -it bootstrap --rotate`;
+  document.getElementById("rotate-cmd").textContent = cmd;
+  if (!_rotateModal) {
+    _rotateModal = new bootstrap.Modal(document.getElementById("rotateModal"));
+  }
+  _rotateModal.show();
+}
+
+// ── init ───────────────────────────────────────────────────────────────────────
+loadStatus();
+startTimer();
+</script>
+</body>
+</html>

@@ -1,0 +1,60 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# CRITICAL: Real API keys must never enter git history.
+# If you accidentally commit a key, rotate it immediately.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Bootstrap env — DELETE AFTER USE, never commit
+.env.bootstrap
+.env.bootstrap_bak
+.env.bootstrap.local
+
+# Runtime env (contains generated tokens, not keys — still keep out of git)
+.env
+.env.local
+.env.*.local
+
+# Local-only workflow and research
+.claude/
+competitor-review/
+council/
+tests/
+local-archive/
+scripts/legacy/
+
+# Encrypted key blobs — safe cryptographically, but no reason to commit
+subumbra-keys/keys.json
+subumbra-keys/data/
+
+# Wrangler artifacts
+worker/.wrangler/
+worker/node_modules/
+worker/dist/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+
+# Docker
+*.log
+verify_err.txt
+verify_out.txt
+litellm_logs*.txt
+litellm_v4_test.txt
+pathlib
+re
+
+# OS
+.DS_Store
+Thumbs.db
+
+.codex
+
+worker/.dev.vars
