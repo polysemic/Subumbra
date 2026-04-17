@@ -1,0 +1,126 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# LiteLLM Proxy Config — Subumbra
+#
+# All models use api_key: "subumbra:<key_id>"
+# The callback intercepts these and routes through the CF Worker.
+# Real API keys never appear in this file.
+# The committed subumbra:key_id examples below match the bootstrap default suggestions
+# (e.g. anthropic_prod, openai_prod). If you enter custom key_ids during bootstrap,
+# update these subumbra: references to match your chosen key_ids exactly.
+# Mismatch symptom: subumbra-keys returns HTTP 403 with reason_code=key_scope_denied
+# and the affected model appears in LiteLLM's unhealthy_endpoints list.
+# Example: if you entered "openai" at bootstrap, change subumbra:openai_prod → subumbra:openai.
+# ─────────────────────────────────────────────────────────────────────────────
+
+model_list:
+
+  # ── Anthropic ───────────────────────────────────────────────────────────────
+  - model_name: claude-opus-4
+    litellm_params:
+      model: anthropic/claude-opus-4-5
+      api_key: "subumbra:anthropic_prod"
+
+  - model_name: claude-sonnet-4
+    litellm_params:
+      model: anthropic/claude-sonnet-4-5
+      api_key: "subumbra:anthropic_prod"
+
+  - model_name: claude-haiku-4
+    litellm_params:
+      model: anthropic/claude-haiku-4-5-20251001
+      api_key: "subumbra:anthropic_prod"
+
+  # ── OpenAI ──────────────────────────────────────────────────────────────────
+  - model_name: gpt-4o
+    litellm_params:
+      model: openai/gpt-4o
+      api_key: "subumbra:openai_prod"
+
+  - model_name: gpt-4o-mini
+    litellm_params:
+      model: openai/gpt-4o-mini
+      api_key: "subumbra:openai_prod"
+
+  - model_name: o3
+    litellm_params:
+      model: openai/o3
+      api_key: "subumbra:openai_prod"
+
+  # ── Groq ────────────────────────────────────────────────────────────────────
+  - model_name: llama-3.3-70b
+    litellm_params:
+      model: groq/llama-3.3-70b-versatile
+      api_key: "subumbra:groq_prod"
+
+  - model_name: llama-3.1-8b
+    litellm_params:
+      model: groq/llama-3.1-8b-instant
+      api_key: "subumbra:groq_prod"
+
+  # ── DeepSeek ────────────────────────────────────────────────────────────────
+  - model_name: deepseek-chat
+    litellm_params:
+      model: deepseek/deepseek-chat
+      api_key: "subumbra:deepseek_prod"
+
+  - model_name: deepseek-reasoner
+    litellm_params:
+      model: deepseek/deepseek-reasoner
+      api_key: "subumbra:deepseek_prod"
+
+  # ── Cerebras ───────────────────────────────────────────────────────────────
+  - model_name: cerebras-llama-3.3-70b
+    litellm_params:
+      model: cerebras/llama3.1-8b
+      api_key: "subumbra:cerebras_prod"
+
+  # ── Gemini (OpenAI-compatible mode only) ──────────────────────────────────
+  - model_name: gemini-2.0-flash
+    litellm_params:
+      model: openai/gemini-2.0-flash-001
+      api_base: https://generativelanguage.googleapis.com/v1beta/openai/
+      api_key: "subumbra:gemini_prod"
+
+  # ── Mistral ────────────────────────────────────────────────────────────────
+  - model_name: mistral-large
+    litellm_params:
+      model: mistral/mistral-large-latest
+      api_key: "subumbra:mistral_prod"
+
+  # ── OpenRouter ─────────────────────────────────────────────────────────────
+  - model_name: openrouter-claude-sonnet-4
+    litellm_params:
+      model: openrouter/anthropic/claude-sonnet-4
+      api_key: "subumbra:openrouter_prod"
+
+  # ── Together ───────────────────────────────────────────────────────────────
+  - model_name: together-llama-3.3-70b
+    litellm_params:
+      model: together_ai/meta-llama/Llama-3.3-70B-Instruct-Turbo
+      api_key: "subumbra:together_prod"
+
+  # ── xAI ────────────────────────────────────────────────────────────────────
+  - model_name: grok-2
+    litellm_params:
+      model: xai/grok-3
+      api_key: "subumbra:xai_prod"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LiteLLM settings
+# ─────────────────────────────────────────────────────────────────────────────
+litellm_settings:
+  # Drop keys from logs — belt-and-suspenders even though keys are tokens here
+  redact_user_api_key_info: true
+
+  # The custom callback intercepts "subumbra:" api_key values before each call.
+  # Must reference a module-level *instance*, not the class itself.
+  # LiteLLM imports custom_callbacks and reads proxy_handler_instance from it.
+  callbacks: custom_callbacks.proxy_handler_instance
+
+# ─────────────────────────────────────────────────────────────────────────────
+# General / proxy settings
+# ─────────────────────────────────────────────────────────────────────────────
+general_settings:
+  # Disable the built-in UI (we have our own)
+  disable_spend_logs: true
+  no_database: true

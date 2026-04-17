@@ -1,0 +1,98 @@
+{
+  "name": "Test LLM — via Subumbra Proxy (after Subumbra)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "b1c2d3e4-0001-0001-0001-000000000001",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://proxy.subumbra.dev/proxy",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Subumbra-Key-Id",
+              "value": "anthropic_prod"
+            },
+            {
+              "name": "X-Subumbra-Provider",
+              "value": "anthropic"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={\n  \"target_url\": \"https://api.anthropic.com/v1/messages\",\n  \"method\": \"POST\",\n  \"headers\": {\n    \"anthropic-version\": \"2023-06-01\",\n    \"content-type\": \"application/json\"\n  },\n  \"body\": {\n    \"model\": \"claude-haiku-4-5-20251001\",\n    \"max_tokens\": 20,\n    \"messages\": [\n      {\n        \"role\": \"user\",\n        \"content\": \"Say hello in exactly 5 words.\"\n      }\n    ]\n  }\n}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": false
+            }
+          }
+        }
+      },
+      "id": "b1c2d3e4-0002-0002-0002-000000000002",
+      "name": "Call via Subumbra",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "subumbra-proxy-auth",
+          "name": "Subumbra Proxy Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\n// Anthropic response shape\nconst content = response?.content?.[0]?.text\n  // OpenAI response shape (if using openai_prod key)\n  ?? response?.choices?.[0]?.message?.content\n  ?? 'No content in response';\n\nconst model = response?.model ?? 'unknown';\nconst tokens = response?.usage?.input_tokens + response?.usage?.output_tokens\n  ?? response?.usage?.total_tokens\n  ?? 0;\n\nreturn [{\n  json: {\n    success: true,\n    routed_via: 'subumbra-proxy',\n    model,\n    reply: content,\n    tokens_used: tokens\n  }\n}];"
+      },
+      "id": "b1c2d3e4-0003-0003-0003-000000000003",
+      "name": "Extract Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "Call via Subumbra",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call via Subumbra": {
+      "main": [
+        [
+          {
+            "node": "Extract Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "pinData": {}
+}

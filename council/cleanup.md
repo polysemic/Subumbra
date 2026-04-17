@@ -128,3 +128,9 @@ The precondition was discovered during Round 41 verification pass.
 ## 2026-04-15 — Round 41 Real App Validation planning cleanup
 
 - **Truth alignment deferred from implementation scope**: The approved Round 41 real-app-validation plan intentionally treated architecture/status doc alignment as cleanup rather than blocking implementation scope. `PROJECT_STATUS.md` and `CLAUDE.md` should be updated in a follow-up doc-maintenance pass to reflect the standalone-app / bolt-on validation direction and the post-Round-39 operating model. Affected files: `PROJECT_STATUS.md`, `CLAUDE.md`. Priority: Low.
+
+## Round 41.6 — 2026-04-16 (post-verification harness fixes)
+
+- **`scripts/council/preflight.sh` LiteLLM poll requires running container**: The preflight script unconditionally polls LiteLLM on port 4000. In Round 41 coexistence flows where LiteLLM is not bundled, this caused a 60s timeout failure in `clean-run.sh`. 
+
+- **`.gitignore` rule `council/` ignores `scripts/council/`**: The top-level `council/` ignore rule in `.gitignore` is not anchored to the root (`/council/`), which causes git to ignore the `scripts/council/` directory as well. This makes harness maintenance harder to track. **Status: Open** (Non-blocking).

@@ -321,7 +321,7 @@ fi
 
 log "stack-running gate result: clear"
 
-workspace="$(mktemp -d "${TMPDIR:-/tmp}/subumbra-clean-run-XXXXXX")"
+workspace="$(mktemp -d "${repo_root}/temp/subumbra-clean-run-XXXXXX")"
 log "temp workspace path creation: ${workspace}"
 
 if ! rsync -a \
