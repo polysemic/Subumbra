@@ -1,95 +1,60 @@
 #!/usr/bin/env bash
 # post-bootstrap.sh — finalize bootstrap: copy runtime tokens into .env, shred .env.bootstrap
-#
-# Security properties:
-#   - This script never reads raw API keys. It only reads the scoped Subumbra
-#     runtime secrets plus operator-safe adapter allowlists already destined
-#     for .env.
-#   - Those values are runtime tokens already destined for .env — no new
-#     exposure.
-#   - Values pass through bash variables (RAM only, never written to a temp file).
-#   - .env.bootstrap is shredded only after all required values are verified in .env.
-#
-# Usage:
-#   ./post-bootstrap.sh
-#
-# Prerequisites:
-#   - Bootstrap has completed successfully
-#   - subumbra-keys container is running  (docker compose ps)
-#   - .env exists (copy from .env.example if not)
-#   - .env.bootstrap exists only if you used automation/CI mode (wizard path has no file to shred)
-
 set -euo pipefail
 
 ENV_FILE=".env"
 BOOTSTRAP_FILE=".env.bootstrap"
 
-# ── Preflight checks ──────────────────────────────────────────────────────────
-
 if [[ ! -f "$ENV_FILE" ]]; then
-    echo "ERROR: $ENV_FILE not found." >&2
-    echo "  Create it first: cp .env.example .env" >&2
+    echo "ERROR: $ENV_FILE not found. Create it first: cp .env.example .env" >&2
     exit 1
 fi
 
-# ── Check bootstrap mode ─────────────────────────────────────────────────────
-# If .env.bootstrap is absent, the interactive wizard was used — nothing to shred.
-# If it exists, we shred it after copying tokens (automation/CI path).
 WIZARD_MODE=false
 if [[ ! -f "$BOOTSTRAP_FILE" ]]; then
     echo "No .env.bootstrap found — wizard path, nothing to shred."
     WIZARD_MODE=true
 fi
 
-# ── Read runtime tokens from the subumbra-keys volume ────────────────────────
-
 echo "Reading runtime tokens from Subumbra volume..."
-RUNTIME=$(docker compose run --rm -u 0 -T subumbra-keys cat /app/data/runtime.env 2>/dev/null) || {
+RUNTIME=$(SUBUMBRA_ADAPTER_REGISTRY=x SUBUMBRA_TOKEN_LITELLM=x FORGE_TOKEN_LITELLM=x SUBUMBRA_TOKEN_PROXY=x SUBUMBRA_TOKEN_UI=x SUBUMBRA_TOKEN_PROBE=x SUBUMBRA_HMAC_KEY=x docker compose run --rm -u 0 -T subumbra-keys cat /app/data/runtime.env 2>/dev/null) || {
     echo "ERROR: Could not read /app/data/runtime.env from the subumbra-keys container." >&2
-    echo "  Make sure subumbra-keys is running: docker compose ps" >&2
-    echo "  If bootstrap failed mid-run, re-run:" >&2
-    echo "    Interactive: docker compose --profile bootstrap run --rm -it bootstrap" >&2
-    echo "    Automation:  docker compose --profile bootstrap run --rm bootstrap" >&2
+    echo "  Make sure bootstrap completed: docker compose --profile bootstrap run --rm bootstrap" >&2
     exit 1
 }
 
-# ── Extract runtime values needed by Docker services ─────────────────────────
-# WORKER_KEY_FINGERPRINT is intentionally NOT extracted here. It is pushed
-# directly to CF Secrets by bootstrap and is not consumed by any Docker service.
-# Its presence in runtime.env is for audit/diagnostic purposes only.
+_get() { printf '%s\n' "$RUNTIME" | grep "^${1}=" | cut -d= -f2- || true; }
 
-SUBUMBRA_ADAPTER_REGISTRY=$(printf '%s\n' "$RUNTIME" | grep '^SUBUMBRA_ADAPTER_REGISTRY=' | cut -d= -f2-)
-mapfile -t SUBUMBRA_TOKEN_LINES < <(printf '%s\n' "$RUNTIME" | grep '^SUBUMBRA_TOKEN_' | grep -Ev '^SUBUMBRA_TOKEN_(LITELLM|PROXY|UI|PROBE)=' || true)
-SUBUMBRA_TOKEN_PROXY=$(printf '%s\n' "$RUNTIME" | grep '^SUBUMBRA_TOKEN_PROXY=' | cut -d= -f2-)
-SUBUMBRA_TOKEN_UI=$(printf '%s\n' "$RUNTIME" | grep '^SUBUMBRA_TOKEN_UI=' | cut -d= -f2-)
-SUBUMBRA_TOKEN_PROBE=$(printf '%s\n' "$RUNTIME" | grep '^SUBUMBRA_TOKEN_PROBE=' | cut -d= -f2-)
-SUBUMBRA_HMAC_KEY=$(printf '%s\n' "$RUNTIME" | grep '^SUBUMBRA_HMAC_KEY=' | cut -d= -f2-)
-CF_WORKER_URL=$(printf '%s\n' "$RUNTIME" | grep '^CF_WORKER_URL=' | cut -d= -f2-)
-LITELLM_ALLOWED_KEYS=$(printf '%s\n' "$RUNTIME" | grep '^LITELLM_ALLOWED_KEYS=' | cut -d= -f2-)
-PROXY_ALLOWED_KEYS=$(printf '%s\n' "$RUNTIME" | grep '^PROXY_ALLOWED_KEYS=' | cut -d= -f2-)
-PROBE_ALLOWED_KEYS=$(printf '%s\n' "$RUNTIME" | grep '^PROBE_ALLOWED_KEYS=' | cut -d= -f2-)
-UI_ALLOWED_KEYS=$(printf '%s\n' "$RUNTIME" | grep '^UI_ALLOWED_KEYS=' | cut -d= -f2-)
+SUBUMBRA_ADAPTER_REGISTRY=$(_get SUBUMBRA_ADAPTER_REGISTRY)
+SUBUMBRA_TOKEN_LITELLM=$(_get SUBUMBRA_TOKEN_LITELLM)
+if [[ -z "$SUBUMBRA_TOKEN_LITELLM" ]]; then
+    SUBUMBRA_TOKEN_LITELLM=$(_get FORGE_TOKEN_LITELLM)
+fi
+SUBUMBRA_TOKEN_PROXY=$(_get SUBUMBRA_TOKEN_PROXY)
+SUBUMBRA_TOKEN_UI=$(_get SUBUMBRA_TOKEN_UI)
+SUBUMBRA_TOKEN_PROBE=$(_get SUBUMBRA_TOKEN_PROBE)
+SUBUMBRA_HMAC_KEY=$(_get SUBUMBRA_HMAC_KEY)
+CF_WORKER_URL=$(_get CF_WORKER_URL)
+LITELLM_ALLOWED_KEYS=$(_get LITELLM_ALLOWED_KEYS)
+PROXY_ALLOWED_KEYS=$(_get PROXY_ALLOWED_KEYS)
+PROBE_ALLOWED_KEYS=$(_get PROBE_ALLOWED_KEYS)
+UI_ALLOWED_KEYS=$(_get UI_ALLOWED_KEYS)
 
-SUBUMBRA_TOKEN_LITELLM=$(printf '%s\n' "${SUBUMBRA_TOKEN_LINES[@]}" | grep '^SUBUMBRA_TOKEN_LITELLM=' | cut -d= -f2-)
 if [[ -z "$SUBUMBRA_ADAPTER_REGISTRY" || -z "$SUBUMBRA_TOKEN_LITELLM" || -z "$SUBUMBRA_TOKEN_PROXY" || -z "$SUBUMBRA_TOKEN_UI" || -z "$SUBUMBRA_TOKEN_PROBE" || -z "$SUBUMBRA_HMAC_KEY" || -z "$CF_WORKER_URL" ]]; then
     echo "ERROR: runtime.env is missing one or more required values." >&2
     exit 1
 fi
 
 echo "  SUBUMBRA_ADAPTER_REGISTRY : present"
-for token_line in "${SUBUMBRA_TOKEN_LINES[@]}"; do
-    token_key="${token_line%%=*}"
-    token_value="${token_line#*=}"
-    printf '  %-21s: %s... (truncated for display)\n' "$token_key" "${token_value:0:8}"
-done
-echo "  SUBUMBRA_HMAC_KEY     : ${SUBUMBRA_HMAC_KEY:0:8}... (truncated for display)"
-echo "  CF_WORKER_URL         : $CF_WORKER_URL"
-
-# ── Write into .env (replace existing lines, append if missing) ───────────────
+echo "  SUBUMBRA_TOKEN_LITELLM    : ${SUBUMBRA_TOKEN_LITELLM:0:8}..."
+echo "  SUBUMBRA_TOKEN_PROXY      : ${SUBUMBRA_TOKEN_PROXY:0:8}..."
+echo "  SUBUMBRA_TOKEN_UI         : ${SUBUMBRA_TOKEN_UI:0:8}..."
+echo "  SUBUMBRA_TOKEN_PROBE      : ${SUBUMBRA_TOKEN_PROBE:0:8}..."
+echo "  SUBUMBRA_HMAC_KEY         : ${SUBUMBRA_HMAC_KEY:0:8}..."
+echo "  CF_WORKER_URL             : $CF_WORKER_URL"
 
 update_env() {
-    local key="$1"
-    local value="$2"
+    local key="$1" value="$2"
     if grep -q "^${key}=" "$ENV_FILE"; then
         sed -i "s|^${key}=.*|${key}=${value}|" "$ENV_FILE"
     else
@@ -100,20 +65,16 @@ update_env() {
 echo ""
 echo "Writing to $ENV_FILE..."
 update_env "SUBUMBRA_ADAPTER_REGISTRY" "$SUBUMBRA_ADAPTER_REGISTRY"
-for token_line in "${SUBUMBRA_TOKEN_LINES[@]}"; do
-    update_env "${token_line%%=*}" "${token_line#*=}"
-done
-update_env "SUBUMBRA_TOKEN_PROXY" "$SUBUMBRA_TOKEN_PROXY"
-update_env "SUBUMBRA_TOKEN_UI"    "$SUBUMBRA_TOKEN_UI"
-update_env "SUBUMBRA_TOKEN_PROBE" "$SUBUMBRA_TOKEN_PROBE"
-update_env "SUBUMBRA_HMAC_KEY"    "$SUBUMBRA_HMAC_KEY"
-update_env "CF_WORKER_URL"      "$CF_WORKER_URL"
-update_env "LITELLM_ALLOWED_KEYS" "$LITELLM_ALLOWED_KEYS"
-update_env "PROXY_ALLOWED_KEYS"   "$PROXY_ALLOWED_KEYS"
-update_env "PROBE_ALLOWED_KEYS"   "$PROBE_ALLOWED_KEYS"
-update_env "UI_ALLOWED_KEYS"      "$UI_ALLOWED_KEYS"
-
-# ── Verify all required values landed in .env ────────────────────────────────
+update_env "SUBUMBRA_TOKEN_LITELLM"    "$SUBUMBRA_TOKEN_LITELLM"
+update_env "SUBUMBRA_TOKEN_PROXY"      "$SUBUMBRA_TOKEN_PROXY"
+update_env "SUBUMBRA_TOKEN_UI"         "$SUBUMBRA_TOKEN_UI"
+update_env "SUBUMBRA_TOKEN_PROBE"      "$SUBUMBRA_TOKEN_PROBE"
+update_env "SUBUMBRA_HMAC_KEY"         "$SUBUMBRA_HMAC_KEY"
+update_env "CF_WORKER_URL"             "$CF_WORKER_URL"
+update_env "LITELLM_ALLOWED_KEYS"      "$LITELLM_ALLOWED_KEYS"
+update_env "PROXY_ALLOWED_KEYS"        "$PROXY_ALLOWED_KEYS"
+update_env "PROBE_ALLOWED_KEYS"        "$PROBE_ALLOWED_KEYS"
+update_env "UI_ALLOWED_KEYS"           "$UI_ALLOWED_KEYS"
 
 VERIFY_FAILED=0
 for key in SUBUMBRA_ADAPTER_REGISTRY SUBUMBRA_TOKEN_LITELLM SUBUMBRA_TOKEN_PROXY SUBUMBRA_TOKEN_UI SUBUMBRA_TOKEN_PROBE SUBUMBRA_HMAC_KEY CF_WORKER_URL; do
@@ -122,128 +83,45 @@ for key in SUBUMBRA_ADAPTER_REGISTRY SUBUMBRA_TOKEN_LITELLM SUBUMBRA_TOKEN_PROXY
         VERIFY_FAILED=1
     fi
 done
-for token_line in "${SUBUMBRA_TOKEN_LINES[@]}"; do
-    token_key="${token_line%%=*}"
-    if ! grep -q "^${token_key}=" "$ENV_FILE"; then
-        echo "ERROR: Failed to write ${token_key} to $ENV_FILE" >&2
-        VERIFY_FAILED=1
-    fi
-done
-
-if [[ "$VERIFY_FAILED" -ne 0 ]]; then
-    echo "Aborting — tokens were NOT written to $ENV_FILE. Fix the errors above and re-run." >&2
-    exit 1
-fi
-
+[[ "$VERIFY_FAILED" -ne 0 ]] && exit 1
 echo "  Verified: all required values present in $ENV_FILE."
 
-# ── Token-drift detection ─────────────────────────────────────────────────────
 echo ""
 echo "Checking for token drift in running containers..."
 DRIFT=false
-container_for_service() {
-    case "$1" in
-        litellm) echo "litellm" ;;
-        subumbra-keys) echo "subumbra-keys" ;;
-        subumbra-ui) echo "subumbra-ui" ;;
-        subumbra-proxy) echo "subumbra-proxy" ;;
-        subumbra-probe) echo "subumbra-probe" ;;
-        *)
-            return 1
-            ;;
-    esac
-}
-
-expected_value_for_service() {
-    case "$1" in
-        subumbra-keys) printf '%s' "$SUBUMBRA_ADAPTER_REGISTRY" ;;
-        litellm) printf '%s' "$SUBUMBRA_TOKEN_LITELLM" ;;
-        subumbra-ui) printf '%s' "$SUBUMBRA_TOKEN_UI" ;;
-        subumbra-proxy) printf '%s' "$SUBUMBRA_TOKEN_PROXY" ;;
-        subumbra-probe) printf '%s' "$SUBUMBRA_TOKEN_PROBE" ;;
-        *)
-            return 1
-            ;;
-    esac
-}
-
-env_key_for_service() {
-    case "$1" in
-        subumbra-keys) printf '%s' "SUBUMBRA_ADAPTER_REGISTRY" ;;
-        *) printf '%s' "SUBUMBRA_ACCESS_TOKEN" ;;
-    esac
-}
-
-for svc in subumbra-keys litellm subumbra-ui subumbra-proxy subumbra-probe; do
+for svc in litellm subumbra-ui subumbra-proxy subumbra-probe; do
     if docker compose ps --status running "$svc" 2>/dev/null | grep -q "$svc"; then
-        container_name="$(container_for_service "$svc")"
-        env_key="$(env_key_for_service "$svc")"
-        expected_value="$(expected_value_for_service "$svc")"
-        running_value="$(
-            docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$container_name" 2>/dev/null \
-            | grep "^${env_key}=" | cut -d= -f2- || true
-        )"
-        if [[ -n "$running_value" && "$running_value" != "$expected_value" ]]; then
-            echo "  ⚠  $svc is running with a stale ${env_key}" >&2
+        case "$svc" in
+            litellm)      token_val="$SUBUMBRA_TOKEN_LITELLM" ;;
+            subumbra-ui)  token_val="$SUBUMBRA_TOKEN_UI" ;;
+            subumbra-proxy) token_val="$SUBUMBRA_TOKEN_PROXY" ;;
+            subumbra-probe) token_val="$SUBUMBRA_TOKEN_PROBE" ;;
+        esac
+        running_val="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$svc" 2>/dev/null | grep "^SUBUMBRA_ACCESS_TOKEN=" | cut -d= -f2- || true)"
+        if [[ -n "$running_val" && "$running_val" != "$token_val" ]]; then
+            echo "  WARNING: $svc has stale token. Run: docker compose up -d --force-recreate" >&2
             DRIFT=true
         fi
     fi
 done
+[[ "$DRIFT" == "false" ]] && echo "  No drift detected."
 
-if [[ "$DRIFT" == "true" ]]; then
-    echo "" >&2
-    echo "════════════════════════════════════════════════════════════════════" >&2
-    echo "  WARNING: Token drift detected." >&2
-    echo "  Running containers hold stale Subumbra runtime auth configuration." >&2
-    echo "  The CF Worker will reject requests until services are recreated." >&2
-    echo "" >&2
-    echo "  Required action:" >&2
-    echo "    docker compose up -d --force-recreate" >&2
-    echo "" >&2
-    echo "  Until you do this, API calls will fail with provider-shaped 401s" >&2
-    echo "  (DeepseekException, OpenAIException, etc.) due to CF Worker" >&2
-    echo "  rejection, and the UI dashboard will fail to load." >&2
-    echo "════════════════════════════════════════════════════════════════════" >&2
-else
-    echo "  No drift detected (containers match .env token or are not running)."
-fi
-
-# ── Shred .env.bootstrap (only if it exists — automation/CI path) ─────────────
 if [[ "$WIZARD_MODE" == "false" ]]; then
     echo ""
     echo "Shredding $BOOTSTRAP_FILE..."
-
     if command -v shred &>/dev/null; then
         shred -u "$BOOTSTRAP_FILE"
-    elif command -v srm &>/dev/null; then
-        srm -f "$BOOTSTRAP_FILE"
-    else
-        # Best-effort: overwrite with zeros then delete (no shred/srm available)
-        python3 -c "
-import os, sys
-path = sys.argv[1]
-size = os.path.getsize(path)
-with open(path, 'r+b') as f:
-    f.write(b'\x00' * size)
-    f.flush()
-    os.fsync(f.fileno())
-os.remove(path)
-" "$BOOTSTRAP_FILE"
-    fi
-
-    if [[ -f "$BOOTSTRAP_FILE" ]]; then
-        echo "WARNING: shred command unavailable or failed — delete manually:" >&2
-        echo "  Linux : shred -u $BOOTSTRAP_FILE" >&2
-        echo "  macOS : rm -P $BOOTSTRAP_FILE  (or: srm -f $BOOTSTRAP_FILE)" >&2
-    else
         echo "  $BOOTSTRAP_FILE shredded."
+    else
+        python3 -c "
+import os,sys; p=sys.argv[1]; s=os.path.getsize(p)
+f=open(p,'r+b'); f.write(b'\x00'*s); f.flush(); os.fsync(f.fileno()); f.close(); os.remove(p)
+" "$BOOTSTRAP_FILE"
+        echo "  $BOOTSTRAP_FILE overwritten and deleted."
     fi
 else
-    echo ""
     echo "Wizard path — no .env.bootstrap to shred."
 fi
-
-# ── Done ──────────────────────────────────────────────────────────────────────
 
 echo ""
 echo "Bootstrap complete. Next step:"

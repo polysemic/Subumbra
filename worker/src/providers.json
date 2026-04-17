@@ -42,8 +42,8 @@
   {
     "provider_id": "gemini",
     "target_host": "generativelanguage.googleapis.com",
-    "auth_header": "authorization",
-    "auth_prefix": "Bearer ",
+    "auth_header": "x-goog-api-key",
+    "auth_prefix": "",
     "env_var": "GEMINI_API_KEY",
     "api_base_path": "/v1beta/openai"
   },
@@ -81,7 +81,7 @@
   },
   {
     "provider_id": "github",
-    "target_host": "api.github.com",
+    "target_host": "models.inference.ai.azure.com",
     "auth_header": "authorization",
     "auth_prefix": "Bearer ",
     "env_var": "GITHUB_KEY",
