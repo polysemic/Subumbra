@@ -1,0 +1,5 @@
+# PROOF: round 41 bundled LiteLLM absence
+NAME             IMAGE                               COMMAND                  SERVICE          CREATED          STATUS                    PORTS
+subumbra-keys    subumbra-clean-run-subumbra-keys    "gunicorn --bind 0.0…"   subumbra-keys    19 seconds ago   Up 18 seconds (healthy)   9090/tcp
+subumbra-proxy   subumbra-clean-run-subumbra-proxy   "uvicorn app:app --h…"   subumbra-proxy   19 seconds ago   Up 12 seconds (healthy)   127.0.0.1:8090->8090/tcp
+subumbra-ui      subumbra-clean-run-subumbra-ui      "gunicorn --bind 0.0…"   subumbra-ui      19 seconds ago   Up 12 seconds             127.0.0.1:8080->8080/tcp

@@ -1,5 +1,5 @@
 # PROJECT_STATUS
-*Current state — updated 2026-04-13*
+*Current state — updated 2026-04-16*
 *Rounds 1–36 closed. See `council/COUNCIL.md` for round history and current status.*
 
 ---
@@ -141,6 +141,17 @@ Current direction after Round 39:
      `council/approved/vps-stabilization.md`. One code change (bootstrap KV
      namespace idempotency) and five doc patches. Pending implementation and
      verification.
+   - **Round 41.5 — App Validation Re-Verification** (Closed): closure-audit
+     round completed. Council consensus: Round 41 core implementation largely
+     landed, but Round 41 was not yet closure-grade. Remaining blockers were
+     narrowed into Round 41.6 rather than reopening the full round.
+   - **Round 41.6 — App Validation Cleanup** (Closed): completed the approved
+     harness-only cleanup scope. Proof input is now self-contained, `r41-3`
+     has bounded retry logging, and a minimum live import-wizard proof exists.
+   - **Round 41.7 — Standalone LiteLLM Runtime Fix** (Open): narrow follow-up
+     round to repair the live standalone `/opt/litellm` cutover path after
+     post-round operator testing exposed remaining `401` / `502` runtime
+     failures outside the approved 41.6 harness-only scope.
 
    Known Round 41.3 candidates:
    - Bootstrap wizard validates adapter key_id inputs only at final submission,
@@ -161,11 +172,25 @@ Current direction after Round 39:
    output, or add a preflight check that compares `subumbra:key_id` values in the
    config against the live registry. Council investigation before Round 42.
 
-   Intended validation targets (remaining):
-   - full LiteLLM deployment in normal app usage
+   Intended validation targets (remaining after 41.7):
+   - stable standalone LiteLLM deployment in normal app usage
    - OpenWebUI as a practical integration target
+   - N8N as a practical workflow integration target
    - real non-AI service flows for GitHub, Slack, and SendGrid
    - sidecar/drop-in behavior as experienced by actual applications
+
+3. **Round 42 — Operator Hardening For Standalone Integrations**
+   Focus on making the standalone-app path easier to install correctly after
+   the live LiteLLM runtime is fixed in 41.7.
+
+   Direction:
+   - add standalone LiteLLM template guidance for docker-compose and config
+     wiring
+   - add preflight/config checks that detect missing callback mounts, missing
+     `SUBUMBRA_*` env vars, and missing restart steps before users hit opaque
+     runtime failures
+   - document restart/sync guidance after bootstrap token rotation
+   - prepare the operator path for deeper OpenWebUI and N8N wiring rounds
 
 Guiding note:
 - Keep project language as **POC** for now.

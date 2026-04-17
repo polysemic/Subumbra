@@ -193,6 +193,52 @@ KNOWN_PROVIDERS: list[tuple[str, str]] = [
     for entry in _REGISTRY
 ]
 
+# Maps both Subumbra canonical env var names AND common standalone-app aliases
+# to their provider_id. Both sides must be supported so that migration from a
+# standard LiteLLM .env (which uses ANTHROPIC_API_KEY) and the CI path (which
+# uses ANTHROPIC_KEY) both work.
+IMPORT_PROVIDER_WHITELIST: dict[str, str] = {
+    # Subumbra canonical names (from providers.json env_var field)
+    "ANTHROPIC_KEY":        "anthropic",
+    "OPENAI_KEY":           "openai",
+    "GROQ_KEY":             "groq",
+    "DEEPSEEK_KEY":         "deepseek",
+    "CEREBRAS_API_KEY":     "cerebras",
+    "GEMINI_API_KEY":       "gemini",
+    "MISTRAL_API_KEY":      "mistral",
+    "OPENROUTER_API_KEY":   "openrouter",
+    "TOGETHER_AI_API_KEY":  "together",
+    "XAI_API_KEY":          "xai",
+    "GITHUB_KEY":           "github",
+    "SLACK_KEY":            "slack",
+    "SENDGRID_KEY":         "sendgrid",
+    # Common standalone-app aliases (LiteLLM .env, OpenWebUI, etc.)
+    # 7 providers have mismatched names vs. Subumbra canonical
+    "ANTHROPIC_API_KEY":    "anthropic",
+    "OPENAI_API_KEY":       "openai",
+    "GROQ_API_KEY":         "groq",
+    "DEEPSEEK_API_KEY":     "deepseek",
+    "TOGETHER_API_KEY":     "together",
+    "GITHUB_TOKEN":         "github",
+    "SLACK_BOT_TOKEN":      "slack",
+    "SENDGRID_API_KEY":     "sendgrid",
+}
+
+# Vars to explicitly skip — app-internal secrets that must never be imported
+# as provider keys. If detected, skip silently (do not warn or shred).
+IMPORT_EXCLUSION_LIST: frozenset[str] = frozenset({
+    "LITELLM_MASTER_KEY",
+    "LITELLM_SALT_KEY",
+    "WEBUI_SECRET_KEY",
+    "N8N_ENCRYPTION_KEY",
+    "DATABASE_URL",
+    "POSTGRES_PASSWORD",
+    "POSTGRES_DB",
+    "REDIS_URL",
+    "SECRET_KEY",
+    "JWT_SECRET",
+})
+
 
 def _validate_live_provider_registry(entries: list[dict], source: str) -> list[dict]:
     required = {"provider_id", "target_host", "auth_header", "auth_prefix"}
@@ -319,6 +365,143 @@ def _parse_allowed_keys_csv(raw: str) -> list[str]:
 
 def _default_key_id(provider: str) -> str:
     return f"{provider}_prod"
+
+
+def _parse_env_file(path: str) -> list[tuple[str, str, str]]:
+    """
+    Parse a .env file and return detected provider key entries.
+
+    Returns a list of (env_var_name, provider_id, raw_value) tuples.
+    Only includes vars that appear in IMPORT_PROVIDER_WHITELIST.
+    Skips blank lines, comments, and IMPORT_EXCLUSION_LIST vars.
+    Returns empty list if file does not exist or cannot be read.
+
+    Rules:
+    - If zero entries are detected, the file must NOT be added to the shred queue.
+    - Duplicate env var names: last occurrence wins (standard .env behavior).
+    - Values may be quoted (single or double); quotes are stripped.
+    """
+    results: dict[str, tuple[str, str, str]] = {}
+
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                key = key.strip()
+                value = value.strip()
+
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+                    value = value[1:-1]
+
+                if not value:
+                    continue
+                if key in IMPORT_EXCLUSION_LIST:
+                    continue
+                if key in IMPORT_PROVIDER_WHITELIST:
+                    provider_id = IMPORT_PROVIDER_WHITELIST[key]
+                    results[key] = (key, provider_id, value)
+    except OSError:
+        return []
+
+    return list(results.values())
+
+
+def _run_import_screen(
+    api_keys: dict[str, tuple[str, str, str, str, str]],
+    existing_keys: dict,
+) -> tuple[dict[str, tuple[str, str, str, str, str]], list[str]]:
+    """
+    Interactive import loop: operator specifies one or more .env file paths,
+    wizard detects provider keys, operator confirms each, keys are added to
+    api_keys. Operator may re-run the loop for multiple files.
+
+    Returns updated api_keys plus shred_paths.
+    """
+    shred_paths: list[str] = []
+
+    while True:
+        print("\n" + "─" * 70)
+        print("  Import from .env file")
+        print("  (In-container path — mount host files with -v /opt/...:/host_...:ro)")
+        print("─" * 70)
+        path = input("  Path to .env file (or Enter to skip): ").strip()
+        if not path:
+            break
+
+        detected = _parse_env_file(path)
+
+        if not detected:
+            print(f"  ✗  No recognised provider keys found in {path}.")
+            print("     (App-internal secrets like LITELLM_MASTER_KEY are excluded by design.)")
+            print("     File will NOT be shredded. Add keys manually below if needed.")
+            another = input("\n  Import from another file? [y/N]: ").strip().lower()
+            if another != "y":
+                break
+            continue
+
+        print(f"\n  Detected {len(detected)} provider key(s):")
+        for env_var, provider_id, raw_value in detected:
+            print(f"    {env_var:22s} → {provider_id:12s} ({len(raw_value)} chars)")
+
+        confirm = input("\n  Import these keys? [y/N]: ").strip().lower()
+        if confirm != "y":
+            print("  Skipped. File will NOT be shredded.")
+            another = input("\n  Import from another file? [y/N]: ").strip().lower()
+            if another != "y":
+                break
+            continue
+
+        for env_var, provider_id, raw_value in detected:
+            target_host = _resolve_target_host(provider_id, prompt_if_missing=False)
+            provider_entry = BUILTIN_PROVIDER_BY_ID[provider_id]
+            auth_header = provider_entry["auth_header"]
+            auth_prefix = provider_entry["auth_prefix"]
+
+            default_key_id = _default_key_id(provider_id)
+            while True:
+                key_id_input = input(
+                    f"\n  Key ID for {env_var} (provider={provider_id}) [{default_key_id}]: "
+                ).strip()
+                key_id = key_id_input or default_key_id
+
+                if not KEY_ID_RE.match(key_id):
+                    print(f"  ✗  Invalid key_id. Must match ^[a-z0-9][a-z0-9_-]{{2,63}}$")
+                    continue
+                if key_id in api_keys:
+                    print(f"  ✗  key_id '{key_id}' already added. Choose a different name.")
+                    continue
+                if key_id in existing_keys:
+                    ex_provider = existing_keys[key_id].get("provider", "unknown")
+                    if ex_provider != provider_id:
+                        print(f"\n  ⚠  WARNING: key_id '{key_id}' already exists under provider '{ex_provider}'.")
+                        overwrite = input("     Overwrite? [y/N]: ").strip().lower()
+                        if overwrite != "y":
+                            print("  Cancelled. Choose a different key_id.")
+                            continue
+                break
+
+            api_keys[key_id] = (provider_id, target_host, auth_header, auth_prefix, raw_value)
+            ok(f"{provider_id:12s}  →  {key_id}  (from {env_var}, key hidden)")
+
+        shred_confirm = input(
+            f"\n  Shred source file {path} after bootstrap completes? [y/N]: "
+        ).strip().lower()
+        if shred_confirm == "y":
+            shred_paths.append(path)
+            print(f"  ✓ {path} queued for shredding after successful bootstrap.")
+        else:
+            print(f"  Skipped shredding. Raw keys remain in {path}.")
+
+        another = input("\n  Import from another file? [y/N]: ").strip().lower()
+        if another != "y":
+            break
+
+    return api_keys, shred_paths
 
 
 def _key_id_env_var_name(secret_env_var: str) -> str:
@@ -710,10 +893,10 @@ def _load_env_fallback() -> tuple[dict[str, tuple[str, str, str, str, str]], dic
 
 def run_interactive_wizard(
     existing_keys: dict,
-) -> tuple[dict[str, tuple[str, str, str, str, str]], dict[str, str], dict[str, list[str]], int]:
+) -> tuple[dict[str, tuple[str, str, str, str, str]], dict[str, str], dict[str, list[str]], int, list[str]]:
     """
     Interactive terminal wizard. Requires a real TTY (run with -it).
-    Returns (api_keys, cf_creds, allowed_keys_by_adapter, token_ttl_days):
+    Returns (api_keys, cf_creds, allowed_keys_by_adapter, token_ttl_days, shred_paths):
       api_keys: {key_id: (provider, target_host, auth_header, auth_prefix, raw_secret)}
       cf_creds: {"CF_API_TOKEN": ..., "CF_ACCOUNT_ID": ..., "CF_WORKER_NAME": ...}
     """
@@ -749,7 +932,18 @@ def run_interactive_wizard(
 
     # ── Screen 2: Provider API Keys ───────────────────────────────────────────
     api_keys: dict[str, tuple[str, str, str, str, str]] = {}
+    shred_paths: list[str] = []
     n_known = len(KNOWN_PROVIDERS)
+
+    print("\n" + "═" * 70)
+    print("  Subumbra Bootstrap — Step 2 of 4: Provider API Keys")
+    print("  Add one key per provider. Press Enter when finished.\n")
+    print("  Option: import provider keys from an existing .env file.")
+    print("  Run bootstrap with: -v /opt/litellm:/host_litellm:ro")
+    print("  then enter the in-container path (e.g. /host_litellm/.env)\n")
+    do_import = input("  Import from .env file(s)? [y/N]: ").strip().lower()
+    if do_import == "y":
+        api_keys, shred_paths = _run_import_screen(api_keys, existing_keys)
 
     while True:
         print("\n" + "═" * 70)
@@ -872,7 +1066,7 @@ def run_interactive_wizard(
             continue
         break
 
-    return api_keys, cf_creds, allowed_keys_by_adapter, token_ttl_days
+    return api_keys, cf_creds, allowed_keys_by_adapter, token_ttl_days, shred_paths
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1333,10 +1527,12 @@ def main() -> None:
     else:
         step("Interactive wizard — no credentials found in environment")
         try:
-            api_keys, cf_creds, allowed_keys_by_adapter, token_ttl_days = run_interactive_wizard(existing_keys)
+            api_keys, cf_creds, allowed_keys_by_adapter, token_ttl_days, shred_paths = run_interactive_wizard(existing_keys)
         except KeyboardInterrupt:
             print("\n\nAborted. No changes written.", file=sys.stderr)
             sys.exit(0)
+    if not use_wizard:
+        shred_paths = []
 
     _validate_allowed_keys(api_keys, allowed_keys_by_adapter)
     litellm_alignment_lines = _build_litellm_alignment_lines(api_keys, allowed_keys_by_adapter)
@@ -1570,6 +1766,24 @@ def main() -> None:
     del cf_creds
     gc.collect()
     ok("Sensitive memory cleared (best-effort)")
+
+    if shred_paths:
+        print("\n" + "─" * 70)
+        print("  Shredding source .env files...")
+        for shred_path in shred_paths:
+            try:
+                result = subprocess.run(
+                    ["shred", "-u", shred_path],
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode == 0:
+                    ok(f"Shredded: {shred_path}")
+                else:
+                    warn(f"shred failed for {shred_path}: {result.stderr.strip()}")
+                    print(f"  ⚠  Manual deletion required: rm -P {shred_path}")
+            except FileNotFoundError:
+                warn(f"shred not found. Manual deletion required: rm -P {shred_path}")
 
     # ── Step 12: print summary (NO token values) ─────────────────────────
     rule = "═" * 68

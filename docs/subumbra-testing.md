@@ -206,10 +206,13 @@ scope — check `PROBE_ALLOWED_KEYS` in `.env`.
 ./scripts/council/clean-run.sh --round round-40-broader-decoupling-security-hardening --agent claude
 ```
 
-This runs bootstrap + verify in an isolated workspace. Artifacts land in:
+This runs bootstrap + verify in an isolated workspace under `/tmp`. Official
+proof still lands in the round folder, and the wrapper's own logs/diagnostics
+stay there too:
 
 ```text
-council/clean-run-harness/runs/<run-id>/
+council/<round>/runs/<verify-run-id>/
+council/<round>/runs/<clean-run-id>/
 ```
 
 ### Fallback: direct reset + verify

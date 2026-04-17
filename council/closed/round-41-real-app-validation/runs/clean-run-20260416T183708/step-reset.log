@@ -1,0 +1,24 @@
+Run_ID: clean-run-20260416T183708
+Step: reset
+Start_Time: 2026-04-16T18:37:35+00:00
+Workspace: /tmp/subumbra-clean-run-GjA6OJ
+---
+NOTICE: restored .env.bootstrap from .env.bootstrap_bak
+ Container subumbra-keys Creating 
+ Container subumbra-keys Created 
+ Container subumbra-proxy Creating 
+ Container subumbra-ui Creating 
+ Container subumbra-proxy Created 
+ Container subumbra-ui Created 
+ Container subumbra-keys Starting 
+ Container subumbra-keys Started 
+ Container subumbra-keys Waiting 
+ Container subumbra-keys Waiting 
+ Container subumbra-keys Healthy 
+ Container subumbra-proxy Starting 
+ Container subumbra-keys Healthy 
+ Container subumbra-ui Starting 
+ Container subumbra-ui Started 
+ Container subumbra-proxy Started 
+Checking for token drift in running containers...
+No token drift detected.
