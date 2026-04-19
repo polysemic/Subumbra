@@ -149,25 +149,29 @@ grep -E '^(SUBUMBRA_TOKEN_|CF_WORKER_URL|LITELLM_MASTER_KEY)' .env
 
 ---
 
-## 7. Update `litellm/config.yaml`
+## 7. Verify `litellm/config.yaml` key_ids
 
-The committed config uses the bootstrap default `key_id` suggestions
-(`anthropic_prod`, `openai_prod`, etc.). If you entered custom labels during
-bootstrap, update the `subumbra:<key_id>` values to match before starting the stack.
+The committed config uses `api_base: http://subumbra-proxy:8090/t` for each
+model and sets `api_key` to the plain key_id (no `subumbra:` prefix).
 
-Use the copy/paste hints bootstrap printed at the end of step 5.
+If you entered custom key_id labels during bootstrap, update the `api_key`
+values to match your chosen labels exactly. Use the copy/paste hints bootstrap
+printed at the end of step 5.
 
 Example: if you named your Anthropic key `anthropic_test`, change:
 
 ```yaml
-api_key: "subumbra:anthropic_prod"
+api_key: anthropic_prod
 ```
 
 to:
 
 ```yaml
-api_key: "subumbra:anthropic_test"
+api_key: anthropic_test
 ```
+
+Also ensure the key_ids you use are in the `subumbra-proxy` allowed scope.
+Bootstrap step 3 prompts for this; the summary output lists the scoped key_ids.
 
 ---
 

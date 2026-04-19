@@ -1,4 +1,16 @@
 """
+Subumbra Adapter #1 — LiteLLM (LEGACY — callback path, superseded by Round 42.2)
+─────────────────────────────────────────────────────────────────────────────────
+As of Round 42.2, LiteLLM routes through subumbra-proxy transparent sidecar:
+  api_base: http://subumbra-proxy:8090/t
+  api_key:  <key_id>  (plain, no "subumbra:" prefix)
+
+This callback is no longer loaded by litellm/config.yaml (callbacks: stanza
+removed). It is retained for reference and for deployments that have not yet
+migrated to the sidecar routing pattern.
+
+The original implementation follows below, unchanged.
+─────────────────────────────────────────────────────────────────────────────────
 Subumbra Adapter #1 — LiteLLM
 ─────────────────────────────────────────────────
 This file implements the LiteLLM adapter for Subumbra. LiteLLM now reaches the

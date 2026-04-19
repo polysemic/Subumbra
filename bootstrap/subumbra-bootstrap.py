@@ -648,19 +648,36 @@ def _build_litellm_alignment_lines(
     api_keys: dict[str, tuple[str, str, str, str, str]],
     allowed_keys_by_adapter: dict[str, list[str]],
 ) -> list[str]:
-    lines = [
-        "  LiteLLM key_id alignment:",
-        "    Update litellm/config.yaml so each model uses the exact Subumbra key_id entered during bootstrap.",
-        "    Copy/paste hints for LiteLLM-scoped keys:",
-    ]
     litellm_key_ids = allowed_keys_by_adapter.get("litellm", [])
-    if not litellm_key_ids:
-        lines.append("      (no key_ids scoped to LiteLLM in this bootstrap run)")
+    proxy_key_ids = allowed_keys_by_adapter.get("subumbra-proxy", [])
+
+    if litellm_key_ids:
+        # Legacy callback path still in use for this deployment
+        lines = [
+            "  LiteLLM key_id alignment (legacy callback path):",
+            "    Update litellm/config.yaml so each model uses the exact key_id entered during bootstrap.",
+            "    Copy/paste hints for LiteLLM-scoped keys:",
+        ]
+        for key_id in litellm_key_ids:
+            provider = api_keys[key_id][0]
+            lines.append(f'      {provider:12s} {key_id:20s} api_key: "subumbra:{key_id}"')
         return lines
 
-    for key_id in litellm_key_ids:
-        provider = api_keys[key_id][0]
-        lines.append(f'      {provider:12s} {key_id:20s} api_key: "subumbra:{key_id}"')
+    # Standard proxy-routing path (Round 42.2+)
+    lines = [
+        "  LiteLLM proxy-routing alignment:",
+        "    LiteLLM is configured for subumbra-proxy transparent routing.",
+        "    In litellm/config.yaml, set for each model:",
+        "      api_base: http://subumbra-proxy:8090/t",
+        "      api_key: <key_id>   (plain, no subumbra: prefix)",
+        "    subumbra-proxy scope covers these key_ids:",
+    ]
+    if proxy_key_ids:
+        for key_id in proxy_key_ids:
+            provider = api_keys[key_id][0]
+            lines.append(f'      {provider:12s} {key_id:20s} api_key: {key_id}')
+    else:
+        lines.append("      (no key_ids scoped to subumbra-proxy — re-run bootstrap Step 3)")
     return lines
 
 
@@ -1043,8 +1060,11 @@ def run_interactive_wizard(
     print("  Subumbra Bootstrap — Step 3 of 4: Adapter Key Scopes")
     print("═" * 70)
     print("  Choose which key_ids each built-in adapter may fetch from subumbra-keys.")
-    print("  1. LiteLLM: keys referenced by subumbra:key_id values in litellm/config.yaml")
-    print("  2. subumbra-proxy: keys available through the explicit/transparent sidecar")
+    print("  1. LiteLLM: legacy callback path only. Leave empty if LiteLLM routes")
+    print("     through subumbra-proxy (the default since Round 42.2).")
+    print("  2. subumbra-proxy: all key_ids that LiteLLM and other apps access via")
+    print("     the transparent sidecar (api_base: http://subumbra-proxy:8090/t).")
+    print("     For most deployments, enter all provider key_ids here.")
     print("  3. subumbra-probe: keys available to the verification/proof container")
     print("  subumbra-ui is metadata-only and never receives ciphertext fetch scope.")
     print("═" * 70 + "\n")
