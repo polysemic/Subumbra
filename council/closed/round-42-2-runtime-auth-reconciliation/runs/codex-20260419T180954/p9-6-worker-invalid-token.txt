@@ -1,0 +1,17 @@
+# PROOF: host-facing path
+command: curl --compressed -sS -N -D - -o - -X POST https://subumbra-proxy.polysemic.workers.dev/proxy -H 'Content-Type: application/json' -H 'X-Subumbra-Token: invalid-token' -d '{}'
+exit_code: 0
+http_status: 401
+response_headers:
+  HTTP/2 401 
+  date: Sun, 19 Apr 2026 18:09:55 GMT
+  content-type: application/json
+  content-length: 24
+  report-to: {"group":"cf-nel","max_age":604800,"endpoints":[{"url":"https://a.nel.cloudflare.com/report/v4?s=4OMRk%2FOgWa5XjQHou9eZHvvY6Sk7n0UsqutmGCCipLn%2F4ZUYQMx20kCfXs4zJXJPBsnt9l0xeBLFwqDeY1SAIZGtAH%2BX0tGbgF%2BMiFARoBghP07rdvedbDys7vR6FXDFN8fkjQNwtgJaZ5kDefh%2FiCRfkEEXKb9yo57cS4yhdKNkBOY%3D"}]}
+  nel: {"report_to":"cf-nel","success_fraction":0.0,"max_age":604800}
+  server: cloudflare
+  cf-ray: 9eeddcf3b879df1f-SEA
+  alt-svc: h3=":443"; ma=86400
+  
+response_body_excerpt:
+  {"error":"unauthorized"}
