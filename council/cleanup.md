@@ -119,6 +119,14 @@ The precondition was discovered during Round 41 verification pass.
 
 - **Internal Python variables in bootstrap retain legacy `forge` naming**: In `bootstrap/subumbra-bootstrap.py`, the variable `forge_hmac_key` was used in five locations (Lines 978, 1100, 1449, 1493, 1541) despite the output key being renamed to `SUBUMBRA_HMAC_KEY`. **Status: Fixed 2026-04-14** (renamed to `subumbra_hmac_key`).
 
+## 2026-04-19 — Round 42.2 verification note
+
+- `council/approved/runtime-auth-reconciliation-v2.md` V1 static check 1 uses
+  `grep -n 'api_key.*subumbra:' litellm/config.yaml`, which now false-positives
+  on the explanatory header comment in [litellm/config.yaml](/home/eric/git/Subumbra/litellm/config.yaml#L4-L6) even when no active model entry still uses the
+  `subumbra:` prefix. The round failure was not caused by this, but the approved
+  plan should tighten that grep to active model lines only before the next reuse.
+
 - **`scripts/council/preflight.sh` uses legacy `forge_error` key**: The preflight script attempted to parse `forge_error` from the UI response, but the UI was rebranded to `subumbra_keys_error`. **Status: Fixed 2026-04-14** (now parses `subumbra_keys_error`).
 
 - **Legacy headers and comments in documentation**: `CLAUDE.md:172` contained `### Forge Key Service` and `docs/subumbra-install.md:204` contained `# Forge health`. **Status: Fixed 2026-04-14**.
