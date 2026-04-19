@@ -179,8 +179,8 @@ The current core supports **JSON-style upstream request bodies only**.
   upstream fetch — binary values cannot be embedded.
 - LiteLLM frontend may reject malformed external requests before the transport
   runs.
-- LiteLLM Adapter #1 transport rejects outbound non-JSON provider request
-  content-types with HTTP 415 before `/proxy` packaging.
+- The current app-owned transparent path rejects outbound non-JSON provider
+  request content-types with HTTP 400 before `/proxy` packaging.
 - Worker `/proxy` rejects malformed outer request bodies with
   `400 request body must be JSON`.
 
@@ -215,8 +215,8 @@ The current supported app-owned contract is the transparent sidecar path:
 
 - app points to `api_base: http://subumbra-proxy:8090/t`
 - app sends a plain `key_id`
-- `subumbra-proxy` authenticates to the Worker using the shared
-  `subumbra-proxy` identity boundary
+- `subumbra-proxy` authenticates to the Worker using the shared `subumbra-proxy`
+  identity boundary
 
 This is the current primary adapter path for standalone LiteLLM and similar
 external apps.
