@@ -1,0 +1,4 @@
+# PROOF: bundled LiteLLM removed from core stack
+subumbra-keys
+subumbra-proxy
+subumbra-ui
