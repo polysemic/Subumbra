@@ -10,6 +10,16 @@ ui_artifact="${artifact_dir}/r42-3-4-ui-status-proxy-health.txt"
 standalone_artifact="${artifact_dir}/r42-3-5-standalone-litellm.txt"
 docs_artifact="${artifact_dir}/r42-3-6-doc-truth.txt"
 
+search_pattern() {
+    local pattern="$1"
+    shift
+    if command -v rg >/dev/null 2>&1; then
+        rg -n "$pattern" "$@"
+    else
+        grep -nE "$pattern" "$@"
+    fi
+}
+
 services_output="$(docker compose config --services 2>&1)" || {
     printf '# PROOF: bundled LiteLLM removed from core stack\n%s\n' "$services_output" >"$bundled_artifact"
     echo "docker compose config --services failed" >&2
@@ -26,7 +36,7 @@ if printf '%s\n' "$services_output" | grep -Eq '(^|[[:space:]])litellm([[:space:
     exit 1
 fi
 
-bootstrap_matches="$(rg -n 'SUBUMBRA_TOKEN_LITELLM|LITELLM_ALLOWED_KEYS' bootstrap/subumbra-bootstrap.py post-bootstrap.sh 2>&1 || true)"
+bootstrap_matches="$(search_pattern 'SUBUMBRA_TOKEN_LITELLM|LITELLM_ALLOWED_KEYS' bootstrap/subumbra-bootstrap.py post-bootstrap.sh 2>&1 || true)"
 {
     printf '# PROOF: bootstrap/post-bootstrap no longer require bundled LiteLLM token sync\n'
     if [[ -n "$bootstrap_matches" ]]; then
@@ -137,8 +147,8 @@ if [[ ! -f "$standalone_env" || ! -f "$standalone_config" ]]; then
 fi
 
 standalone_key="$(grep '^LITELLM_MASTER_KEY=' "$standalone_env" | cut -d= -f2- || true)"
-standalone_api_base_matches="$(rg -n 'api_base:\\s*http://subumbra-proxy:8090/t$' "$standalone_config" 2>&1 || true)"
-standalone_legacy_matches="$(rg -n 'subumbra:' "$standalone_config" 2>&1 || true)"
+standalone_api_base_matches="$(search_pattern 'api_base:[[:space:]]*http://subumbra-proxy:8090/t$' "$standalone_config" 2>&1 || true)"
+standalone_legacy_matches="$(search_pattern 'api_key:[[:space:]]*[\"'\'']?subumbra:' "$standalone_config" 2>&1 || true)"
 
 standalone_body="$(mktemp)"
 standalone_headers="$(mktemp)"
@@ -147,7 +157,7 @@ curl --compressed -sS -D "$standalone_headers" -o "$standalone_body" \
     -X POST http://127.0.0.1:4000/v1/chat/completions \
     -H "Authorization: Bearer ${standalone_key}" \
     -H 'Content-Type: application/json' \
-    -d '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Say test only."}],"max_tokens":5}' \
+    -d '{"model":"claude-sonnet-4","messages":[{"role":"user","content":"Say test only."}],"max_tokens":5}' \
     >/dev/null 2>&1 || standalone_exit=$?
 standalone_status="$(awk 'toupper($1) ~ /^HTTP\// {code=$2} END {print code}' "$standalone_headers")"
 
@@ -165,7 +175,7 @@ standalone_status="$(awk 'toupper($1) ~ /^HTTP\// {code=$2} END {print code}' "$
     else
         printf '  none\n'
     fi
-    printf 'command: curl --compressed -sS -D - -o - -X POST http://127.0.0.1:4000/v1/chat/completions -H '\''Authorization: Bearer [redacted]'\'' -H '\''Content-Type: application/json'\'' -d '\''{\"model\":\"openai/gpt-4o-mini\",\"messages\":[{\"role\":\"user\",\"content\":\"Say test only.\"}],\"max_tokens\":5}'\''\n'
+    printf 'command: curl --compressed -sS -D - -o - -X POST http://127.0.0.1:4000/v1/chat/completions -H '\''Authorization: Bearer [redacted]'\'' -H '\''Content-Type: application/json'\'' -d '\''{\"model\":\"claude-sonnet-4\",\"messages\":[{\"role\":\"user\",\"content\":\"Say test only.\"}],\"max_tokens\":5}'\''\n'
     printf 'exit_code: %s\n' "$standalone_exit"
     printf 'http_status: %s\n' "${standalone_status:-none}"
     printf 'response_headers:\n'
@@ -205,7 +215,7 @@ checks = [
     ("docs/subumbra-install.md", ["/opt/litellm", "LiteLLM is no longer part of the core `/opt/subumbra` compose stack.", "api_key: <key_id>"], []),
     ("docs/subumbra-testing.md", ["/opt/litellm", "worker_auth", "Standalone LiteLLM lives outside `/opt/subumbra`."], []),
     ("docs/adapter-contract.md", ["shared `subumbra-proxy` identity", "App-Owned Integrations"], ["Adapter #1"]),
-    ("docs/standalone-litellm.md", ["http://subumbra-proxy:8090/t", "shared `subumbra-proxy` identity"], ["subumbra:<key_id>"]),
+    ("docs/standalone-litellm.md", ["http://subumbra-proxy:8090/t", "shared `subumbra-proxy` identity", "do **not** use `subumbra:<key_id>`"], []),
 ]
 
 failures = []
