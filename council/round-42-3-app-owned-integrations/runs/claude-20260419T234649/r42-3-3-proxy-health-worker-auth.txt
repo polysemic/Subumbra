@@ -1,0 +1,13 @@
+# PROOF: proxy health exposes Worker-auth state
+command: curl --compressed -sS -D - -o - http://127.0.0.1:8090/health
+exit_code: 0
+http_status: 200
+response_headers:
+  HTTP/1.1 200 OK
+  date: Sun, 19 Apr 2026 23:46:49 GMT
+  server: uvicorn
+  content-length: 34
+  content-type: application/json
+  
+response_body:
+  {"status":"ok","worker_auth":"ok"}
