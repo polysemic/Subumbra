@@ -102,13 +102,12 @@ KV_CONFIG_FILE = DATA_DIR / "kv-config.json"
 PROVIDER_REGISTRY_KV_KEY = "subumbra_registry_v1"
 
 ADAPTER_SCOPE_VARS: dict[str, str] = {
-    "litellm": "LITELLM_ALLOWED_KEYS",
     "subumbra-proxy": "PROXY_ALLOWED_KEYS",
     "subumbra-probe": "PROBE_ALLOWED_KEYS",
     "subumbra-ui": "UI_ALLOWED_KEYS",
 }
 BUILTIN_ADAPTER_IDS = tuple(ADAPTER_SCOPE_VARS.keys())
-BUILTIN_TOKEN_SUFFIXES = {"LITELLM", "PROXY", "UI", "PROBE"}
+BUILTIN_TOKEN_SUFFIXES = {"PROXY", "UI", "PROBE"}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Logging helpers
@@ -582,14 +581,6 @@ def _build_adapter_registry(
     issued_at = issued_at_dt.isoformat(timespec="seconds")
     expires_at = expires_at_dt.isoformat(timespec="seconds")
     registry = {
-        "litellm": {
-            "token": adapter_tokens["litellm"],
-            "allowed_keys": allowed_keys_by_adapter["litellm"],
-            "can_list_keys": False,
-            "can_read_stats": False,
-            "issued_at": issued_at,
-            "expires_at": expires_at,
-        },
         "subumbra-proxy": {
             "token": adapter_tokens["subumbra-proxy"],
             "allowed_keys": allowed_keys_by_adapter["subumbra-proxy"],
@@ -642,43 +633,6 @@ def _prompt_allowed_keys(adapter_label: str, available_key_ids: list[str]) -> li
             print(f"     Valid options: {', '.join(available_key_ids)}\n")
             continue
         return result
-
-
-def _build_litellm_alignment_lines(
-    api_keys: dict[str, tuple[str, str, str, str, str]],
-    allowed_keys_by_adapter: dict[str, list[str]],
-) -> list[str]:
-    litellm_key_ids = allowed_keys_by_adapter.get("litellm", [])
-    proxy_key_ids = allowed_keys_by_adapter.get("subumbra-proxy", [])
-
-    if litellm_key_ids:
-        # Legacy callback path still in use for this deployment
-        lines = [
-            "  LiteLLM key_id alignment (legacy callback path):",
-            "    Update litellm/config.yaml so each model uses the exact key_id entered during bootstrap.",
-            "    Copy/paste hints for LiteLLM-scoped keys:",
-        ]
-        for key_id in litellm_key_ids:
-            provider = api_keys[key_id][0]
-            lines.append(f'      {provider:12s} {key_id:20s} api_key: "subumbra:{key_id}"')
-        return lines
-
-    # Standard proxy-routing path (Round 42.2+)
-    lines = [
-        "  LiteLLM proxy-routing alignment:",
-        "    LiteLLM is configured for subumbra-proxy transparent routing.",
-        "    In litellm/config.yaml, set for each model:",
-        "      api_base: http://subumbra-proxy:8090/t",
-        "      api_key: <key_id>   (plain, no subumbra: prefix)",
-        "    subumbra-proxy scope covers these key_ids:",
-    ]
-    if proxy_key_ids:
-        for key_id in proxy_key_ids:
-            provider = api_keys[key_id][0]
-            lines.append(f'      {provider:12s} {key_id:20s} api_key: {key_id}')
-    else:
-        lines.append("      (no key_ids scoped to subumbra-proxy — re-run bootstrap Step 3)")
-    return lines
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1060,18 +1014,15 @@ def run_interactive_wizard(
     print("  Subumbra Bootstrap — Step 3 of 4: Adapter Key Scopes")
     print("═" * 70)
     print("  Choose which key_ids each built-in adapter may fetch from subumbra-keys.")
-    print("  1. LiteLLM: legacy callback path only. Leave empty if LiteLLM routes")
-    print("     through subumbra-proxy (the default since Round 42.2).")
-    print("  2. subumbra-proxy: all key_ids that LiteLLM and other apps access via")
+    print("  1. subumbra-proxy: all key_ids that LiteLLM and other apps access via")
     print("     the transparent sidecar (api_base: http://subumbra-proxy:8090/t).")
     print("     For most deployments, enter all provider key_ids here.")
-    print("  3. subumbra-probe: keys available to the verification/proof container")
+    print("  2. subumbra-probe: keys available to the verification/proof container")
     print("  subumbra-ui is metadata-only and never receives ciphertext fetch scope.")
     print("═" * 70 + "\n")
 
     available_key_ids = sorted(api_keys.keys())
     allowed_keys_by_adapter = {
-        "litellm": _prompt_allowed_keys("LiteLLM", available_key_ids),
         "subumbra-proxy": _prompt_allowed_keys("subumbra-proxy", available_key_ids),
         "subumbra-probe": _prompt_allowed_keys("subumbra-probe", available_key_ids),
         "subumbra-ui": [],
@@ -1555,7 +1506,6 @@ def main() -> None:
         shred_paths = []
 
     _validate_allowed_keys(api_keys, allowed_keys_by_adapter)
-    litellm_alignment_lines = _build_litellm_alignment_lines(api_keys, allowed_keys_by_adapter)
 
     # ── Step 2: rotation safety check ────────────────────────────────────
     # Every bootstrap run generates a NEW RSA key pair.  Any key omitted from
@@ -1654,7 +1604,6 @@ def main() -> None:
     # Treat them with the same care as the API keys they protect.
     step("Generating runtime auth tokens")
     adapter_tokens = {
-        "litellm": secrets.token_hex(32),
         "subumbra-proxy": secrets.token_hex(32),
         "subumbra-ui": secrets.token_hex(32),
         "subumbra-probe": secrets.token_hex(32),
@@ -1663,7 +1612,6 @@ def main() -> None:
         if adapter_id not in adapter_tokens:
             adapter_tokens[adapter_id] = secrets.token_hex(32)
     subumbra_hmac_key = secrets.token_hex(32)   # 64-char hex
-    ok("SUBUMBRA_TOKEN_LITELLM generated")
     ok("SUBUMBRA_TOKEN_PROXY generated")
     ok("SUBUMBRA_TOKEN_UI generated")
     ok("SUBUMBRA_TOKEN_PROBE generated")
@@ -1738,11 +1686,9 @@ def main() -> None:
         f"# Generated by subumbra-bootstrap on {now_iso}",
         "# PRIVILEGED — treat like an API key; restrict access to this file",
         f"SUBUMBRA_ADAPTER_REGISTRY={json.dumps(adapter_registry, separators=(',', ':'))}",
-        f"LITELLM_ALLOWED_KEYS={','.join(allowed_keys_by_adapter['litellm'])}",
         f"PROXY_ALLOWED_KEYS={','.join(allowed_keys_by_adapter['subumbra-proxy'])}",
         f"PROBE_ALLOWED_KEYS={','.join(allowed_keys_by_adapter['subumbra-probe'])}",
         f"UI_ALLOWED_KEYS={','.join(allowed_keys_by_adapter['subumbra-ui'])}",
-        f"SUBUMBRA_TOKEN_LITELLM={adapter_tokens['litellm']}",
         f"SUBUMBRA_TOKEN_PROXY={adapter_tokens['subumbra-proxy']}",
         f"SUBUMBRA_TOKEN_UI={adapter_tokens['subumbra-ui']}",
         f"SUBUMBRA_TOKEN_PROBE={adapter_tokens['subumbra-probe']}",
@@ -1825,19 +1771,14 @@ def main() -> None:
        You do NOT need it after this point; your real keys are in CF Secrets.
     1. ./post-bootstrap.sh
        (copies SUBUMBRA_ADAPTER_REGISTRY, per-adapter Subumbra tokens, SUBUMBRA_HMAC_KEY, CF_WORKER_URL into .env)
-    2. ⚠  Update litellm/config.yaml with the correct subumbra:key_id values — see
-       copy/paste hints below. LiteLLM will fail to load models if key_ids do not
-       match exactly. Do this BEFORE restarting services.
-    3. Start/restart ALL services (new tokens generated):
+    2. Start/restart ALL services (new tokens generated):
        docker compose up -d --force-recreate
-    4. Check all containers running:  docker compose ps
-       Check subumbra-keys health:   docker exec -i litellm python - <<'PY'
-         import urllib.request
-         print(urllib.request.urlopen("http://subumbra-keys:9090/health").read().decode())
-         PY
-    5. Check worker health:           curl {worker_url}/health
-
-{chr(10).join(litellm_alignment_lines)}
+    3. Check all containers running:  docker compose ps
+    4. Check worker health:           curl {worker_url}/health
+    5. For standalone LiteLLM or another app-owned integration, use:
+         api_base: http://subumbra-proxy:8090/t
+         api_key:  <key_id>   (plain, no subumbra: prefix)
+       See docs/standalone-litellm.md for the canonical example.
 
   V2 envelope encryption active:
     Public key:    {PUBLIC_KEY_FILE}

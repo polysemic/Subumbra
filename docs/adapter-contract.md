@@ -209,13 +209,18 @@ explicitly include all headers the upstream provider requires (e.g.
 
 ---
 
-## Adapter #1 — LiteLLM
+## App-Owned Integrations
 
-`litellm/custom_callbacks.py` is the current Subumbra adapter implementation.
-It now uses the canonical `POST /proxy` core API via a custom
-`httpx.AsyncTransport`.
+The current supported app-owned contract is the transparent sidecar path:
 
-The callback fetches subumbra records and injects the V2 envelope metadata into
-request headers. The transport intercepts the fully assembled provider request,
-derives `target_url = str(request.url)`, packages the canonical `/proxy`
-payload, and sends it to the Worker.
+- app points to `api_base: http://subumbra-proxy:8090/t`
+- app sends a plain `key_id`
+- `subumbra-proxy` authenticates to the Worker using the shared
+  `subumbra-proxy` identity boundary
+
+This is the current primary adapter path for standalone LiteLLM and similar
+external apps.
+
+`litellm/custom_callbacks.py` remains in the repo as a legacy callback-era
+implementation reference, but it is no longer the current primary integration
+contract.
