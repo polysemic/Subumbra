@@ -89,11 +89,10 @@ echo "  Verified: all required values present in $ENV_FILE."
 echo ""
 echo "Checking for token drift in running containers..."
 DRIFT=false
-for svc in litellm subumbra-ui subumbra-proxy subumbra-probe; do
+for svc in subumbra-ui subumbra-proxy subumbra-probe; do
     if docker compose ps --status running "$svc" 2>/dev/null | grep -q "$svc"; then
         case "$svc" in
-            litellm)      token_val="$SUBUMBRA_TOKEN_LITELLM" ;;
-            subumbra-ui)  token_val="$SUBUMBRA_TOKEN_UI" ;;
+            subumbra-ui)    token_val="$SUBUMBRA_TOKEN_UI" ;;
             subumbra-proxy) token_val="$SUBUMBRA_TOKEN_PROXY" ;;
             subumbra-probe) token_val="$SUBUMBRA_TOKEN_PROBE" ;;
         esac

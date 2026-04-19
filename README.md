@@ -219,11 +219,12 @@ Bootstrap Step 3 assigns per-adapter `key_id` allowlists inside
 to fetch a ciphertext record.
 
 - `LiteLLM` scope:
-  Use this for key IDs referenced by `subumbra:<key_id>` in
-  `litellm/config.yaml`.
+  Legacy callback path only. Leave empty if LiteLLM routes through
+  `subumbra-proxy` (the default since Round 42.2).
 - `subumbra-proxy` scope:
-  Use this for sidecar-driven keys such as GitHub, Slack, SendGrid, or any
-  direct non-LiteLLM API calls routed through `subumbra-proxy`.
+  All key_ids accessible via the transparent sidecar
+  (`api_base: http://subumbra-proxy:8090/t`). Include all key_ids used by
+  LiteLLM and any other app that routes through the sidecar.
 - `subumbra-probe` scope:
   Use this for proof and verification runs. In a test environment it is often
   broader than the other adapter scopes.
@@ -392,38 +393,30 @@ container on the `internal` network using the DNS name `subumbra-keys`.
 
 ## Adding / Changing Models
 
-Edit [litellm/config.yaml](litellm/config.yaml) to add models. The only required change is the `model:` line — `api_key` always uses the `subumbra:` prefix pointing to the correct key ID:
+Edit [litellm/config.yaml](litellm/config.yaml) to add models. Set `api_base`
+to the transparent sidecar and `api_key` to the plain key_id (no `subumbra:`
+prefix):
 
 ```yaml
 - model_name: my-new-model
   litellm_params:
     model: anthropic/claude-3-5-haiku-20241022
-    api_key: "subumbra:anthropic_prod"
+    api_base: http://subumbra-proxy:8090/t
+    api_key: anthropic_prod
 ```
 
-Restart LiteLLM to pick up the change:
+Any app that supports a custom API base URL and accepts a plain string as an
+API key can use the same pattern — no custom code or Subumbra-specific SDK
+required. The sidecar resolves the `api_key` value as a key_id, fetches the
+encrypted record, and routes to the correct provider.
+
+Ensure the key_id you reference is in `subumbra-proxy`'s allowed scope
+(`PROXY_ALLOWED_KEYS`). If not, re-run the bootstrap wizard (Step 3) and add it.
+
+Recreate LiteLLM to pick up config changes:
 ```bash
-docker compose restart litellm
+docker compose up -d --force-recreate litellm
 ```
-
-### Custom Provider Path Prefixes
-
-The callback dynamically resolves each provider's API path prefix using LiteLLM's
-internal registry. If a provider isn't auto-detected (or you need to override the
-default), set `SUBUMBRA_PROVIDER_PREFIXES` in your `.env`:
-
-```bash
-SUBUMBRA_PROVIDER_PREFIXES={"my_provider":"/api/v2"}
-```
-
-This is a JSON map of provider name to path prefix. The prefix is appended to the
-CF Worker adapter base URL before the SDK adds its own endpoint path.
-
-> **Important:** Setting a path prefix alone does NOT enable a new provider.
-> You must also add the provider to `worker/src/providers.json` (the bootstrap
-> seed/template), republish the live registry via re-bootstrap or `--push-registry`,
-> and add the relevant LiteLLM model configuration. See
-> [docs/operator-guide.md](docs/operator-guide.md) for the live registry workflow.
 
 ---
 
