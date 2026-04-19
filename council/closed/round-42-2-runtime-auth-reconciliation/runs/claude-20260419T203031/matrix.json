@@ -1,0 +1,27 @@
+# DIAG: matrix derivation, not counted toward PASS
+{
+  "litellm_allowed_key": "anthropic_prod",
+  "litellm_allowed_model": "claude-sonnet-4",
+  "litellm_disallowed_key": "cerebras_prod",
+  "proxy_allowed_key": "anthropic_prod",
+  "proxy_disallowed_key": "gemini_prod",
+  "proxy_request": {
+    "method": "POST",
+    "headers": {
+      "content-type": "application/json",
+      "anthropic-version": "2023-06-01"
+    },
+    "body": {
+      "model": "claude-sonnet-4-5",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Say test"
+        }
+      ],
+      "max_tokens": 16
+    },
+    "success_pattern": "\"content\"",
+    "target_url": "https://api.anthropic.com/v1/messages"
+  }
+}

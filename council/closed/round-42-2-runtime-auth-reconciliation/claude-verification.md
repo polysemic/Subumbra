@@ -189,6 +189,45 @@ approve this harness fix in a close-out or harness maintenance step.
 
 ---
 
+## Close-Out Verification Run
+
+**Run ID:** `claude-20260419T203031`
+**VPS commit:** `9c9be17` (includes D1 fix — `subumbra:` prefix removed from P9.1/P9.2 payloads)
+
+| Check | Result |
+|---|---|
+| P9.1 LiteLLM allowed key | **FAIL** |
+| P9.2 LiteLLM disallowed key | **FAIL** |
+| P9.3 sidecar allowed key | **PASS** |
+| P9.4 sidecar disallowed key | **PASS** |
+| P9.5 UI status | **PASS** |
+| P9.6 Worker invalid token | **PASS** |
+
+### Post-D1-Fix Analysis
+
+The payload fix (`subumbra:` prefix removed) was applied and confirmed on VPS. The root
+failures are architectural, not a two-line fix:
+
+**P9.1:** The fallback success condition at `verify.sh:742` checks:
+```python
+audit_event_in_file ... litellm get_key allow allowed "$litellm_allowed_key"
+```
+Round 42.2 removed LiteLLM as a direct subumbra-keys adapter. All audit events now show
+`adapter_id: subumbra-proxy`. The `litellm` adapter_id never appears. The fallback
+condition can never be satisfied under the new architecture.
+
+**P9.2:** The matrix derives `litellm_disallowed_key: cerebras_prod`. After Codex's
+remediation, `cerebras_prod` is in `PROXY_ALLOWED_KEYS`. The sidecar allows it and
+routes to Anthropic. Response is 401 (provider auth), not 403 (scope denied). The
+harness expects 403 but the Round 42.2 architecture only produces scope denials at the
+sidecar level (tested by P9.4, which passes).
+
+**Conclusion:** P9.1/P9.2 cannot PASS without redesigning what those checks verify for
+the Round 42.2 sidecar-routing architecture. These are harness maintenance items for a
+future round. The implementation is correct: P9.3–P9.6 PASS, V1 PASS, V3 PASS.
+
+---
+
 ## Overall Assessment
 
 **Implementation: CORRECT**
@@ -197,8 +236,8 @@ All 7 approved plan changes are present and correct (V1 PASS). The V3 scope
 prerequisite is satisfied (PASS). The sidecar routing mechanism is live and working
 (P9.3/P9.4 PASS, P9.5/P9.6 PASS).
 
-**Harness verdict: FAIL** — P9.1/P9.2 fail due to harness contract drift, not
-implementation failure. The root cause is documented above and deferred as D1.
+**Harness verdict: FAIL** — P9.1/P9.2 fail due to harness architectural incompatibility
+with the Round 42.2 sidecar-routing design. Root causes documented above. Full harness
+rework for P9.1/P9.2 is deferred as a harness maintenance item.
 
-Round 42.2 implementation is complete per the approved plan. The remaining FAIL
-is a harness maintenance item (two-line fix to verify.sh P9.1/P9.2 payloads).
+Round 42.2 implementation is complete per the approved plan.
