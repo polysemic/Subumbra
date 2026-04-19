@@ -1,0 +1,22 @@
+[clean-run 19:05:11] run id creation: clean-run-20260419T190511
+[clean-run 19:05:11] credential source selected: .env.bootstrap
+[clean-run 19:05:11] stack-running gate result: clear
+[clean-run 19:05:11] temp workspace path creation: /opt/subumbra/temp/subumbra-clean-run-1b80xJ
+[clean-run 19:05:12] bootstrap start
+[clean-run 19:05:36] bootstrap end
+[clean-run 19:05:36] post-bootstrap start
+[clean-run 19:05:37] post-bootstrap end
+[clean-run 19:05:37] reset start
+[clean-run 19:05:45] reset end
+[clean-run 19:05:45] preflight start
+[clean-run 19:05:55] preflight end
+[clean-run 19:05:55] verify start
+[clean-run 19:05:59] step log: /opt/subumbra/council/round-42-2-runtime-auth-reconciliation/runs/clean-run-20260419T190511/step-verify.log
+[clean-run 19:05:59] ERROR: failed verify
+[clean-run 19:05:59] cleanup start
+[clean-run 19:05:59] verify run folder found after cleanup: codex-20260419T190555
+[clean-run 19:05:59] diagnostics captured
+[clean-run 19:06:01] cleanup end
+[clean-run 19:06:01] note: fixed clean-run worker subumbra-clean-run may persist and may require manual deletion
+[clean-run 19:06:01] run id: clean-run-20260419T190511
+[clean-run 19:06:01] artifacts: /opt/subumbra/council/round-42-2-runtime-auth-reconciliation/runs/clean-run-20260419T190511

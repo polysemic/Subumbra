@@ -1,0 +1,17 @@
+# PROOF: host-facing path
+command: curl --compressed -sS -N -D - -o - -X POST http://127.0.0.1:4000/v1/chat/completions -H 'Authorization: Bearer [REDACTED]' -H 'Content-Type: application/json' -d '{"model":"claude-sonnet-4","messages":[{"role":"user","content":"Say test only."}],"api_key":"subumbra:github_prod","max_tokens":5}'
+exit_code: 0
+http_status: 400
+response_headers:
+  HTTP/1.1 400 Bad Request
+  date: Sun, 19 Apr 2026 19:05:58 GMT
+  server: uvicorn
+  x-litellm-call-id: f448da23-f8b3-45c4-8c88-0a51423aebbe
+  x-litellm-response-cost: 0
+  x-litellm-key-spend: 0.0
+  x-litellm-timeout: 6000.0
+  content-length: 215
+  content-type: application/json
+  
+response_body_excerpt:
+  {"error":{"message":"litellm.BadRequestError: AnthropicException - {\"detail\":\"invalid key_id\"}. Received Model Group=claude-sonnet-4\nAvailable Model Group Fallbacks=None","type":null,"param":null,"code":"400"}}

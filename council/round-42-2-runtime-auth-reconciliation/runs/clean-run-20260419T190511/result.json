@@ -1,0 +1,10 @@
+{
+  "clean_run_id": "clean-run-20260419T190511",
+  "round": "round-42-2-runtime-auth-reconciliation",
+  "agent": "codex",
+  "overall": "FAIL",
+  "verify_run_id": "codex-20260419T190555",
+  "failed_step": "verify",
+  "proof_path": "council/round-42-2-runtime-auth-reconciliation/runs/codex-20260419T190555/",
+  "workspace": "/opt/subumbra/temp/subumbra-clean-run-1b80xJ"
+}
