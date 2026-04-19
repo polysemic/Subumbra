@@ -222,14 +222,15 @@ failures = []
 lines = []
 for rel, required, forbidden in checks:
     text = Path(rel).read_text(encoding="utf-8")
+    normalized = " ".join(text.split())
     lines.append(f"[{rel}]")
     for needle in required:
-        ok = needle in text
+        ok = " ".join(needle.split()) in normalized
         lines.append(f"required {needle!r}: {'yes' if ok else 'no'}")
         if not ok:
             failures.append(f"{rel}: missing required text {needle!r}")
     for needle in forbidden:
-        present = needle in text
+        present = " ".join(needle.split()) in normalized
         lines.append(f"forbidden {needle!r}: {'present' if present else 'absent'}")
         if present:
             failures.append(f"{rel}: forbidden text {needle!r} present")
