@@ -62,16 +62,27 @@ covers all key_ids that LiteLLM models will use:
 
 ```bash
 # Read the registry and extract subumbra-proxy allowed_keys
+# (SUBUMBRA_ADAPTER_REGISTRY is plain JSON, not base64 — bootstrap/subumbra-bootstrap.py:1720)
 python3 -c "
-import os, json, base64
-reg = os.environ.get('SUBUMBRA_ADAPTER_REGISTRY', '')
+import os, json
+env_file = '.env'
+reg = ''
+for line in open(env_file):
+    if line.startswith('SUBUMBRA_ADAPTER_REGISTRY='):
+        reg = line.split('=', 1)[1].strip()
+        break
 if not reg:
-    reg = open('.env').read()
-    reg = next(l.split('=',1)[1] for l in reg.splitlines() if l.startswith('SUBUMBRA_ADAPTER_REGISTRY='))
-data = json.loads(base64.b64decode(reg))
+    print('ERROR: SUBUMBRA_ADAPTER_REGISTRY not found in .env')
+    exit(1)
+data = json.loads(reg)
 proxy_keys = data.get('subumbra-proxy', {}).get('allowed_keys', [])
 print('subumbra-proxy allowed_keys:', proxy_keys)
 "
+```
+
+Or, if the env var is already exported in the shell:
+```bash
+python3 -c "import os,json; d=json.loads(os.environ['SUBUMBRA_ADAPTER_REGISTRY']); print('subumbra-proxy allowed_keys:', d.get('subumbra-proxy',{}).get('allowed_keys',[]))"
 ```
 
 If the output does not include all key_ids referenced in `litellm/config.yaml`,
@@ -87,14 +98,16 @@ scope before proceeding with live tests. A bootstrap re-run requires
 
 Replace the entire file content. The changes are:
 - New header comment explaining the proxy routing pattern
-- Each non-Gemini model entry: add `api_base: http://subumbra-proxy:8090/t`,
-  change `api_key: "subumbra:<key_id>"` → `api_key: "<key_id>"` (plain)
-- Gemini model entry: `api_base: http://subumbra-proxy:8090/t/v1beta/openai`
-  (captures the provider-specific path prefix so the sidecar appends correctly
-  to `generativelanguage.googleapis.com`), change to plain `api_key: gemini_prod`
+- Each model entry: add `api_base: http://subumbra-proxy:8090/t`, change
+  `api_key: "subumbra:<key_id>"` → `api_key: "<key_id>"` (plain)
 - Remove `callbacks: custom_callbacks.proxy_handler_instance` from
   `litellm_settings:` section
 - Remove the comment block about callback intercept behavior
+- **Gemini (`gemini-2.0-flash`) is excluded from this round** (see Deferred
+  section). Its non-standard Google API URL path (`/v1beta/openai/`) requires a
+  per-model `api_base` prefix that was not approved by all three syntheses.
+  Remove the Gemini entry from config.yaml entirely until a follow-on round
+  explicitly approves the exception.
 
 **New file content:**
 
@@ -189,16 +202,17 @@ model_list:
       api_base: http://subumbra-proxy:8090/t
       api_key: cerebras_prod
 
-  # ── Gemini (OpenAI-compatible mode) ───────────────────────────────────────
-  # Gemini uses a non-standard API base path. The sidecar api_base includes
-  # the provider-specific prefix so the sidecar appends the remainder correctly:
-  # LiteLLM sends /chat/completions → sidecar builds:
-  #   https://generativelanguage.googleapis.com/v1beta/openai/chat/completions
-  - model_name: gemini-2.0-flash
-    litellm_params:
-      model: openai/gemini-2.0-flash-001
-      api_base: http://subumbra-proxy:8090/t/v1beta/openai
-      api_key: gemini_prod
+  # ── Gemini — EXCLUDED FROM ROUND 42.2 ─────────────────────────────────────
+  # Google's OpenAI-compatible endpoint is at /v1beta/openai/ not /v1/.
+  # Using the universal api_base: http://subumbra-proxy:8090/t routes to
+  # generativelanguage.googleapis.com/v1/chat/completions — a 404.
+  # A per-model path prefix exception is required but was not approved by
+  # all three syntheses. Remove this entry; add back in a follow-on round.
+  # - model_name: gemini-2.0-flash
+  #   litellm_params:
+  #     model: openai/gemini-2.0-flash-001
+  #     api_base: http://subumbra-proxy:8090/t/v1beta/openai
+  #     api_key: gemini_prod
 
   # ── Mistral ────────────────────────────────────────────────────────────────
   - model_name: mistral-large
@@ -665,7 +679,7 @@ fingerprints, or `X-Subumbra-*` header values may appear in any log output.
 | `subumbra-proxy` not running when LiteLLM starts | LiteLLM health shows unhealthy models immediately | Mitigated by `depends_on: subumbra-proxy: service_healthy` added above |
 | `PROXY_ALLOWED_KEYS` missing a key_id | `403 key_scope_denied` from subumbra-keys on first request for that model | Operator-visible in litellm logs + subumbra-keys access log |
 | `api_base` misconfigured (wrong path, extra prefix) | LiteLLM sends to wrong URL; connection refused or wrong upstream | Verify with V2 steps below |
-| Gemini path prefix wrong | `404` from `generativelanguage.googleapis.com` | Gemini requires `api_base: http://subumbra-proxy:8090/t/v1beta/openai` specifically |
+| Gemini — not in this round | n/a | Gemini entry removed from config.yaml; see Deferred section |
 
 No new secret-bearing log lines are introduced. Existing sidecar logging
 (`subumbra-proxy/app.py:200, 229-237`) covers the new routing path.
@@ -703,8 +717,8 @@ Run via the council verification harness after re-bootstrap or after confirming
 ```
 
 Per-provider checks: confirm at least one completion returns successfully for
-Anthropic, OpenAI, and Groq (minimum set). DeepSeek, Mistral, Gemini per
-operator key availability.
+Anthropic, OpenAI, and Groq (minimum set). DeepSeek, Mistral per operator key
+availability. Gemini excluded from this round.
 
 Expected: `200 OK` at LiteLLM `:4000/v1/chat/completions`, streamed response
 passes through sidecar to CF Worker to provider and back.
@@ -725,9 +739,8 @@ Confirm the output includes all key_ids referenced in `litellm/config.yaml`.
   proxy-routing pattern is proven stable.
 - The `custom_callbacks.py` bind mount in `docker-compose.yml` remains (unless
   operator removes it). The file is no longer loaded; mount is inert.
-- Gemini path prefix (`/t/v1beta/openai`) is not covered by the transparent
-  sidecar's auto-routing logic and must be set exactly as above. Verify
-  empirically during V2.
+- Gemini (`gemini-2.0-flash`) is excluded from this round. Entry is commented
+  out in the approved config.yaml. See Deferred section.
 
 ---
 
@@ -741,3 +754,8 @@ Confirm the output includes all key_ids referenced in `litellm/config.yaml`.
 - Removing `custom_callbacks.py` from the repo entirely
 - Removing the `internal` network from the `litellm` service (no longer contacts
   subumbra-keys directly, but network change is low-priority)
+- Gemini (`gemini-2.0-flash`) model migration — Google's OpenAI-compatible
+  endpoint is at `/v1beta/openai/` not `/v1/`, requiring
+  `api_base: http://subumbra-proxy:8090/t/v1beta/openai` as a per-model prefix
+  exception. This was not approved by all three syntheses; requires a dedicated
+  review in a follow-on round before re-adding to config.yaml.
