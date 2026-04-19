@@ -654,7 +654,7 @@ import sys
 print(json.dumps({
     "model": sys.argv[1],
     "messages": [{"role": "user", "content": "Say test only."}],
-    "api_key": f"subumbra:{sys.argv[2]}",
+    "api_key": sys.argv[2],
     "max_tokens": 5,
 }, separators=(",", ":")))
 PY
@@ -666,7 +666,7 @@ import sys
 print(json.dumps({
     "model": sys.argv[1],
     "messages": [{"role": "user", "content": "Say test only."}],
-    "api_key": f"subumbra:{sys.argv[2]}",
+    "api_key": sys.argv[2],
     "max_tokens": 5,
 }, separators=(",", ":")))
 PY
