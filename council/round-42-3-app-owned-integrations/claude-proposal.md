@@ -2,82 +2,109 @@
 
 Author: Claude
 Date: 2026-04-19
+Revision: 2 (updated after operator feedback — LiteLLM full removal + Worker auth observability)
 
 ---
 
 ## 1. Evidence
 
-### 1.1 Bundled LiteLLM is already profile-gated
+### 1.1 Bundled LiteLLM is profile-gated but was used as the real test target
 
-`docker-compose.yml:81`: `profiles: - litellm` — the bundled LiteLLM service is NOT started
-by `docker compose up -d` unless the operator explicitly passes `--profile litellm`. It is
-already a non-default service. The stack's core services are `subumbra-keys`, `subumbra-proxy`,
-`subumbra-ui` — LiteLLM is optional.
+`docker-compose.yml:81`: `profiles: - litellm` — LiteLLM is not started by default. However,
+the bundled service was the one used for all verification testing because the standalone
+`/opt/litellm` install was blocked by it running in the Subumbra compose stack. The profile
+gate prevented an accidental start but not a deliberate one. Keeping the service in
+`docker-compose.yml` makes it too easy for future rounds to re-use it as the "easier" test
+path, re-centering LiteLLM in Subumbra's validation surface.
 
-### 1.2 Round 42.2 already defined the sidecar contract
+### 1.2 Round 42.2 sidecar contract is the app-owned contract
 
 `litellm/config.yaml` (post-42.2): every active model uses:
 ```yaml
 api_base: http://subumbra-proxy:8090/t
 api_key: <key_id>   # plain key_id, no subumbra: prefix
 ```
-No `callbacks:` stanza. No `custom_callbacks.py`. The bundled LiteLLM service itself now uses
-this contract (`litellm/config.yaml`). This IS the app-owned contract — it is already
-implemented in the bundled path.
+No `callbacks:` stanza. No `custom_callbacks.py`. No Subumbra-specific env vars in the app.
+This contract works for ANY OpenAI-compatible app that can reach `subumbra-proxy:8090`.
+LiteLLM is just the first concrete example, not a special case.
 
-### 1.3 Round 41.7 approved plan is superseded by 42.2
+### 1.3 Round 41.7 approved plan uses the obsolete callback contract
 
-`council/approved/standalone-litellm-runtime-fix.md:28-34,143-169` — Round 41.7's fix mounts
-`custom_callbacks.py`, uses `api_key: "subumbra:<key_id>"` format, and requires the app to
-carry `SUBUMBRA_ACCESS_TOKEN`, `SUBUMBRA_HMAC_KEY`, `SUBUMBRA_KEYS_URL`, and `CF_WORKER_URL`.
+`council/approved/standalone-litellm-runtime-fix.md:28-34,143-169` — 41.7 mounts
+`custom_callbacks.py`, uses `api_key: "subumbra:<key_id>"`, and requires `SUBUMBRA_ACCESS_TOKEN`,
+`SUBUMBRA_HMAC_KEY`, `SUBUMBRA_KEYS_URL`, `CF_WORKER_URL` in the app environment. Round 42.2
+removed this path from the bundled LiteLLM. Round 41.7 was never verified or implemented
+(`council/COUNCIL.md:188` — status "Open"). It describes a contract that no longer exists in
+the product. It must be superseded, not implemented.
 
-Round 42.2 removed the callback path from the bundled LiteLLM entirely. The Round 41.7 plan
-describes a contract that is now legacy. Round 41.7 was never verified (`council/COUNCIL.md:188`
-shows it "Open" — implemented scope is missing). Round 42.3 should supersede 41.7 with the
-correct sidecar-based standalone contract.
+### 1.4 subumbra-proxy is already the correct app-facing API
 
-### 1.4 subumbra-proxy is already the app-facing API
+`docker-compose.yml:163-188`:
+- Bound to `127.0.0.1:8090` on the host — reachable from any VPS process
+- On `subumbra-net` (`docker-compose.yml:172`) — joinable by external compose stacks
+- Already provides `/t/{path}` transparent route (R42.2)
+- Already health-checked (`docker-compose.yml:186-188`)
 
-`docker-compose.yml:163-188` — `subumbra-proxy` is:
-- On `subumbra-net` (external: `docker-compose.yml:17-19`) — joinable by external compose stacks
-- Published on `127.0.0.1:8090` — reachable from host processes
-- Already has `/t/{path}` transparent route (R42.2) and `/v1/request` explicit route (R25)
-- Health-checked (`docker-compose.yml:186-188`)
+An external app using `api_base: http://subumbra-proxy:8090/t` requires zero Subumbra-specific
+code or credentials in the app.
 
-An app-owned LiteLLM on `subumbra-net` can reach `http://subumbra-proxy:8090/t` today with
-no changes to the Subumbra stack.
+### 1.5 Install docs describe LiteLLM as a default stack component (drift)
 
-### 1.5 Install docs describe bundled LiteLLM as the default flow
-
-`docs/subumbra-install.md:154-199` — step 7 (key_id alignment), step 8 (start the stack), and
-step 9 (verify locally) all describe LiteLLM as part of the default `docker compose up -d` run.
 `docs/subumbra-install.md:191`: "Expected services: `subumbra-keys` (healthy), `subumbra-proxy`
-(healthy), `subumbra-ui`, `litellm`." But `litellm` is profile-gated and not present in a bare
-`docker compose up -d` as of 42.2. The install doc has drifted.
+(healthy), `subumbra-ui`, `litellm`." After Round 42.2 profile-gating, `litellm` does not
+appear in a bare `docker compose up -d`. The step 9 health check at
+`docs/subumbra-install.md:209` uses `docker exec litellm` — this requires the LiteLLM container,
+which is now opt-in. The install guide has drifted from the actual stack.
 
-### 1.6 CF Worker 401 is undifferentiated from provider 401
+### 1.6 CF Worker log confirms the exact Worker-auth failure mode
 
-`council/closed/round-42-2-runtime-auth-reconciliation/claude-verification.md` (P9.1 artifact):
-the 401 returned to LiteLLM says `AnthropicException - {"error":"unauthorized"}`. LiteLLM wraps
-the upstream response; the caller cannot tell whether `401` originated from:
-- Subumbra-proxy → CF Worker auth failure (stale CF_ACCESS credentials or Worker identity)
-- CF Worker → Anthropic auth failure (bad or expired provider key)
+Operator-provided CF Worker log from the Round 42.2 verification window (2026-04-19 13:30 PDT):
 
-`subumbra-proxy` health endpoint (`docker-compose.yml:186`) checks only local process readiness;
-it does not probe the Worker edge.
+```
+GET  /health → 200 OK         (Worker up, no auth required)
+POST /proxy  → 401            (x-subumbra-token present but rejected)
+  warn: "subumbra: unauthorized request from 62.146.169.39"
+POST /proxy  → 401            (same, second attempt)
+```
 
-### 1.7 Stale-caller sources
+`worker.js:449-455` — the exact code path triggered:
+```javascript
+const incomingToken = request.headers.get("X-Subumbra-Token") ?? "";
+const tokenOk = await tokenSetContains(incomingToken, validTokens);
+if (!tokenOk) {
+    console.warn("subumbra: unauthorized request from", request.headers.get("CF-Connecting-IP"));
+    return jsonError("unauthorized", 401);
+}
+```
 
-Three distinct auth states can drift independently:
-1. **`SUBUMBRA_TOKEN_PROXY`** — HMAC-signed bearer token subumbra-proxy uses to call subumbra-keys.
-   Changes on re-bootstrap. If subumbra-proxy container is not recreated, the old token remains
-   in container env.
-2. **`CF_ACCESS_CLIENT_ID`/`CF_ACCESS_CLIENT_SECRET`** — CF Access service token. Managed by
-   Cloudflare; can expire or be rotated in the CF dashboard with no local change required.
-3. **`CF_WORKER_URL`** — Worker URL. Changes only on Worker redeployment with a new script name.
+The Worker received the token, checked it against `SUBUMBRA_ADAPTER_TOKENS`, found no match,
+and returned `{"error":"unauthorized"}` with 401. `/health` returning 200 in the same window
+confirms the Worker was live and configured — only the token was wrong.
 
-Only source (1) is currently detectable via `post-bootstrap.sh`'s drift check. Sources (2) and
-(3) are invisible from the Subumbra side until a live request fails.
+**What the verify harness sees:** a 401 from the sidecar. Indistinguishable from:
+- Provider returning 401 for a bad API key
+- CF Worker returning 401 because HMAC or fingerprint validation failed downstream
+
+**What the CF logs show:** `"subumbra: unauthorized request"` — clear, actionable, but only
+visible to operators with CF dashboard access. The verify harness never captures this.
+
+### 1.7 Three distinct stale-caller sources, only one currently detectable
+
+1. **`SUBUMBRA_TOKEN_PROXY`** — changes on re-bootstrap. `post-bootstrap.sh` drift check
+   covers this (`post-bootstrap.sh:90-107`). The stale token reaches the Worker as
+   `X-Subumbra-Token`, which the Worker rejects.
+
+2. **CF Access credentials (`CF_ACCESS_CLIENT_ID`/`CF_ACCESS_CLIENT_SECRET`)** — managed by
+   Cloudflare. Can expire or be rotated in the CF dashboard with no local change. This causes
+   the request to be blocked *before* reaching the Worker's own auth logic (at the CF Access
+   layer). Invisible from the Subumbra side until a request fails.
+
+3. **`SUBUMBRA_ADAPTER_TOKENS` in CF Secrets** — set by bootstrap. If re-bootstrap regenerates
+   these and redeploys the Worker with new token values, but `subumbra-proxy` is not recreated,
+   the old token in the sidecar's env is stale. This is what produced the CF log above.
+
+Source (3) is the confirmed cause of the Round 42.2 verification 401s. Source (1) is covered.
+Sources (2) and (3) are silent until a live request fails.
 
 ---
 
@@ -87,44 +114,76 @@ Only source (1) is currently detectable via `post-bootstrap.sh`'s drift check. S
 
 | Layer | Behavior |
 |---|---|
-| Bundled LiteLLM | Profile-gated (`--profile litellm`); uses sidecar contract (42.2); not in default stack |
-| Standalone LiteLLM | Round 41.7 plan: callback-based (`subumbra:key_id`), approved but never verified, contract already obsolete |
-| Install docs | Describe LiteLLM as a default stack service; step 9 health check references `docker exec litellm` |
-| App-owned contract | Implicit: `api_base` + plain `key_id` works today but is undocumented as the official standalone path |
-| Worker 401 | Indistinguishable from provider 401 at the caller side |
-| Stale-caller detection | Token drift detectable via drift check (source 1 only); CF Access drift (source 2) silent until failure |
+| Bundled LiteLLM in compose | Profile-gated; was still used as verification target |
+| `litellm/` directory | Present with `config.yaml`, `custom_callbacks.py` (legacy), `custom_callbacks.py` (legacy marker) |
+| Standalone LiteLLM contract | Round 41.7 approved but obsolete (callback-based) |
+| Install docs | Describe LiteLLM as expected default service |
+| App-owned contract | Works via sidecar (42.2) but undocumented as the normative path |
+| Worker 401 | Indistinguishable from provider 401 on the Subumbra side; visible only in CF dashboard |
+| Stale token detection | Source (1) covered; sources (2) and (3) invisible until failure |
 
 ### Desired state
 
 | Layer | Desired |
 |---|---|
-| Bundled LiteLLM | Explicitly demoted to an optional convenience service; not the validation path or install-doc primary example |
-| Standalone LiteLLM | Documented as the primary example integration using sidecar contract (no callback, no subumbra-specific env vars) |
-| Install docs | Describe core stack without LiteLLM; standalone integration as a separate section |
-| App-owned contract | Documented normatively: `api_base`, `api_key`, network requirements, key_id scope alignment |
-| Worker 401 | Subumbra-proxy returns a distinguishable error when the Worker edge returns 401/403 vs when the upstream provider does |
-| Stale-caller detection | One diagnostic action that surfaces whether the proxy-to-Worker path is live without requiring Cloudflare dashboard spelunking |
+| Bundled LiteLLM in compose | **Removed from `docker-compose.yml`** — not profile-gated, gone |
+| `litellm/` directory | Retained as reference/example (config, legacy callback) — no service |
+| Standalone LiteLLM contract | Documented using sidecar contract (no callback, no app-side auth material) |
+| Install docs | Describe core stack only (`subumbra-keys`, `subumbra-proxy`, `subumbra-ui`) |
+| App-owned contract | Normative documented path: `api_base` + plain `key_id` + network requirements |
+| Worker 401 | subumbra-proxy returns a reason_code distinguishing Worker-auth 401 from provider 401 |
+| Stale token detection | Operator-accessible check that confirms proxy-to-Worker auth is live without CF dashboard |
 
 ---
 
 ## 3. Proposal
 
-### Change A — Supersede Round 41.7 with the sidecar-contract standalone path
+### Change A — Remove bundled LiteLLM service from `docker-compose.yml`
 
-**Scope:** operator documentation and `docs/standalone-litellm.md` (create new doc).
+**Scope:** `docker-compose.yml` — delete the `litellm:` service block entirely (lines 73-106).
 
-Round 41.7 is approved but never verified and its contract is already obsolete. Close 41.7 by
-documenting the correct standalone LiteLLM path based on the 42.2 sidecar contract.
+The service block, its profile gate, its volume mounts, its `depends_on`, and its port
+declaration are all removed. The `litellm/` directory (`config.yaml`, `custom_callbacks.py`)
+stays as a reference for operators who want to stand up their own LiteLLM — it becomes example
+material, not a running service.
 
-The normative standalone LiteLLM setup is:
+This removes the escape hatch that allowed testing against the bundled service instead of the
+real standalone target. It forces future verification against an app that actually lives outside
+the Subumbra compose stack.
+
+**What changes:** `docker-compose.yml` loses the `litellm:` service. No other files change.
+
+**What stays:** `litellm/config.yaml` (example config showing sidecar contract),
+`litellm/custom_callbacks.py` (legacy reference, marked as such from R42.2).
+
+**Impact on install docs:** step 8 "Expected services" must be updated (Change B).
+
+### Change B — Update install docs to match the real stack
+
+**Scope:** `docs/subumbra-install.md` steps 7–9.
+
+- Step 8 (`docs/subumbra-install.md:191`): Remove `litellm` from "Expected services". Core
+  stack is `subumbra-keys`, `subumbra-proxy`, `subumbra-ui`.
+- Step 9 (`docs/subumbra-install.md:209`): Replace `docker exec litellm python3 -c ...`
+  (requires litellm container) with a direct host-side check using the `127.0.0.1:9090`
+  path if needed, or remove that check entirely since subumbra-keys health is now served
+  via subumbra-ui's `/api/status`.
+- Add a brief "Standalone App Integration" section pointing to `docs/standalone-litellm.md`
+  (created in Change C) as the reference example for connecting external apps.
+
+### Change C — Create `docs/standalone-litellm.md` (supersedes Round 41.7)
+
+**Scope:** new file `docs/standalone-litellm.md` + close Round 41.7 as superseded.
+
+The normative standalone integration contract:
 
 ```yaml
 # /opt/litellm/docker-compose.yml
 services:
   litellm:
-    image: ghcr.io/berriai/litellm:main-latest@sha256:7c311546...   # same pin as bundled
+    image: ghcr.io/berriai/litellm:main-latest@sha256:7c311546...
     networks:
-      - subumbra-net      # external: true — join subumbra's shared network
+      - subumbra-net      # joins subumbra's shared network
 networks:
   subumbra-net:
     external: true
@@ -132,81 +191,91 @@ networks:
 ```
 
 ```yaml
-# /opt/litellm/config.yaml (per-model)
+# /opt/litellm/config.yaml (per-model entry)
 litellm_params:
   api_base: http://subumbra-proxy:8090/t
-  api_key: <key_id>       # plain, no subumbra: prefix; must match bootstrap key_id
+  api_key: <key_id>       # plain key_id; must match bootstrap key_id in PROXY_ALLOWED_KEYS
 ```
 
-No `custom_callbacks.py`. No `SUBUMBRA_ACCESS_TOKEN`. No `SUBUMBRA_HMAC_KEY`. No `CF_WORKER_URL`.
-The app carries nothing security-relevant; subumbra-proxy owns all auth.
+**No** `custom_callbacks.py`. **No** `SUBUMBRA_ACCESS_TOKEN`. **No** `SUBUMBRA_HMAC_KEY`.
+**No** `CF_WORKER_URL`. The app is auth-free; subumbra-proxy owns all authentication.
 
-**Network alternative (host binding):** For apps that cannot join `subumbra-net`, use
-`api_base: http://127.0.0.1:8090/t` (subumbra-proxy is bound to `127.0.0.1:8090` per
-`docker-compose.yml:174`). Works from any process on the VPS host.
+**Host-binding alternative** for apps that cannot join `subumbra-net`:
+```yaml
+api_base: http://127.0.0.1:8090/t
+```
+Works from any process bound to the VPS (subumbra-proxy is on `127.0.0.1:8090` per
+`docker-compose.yml:174`).
 
-**Key scope requirement:** key_ids used in `api_key` must be in the `PROXY_ALLOWED_KEYS`
-(i.e., in the `subumbra-proxy` adapter's `allowed_keys` registry entry). Mismatch returns
-`403 key_scope_denied` from subumbra-proxy. This is operator-configured at bootstrap.
+**Key scope requirement:** key_ids used in `api_key` must appear in the `subumbra-proxy`
+adapter's `allowed_keys` list. Mismatch produces `403 key_scope_denied`. Bootstrap step 3
+prompts for this; the bootstrap summary prints the scoped list.
 
-### Change B — Update install docs to match profile-gated reality
+Round 41.7 (`council/approved/standalone-litellm-runtime-fix.md`) is superseded by this
+document. Close 41.7 as superseded in `council/COUNCIL.md`.
 
-**Scope:** `docs/subumbra-install.md` steps 7–9.
+### Change D — subumbra-proxy: distinguish Worker auth 401 from provider 401
 
-`docs/subumbra-install.md:191` lists `litellm` as an expected service in `docker compose ps`.
-This is wrong after 42.2. The core services are `subumbra-keys`, `subumbra-proxy`, `subumbra-ui`.
-LiteLLM is opt-in.
+**Scope:** `subumbra-proxy/app.py` — Worker error response handling.
 
-- Remove LiteLLM from the "expected services" list in step 8.
-- Remove the `docker exec litellm python3 -c ...` subumbra-keys health check from step 9
-  (this requires the litellm container to be running; use direct host test instead).
-- Add a "Standalone App Integration" section (or link to `docs/standalone-litellm.md`)
-  describing the `api_base` + plain `key_id` pattern for external apps.
+**Root cause (from CF logs):** When the Worker's `tokenSetContains` check fails
+(`worker.js:450-455`), it returns:
+```json
+{"error": "unauthorized"}
+```
+with HTTP 401. This is the same status code providers return for bad API keys. The sidecar
+currently passes this 401 back upstream without any differentiation.
 
-**Do not** remove the bundled LiteLLM profile. Leave `--profile litellm` available for
-operators who want it. Just stop describing it as the default.
+**Minimum change:** When subumbra-proxy receives a 4xx from the Worker (`CF_WORKER_URL/proxy`
+or `/t/` path), inspect the response body:
+- If body contains `{"error": "unauthorized"}` → this is a Worker-auth rejection. The sidecar
+  returns `reason_code: worker_auth_failure` to the caller (in addition to the status code).
+- All other 4xx/5xx → pass through or classify as `provider_error` / `worker_error`.
 
-### Change C — Subumbra-proxy Worker-edge 401 signal
+This is body inspection only. No credentials are logged. No token values are exposed. The
+response to the caller gains a `reason_code` field that operators can read from LiteLLM error
+logs or `curl` output.
 
-**Scope:** `subumbra-proxy/app.py` — the proxy-to-Worker error path.
+**Explicitly NOT in scope:** scraping CF Worker logs, calling CF Logs API, exposing CF Access
+credentials in any response or log.
 
-When subumbra-proxy forwards a request to the CF Worker and receives `401` or `403` from the
-Worker edge (not from the upstream provider), the response returned to the caller should
-distinguish this from a provider auth failure.
-
-**Minimum required signal:** a specific `reason_code` or error message that identifies
-Worker-edge auth failures as distinct from upstream provider failures.
-
-**Implementation constraint:** no CF Access credentials, tokens, or Worker response bodies
-logged. The signal is the HTTP status + a reason code that the operator can act on.
-
-Example distinguishable states:
-- `worker_auth_failure` — CF Worker returned 401/403 before any provider call
-- `provider_auth_failure` — CF Worker reached the provider; provider returned 401
-- `worker_unreachable` — CF Worker returned connection error or timeout
-
-This classification already exists implicitly in the proxy's response handling; the change is
-to surface it explicitly so `curl http://127.0.0.1:8090/health` or a failed request returns
-a diagnosable reason_code rather than a generic 500 or passthrough 401.
-
-**No new logging fields.** The reason_code appears in the HTTP response body only, not in
-persisted logs.
-
-### Change D — Subumbra-proxy `/health` Worker reachability probe
+### Change E — subumbra-proxy `/health` endpoint: Worker auth probe
 
 **Scope:** `subumbra-proxy/app.py` `/health` endpoint.
 
-`docker-compose.yml:186-188` shows the current healthcheck is local-only (checks that the
-process is up). The `/health` endpoint should expose, as an additional field, whether the
-CF Worker `/health` is reachable from the proxy's current credentials.
+**Observation from CF logs:** When Worker token is stale, `GET /health` returns 200 (no auth)
+but `POST /proxy` returns 401. This combination is diagnosable: Worker is alive, token is wrong.
+Neither the verify harness nor an operator running `curl 127.0.0.1:8090/health` currently
+surfaces this.
 
-**Field:** `worker_reachable: true/false` — already implemented in the UI status call
-(`docs/subumbra-install.md:221`: `curl -sS "$CF_WORKER_URL/health"`). The probe exists;
-it just needs to be surfaced in the sidecar health response so operators and the verify
-harness can check it from one endpoint.
+**Change:** Extend the `/health` response with two fields:
+- `worker_reachable: true/false` — can the sidecar reach `CF_WORKER_URL/health` (GET, no auth)?
+- `worker_auth_ok: true/false` — does the sidecar's current token pass a lightweight auth check?
 
-**Constraint:** worker auth failure must not expose the CF Access token or any credential
-in the health response. The field is binary: reachable with current auth = true/false.
+**Worker auth check implementation:** Rather than a full `/proxy` POST, this can use a
+dedicated `GET /auth-ping` endpoint on the Worker (requires a one-line Worker change) that
+requires `X-Subumbra-Token` and returns 200 or 401. Alternatively, if we do not want to add a
+Worker endpoint this round, the sidecar can attempt a `POST /proxy` with a minimal payload and
+classify the result.
+
+If a Worker-side endpoint is out of scope for this round, a fallback is acceptable: the sidecar
+health response reports `worker_reachable: true/false` only (based on `/health` GET), and
+`worker_auth_ok` is deferred to the Worker endpoint round. `worker_reachable: false` is already
+actionable; `worker_auth_ok: false` is the new signal that covers the stale-token case.
+
+**Constraint:** No token values, CF Access credentials, or sensitive material in the health
+response. The fields are boolean only.
+
+### Change F — verify.sh: add Worker auth health probe as a round hook
+
+**Scope:** `scripts/council/verify.sh` round hook for `round-42-3`.
+
+A round-hook check that calls `http://127.0.0.1:8090/health` and asserts:
+- `worker_reachable: true` (Worker is reachable from sidecar)
+- `worker_auth_ok: true` (if the field exists after Change E)
+
+This surfaces the exact failure that caused silent 401s during Round 42.2 verification, without
+requiring any CF API credentials or dashboard access. A single `curl` + JSON parse in the hook.
 
 ---
 
@@ -214,12 +283,14 @@ in the health response. The field is binary: reachable with current auth = true/
 
 | Failure | Signal after this round |
 |---|---|
-| Standalone LiteLLM uses wrong `api_key` format (old `subumbra:` prefix) | subumbra-proxy returns `{"detail":"invalid key_id"}` (already exists per R42.2) |
-| key_id not in PROXY_ALLOWED_KEYS scope | subumbra-proxy returns 403 `key_scope_denied` (already exists) |
-| App not on subumbra-net and not using 127.0.0.1:8090 | Connection refused — operator sees network error immediately |
-| CF Access credentials expired or rotated | subumbra-proxy `/health` shows `worker_reachable: false`; live request returns `worker_auth_failure` reason_code |
-| SUBUMBRA_TOKEN_PROXY stale after re-bootstrap | Existing `post-bootstrap.sh` drift detection covers this (source 1) |
-| Operator copies bundled LiteLLM config but includes Gemini model | Gemini: `/v1/chat/completions` path known to fail via subumbra-proxy (R42.2 known exclusion); returns 404 from provider — not a new failure mode |
+| Standalone app uses wrong `api_key` format (old `subumbra:` prefix) | subumbra-proxy: `{"detail":"invalid key_id"}` (already exists, R42.2) |
+| key_id not in PROXY_ALLOWED_KEYS scope | subumbra-proxy: 403 `key_scope_denied` (already exists) |
+| App not on `subumbra-net` or `127.0.0.1:8090` not used | Connection refused — immediate network error |
+| SUBUMBRA_TOKEN_PROXY stale after re-bootstrap (source 1) | `post-bootstrap.sh` drift detection already covers this |
+| `SUBUMBRA_ADAPTER_TOKENS` stale after Worker redeploy (source 3) | `worker_auth_ok: false` in sidecar `/health` + `reason_code: worker_auth_failure` on live request |
+| CF Access token expired (source 2) | `worker_reachable: false` in sidecar `/health` (Access blocks before Worker) |
+| Operator accidentally starts bundled LiteLLM (profile-gated) | After Change A: service removed; no such accident possible |
+| Operator's standalone LiteLLM has Gemini model | Returns 404 from Anthropic/Google — known exclusion from R42.2; documented in exclusions |
 
 ---
 
@@ -227,44 +298,52 @@ in the health response. The field is binary: reachable with current auth = true/
 
 | Item | Reason |
 |---|---|
-| Gemini routing fix | Separate path issue (`/v1beta/openai/` vs `/v1/`); deferred from R42.2; not in scope here |
-| OpenWebUI, N8N adapter specifics | Future adapter rounds; sidecar contract generalizes to them but their specific configs are out of scope |
-| `custom_callbacks.py` redesign or removal | Legacy code; leave in place for any operator running old callback path; no changes needed |
-| CF Access token rotation automation | Requires CF API scope changes; not appropriate for this round |
-| `post-bootstrap.sh` standalone path awareness | Post-bootstrap must remain independent of external app paths (R41.7 exclusion still valid) |
-| Broad observability (new audit fields, Cloudflare log forwarding) | Out of scope per kickoff.md and security invariants |
-| Redesigning HMAC, token architecture, or key cryptography | Explicitly out of scope |
-| P9.1/P9.2 harness architectural redesign | R42.2 cleanup item; separate harness maintenance round |
-| Round 41.7 verification | 41.7 is superseded by Change A; close it as superseded, not as verified |
+| Gemini routing fix | Separate path issue; deferred from R42.2 |
+| OpenWebUI, N8N adapter specifics | Future adapter rounds; same sidecar contract applies but their config surfaces differ |
+| `custom_callbacks.py` code changes | Legacy reference; leave as-is; no runtime use after bundled LiteLLM removal |
+| CF Access token rotation automation | Requires CF API scope beyond current bootstrap permissions |
+| CF Logs API integration in verify harness | Requires CF API token with logs:read — appropriate for a future harness round |
+| `post-bootstrap.sh` standalone app awareness | Must remain independent of external app paths |
+| Broad observability expansion | Out of scope per kickoff.md and project security invariants |
+| Token or cryptographic architecture redesign | Out of scope |
+| P9.1/P9.2 harness architectural redesign | Open harness maintenance item from R42.2 cleanup |
+| `litellm/` directory removal | Keep as reference/example material even after compose service removal |
 
 ---
 
 ## 6. Open Questions
 
-**Q1: Should bundled LiteLLM keep `--profile litellm` or be removed from docker-compose.yml?**
-The profile-gated service is harmless and provides convenience for operators who want it as a
-quick validation tool. Removing it from compose would be irreversible and offers no security
-benefit. Recommendation: keep it, but explicitly label it as "convenience only, not the
-reference path" in docs.
+**Q1: Should the Worker receive a new `GET /auth-ping` endpoint for Change E?**
+Adding a lightweight auth-check endpoint to `worker.js` is a small change (one route, returns
+200 or 401 based on `X-Subumbra-Token`). It enables `worker_auth_ok` in the sidecar health
+response without a full proxy round-trip. The alternative (POST `/proxy` with minimal payload)
+is heavier and may produce confusing audit entries. Recommendation: add `GET /auth-ping` in
+this round; it is one-function scope.
 
-**Q2: Should `docs/standalone-litellm.md` be the canonical integration guide for all app
-types (LiteLLM, OpenWebUI, N8N), or just LiteLLM for this round?**
-Round 42.3 should use standalone LiteLLM as the concrete first example. OpenWebUI/N8N integration
-patterns follow the same sidecar contract but have different config surfaces. Those belong in
-per-app docs created in later rounds, not here.
+**Q2: After removing the bundled LiteLLM service, should `litellm/config.yaml` stay as-is or
+be annotated as "example only"?**
+Adding a header comment noting it's a reference example (not a running service config) costs
+nothing and prevents future confusion. Recommendation: add a one-line comment at the top;
+no other changes.
 
-**Q3: Does Change C (Worker-edge 401 signal) require a subumbra-proxy version bump or is it
-backward-compatible?**
-Changing the error body of a 4xx/5xx response is backward-compatible for clients that don't
-parse the body (which most LiteLLM integrations don't — they re-raise the upstream status).
-No protocol or API contract change required.
+**Q3: Should Round 41.7 be closed as "superseded" or should a follow-up verification be run
+to officially close it?**
+41.7 was approved but never implemented or verified. The contract it describes is now obsolete.
+Treating it as "superseded" in COUNCIL.md is accurate and sufficient. No verification run needed
+for a plan that describes a removed feature.
 
-**Q4: Is there a verification proof target that exercises Change C/D honestly?**
-The verify.sh harness could be extended with a `P9.7` check that probes
-`http://127.0.0.1:8090/health` and asserts `worker_reachable: true`. This is a single HTTP
-call and requires no secret-bearing logic. It should be a round-hook check, not a global probe.
+**Q4: Is the proof target for this round a standalone LiteLLM, or can it be any app using the
+sidecar contract?**
+Standalone LiteLLM (`/opt/litellm/`) is the most immediate concrete example and requires the
+least new infrastructure. The proof should exercise: (a) standalone app starts with no Subumbra
+env vars, (b) request flows through sidecar to CF Worker to provider, (c) `/health` on sidecar
+shows `worker_reachable: true` and `worker_auth_ok: true`. This is a V-series static check +
+a single live-request proof — does not require a full P9-series harness run.
 
-**Q5: Should Round 41.7 be formally closed as "superseded" or "withdrawn"?**
-Superseded is accurate: the 41.7 plan is technically correct for its era but the contract it
-implements was retired by R42.2. Closing it as superseded preserves the audit trail without
-implying a verification failure.
+**Q5: The CF Worker logs show `"x-subumbra-token"` in the stripped-headers list
+(`worker.js:116`). After the request, is the token value ever accessible to the sidecar
+through any response path?**
+No. The Worker strips `x-subumbra-token` from forwarded requests (`worker.js:116`) and does not
+include it in error responses. The only way to know "was the token correct" from outside the
+Worker is the response status code and body. Change D addresses this by interpreting
+`{"error":"unauthorized"}` as a Worker-auth signal; no token value is ever exposed.
