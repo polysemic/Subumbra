@@ -16,7 +16,7 @@
 # Local-only workflow and research
 .claude/
 competitor-review/
-council/
+/council/
 tests/
 local-archive/
 scripts/legacy/

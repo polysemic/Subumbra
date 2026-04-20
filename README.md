@@ -57,19 +57,19 @@ Do **not** use callback-era `subumbra:<key_id>` values on the supported path.
 
 See:
 
-- [docs/subumbra-install.md](/home/eric/git/Subumbra/docs/subumbra-install.md)
+- [docs/subumbra-install.md](docs/subumbra-install.md)
 
 ### 2. Configure a standalone LiteLLM example
 
 See:
 
-- [docs/standalone-litellm.md](/home/eric/git/Subumbra/docs/standalone-litellm.md)
+- [docs/standalone-litellm.md](docs/standalone-litellm.md)
 
 ### 3. Test the deployment
 
 See:
 
-- [docs/subumbra-testing.md](/home/eric/git/Subumbra/docs/subumbra-testing.md)
+- [docs/subumbra-testing.md](docs/subumbra-testing.md)
 
 ## Project Layout
 
@@ -97,9 +97,9 @@ subumbra/
 
 ## Next Docs
 
-- [docs/subumbra-install.md](/home/eric/git/Subumbra/docs/subumbra-install.md)
-- [docs/standalone-litellm.md](/home/eric/git/Subumbra/docs/standalone-litellm.md)
-- [docs/subumbra-testing.md](/home/eric/git/Subumbra/docs/subumbra-testing.md)
-- [docs/adapter-contract.md](/home/eric/git/Subumbra/docs/adapter-contract.md)
-- [docs/operator-guide.md](/home/eric/git/Subumbra/docs/operator-guide.md)
-- [docs/subumbra-developer.md](/home/eric/git/Subumbra/docs/subumbra-developer.md)
+- [docs/subumbra-install.md](docs/subumbra-install.md)
+- [docs/standalone-litellm.md](docs/standalone-litellm.md)
+- [docs/subumbra-testing.md](docs/subumbra-testing.md)
+- [docs/adapter-contract.md](docs/adapter-contract.md)
+- [docs/operator-guide.md](docs/operator-guide.md)
+- [docs/subumbra-developer.md](docs/subumbra-developer.md)

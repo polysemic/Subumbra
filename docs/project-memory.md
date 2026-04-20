@@ -11,7 +11,7 @@ otherwise misunderstand.
 ## 1. Product Identity
 
 - Subumbra is a **universal zero-trust secret broker**, not a LiteLLM plugin.
-- LiteLLM is Adapter #1, not the product boundary.
+- LiteLLM is a proven app-owned example, not the product boundary.
 - The core product shape is:
   - `subumbra-keys` for encrypted record storage and limited metadata access
   - Cloudflare Worker for decrypt/proxy enforcement
@@ -38,8 +38,8 @@ them.
 - The canonical core API is `POST /proxy`.
 - `subumbra-keys` is Docker-internal only and is not the public app-facing API.
 - The Worker is the only place where provider secrets become usable plaintext.
-- The explicit sidecar/service path exists and is a real product direction, not
-  just an experiment.
+- The transparent sidecar route (`subumbra-proxy` / `/t`) is the current
+  reference integration path.
 - Live provider validation has moved away from a purely bundled model; local
   repo metadata can still remain as operator/bootstrap seed material.
 
