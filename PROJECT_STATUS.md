@@ -1,6 +1,6 @@
 # PROJECT_STATUS
 *Current state — updated 2026-04-19*
-*Rounds 1–42.3 closed. Round 42.4 is active. See `council/COUNCIL.md` for round history and current status.*
+*Rounds 1–42.4 closed. Round 43 is next. See `council/COUNCIL.md` for round history and current status.*
 
 ---
 
@@ -125,10 +125,7 @@ This arc focuses on evolving Subumbra from a static, bundled configuration into 
 
 Current direction after Round 42.3:
 
-1. **Round 42.4 — Documentation Truth Alignment**
-   Align the repo’s top-level docs, status tracking, and stale helper artifacts with the current app-owned integration reality.
-
-2. **Round 43 — App-Owned Integration Validation**
+1. **Round 43 — App-Owned Integration Validation**
    Focus on practical app-owned validation targets beyond standalone LiteLLM, including OpenWebUI, N8N, and real non-AI service flows for GitHub, Slack, and SendGrid.
 
 Guiding note:
