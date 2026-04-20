@@ -5,37 +5,25 @@ A docker-compose-based zero-trust key-broker core for applications that need to
 use API keys without storing those keys in plaintext on the app server. Keys
 are split across two systems — neither side can decrypt alone.
 
-LiteLLM is Adapter #1 for this project, not the product boundary. The core
-architecture is designed so future adapters and services can fetch subumbra
-records, call canonical `POST /proxy`, and get provider responses without ever
-receiving the decrypted key.
+Subumbra's current reference integration surface is `subumbra-proxy`. LiteLLM
+is a proven app-owned example, not the bundled product boundary. Legacy
+callback-era artifacts remain in the repo for reference only.
 
 ## Architecture
 
 ```
-App / Adapter
-    ↓
-LiteLLM (Adapter #1) today
-or future sidecar/service adapters
-    ↓ fetch subumbra records, then call canonical POST /proxy
-    ↓
+App-owned integration (LiteLLM, LibreChat, n8n, etc.)
+    ↓ api_base: http://subumbra-proxy:8090/t  (plain key_id as api_key)
+subumbra-proxy
+    ↓ fetches encrypted record metadata and packages canonical POST /proxy
 subumbra-keys (docker internal network only)
-    ↓ returns V2 record: ciphertext + wrapped_dek + pub_key_fp + enc_version
+    ↓ returns V2 envelope: ciphertext + wrapped_dek + pub_key_fp + enc_version
     ↓ (useless without RSA private key in CF Secrets)
-    ↓
-Cloudflare Worker
-    ↓ verifies pub_key_fp matches WORKER_KEY_FINGERPRINT
-    ↓ RSA-OAEP unwraps per-record DEK using WORKER_PRIVATE_KEY
-    ↓ AES-256-GCM decrypts API key with AAD binding (subumbra:v2:<key_id>)
-    ↓ spins up Durable Object
-    ↓
-Durable Object
-    ↓ holds decrypted key ~100ms
-    ↓ makes direct API call
-    ↓
-API Provider (Anthropic/OpenAI/Groq/DeepSeek)
+Cloudflare Worker + Durable Object
+    ↓ verifies fingerprint, unwraps DEK, decrypts provider key, injects auth
+API Provider
     ↓ streams response
-    ↓ back through CF Worker → adapter → app
+    ↓ back through Worker → proxy → app
 ```
 
 ## Security Properties
@@ -57,8 +45,10 @@ subumbra/
 ├── CLAUDE.md                    ← this file
 ├── docker-compose.yml           ← main orchestration
 ├── .env.bootstrap.example       ← template for bootstrap env
+├── .env.example                 ← full runtime env shape and optional values
 ├── .gitignore                   ← never commit real keys
 ├── README.md
+├── post-bootstrap.sh            ← writes runtime values to .env and shreds bootstrap input
 │
 ├── bootstrap/                   ← one-shot key generation container
 │   ├── Dockerfile
@@ -77,9 +67,23 @@ subumbra/
 │   └── src/
 │       └── worker.js            ← decrypts + proxies API calls via Durable Object
 │
-├── litellm/                     ← LiteLLM integration
-│   ├── custom_callbacks.py      ← intercepts calls, fetches from subumbra-keys, routes to CF
-│   └── config.yaml              ← model config using "subumbra:key_id" references
+├── subumbra-proxy/              ← transparent sidecar (primary integration path)
+│   ├── Dockerfile
+│   ├── app.py                   ← FastAPI; /t transparent route; /health worker_auth; /v1/request
+│   └── requirements.txt
+│
+├── subumbra-probe/              ← dedicated second-adapter proof container
+│   ├── Dockerfile
+│   ├── probe.py
+│   └── requirements.txt
+│
+├── litellm/                     ← legacy callback artifacts and standalone example config
+│   ├── custom_callbacks.py      ← superseded callback-era integration reference
+│   └── config.yaml              ← standalone example config using plain key_id values
+│
+├── scripts/
+│   ├── council/                 ← verification harness scripts
+│   └── subumbra-expire-adapter.sh  ← operational adapter expiry tool
 │
 └── ui/                          ← basic management dashboard
     ├── Dockerfile
@@ -93,24 +97,21 @@ subumbra/
 
 ### Docker Networking
 - `internal` network: subumbra-keys, bootstrap, ui, subumbra-probe, subumbra-proxy — NO internet access
-- `external` network: litellm, cloudflared, subumbra-proxy, subumbra-probe — internet access
+- `external` network: cloudflared, subumbra-proxy, subumbra-probe — internet access
 - subumbra-keys is reachable from services on the internal network via Docker DNS (`http://subumbra-keys:9090`)
 - subumbra-keys never exposed to host or internet
 
-### LiteLLM Integration
-- api_key format: `"subumbra:key_id"` triggers the callback
-- Example: `api_key: "subumbra:anthropic_prod"`
-- Callback fetches full V2 record from subumbra-keys via `_fetch_subumbra_record()`
-- Hard-rejects non-V2 records (enc_version != 2 or missing wrapped_dek)
-- Injects `X-Subumbra-Key-Id`, `X-Subumbra-Wrapped-Dek`, `X-Subumbra-Pub-Key-Fp`, and `X-Subumbra-Provider` headers
-- Callback leaves LiteLLM's native provider URL intact
-- `SubumbraTransport` intercepts the fully assembled outbound request and packages canonical `POST /proxy`
-- Transport owns the outer `/proxy` POST and its CF Access headers
-- Worker derives upstream base URL and auth policy from the live Cloudflare KV provider registry
-- LiteLLM now uses canonical `POST /proxy`; the old header-gated compatibility route is removed
-- Worker no longer relies on separate `SUPPORTED_PROVIDERS` / `PROVIDER_BASES` / `PROVIDER_HOSTS` / duplicated `ALLOWED_HOSTS` structures
-- `worker/src/providers.json` remains the built-in provider template and bootstrap merge base; it is no longer the Worker's runtime authority, and `litellm/config.yaml` model declarations remain a separate concern
-- LiteLLM is the current reference adapter path, not the only intended integration shape
+### App-Owned Integration Contract
+- The current transparent entry point is `http://subumbra-proxy:8090/t`
+- Apps send a plain `key_id` instead of callback-era `subumbra:<key_id>` values
+- `subumbra-proxy` fetches the encrypted record, packages canonical `POST /proxy`, and owns the Worker-facing request boundary
+- The app never sees the decrypted provider key
+- Provider-specific path suffixes in app examples are upstream API path requirements; `/t` is the Subumbra transparent route root
+
+### Legacy Callback Reference
+- `litellm/custom_callbacks.py` remains in the repo as a callback-era reference implementation
+- It is not the current primary integration contract
+- Standalone LiteLLM and similar external apps should follow the transparent sidecar path instead
 
 ### Bootstrap Process (one-shot)
 1. Run the interactive wizard (recommended):
@@ -164,10 +165,9 @@ The canonical Subumbra core API is `POST /proxy` — see
 [`docs/adapter-contract.md`](docs/adapter-contract.md)
 for the full normative contract.
 
-The current LiteLLM integration (`litellm/custom_callbacks.py`) is Adapter #1.
-It already uses canonical `POST /proxy` via transport-owned packaging.
-Adapter #2 is the universal explicit sidecar (`subumbra-proxy`), completed in 
-Round 25, which exposes a persistent HTTP API for non-LiteLLM integrations.
+The current primary integration contract is the explicit transparent sidecar
+(`subumbra-proxy`) using the `/t` route. Callback-era LiteLLM artifacts remain
+as legacy reference only and are not the current adapter hierarchy.
 
 ### subumbra-keys Service
 - Minimal Flask API
@@ -208,12 +208,18 @@ CF_WORKER_NAME=subumbra-proxy
 ### Runtime docker-compose (non-sensitive)
 ```
 SUBUMBRA_ADAPTER_REGISTRY=<generated by bootstrap>
-SUBUMBRA_TOKEN_LITELLM=<generated by bootstrap>
 SUBUMBRA_TOKEN_PROXY=<generated by bootstrap>
 SUBUMBRA_TOKEN_UI=<generated by bootstrap>
 SUBUMBRA_TOKEN_PROBE=<generated by bootstrap>
 SUBUMBRA_HMAC_KEY=<generated by bootstrap>
 CF_WORKER_URL=https://subumbra-proxy.your-subdomain.workers.dev
+PROXY_ALLOWED_KEYS=<generated by post-bootstrap.sh>
+PROBE_ALLOWED_KEYS=<generated by post-bootstrap.sh>
+UI_ALLOWED_KEYS=<generated by post-bootstrap.sh>
+```
+
+Optional:
+```
 CF_ACCESS_CLIENT_ID=<from CF Access dashboard>
 CF_ACCESS_CLIENT_SECRET=<from CF Access dashboard>
 ```
@@ -223,7 +229,6 @@ CF_ACCESS_CLIENT_SECRET=<from CF Access dashboard>
 - Last request time per key
 - Request count per key  
 - Health status of subumbra-keys container
-- Key rotation trigger (re-runs bootstrap for specific key)
 - Recent request log (provider, timestamp, status)
 
 ## Build Order
@@ -231,9 +236,9 @@ CF_ACCESS_CLIENT_SECRET=<from CF Access dashboard>
 2. subumbra-keys/app.py (simplest component)
 3. bootstrap/subumbra-bootstrap.py (key generation + wrangler)
 4. worker/src/worker.js (CF Worker with Durable Object)
-5. litellm/custom_callbacks.py (LiteLLM integration)
+5. subumbra-proxy/app.py (transparent sidecar)
 6. ui/app.py (dashboard)
-7. README.md (setup guide)
+7. standalone app examples and docs
 8. Test end-to-end
 
 ### Error / Logging Check
