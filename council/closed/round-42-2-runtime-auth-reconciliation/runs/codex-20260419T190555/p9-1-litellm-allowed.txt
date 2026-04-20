@@ -1,0 +1,19 @@
+# PROOF: host-facing path
+command: curl --compressed -sS -N -D - -o - -X POST http://127.0.0.1:4000/v1/chat/completions -H 'Authorization: Bearer [REDACTED]' -H 'Content-Type: application/json' -d '{"model":"claude-sonnet-4","messages":[{"role":"user","content":"Say test only."}],"api_key":"subumbra:anthropic_prod","max_tokens":5}'
+exit_code: 0
+http_status: 400
+response_headers:
+  HTTP/1.1 400 Bad Request
+  date: Sun, 19 Apr 2026 19:05:56 GMT
+  server: uvicorn
+  x-litellm-call-id: cfedf88e-0d57-4067-8c81-f9949d3cff0a
+  x-litellm-response-cost: 0
+  x-litellm-key-spend: 0.0
+  x-litellm-timeout: 6000.0
+  content-length: 215
+  content-type: application/json
+  
+response_body_excerpt:
+  {"error":{"message":"litellm.BadRequestError: AnthropicException - {\"detail\":\"invalid key_id\"}. Received Model Group=claude-sonnet-4\nAvailable Model Group Fallbacks=None","type":null,"param":null,"code":"400"}}forge_status_http: 200
+forge_status_body_excerpt:
+  {"audit_available":true,"audit_error":null,"dashboard_time":"2026-04-19T19:05:57+00:00","keys":[{"created_at":"2026-04-19T19:05:13+00:00","key_id":"anthropic_prod","last_access":null,"provider":"anthropic","request_count":0},{"created_at":"2026-04-19T19:05:13+00:00","key_id":"cerebras_prod","last_access":null,"provider":"cerebras","request_count":0},{"created_at":"2026-04-19T19:05:13+00:00","key_id":"deepseek_prod","last_access":null,"provider":"deepseek","request_count":0},{"created_at":"2026-04-19T19:05:13+00:00","key_id":"gemini_prod","last_access":null,"provider":"gemini","request_count":0},{"created_at":"2026-04-19T19:05:13+00:00","key_id":"github_prod","last_access":null,"provider":"github","request_count":0},{"created_at":"2026-04-19T19:05:13+00:00","key_id":"groq_prod","last_access":null,"provider":"groq","request_count":0},{"created_at":"2026-04-19T19:05:13+00:00","key_id":"mistral_prod","last_access":null,"provider":"mistral","request_count":0},{"created_at":"2026-04-19T19:05:13+00:00","key_id":"openai_prod","last_access":null,"provider":"openai","request_count":0},{"created_at":"2026-04-19T19:05:13+00:00","key_id":"openrouter_prod","last_access":null,"provider":"openrouter","request_count":0},{"created_at":"2026-04-19T19:05:13+00:00","key_id":"sendgrid_prod","last_access":null,"provider":"sendgrid","request_count":0},{"created_at":"2026-04-19T19:05:13+00:00","key_id":"slack_prod","last_access":null,"provider":"slack","request_count":0},{"created_at":"2026-04-19T19:05:13+00:00","key_id":"together_prod","last_access":null,"provider":"together","request_count":0},{"created_at":"2026-04-19T19:05:13+00:00","key_id":"xai_prod","last_access":null,"provider":"xai","request_count":0}],"keys_loaded":13,"recent_log":[{"adapter_id":"subumbra-ui","endpoint":"list_keys","key_id":null,"reason_code":"allowed","remote":"172.19.0.3","timestamp":"2026-04-19T19:05:57+00:00","verdict":"allow"},{"adapter_id":"subumbra-ui","endpoint":"list_keys","key_id":null,"reason_code":"allowed","remote":"172.19.0.3","timestamp":"2026-04-19T19:05:56+00:00","verdict":"allow"},{"adapter_id":"subumbra-ui","endpoint":"list_keys","key_id":null,"reason_code":"allowed","remote":"172.19.0.3","timestamp":"2026-04-19T19:05:55+00:00","verdict":"allow"}],"stats_available":true,"subumbra_keys_error":null,"subumbra_keys_healthy":true,"worker_error":null,"worker_reachable":true}

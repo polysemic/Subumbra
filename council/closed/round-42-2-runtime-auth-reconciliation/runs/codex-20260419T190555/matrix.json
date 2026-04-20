@@ -1,0 +1,19 @@
+# DIAG: matrix derivation, not counted toward PASS
+{
+  "litellm_allowed_key": "anthropic_prod",
+  "litellm_allowed_model": "claude-sonnet-4",
+  "litellm_disallowed_key": "github_prod",
+  "proxy_allowed_key": "github_prod",
+  "proxy_disallowed_key": "gemini_prod",
+  "proxy_request": {
+    "method": "GET",
+    "headers": {
+      "accept": "application/vnd.github+json",
+      "x-github-api-version": "2022-11-28",
+      "user-agent": "subumbra-proxy/1.0"
+    },
+    "body": null,
+    "success_pattern": "\"login\"",
+    "target_url": "https://models.inference.ai.azure.com/user"
+  }
+}

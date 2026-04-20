@@ -26,7 +26,7 @@ from flask import Flask, Response, jsonify, render_template, request
 
 SUBUMBRA_KEYS_URL = os.environ.get("SUBUMBRA_KEYS_URL", "http://subumbra-keys:9090").rstrip("/")
 SUBUMBRA_ACCESS_TOKEN = os.environ.get("SUBUMBRA_ACCESS_TOKEN", "")
-WORKER_URL = os.environ.get("CF_WORKER_URL", "").rstrip("/")
+SUBUMBRA_PROXY_URL = os.environ.get("SUBUMBRA_PROXY_URL", "http://subumbra-proxy:8090").rstrip("/")
 UI_USERNAME = os.environ.get("UI_USERNAME", "")
 UI_PASSWORD = os.environ.get("UI_PASSWORD", "")
 
@@ -57,7 +57,7 @@ _http = httpx.Client(
     headers={"X-Subumbra-Token": SUBUMBRA_ACCESS_TOKEN},
 )
 
-_worker_http = httpx.Client(
+_proxy_http = httpx.Client(
     timeout=httpx.Timeout(connect=3.0, read=3.0, write=3.0, pool=3.0),
 )
 
@@ -99,20 +99,17 @@ def _require_auth(view):
     return wrapped
 
 
-def _worker_get(path: str) -> tuple[dict | list | None, str | None]:
-    if not WORKER_URL:
-        return None, "worker URL not configured"
-
+def _proxy_get(path: str) -> tuple[dict | list | None, str | None]:
     try:
-        r = _worker_http.get(f"{WORKER_URL}{path}")
+        r = _proxy_http.get(f"{SUBUMBRA_PROXY_URL}{path}")
         r.raise_for_status()
         return r.json(), None
     except httpx.HTTPStatusError as e:
-        log.warning("ui: worker probe failed status=%s", e.response.status_code)
-        return None, f"Worker returned {e.response.status_code}"
+        log.warning("ui: proxy probe failed status=%s", e.response.status_code)
+        return None, f"Proxy returned {e.response.status_code}"
     except httpx.RequestError as e:
-        log.warning("ui: worker probe failed error=%s", type(e).__name__)
-        return None, f"Worker unreachable: {type(e).__name__}"
+        log.warning("ui: proxy probe failed error=%s", type(e).__name__)
+        return None, f"Proxy unreachable: {type(e).__name__}"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -151,8 +148,13 @@ def api_status():
     health_data, health_err = _subumbra_get("/health")
     subumbra_keys_healthy = health_err is None and (health_data or {}).get("status") == "ok"
 
-    worker_data, worker_err = _worker_get("/health")
-    worker_reachable = worker_err is None and (worker_data or {}).get("status") == "ok"
+    proxy_health_data, proxy_health_err = _proxy_get("/health")
+    worker_auth = (proxy_health_data or {}).get("worker_auth")
+    worker_reachable = proxy_health_err is None and worker_auth == "ok"
+    if proxy_health_err is None and worker_auth in {"stale", "unreachable"}:
+        worker_err = f"Worker auth {worker_auth}"
+    else:
+        worker_err = proxy_health_err
 
     keys_data, keys_err = _subumbra_get("/keys")
     keys_list = (keys_data or {}).get("keys", []) if keys_err is None else []
@@ -190,6 +192,7 @@ def api_status():
         "subumbra_keys_healthy": subumbra_keys_healthy,
         "subumbra_keys_error": error,
         "worker_reachable": worker_reachable,
+        "worker_auth": worker_auth,
         "worker_error": worker_err,
         "stats_available": stats_err is None,
         "audit_available": audit_available,

@@ -416,6 +416,10 @@ export default {
       );
     }
 
+    if (request.method === "GET" && url.pathname === "/auth-ping") {
+      return handleAuthPing(request, env);
+    }
+
     // ── POST /proxy ─────────────────────────────────────────────────────────
     // Direct mode: caller wraps the full request in our custom JSON format.
     if (request.method === "POST" && url.pathname === "/proxy") {
@@ -426,15 +430,10 @@ export default {
   },
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// handleProxy — main request handler
-// ─────────────────────────────────────────────────────────────────────────────
-
-async function handleProxy(request, env) {
-  // ── 1. Validate secrets are configured ────────────────────────────────────
-  if (!env.WORKER_PRIVATE_KEY || !env.SUBUMBRA_ADAPTER_TOKENS || !env.PROVIDER_REGISTRY_KV) {
+async function authorizeRequest(request, env) {
+  if (!env.SUBUMBRA_ADAPTER_TOKENS) {
     console.error("subumbra: worker bindings not configured (run bootstrap)");
-    return jsonError("worker not configured", 503);
+    return { ok: false, response: jsonError("worker not configured", 503) };
   }
 
   let validTokens;
@@ -442,19 +441,47 @@ async function handleProxy(request, env) {
     validTokens = parseAdapterTokens(env.SUBUMBRA_ADAPTER_TOKENS);
   } catch (err) {
     console.error("subumbra: SUBUMBRA_ADAPTER_TOKENS invalid:", err.message);
-    return jsonError("worker not configured", 503);
+    return { ok: false, response: jsonError("worker not configured", 503) };
   }
 
-  // ── 2. Authenticate caller ────────────────────────────────────────────────
   const incomingToken = request.headers.get("X-Subumbra-Token") ?? "";
   const tokenOk = await tokenSetContains(incomingToken, validTokens);
   if (!tokenOk) {
-    // Log IP for audit but nothing else — don't log the token
     console.warn("subumbra: unauthorized request from", request.headers.get("CF-Connecting-IP"));
-    return jsonError("unauthorized", 401);
+    return { ok: false, response: jsonError("unauthorized", 401) };
   }
 
-  // ── 3. Parse request body ─────────────────────────────────────────────────
+  return { ok: true };
+}
+
+async function handleAuthPing(request, env) {
+  const auth = await authorizeRequest(request, env);
+  if (!auth.ok) {
+    return auth.response;
+  }
+
+  return new Response(
+    JSON.stringify({ status: "ok", timestamp: new Date().toISOString() }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// handleProxy — main request handler
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handleProxy(request, env) {
+  const auth = await authorizeRequest(request, env);
+  if (!auth.ok) {
+    return auth.response;
+  }
+
+  if (!env.WORKER_PRIVATE_KEY || !env.PROVIDER_REGISTRY_KV) {
+    console.error("subumbra: worker bindings not configured (run bootstrap)");
+    return jsonError("worker not configured", 503);
+  }
+
+  // ── 2. Parse request body ─────────────────────────────────────────────────
   let body;
   try {
     body = await request.json();

@@ -1,0 +1,9 @@
+Run_ID: clean-run-20260419T190511
+Step: preflight
+Start_Time: 2026-04-19T19:05:45+00:00
+Workspace: /opt/subumbra/temp/subumbra-clean-run-1b80xJ
+---
+[OK] subumbra-keys docker-health=healthy
+[OK] subumbra-proxy docker-health=healthy
+[OK] litellm http=200 version=1.82.6
+[OK] subumbra-ui http=200 subumbra_keys_error=null
