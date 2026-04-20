@@ -1,2 +1,0 @@
-# PROOF: bootstrap/post-bootstrap no longer require bundled LiteLLM token sync
-No bundled LiteLLM token references found in bootstrap/subumbra-bootstrap.py or post-bootstrap.sh

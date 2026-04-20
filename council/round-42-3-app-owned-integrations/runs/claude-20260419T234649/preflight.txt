@@ -1,4 +1,0 @@
-[OK] subumbra-keys docker-health=healthy
-[OK] subumbra-proxy docker-health=healthy
-[OK] litellm bundled-service=absent
-[OK] subumbra-ui http=200 subumbra_keys_error=null

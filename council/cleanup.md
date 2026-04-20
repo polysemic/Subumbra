@@ -154,3 +154,8 @@ The precondition was discovered during Round 41 verification pass.
 - **`scripts/council/preflight.sh` LiteLLM poll requires running container**: The preflight script unconditionally polls LiteLLM on port 4000. In Round 41 coexistence flows where LiteLLM is not bundled, this caused a 60s timeout failure in `clean-run.sh`. 
 
 - **`.gitignore` rule `council/` ignores `scripts/council/`**: The top-level `council/` ignore rule in `.gitignore` is not anchored to the root (`/council/`), which causes git to ignore the `scripts/council/` directory as well. This makes harness maintenance harder to track. **Status: Open** (Non-blocking).
+
+## Round 42.3 — 2026-04-19 (post-verification docs maintenance)
+
+- **`docs/standalone-litellm.md` missing explicit api_base suffixes for Grok/Cerebras/OpenRouter**: The approved spec shifted standalone models to use `http://subumbra-proxy:8090/t/v1` for OpenAI, but did not note that LiteLLM natively enforces explicit version path suffixes for other specific providers as well. Tested models configuring `cerebras/` or `xai/` aliases returned 404 blockages when terminating at `/t/chat/completions`, and `openrouter/` generated HTML 404 responses. 
+  - **Status: Fixed 2026-04-19**. Applied updates directly to `docs/standalone-litellm.md` post-verification to formally specify `/v1` for Cerebras/Grok and `/api/v1` for OpenRouter routes. This is doc-only and does not affect the proxy architecture proof semantics.
