@@ -1,8 +1,0 @@
-# DIAG: docker ps snapshot
-subumbra-proxy	Up 14 seconds (healthy)	subumbra-clean-run-subumbra-proxy
-subumbra-ui	Up 14 seconds	subumbra-clean-run-subumbra-ui
-subumbra-keys	Up 20 seconds (healthy)	subumbra-clean-run-subumbra-keys
-litellm	Up 35 minutes	ghcr.io/berriai/litellm:main-latest
-open-webui	Up 3 days (healthy)	ghcr.io/open-webui/open-webui:main
-n8n	Up 4 days	n8nio/n8n:latest
-litellm-db	Up 4 days (healthy)	postgres:16-alpine

@@ -17,7 +17,10 @@ round. Requests are authorized through the `subumbra-proxy` scope.
 
 ## Required LiteLLM Model Shape
 
-Each model entry should use the transparent sidecar contract:
+Each model entry should use the transparent sidecar contract. The Subumbra
+transparent route root is `/t`; any extra suffix after `/t` is a provider API
+path requirement that LiteLLM must still send because the proxy forwards the
+path verbatim to the upstream host.
 
 ```yaml
 model_list:
@@ -54,7 +57,7 @@ model_list:
 
 Rules:
 
-- `api_base` points to `subumbra-proxy:8090/t`. **Note:** LiteLLM provider aliases natively require specific completion paths, meaning you must append the correct suffix so the proxy directs the external request properly:
+- `api_base` starts at `subumbra-proxy:8090/t`. Some LiteLLM provider aliases require additional upstream path suffixes, so the app must append the correct provider API path after `/t`:
   - **OpenAI, Cerebras, X.ai (Grok)**: `/t/v1`
   - **Groq**: `/t/openai/v1`
   - **OpenRouter**: `/t/api/v1`
