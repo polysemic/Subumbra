@@ -11,7 +11,7 @@ from typing import Any, Optional
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.background import BackgroundTasks
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
 
@@ -51,6 +51,7 @@ STRIP_HEADERS = {
     "report-to",
     "alt-svc",
     "server",
+    "content-encoding",
 }
 KEY_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 TRANSPARENT_STRIP_HEADERS = {"authorization", "x-api-key", "x-api-key-id"}
@@ -69,6 +70,10 @@ EXPECTED_RECORD_FIELDS = {
 
 app = FastAPI()
 CLIENT = httpx.AsyncClient()
+WORKER_AUTH_OK_TTL_SECONDS = 60
+WORKER_AUTH_TIMEOUT_SECONDS = 2.0
+WORKER_AUTH_UNAUTHORIZED_BODY = b'{"error":"unauthorized"}'
+_worker_auth_ok_until = 0.0
 
 
 class ProxyRequest(BaseModel):
@@ -196,7 +201,7 @@ async def proxy_via_worker(
     method: str,
     headers: dict,
     body: Optional[Any],
-) -> StreamingResponse:
+) -> Response:
     LOG.info("request key_id=%s method=%s target_url=%s", key_id, method, target_url)
 
     try:
@@ -226,30 +231,80 @@ async def proxy_via_worker(
     )
     worker_resp = await CLIENT.send(worker_req, stream=True)
 
-    if worker_resp.status_code >= 400:
-        LOG.warning("worker failure key_id=%s status=%s", key_id, worker_resp.status_code)
-
     response_headers = {
         key: value
         for key, value in worker_resp.headers.items()
         if key.lower() not in STRIP_HEADERS
     }
 
+    if worker_resp.status_code >= 400:
+        body_bytes = await worker_resp.aread()
+        await worker_resp.aclose()
+
+        if (
+            worker_resp.status_code == 401
+            and body_bytes.strip() == WORKER_AUTH_UNAUTHORIZED_BODY
+        ):
+            LOG.warning(
+                "worker failure key_id=%s status=%s reason=worker_auth_failure",
+                key_id,
+                worker_resp.status_code,
+            )
+            return JSONResponse(
+                status_code=worker_resp.status_code,
+                content={
+                    "error": "worker auth failure",
+                    "reason_code": "worker_auth_failure",
+                },
+                headers=response_headers,
+            )
+
+        LOG.warning("worker failure key_id=%s status=%s", key_id, worker_resp.status_code)
+        return Response(
+            content=body_bytes,
+            status_code=worker_resp.status_code,
+            headers=response_headers,
+        )
+
     tasks = BackgroundTasks()
     tasks.add_task(worker_resp.aclose)
 
     LOG.info("complete key_id=%s status=%s", key_id, worker_resp.status_code)
     return StreamingResponse(
-        worker_resp.aiter_raw(),
+        worker_resp.aiter_bytes(),
         status_code=worker_resp.status_code,
         headers=response_headers,
         background=tasks,
     )
 
 
+async def get_worker_auth_status() -> str:
+    global _worker_auth_ok_until
+
+    now = time.monotonic()
+    if _worker_auth_ok_until > now:
+        return "ok"
+
+    try:
+        response = await CLIENT.get(
+            f"{CF_WORKER_URL}/auth-ping",
+            headers=worker_headers(),
+            timeout=WORKER_AUTH_TIMEOUT_SECONDS,
+        )
+    except httpx.RequestError:
+        return "unreachable"
+
+    if response.status_code == 200:
+        _worker_auth_ok_until = now + WORKER_AUTH_OK_TTL_SECONDS
+        return "ok"
+    if response.status_code == 401 and response.content.strip() == WORKER_AUTH_UNAUTHORIZED_BODY:
+        return "stale"
+    return "unreachable"
+
+
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    return {"status": "ok", "worker_auth": await get_worker_auth_status()}
 
 
 @app.post("/v1/request")

@@ -119,6 +119,26 @@ The precondition was discovered during Round 41 verification pass.
 
 - **Internal Python variables in bootstrap retain legacy `forge` naming**: In `bootstrap/subumbra-bootstrap.py`, the variable `forge_hmac_key` was used in five locations (Lines 978, 1100, 1449, 1493, 1541) despite the output key being renamed to `SUBUMBRA_HMAC_KEY`. **Status: Fixed 2026-04-14** (renamed to `subumbra_hmac_key`).
 
+## 2026-04-19 — Round 42.2 close-out harness fix
+
+- **`scripts/council/verify.sh` P9.1/P9.2 payload uses stale `subumbra:` contract** (`scripts/council/verify.sh:657,669`)  
+  `verify.sh` constructed P9.1/P9.2 LiteLLM payloads as `"api_key": f"subumbra:{sys.argv[2]}"`. Round 42.2 changed the LiteLLM contract to plain `api_key: <key_id>` (no prefix). Fix applied in close-out commit. **Status: Fixed 2026-04-19**.
+
+- **`scripts/council/verify.sh` P9.1/P9.2 architecturally incompatible with Round 42.2** (`scripts/council/verify.sh:742, 764`)  
+  After applying the prefix fix, P9.1/P9.2 still FAIL due to deeper architectural drift:
+  - **P9.1 fallback** (`verify.sh:742`): checks for `adapter_id: litellm` in the audit log. Round 42.2 removed the litellm direct-adapter path — all subumbra-keys calls now go through `adapter_id: subumbra-proxy`. The `litellm` adapter_id never appears in the audit, so this condition can never be satisfied.
+  - **P9.2 disallowed key** (`verify.sh:764`): matrix derives `litellm_disallowed_key: cerebras_prod`. After Codex's `PROXY_ALLOWED_KEYS` expansion, `cerebras_prod` is in subumbra-proxy scope and is not denied. The harness expects 403 (scope denied) but gets 401 (provider auth failure — wrong key for provider). Scope denial via LiteLLM path no longer exists in the new architecture.
+  
+  **Requires redesign** of P9.1/P9.2 proof logic to target the sidecar-routing architecture. P9.3–P9.6 (which PASS) cover the equivalent proof for the sidecar path. **Status: Open — harness maintenance item for a future round**.
+
+## 2026-04-19 — Round 42.2 verification note
+
+- `council/approved/runtime-auth-reconciliation-v2.md` V1 static check 1 uses
+  `grep -n 'api_key.*subumbra:' litellm/config.yaml`, which now false-positives
+  on the explanatory header comment in [litellm/config.yaml](/home/eric/git/Subumbra/litellm/config.yaml#L4-L6) even when no active model entry still uses the
+  `subumbra:` prefix. The round failure was not caused by this, but the approved
+  plan should tighten that grep to active model lines only before the next reuse.
+
 - **`scripts/council/preflight.sh` uses legacy `forge_error` key**: The preflight script attempted to parse `forge_error` from the UI response, but the UI was rebranded to `subumbra_keys_error`. **Status: Fixed 2026-04-14** (now parses `subumbra_keys_error`).
 
 - **Legacy headers and comments in documentation**: `CLAUDE.md:172` contained `### Forge Key Service` and `docs/subumbra-install.md:204` contained `# Forge health`. **Status: Fixed 2026-04-14**.
@@ -134,3 +154,8 @@ The precondition was discovered during Round 41 verification pass.
 - **`scripts/council/preflight.sh` LiteLLM poll requires running container**: The preflight script unconditionally polls LiteLLM on port 4000. In Round 41 coexistence flows where LiteLLM is not bundled, this caused a 60s timeout failure in `clean-run.sh`. 
 
 - **`.gitignore` rule `council/` ignores `scripts/council/`**: The top-level `council/` ignore rule in `.gitignore` is not anchored to the root (`/council/`), which causes git to ignore the `scripts/council/` directory as well. This makes harness maintenance harder to track. **Status: Open** (Non-blocking).
+
+## Round 42.3 — 2026-04-19 (post-verification docs maintenance)
+
+- **`docs/standalone-litellm.md` missing explicit api_base suffixes for Grok/Cerebras/OpenRouter**: The approved spec shifted standalone models to use `http://subumbra-proxy:8090/t/v1` for OpenAI, but did not note that LiteLLM natively enforces explicit version path suffixes for other specific providers as well. Tested models configuring `cerebras/` or `xai/` aliases returned 404 blockages when terminating at `/t/chat/completions`, and `openrouter/` generated HTML 404 responses. 
+  - **Status: Fixed 2026-04-19**. Applied updates directly to `docs/standalone-litellm.md` post-verification to formally specify `/v1` for Cerebras/Grok and `/api/v1` for OpenRouter routes. This is doc-only and does not affect the proxy architecture proof semantics.

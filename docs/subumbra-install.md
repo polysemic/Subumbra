@@ -1,24 +1,14 @@
 # Subumbra Install Guide
 
-*How to install and run Subumbra on a fresh Ubuntu 24.04 VPS.*
+*How to install and run the core Subumbra stack on a fresh Ubuntu 24.04 VPS.*
 
 **Prerequisites:** complete the host baseline in
-[`docs/vps-deployment.md`](./vps-deployment.md) first — SSH hardening, UFW,
-Docker not yet installed.
-
----
+[docs/vps-deployment.md](/home/eric/git/Subumbra/docs/vps-deployment.md) first.
 
 ## 1. Install Docker Engine + Compose
 
-Remove any older packages:
-
 ```bash
 sudo apt remove -y docker docker-engine docker.io containerd runc
-```
-
-Install:
-
-```bash
 sudo apt update
 sudo apt install -y ca-certificates curl gnupg
 sudo install -m 0755 -d /etc/apt/keyrings
@@ -42,13 +32,11 @@ newgrp docker
 Verify:
 
 ```bash
-docker compose version   # must be v2.20+
+docker compose version
 docker run --rm hello-world
 ```
 
----
-
-## 2. Clone Into A Dedicated Directory
+## 2. Clone Into `/opt/subumbra`
 
 ```bash
 sudo mkdir -p /opt/subumbra
@@ -57,50 +45,28 @@ cd /opt/subumbra
 git clone https://github.com/your-org/subumbra.git .
 ```
 
-Everything from here runs inside `/opt/subumbra`.
-
----
-
-## 3. Create `.env`
+## 3. Create Core `.env`
 
 ```bash
 cp .env.example .env
 ```
 
-Set `LITELLM_MASTER_KEY` to a strong random value:
+Leave `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`, and `TUNNEL_TOKEN`
+blank unless you already use them. `post-bootstrap.sh` fills in the generated
+runtime values and `CF_WORKER_URL`.
 
-```bash
-openssl rand -hex 32
-# paste the output into .env
-nano .env
-```
-
-Leave `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`, and `TUNNEL_TOKEN` blank
-for now. `post-bootstrap.sh` fills in all generated runtime values and `CF_WORKER_URL`
-automatically.
-
-> **Do not `source .env`** — `SUBUMBRA_ADAPTER_REGISTRY` is a JSON blob that bash
-> mangles. Export only what you need:
-> ```bash
-> export LITELLM_MASTER_KEY="$(sed -n 's/^LITELLM_MASTER_KEY=//p' .env)"
-> export CF_WORKER_URL="$(sed -n 's/^CF_WORKER_URL=//p' .env)"
-> ```
-
----
+> Do not `source .env` — `SUBUMBRA_ADAPTER_REGISTRY` is JSON and bash mangles it.
 
 ## 4. Cloudflare Prerequisites
 
 You need:
 
-- `CF_API_TOKEN` — permissions: `Workers Scripts: Edit`, `Workers KV Storage: Edit`
-- `CF_ACCOUNT_ID` — found in the Cloudflare dashboard right sidebar
-- A Worker name, e.g. `subumbra-proxy` (becomes `<name>.workers.dev`)
-- Workers Paid Plan enabled — Durable Objects are not on the free tier
+- `CF_API_TOKEN` with `Workers Scripts: Edit` and `Workers KV Storage: Edit`
+- `CF_ACCOUNT_ID`
+- a Worker name, e.g. `subumbra-proxy`
+- Workers Paid Plan enabled
 
-The interactive bootstrap wizard prompts for these values. You do not need to
-create `.env.bootstrap` for the normal install path.
-
----
+The interactive bootstrap wizard prompts for these values.
 
 ## 5. Run Interactive Bootstrap
 
@@ -111,25 +77,25 @@ docker compose --profile bootstrap run --rm -it bootstrap
 The wizard collects:
 
 - Cloudflare credentials
-- Provider API keys and `key_id` labels (defaults like `anthropic_prod` are
-  suggested; you may enter custom labels)
-- Adapter scope choices (which key_ids each adapter may fetch)
+- provider API keys and `key_id` labels
+- built-in adapter scopes:
+  - `subumbra-proxy`
+  - `subumbra-probe`
+  - `subumbra-ui` (metadata only)
 
-At the end, bootstrap prints copy/paste hints for `litellm/config.yaml`. Write
-these down — you will need them in step 7.
+At Step 3, put the app-facing provider keys in `subumbra-proxy`. This is the
+shared app-owned path used by standalone LiteLLM and other external apps.
 
-Bootstrap will:
+If you already have provider keys in an app-owned `.env` file, you may mount it
+read-only and import the provider keys during the wizard:
 
-- generate a fresh RSA-4096 key pair
-- encrypt provider secrets into subumbra records
-- deploy the Worker via wrangler
-- create or reuse the KV namespace
-- push Worker secrets to Cloudflare
-- write runtime state to the Docker volume
+```bash
+docker compose --profile bootstrap run --rm \
+  -v /opt/litellm:/host_litellm:ro \
+  -it bootstrap
+```
 
-If bootstrap fails, read the error and rerun. Do not continue until it succeeds.
-
----
+Then enter `/host_litellm/.env` when prompted.
 
 ## 6. Run `post-bootstrap.sh`
 
@@ -137,131 +103,72 @@ If bootstrap fails, read the error and rerun. Do not continue until it succeeds.
 ./post-bootstrap.sh
 ```
 
-This reads runtime state from the Docker volume and writes it into `.env`:
-`SUBUMBRA_ADAPTER_REGISTRY`, `SUBUMBRA_TOKEN_*`, `SUBUMBRA_HMAC_KEY`, `CF_WORKER_URL`,
-and the `*_ALLOWED_KEYS` lists.
+This copies the generated Subumbra runtime values into `.env`:
 
-Verify it landed:
+- `SUBUMBRA_ADAPTER_REGISTRY`
+- `SUBUMBRA_TOKEN_PROXY`
+- `SUBUMBRA_TOKEN_UI`
+- `SUBUMBRA_TOKEN_PROBE`
+- `SUBUMBRA_HMAC_KEY`
+- `CF_WORKER_URL`
+- `PROXY_ALLOWED_KEYS`
+- `PROBE_ALLOWED_KEYS`
+- `UI_ALLOWED_KEYS`
+
+Verify:
 
 ```bash
-grep -E '^(SUBUMBRA_TOKEN_|CF_WORKER_URL|LITELLM_MASTER_KEY)' .env
+grep -E '^(SUBUMBRA_TOKEN_|CF_WORKER_URL|PROXY_ALLOWED_KEYS|PROBE_ALLOWED_KEYS|UI_ALLOWED_KEYS)' .env
 ```
 
----
-
-## 7. Update `litellm/config.yaml`
-
-The committed config uses the bootstrap default `key_id` suggestions
-(`anthropic_prod`, `openai_prod`, etc.). If you entered custom labels during
-bootstrap, update the `subumbra:<key_id>` values to match before starting the stack.
-
-Use the copy/paste hints bootstrap printed at the end of step 5.
-
-Example: if you named your Anthropic key `anthropic_test`, change:
-
-```yaml
-api_key: "subumbra:anthropic_prod"
-```
-
-to:
-
-```yaml
-api_key: "subumbra:anthropic_test"
-```
-
----
-
-## 8. Start The Stack
+## 7. Start The Core Stack
 
 ```bash
 docker compose up -d --force-recreate
-```
-
-Check status:
-
-```bash
 docker compose ps
 ```
 
-Expected services: `subumbra-keys` (healthy), `subumbra-proxy` (healthy),
-`subumbra-ui`, `litellm`.
+Expected services:
 
-Port exposure notes:
+- `subumbra-keys` (healthy)
+- `subumbra-proxy` (healthy)
+- `subumbra-ui`
 
-- `subumbra-keys` — internal only, no host port
-- `subumbra-ui` — `127.0.0.1:8080` only
-- `subumbra-proxy` — `127.0.0.1:8090` only
-- `litellm` — `0.0.0.0:4000` (blocked by UFW unless you open it)
+Port exposure:
 
----
+- `subumbra-keys` — internal only
+- `subumbra-proxy` — `127.0.0.1:8090`
+- `subumbra-ui` — `127.0.0.1:8080`
 
-## 9. Verify Locally
+## 8. Verify The Core Stack
 
 ```bash
-export LITELLM_MASTER_KEY="$(sed -n 's/^LITELLM_MASTER_KEY=//p' .env)"
 export CF_WORKER_URL="$(sed -n 's/^CF_WORKER_URL=//p' .env)"
 
-# subumbra-keys health (from inside LiteLLM container — subumbra-keys is internal only)
-docker exec litellm python3 -c \
-  "import urllib.request; print(urllib.request.urlopen('http://subumbra-keys:9090/health').read().decode())"
-
-# Worker health
+docker compose ps
 curl -sS "$CF_WORKER_URL/health"
-
-# Sidecar health
 curl -sS http://127.0.0.1:8090/health
-
-# LiteLLM health
-curl -sS -H "Authorization: Bearer $LITELLM_MASTER_KEY" http://127.0.0.1:4000/health
-
-# UI status
 curl -sS http://127.0.0.1:8080/api/status
 ```
 
-All five should return healthy/ok responses. Do not expose the stack publicly
-until these pass.
+The proxy health response should now include `worker_auth`.
 
----
+## 9. Standalone LiteLLM
 
-## 10. Optional: First Functional Test
+LiteLLM is no longer part of the core `/opt/subumbra` compose stack.
 
-Send a real request through the full stack:
+Use the standalone guide:
 
-```bash
-curl http://127.0.0.1:4000/v1/chat/completions \
-  -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "claude-sonnet-4",
-    "messages": [{"role": "user", "content": "say hi in 3 words"}],
-    "max_tokens": 20
-  }'
-```
+- [docs/standalone-litellm.md](/home/eric/git/Subumbra/docs/standalone-litellm.md)
 
-A streaming response from the provider confirms end-to-end flow is working.
+That guide shows the supported app-owned contract:
 
----
-
-## 11. Optional: Cloudflare Tunnel
-
-Once local verification passes, you can expose the stack through a Cloudflare
-Tunnel instead of opening VPS ports directly.
-
-1. Create a tunnel in Cloudflare Zero Trust dashboard
-2. Copy the tunnel token into `.env`: `TUNNEL_TOKEN=<token>`
-3. Configure DNS CNAME records and ingress rules in the CF dashboard
-4. Start the tunnel service:
-
-```bash
-docker compose --profile tunnel up -d cloudflared
-```
-
-See [`docs/operator-guide.md`](./operator-guide.md) for tunnel routing notes.
-
----
+- `api_base: http://subumbra-proxy:8090/t`
+- `api_key: <key_id>` using a plain key ID
 
 ## Next
 
-- [`docs/subumbra-testing.md`](./subumbra-testing.md) — how to run tests and verify correctness
-- [`docs/operator-guide.md`](./operator-guide.md) — provider registry, rotation, recovery
-- [`docs/subumbra-developer.md`](./subumbra-developer.md) — git/VPS workflow, full reset, council harness
+- [docs/subumbra-testing.md](/home/eric/git/Subumbra/docs/subumbra-testing.md)
+- [docs/standalone-litellm.md](/home/eric/git/Subumbra/docs/standalone-litellm.md)
+- [docs/operator-guide.md](/home/eric/git/Subumbra/docs/operator-guide.md)
+- [docs/subumbra-developer.md](/home/eric/git/Subumbra/docs/subumbra-developer.md)
