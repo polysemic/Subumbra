@@ -192,6 +192,23 @@ Current direction after Round 39:
    - document restart/sync guidance after bootstrap token rotation
    - prepare the operator path for deeper OpenWebUI and N8N wiring rounds
 
+4. **Round 42.3 — App-Owned Integrations**
+   Focus on shifting Subumbra away from bundled LiteLLM as the default proof
+   surface and toward standalone/app-owned installs as the supported model.
+
+   Direction:
+   - define the supported app-owned integration contract, using standalone
+     LiteLLM as the first concrete example app
+   - decide the long-term role of bundled LiteLLM under `/opt/subumbra`,
+     with the expectation that it should no longer be the primary validation
+     surface
+   - add the minimum runtime-auth reconciliation and stale-caller visibility
+     needed to explain Worker-edge `401 unauthorized` failures without broad
+     observability expansion
+   - align install docs, recovery guidance, and proof targets with the
+     app-owned model so future apps such as OpenWebUI, N8N, LibreChat, and
+     others follow the same pattern
+
 Guiding note:
 - Keep project language as **POC** for now.
 - Prioritize deployment/testing readiness first, then the hardening needed for
