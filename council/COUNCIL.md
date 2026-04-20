@@ -187,6 +187,7 @@ Reference:
 | 41.6 | App Validation Cleanup | Closed | `council/closed/round-41-6-app-validation-cleanup/` |
 | 41.7 | Standalone LiteLLM Runtime Fix | Open | `council/round-41-7-standalone-litellm-runtime-fix/` |
 | 42.2 | Runtime Auth Reconciliation | Closed | `council/closed/round-42-2-runtime-auth-reconciliation/` |
+| 42.3 | App-Owned Integrations | Open | `council/round-42-3-app-owned-integrations/` |
 | 41.2 | VPS Stabilization and Full E2E Verification | Closed | `council/closed/round-41-2-vps-testing/` |
 | 41.3 | Subumbra Rebrand | Closed | `council/closed/round-41-3-rebrand/` |
 | 41.4 | Full Subumbra Rebrand | Closed | `council/closed/round-41-4-full-rebrand/` |

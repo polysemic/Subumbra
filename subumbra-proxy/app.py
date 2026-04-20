@@ -51,6 +51,7 @@ STRIP_HEADERS = {
     "report-to",
     "alt-svc",
     "server",
+    "content-encoding",
 }
 KEY_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 TRANSPARENT_STRIP_HEADERS = {"authorization", "x-api-key", "x-api-key-id"}
@@ -270,7 +271,7 @@ async def proxy_via_worker(
 
     LOG.info("complete key_id=%s status=%s", key_id, worker_resp.status_code)
     return StreamingResponse(
-        worker_resp.aiter_raw(),
+        worker_resp.aiter_bytes(),
         status_code=worker_resp.status_code,
         headers=response_headers,
         background=tasks,
