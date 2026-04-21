@@ -146,12 +146,12 @@ choose_existing_workspace_slug() {
         echo "AnythingLLM workspace listing failed" >&2
         exit 1
     fi
-    python3 - "$EXISTING_WORKSPACE_SLUG" <<'PY' <<<"$(printf '%s\n' "$listing" | sed -n '2,$p')"
+    python3 - "$EXISTING_WORKSPACE_SLUG" "$(printf '%s\n' "$listing" | sed -n '2,$p')" <<'PY'
 import json
 import sys
 
 requested = sys.argv[1]
-body = json.load(sys.stdin)
+body = json.loads(sys.argv[2])
 workspaces = body.get("workspaces") or []
 if requested:
     for workspace in workspaces:
