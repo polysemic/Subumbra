@@ -1,6 +1,6 @@
 # PROJECT_STATUS
-*Current state — updated 2026-04-19*
-*Rounds 1–42.4 closed. Round 43 is next. See `council/COUNCIL.md` for round history and current status.*
+*Current state — updated 2026-04-20*
+*Rounds 1–42.4 closed. Round 43 is active; `round-43-openwebui` is now closed and `round-43-openclaw` remains queued next. See `council/COUNCIL.md` for round history and current status.*
 
 ---
 
@@ -120,13 +120,14 @@ This arc focuses on evolving Subumbra from a static, bundled configuration into 
 - **Round 42 — Operator Hardening For Standalone Integrations** (Closed, superseded): follow-on work was absorbed by Rounds 42.2 and 42.3.
 - **Round 42.2 — Runtime Auth Reconciliation** (Closed): runtime auth recovery and worker-auth validation completed.
 - **Round 42.3 — App-Owned Integrations** (Closed): app-owned integration model and standalone LiteLLM example established as the supported path.
+- **Round 43.1 — OpenWebUI App-Owned Validation** (Closed): standalone OpenWebUI is now a proven app-owned integration with env-authoritative proxy routing, LiteLLM aggregator proof, zero-restart rotation, and fail-closed negative validation.
 
 ## Path Forward
 
-Current direction after Round 42.3:
+Current direction after Round 43-OpenWebUI:
 
 1. **Round 43 — App-Owned Integration Validation**
-   Focus on practical app-owned validation targets beyond standalone LiteLLM, including OpenWebUI, N8N, and real non-AI service flows for GitHub, Slack, and SendGrid.
+   Continue the app-owned validation arc with `round-43-openclaw` and other later candidates once they meet the Round 43 filter. OpenWebUI is complete.
 
 Guiding note:
 - Keep project language as **POC** for now.
