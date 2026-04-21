@@ -131,9 +131,11 @@ try:
         print(resp.status)
         print(body)
 except urllib.error.HTTPError as exc:
-    print(exc.code)
-    print(exc.read().decode("utf-8"))
-    raise
+    status = exc.code
+    body = exc.read().decode("utf-8")
+    print(status)
+    print(body)
+    sys.exit(1)
 PY
 }
 
