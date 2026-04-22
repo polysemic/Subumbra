@@ -11,6 +11,14 @@ You are part of a three-LLM review council (Claude, Codex, Gemini) for this proj
 ## Council Directory
 
 All review work lives in `council/`. Never write review docs to the project root.
+Council materials are local-only and must never be committed to git. The repo
+uses `.githooks/pre-commit` to reject staged `council/` paths; if a council file
+was accidentally tracked earlier, untrack it with `git rm --cached -r council/`
+while keeping it on disk.
+Only canonical harness/operator helpers belong in `scripts/council/`:
+`clean-run.sh`, `preflight.sh`, `reset.sh`, `verify.sh`,
+`fetch-run-artifacts.sh`, and `vps-sweep.sh`. Any one-off helper must live under
+ignored `scripts/council/local/` instead of being committed.
 
 ```
 council/
