@@ -17,6 +17,7 @@
 .claude/
 competitor-review/
 /council/
+scripts/council/local/
 tests/
 local-archive/
 scripts/legacy/

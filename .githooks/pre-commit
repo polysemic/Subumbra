@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Council materials are local-only and must never be committed.
+staged_paths="$(git diff --cached --name-only --diff-filter=ACMR || true)"
+blocked_paths="$(printf '%s\n' "${staged_paths}" | grep '^council/' || true)"
+
+if [[ -n "${blocked_paths}" ]]; then
+  echo "ERROR: refusing to commit local-only council files:" >&2
+  echo "${blocked_paths}" >&2
+  echo >&2
+  echo "Council materials must stay out of git. Use SCP or another local-only transfer path if needed." >&2
+  echo "If files were accidentally tracked already, run:" >&2
+  echo "  git rm --cached -r council/" >&2
+  exit 1
+fi
+
+# Only the canonical council harness/operator helpers belong in scripts/council.
+# Ad-hoc helpers must stay local-only under scripts/council/local/.
+allowed_scripts='^scripts/council/(clean-run\.sh|preflight\.sh|reset\.sh|verify\.sh|fetch-run-artifacts\.sh|vps-sweep\.sh)$'
+blocked_scripts="$(
+  printf '%s\n' "${staged_paths}" \
+    | grep '^scripts/council/' \
+    | grep -Ev "${allowed_scripts}|^scripts/council/local/" \
+    || true
+)"
+
+if [[ -n "${blocked_scripts}" ]]; then
+  echo "ERROR: refusing to commit non-canonical scripts/council paths:" >&2
+  echo "${blocked_scripts}" >&2
+  echo >&2
+  echo "Use only the tracked harness/helper scripts in scripts/council/." >&2
+  echo "Place one-off local helpers under scripts/council/local/ (ignored by git)." >&2
+  exit 1
+fi
