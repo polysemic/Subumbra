@@ -159,7 +159,7 @@ LiteLLM is no longer part of the core `/opt/subumbra` compose stack.
 
 Use the standalone guide:
 
-- [docs/standalone-litellm.md](/home/eric/git/Subumbra/docs/standalone-litellm.md)
+- [docs/apps/litellm/install.md](/home/eric/git/Subumbra/docs/apps/litellm/install.md)
 
 That guide shows the supported app-owned contract:
 
@@ -169,6 +169,6 @@ That guide shows the supported app-owned contract:
 ## Next
 
 - [docs/subumbra-testing.md](/home/eric/git/Subumbra/docs/subumbra-testing.md)
-- [docs/standalone-litellm.md](/home/eric/git/Subumbra/docs/standalone-litellm.md)
+- [docs/apps/litellm/install.md](/home/eric/git/Subumbra/docs/apps/litellm/install.md)
 - [docs/operator-guide.md](/home/eric/git/Subumbra/docs/operator-guide.md)
 - [docs/subumbra-developer.md](/home/eric/git/Subumbra/docs/subumbra-developer.md)
