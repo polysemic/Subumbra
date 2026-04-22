@@ -28,6 +28,11 @@ and fresh sessions tend to miss.
 - Reviews should be evidence-heavy and cite exact file/line references.
 - Approved plans should be specific enough that any of the three models could
   implement them without guessing.
+- App-validation rounds that produce `docs/apps/*/` deliverables should stage
+  round-local docs under `council/{round}/docs/`; those staged docs are the
+  operator baseline under test, `CORRECTIONS.md` records in-round fixes, and
+  promotion into tracked `docs/apps/` happens only after verification confirms
+  the staged docs match the proven flow.
 - Closeout should capture minor non-blocking cleanup in `council/cleanup.md`
   rather than reopening finished rounds.
 

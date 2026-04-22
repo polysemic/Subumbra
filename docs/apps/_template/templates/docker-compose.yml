@@ -1,0 +1,11 @@
+# Optional stub for app rounds that prove a compose-based install path.
+# Copy and replace placeholders only when the approved round plan requires a
+# compose template for the app under test.
+
+services:
+  app:
+    image: <image>
+    ports:
+      - "<host-port>:<container-port>"
+    environment:
+      - <ENV_NAME>=<value>

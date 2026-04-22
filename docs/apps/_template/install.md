@@ -40,6 +40,22 @@ Provide the exact install/update/recreate steps needed for the app.
 
 List only app-specific caveats, limits, and governance notes.
 
+## Persistence and Purge
+
+If the app persists config to SQLite, a named volume, or another local data
+store, `docker compose up -d --force-recreate` recreates the container but does
+not purge persisted app state.
+
+A corrected config file may not take effect if the app continues to treat its
+persisted database or data directory as authoritative.
+
+If behavior remains broken after correcting the config:
+
+1. Stop the container
+2. Remove the container
+3. Remove the app's data directory or named volume
+4. Restart with the corrected config
+
 ## Fail-Closed Check
 
 Document the expected fail-closed behavior for invalid or unscoped keys.
