@@ -1,6 +1,6 @@
 # PROJECT_STATUS
 *Current state — updated 2026-04-21*
-*Rounds 1–42.4 closed. Round 43 is active; `round-43-openwebui` and `round-43-anythingllm` are now closed, and `round-43-openclaw` remains queued next. See `council/COUNCIL.md` for round history and current status.*
+*Rounds 1–42.4 closed. Round 43 is active; `round-43-openwebui`, `round-43-1-anythingllm`, and `round-43-2-doc-templates` are now closed, and `round-43-openclaw` remains queued next. See `council/COUNCIL.md` for round history and current status.*
 
 ---
 
@@ -122,6 +122,7 @@ This arc focuses on evolving Subumbra from a static, bundled configuration into 
 - **Round 42.3 — App-Owned Integrations** (Closed): app-owned integration model and standalone LiteLLM example established as the supported path.
 - **Round 43.1 — OpenWebUI App-Owned Validation** (Closed): standalone OpenWebUI is now a proven app-owned integration with env-authoritative proxy routing, LiteLLM aggregator proof, zero-restart rotation, and fail-closed negative validation.
 - **Round 43.2 — AnythingLLM App-Owned Validation** (Closed): standalone AnythingLLM is now a proven app-owned integration with chat, embeddings, zero-restart rotation, and fail-closed negative validation through the proxy.
+- **Round 43-2 — Documentation and Templates Cleanup** (Closed): established the `docs/apps/` structure, split OpenWebUI guides, and promoted operational templates from council archives to tracked documentation.
 
 ## Path Forward
 

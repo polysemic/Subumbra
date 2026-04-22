@@ -64,7 +64,7 @@ curl -sS http://127.0.0.1:8090/v1/request \
 ## 4. Standalone LiteLLM Test
 
 Standalone LiteLLM lives outside `/opt/subumbra`. See
-[docs/standalone-litellm.md](/home/eric/git/Subumbra/docs/standalone-litellm.md)
+[docs/apps/litellm/install.md](/home/eric/git/Subumbra/docs/apps/litellm/install.md)
 for setup.
 
 Once it is running under `/opt/litellm`, a real request through that app-owned

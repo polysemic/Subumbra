@@ -63,7 +63,7 @@ See:
 
 See:
 
-- [docs/standalone-litellm.md](docs/standalone-litellm.md)
+- [docs/apps/litellm/install.md](docs/apps/litellm/install.md)
 
 ### 3. Test the deployment
 
@@ -98,8 +98,15 @@ subumbra/
 ## Next Docs
 
 - [docs/subumbra-install.md](docs/subumbra-install.md)
-- [docs/standalone-litellm.md](docs/standalone-litellm.md)
+- [docs/apps/litellm/install.md](docs/apps/litellm/install.md)
 - [docs/subumbra-testing.md](docs/subumbra-testing.md)
 - [docs/adapter-contract.md](docs/adapter-contract.md)
 - [docs/operator-guide.md](docs/operator-guide.md)
 - [docs/subumbra-developer.md](docs/subumbra-developer.md)
+
+## App Integrations
+
+- AnythingLLM: [install](docs/apps/anythingllm/install.md) | [takeover](docs/apps/anythingllm/takeover.md)
+- OpenWebUI: [install](docs/apps/openwebui/install.md) | [takeover](docs/apps/openwebui/takeover.md)
+- LiteLLM: [install](docs/apps/litellm/install.md)
+- n8n: [workflow assets](docs/apps/n8n/README.md)
