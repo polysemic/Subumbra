@@ -1,0 +1,18 @@
+services:
+  bifrost:
+    image: maximhq/bifrost:latest
+    container_name: bifrost
+    restart: unless-stopped
+    networks:
+      - subumbra-net
+    ports:
+      - "127.0.0.1:<host-port>:8080"
+    volumes:
+      - ./bifrost-data:/app/data
+    env_file:
+      - bifrost.env
+
+networks:
+  subumbra-net:
+    external: true
+    name: subumbra-net
