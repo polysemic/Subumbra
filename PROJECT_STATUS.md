@@ -50,7 +50,7 @@ Deferred by council consensus. Acceptable for current single-operator POC deploy
 |----|-------------|-----------|
 | MEDIUM-1 | Python memory scrubbing is best-effort; `bytearray` zeroing does not prevent copies in `os.environ` or immutable `str` objects | No code fix possible in CPython |
 | MEDIUM-5 | `/health` leaks `keys_loaded` count unauthenticated | Acceptable on Docker internal network with no host exposure |
-| MEDIUM-7 | `/api/status` unauthenticated | Bound to `127.0.0.1:8080` (localhost only); add basic auth before multi-user |
+| MEDIUM-7 | `/api/status` unauthenticated | Bound to `127.0.0.1:6563` (localhost only); add basic auth before multi-user |
 | G-MEDIUM-3 | CF Worker buffers full body with no size limit (128 MB CF cap) | Low risk for small-team internal use |
 | AUDIT-RETENTION | SQLite audit trail is durable across restarts and row growth is capped by `AUDIT_MAX_ROWS`, but retention is still local only with no archival/export path | Accepted as current local-ops limit |
 | LOW-5 | Dashboard loads Bootstrap CSS/JS from public CDN | Browser-only fetch; container is air-gapped |

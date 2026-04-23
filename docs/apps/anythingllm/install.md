@@ -41,7 +41,7 @@ Before pointing AnythingLLM at Subumbra, confirm:
 ```bash
 cd /opt/subumbra
 docker compose ps
-curl -sS http://127.0.0.1:8090/health
+curl -sS http://127.0.0.1:10199/health
 grep '^PROXY_ALLOWED_KEYS=' .env
 ```
 
@@ -187,7 +187,7 @@ not require an AnythingLLM restart.
 ### Proxy health
 
 ```bash
-curl -sS http://127.0.0.1:8090/health
+curl -sS http://127.0.0.1:10199/health
 ```
 
 Expected:
@@ -226,7 +226,7 @@ curl -sS -i \
   -H 'Content-Type: application/json' \
   -X POST \
   -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"test"}]}' \
-  http://127.0.0.1:8090/t/v1/chat/completions
+  http://127.0.0.1:10199/t/v1/chat/completions
 ```
 
 Expected result: non-200 failure from the proxy path, typically `502`.

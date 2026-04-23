@@ -77,7 +77,7 @@ poll_ui() {
     trap 'rm -f "$headers" "$body"' RETURN
 
     while :; do
-        if curl -sS -D "$headers" -o "$body" http://127.0.0.1:8080/api/status >/dev/null 2>&1; then
+        if curl -sS -D "$headers" -o "$body" http://127.0.0.1:6563/api/status >/dev/null 2>&1; then
             status="$(awk 'toupper($1) ~ /^HTTP\// {code=$2} END {print code}' "$headers")"
             if [[ "$status" =~ ^2[0-9][0-9]$ ]]; then
                 subumbra_keys_error="$(

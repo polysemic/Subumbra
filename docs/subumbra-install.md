@@ -137,8 +137,8 @@ Expected services:
 Port exposure:
 
 - `subumbra-keys` — internal only
-- `subumbra-proxy` — `127.0.0.1:8090`
-- `subumbra-ui` — `127.0.0.1:8080`
+- `subumbra-proxy` — `127.0.0.1:10199`
+- `subumbra-ui` — `127.0.0.1:6563`
 
 ## 8. Verify The Core Stack
 
@@ -147,8 +147,8 @@ export CF_WORKER_URL="$(sed -n 's/^CF_WORKER_URL=//p' .env)"
 
 docker compose ps
 curl -sS "$CF_WORKER_URL/health"
-curl -sS http://127.0.0.1:8090/health
-curl -sS http://127.0.0.1:8080/api/status
+curl -sS http://127.0.0.1:10199/health
+curl -sS http://127.0.0.1:6563/api/status
 ```
 
 The proxy health response should now include `worker_auth`.

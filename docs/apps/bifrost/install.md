@@ -25,7 +25,7 @@ Standard Subumbra readiness:
 ```bash
 cd /opt/subumbra
 docker compose ps
-curl -sS http://127.0.0.1:8090/health
+curl -sS http://127.0.0.1:10199/health
 grep '^PROXY_ALLOWED_KEYS=' .env
 ```
 
