@@ -6,14 +6,17 @@ This install path proves:
 
 - Bifrost running as a Docker service on the `subumbra-net` network
 - OpenAI requests routed through Subumbra transparent sidecar (`/t`)
-- `config_store` enabled with SQLite for persistent configuration
+- `config_store` enabled with SQLite for persistent configuration on the mounted
+  data path
 - Fail-closed behavior for unscoped key IDs
 
 Deferred:
 
 - multi-provider configs (additional providers beyond OpenAI)
 - Bifrost UI behind Cloudflare Access
-- migration from a running Bifrost install (no proven takeover path)
+
+Migration from a running Bifrost instance is covered separately in
+[takeover.md](./takeover.md).
 
 ## Prerequisites
 
@@ -69,6 +72,12 @@ The value is the plain Subumbra key ID (not a real API key). Extract from
    Replace `<key_id>` with the Subumbra key ID for the OpenAI provider (e.g.,
    `openai_prod`). The key value field must remain `env.BIFROST_OPENAI_KEY`.
 
+   The config-store path inside the copied file must remain:
+
+   ```json
+   "/app/data/config.db"
+   ```
+
 3. Set the environment file (for use with `--env-file` or Docker Compose):
 
    ```bash
@@ -110,9 +119,17 @@ The value is the plain Subumbra key ID (not a real API key). Extract from
   `config.db`, `logs.db`, and WAL files on first boot. See Persistence and
   Purge below.
 
-- **config_store**: When `config_store.enabled: true`, Bifrost loads its
-  running config from `config.db`, not from `config.json`. A corrected
-  `config.json` will not take effect without a purge.
+- **config_store**: When `config_store.enabled: true` and a persisted
+  `config.db` exists on the mounted data path (for example
+  `/app/data/config.db`), Bifrost loads its running config from that DB, not
+  from `config.json`. A corrected `config.json` will not take effect without a
+  purge.
+
+- **Do not use `./config.db`**: a relative path resolves under `/app` in the
+  container and bypasses the mounted `/app/data` volume, making the DB
+  ephemeral on container recreation.
+
+- For existing-instance migration, use [takeover.md](./takeover.md).
 
 ## Persistence and Purge
 
@@ -120,8 +137,9 @@ If the app persists config to SQLite, a named volume, or another local data
 store, `docker compose up -d --force-recreate` recreates the container but does
 not purge persisted app state.
 
-A corrected config file may not take effect if the app continues to treat its
-persisted database or data directory as authoritative.
+For Bifrost specifically, if a persisted `config.db` exists on the mounted data
+path, a corrected `config.json` may not take effect until that DB is purged or
+the provider is updated through the API.
 
 If behavior remains broken after correcting the config:
 
@@ -169,6 +187,7 @@ curl -s -o /dev/null -w "%{http_code}" \
 - [ ] Key ID appears in `PROXY_ALLOWED_KEYS`
 - [ ] `BIFROST_OPENAI_KEY` is set to the Subumbra key ID (not a real API key)
 - [ ] `network_config.base_url` is bare `http://subumbra-proxy:8090/t` (no trailing `/v1`)
+- [ ] `config_store.config.path` is `/app/data/config.db`
 - [ ] Bifrost UI returns HTTP 200 at the configured host port
 - [ ] Routed request returns HTTP 200 with `X-Subumbra-Provider` in response headers
 - [ ] Unscoped key returns HTTP 502
