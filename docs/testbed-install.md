@@ -506,6 +506,12 @@ sudo certbot --nginx -d n8n.yourdomain.com
 > runs → certbot adds SSL server block → done. Adding SSL lines manually
 > before the cert exists breaks nginx and blocks certbot.
 
+If the output says the syntax is OK, reload nginx:
+
+```bash
+sudo systemctl reload nginx
+```
+
 ---
 
 ## 6. Baseline Verification Checklist
