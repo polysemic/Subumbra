@@ -73,8 +73,8 @@ docker compose up -d --force-recreate subumbra-keys subumbra-proxy
 
 The sidecar listens on:
 
-- `http://localhost:8090/health`
-- `http://localhost:8090/v1/request`
+- `http://localhost:10199/health`
+- `http://localhost:10199/v1/request`
 
 Applications call the sidecar using the five-field request contract:
 
@@ -288,7 +288,7 @@ See [`docs/subumbra-testing.md`](./subumbra-testing.md) for audit query examples
 
 ## 7. Transparent Sidecar Route
 
-Bounded transparent ingress at `http://localhost:8090/t/{path}`.
+Bounded transparent ingress at `http://localhost:10199/t/{path}`.
 
 Accepted pseudo-key header forms:
 

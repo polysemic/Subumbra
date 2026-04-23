@@ -73,7 +73,7 @@ The Subumbra core stack must already be running in `/opt/subumbra`:
 ```bash
 cd /opt/subumbra
 docker compose up -d --force-recreate
-curl -sS http://127.0.0.1:8090/health
+curl -sS http://127.0.0.1:10199/health
 ```
 
 Healthy proxy output should include:

@@ -19,8 +19,8 @@ export CF_WORKER_URL="$(sed -n 's/^CF_WORKER_URL=//p' .env)"
 ```bash
 docker compose ps
 curl -sS "$CF_WORKER_URL/health"
-curl -sS http://127.0.0.1:8090/health
-curl -sS http://127.0.0.1:8080/api/status
+curl -sS http://127.0.0.1:10199/health
+curl -sS http://127.0.0.1:6563/api/status
 ```
 
 Healthy core means:
@@ -35,7 +35,7 @@ Healthy core means:
 
 ```bash
 curl -sS -w "\nHTTP %{http_code}\n" \
-  http://127.0.0.1:8090/t/user \
+  http://127.0.0.1:10199/t/user \
   -H "Authorization: Bearer github_prod" \
   -H "Accept: application/json"
 ```
@@ -45,7 +45,7 @@ curl -sS -w "\nHTTP %{http_code}\n" \
 ```bash
 PROXY_TOKEN="$(sed -n 's/^SUBUMBRA_TOKEN_PROXY=//p' .env)"
 
-curl -sS http://127.0.0.1:8090/v1/request \
+curl -sS http://127.0.0.1:10199/v1/request \
   -H "Authorization: Bearer $PROXY_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -89,7 +89,7 @@ curl http://127.0.0.1:4000/v1/chat/completions \
 
 ```bash
 curl -sS -o /dev/null -w "HTTP %{http_code}\n" \
-  http://127.0.0.1:8090/v1/request \
+  http://127.0.0.1:10199/v1/request \
   -H "Authorization: Bearer badtoken" \
   -H "Content-Type: application/json" \
   -d '{"key_id":"anthropic_prod","target_url":"https://api.anthropic.com","method":"POST","headers":{},"body":{}}'

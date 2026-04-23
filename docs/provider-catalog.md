@@ -37,7 +37,7 @@ provider record.
 ```
 
 ```bash
-curl -s -X POST http://localhost:8090/v1/request \
+curl -s -X POST http://localhost:10199/v1/request \
   -H "Content-Type: application/json" \
   -d '{"key_id":"<your_anthropic_key_id>","target_url":"https://api.anthropic.com/v1/messages","method":"POST","headers":{"content-type":"application/json","anthropic-version":"2023-06-01"},"body":{"model":"claude-3-5-haiku-latest","max_tokens":16,"messages":[{"role":"user","content":"Say test"}]}}'
 ```
@@ -59,7 +59,7 @@ curl -s -X POST http://localhost:8090/v1/request \
 ```
 
 ```bash
-curl -s -X POST http://localhost:8090/v1/request \
+curl -s -X POST http://localhost:10199/v1/request \
   -H "Content-Type: application/json" \
   -d '{"key_id":"<your_openai_key_id>","target_url":"https://api.openai.com/v1/chat/completions","method":"POST","headers":{"content-type":"application/json"},"body":{"model":"gpt-4o-mini","messages":[{"role":"user","content":"Say test"}],"max_tokens":16}}'
 ```
@@ -81,7 +81,7 @@ curl -s -X POST http://localhost:8090/v1/request \
 ```
 
 ```bash
-curl -s -X POST http://localhost:8090/v1/request \
+curl -s -X POST http://localhost:10199/v1/request \
   -H "Content-Type: application/json" \
   -d '{"key_id":"<your_groq_key_id>","target_url":"https://api.groq.com/openai/v1/chat/completions","method":"POST","headers":{"content-type":"application/json"},"body":{"model":"llama-3.1-8b-instant","messages":[{"role":"user","content":"Say test"}],"max_tokens":16}}'
 ```
@@ -103,7 +103,7 @@ curl -s -X POST http://localhost:8090/v1/request \
 ```
 
 ```bash
-curl -s -X POST http://localhost:8090/v1/request \
+curl -s -X POST http://localhost:10199/v1/request \
   -H "Content-Type: application/json" \
   -d '{"key_id":"<your_deepseek_key_id>","target_url":"https://api.deepseek.com/v1/chat/completions","method":"POST","headers":{"content-type":"application/json"},"body":{"model":"deepseek-chat","messages":[{"role":"user","content":"Say test"}],"max_tokens":16}}'
 ```
@@ -123,7 +123,7 @@ null
 ```
 
 ```bash
-curl -s -X POST http://localhost:8090/v1/request \
+curl -s -X POST http://localhost:10199/v1/request \
   -H "Content-Type: application/json" \
   -d '{"key_id":"<your_github_key_id>","target_url":"https://api.github.com/user","method":"GET","headers":{"accept":"application/vnd.github+json","x-github-api-version":"2022-11-28","user-agent":"subumbra-proxy/1.0"},"body":null}'
 ```
@@ -141,7 +141,7 @@ curl -s -X POST http://localhost:8090/v1/request \
 ```
 
 ```bash
-curl -s -X POST http://localhost:8090/v1/request \
+curl -s -X POST http://localhost:10199/v1/request \
   -H "Content-Type: application/json" \
   -d '{"key_id":"<your_slack_key_id>","target_url":"https://slack.com/api/auth.test","method":"POST","headers":{"content-type":"application/json"},"body":{}}'
 ```
@@ -159,7 +159,7 @@ null
 ```
 
 ```bash
-curl -s -X POST http://localhost:8090/v1/request \
+curl -s -X POST http://localhost:10199/v1/request \
   -H "Content-Type: application/json" \
   -d '{"key_id":"<your_sendgrid_key_id>","target_url":"https://api.sendgrid.com/v3/scopes","method":"GET","headers":{"content-type":"application/json"},"body":null}'
 ```

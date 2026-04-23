@@ -33,7 +33,7 @@ Before pointing OpenWebUI at Subumbra, confirm:
 ```bash
 cd /opt/subumbra
 docker compose ps
-curl -sS http://127.0.0.1:8090/health
+curl -sS http://127.0.0.1:10199/health
 grep '^PROXY_ALLOWED_KEYS=' .env
 ```
 
@@ -135,7 +135,7 @@ not require a service restart.
 ### Path A model discovery
 
 ```bash
-curl -sS http://127.0.0.1:8090/health
+curl -sS http://127.0.0.1:10199/health
 ```
 
 Then from OpenWebUI, load the models list and confirm proxy logs show:
@@ -160,7 +160,7 @@ An unscoped key ID must fail closed:
 ```bash
 curl -sS -i \
   -H 'Authorization: Bearer definitely_not_allowed' \
-  http://127.0.0.1:8090/t/v1/models
+  http://127.0.0.1:10199/t/v1/models
 ```
 
 Expected result: non-200 failure from the proxy path.

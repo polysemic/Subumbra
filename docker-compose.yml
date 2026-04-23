@@ -67,7 +67,7 @@ services:
       start_period: 10s
 
   # ───────────────────────────────────────────────────────────────────────────
-  # subumbra-ui  —  management dashboard, published to host on 8080
+  # subumbra-ui  —  management dashboard, published to host on 6563
   #        on internal (reaches subumbra-keys) + external (required for host
   #        port mapping — Docker's internal: true blocks publishing otherwise)
   # ───────────────────────────────────────────────────────────────────────────
@@ -81,7 +81,7 @@ services:
       - internal # reaches subumbra-keys via Docker DNS
       - external # required for host port mapping (internal: true blocks it)
     ports:
-      - "127.0.0.1:8080:8080" # Localhost-only — do not expose externally
+      - "127.0.0.1:6563:8080" # Localhost-only — do not expose externally
     logging:
       driver: json-file
       options:
@@ -132,7 +132,7 @@ services:
       - external
       - subumbra-net
     ports:
-      - "127.0.0.1:8090:8090"
+      - "127.0.0.1:10199:8090"
     environment:
       SUBUMBRA_ACCESS_TOKEN: ${SUBUMBRA_TOKEN_PROXY}
       SUBUMBRA_HMAC_KEY: ${SUBUMBRA_HMAC_KEY}
