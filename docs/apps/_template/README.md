@@ -19,3 +19,5 @@ Required notes for future implementations:
 - keep scope explicit
 - separate proven behavior from deferred future work
 - link to extracted operator-facing templates under `templates/` when present
+- for app-validation rounds, the round-local `council/{round}/docs/` copy is
+  the operator baseline under test before promotion into tracked docs

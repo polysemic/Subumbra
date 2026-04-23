@@ -1,0 +1,26 @@
+{
+  "providers": {
+    "openai": {
+      "keys": [
+        {
+          "name": "subumbra-key",
+          "value": "env.BIFROST_OPENAI_KEY",
+          "models": [
+            "gpt-4o-mini"
+          ],
+          "weight": 1.0
+        }
+      ],
+      "network_config": {
+        "base_url": "http://subumbra-proxy:8090/t"
+      }
+    }
+  },
+  "config_store": {
+    "enabled": true,
+    "type": "sqlite",
+    "config": {
+      "path": "./config.db"
+    }
+  }
+}
