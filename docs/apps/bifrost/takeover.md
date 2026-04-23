@@ -166,6 +166,12 @@ key_id=<your_key_id> target_url=https://api.openai.com/v1/chat/completions ...
 complete key_id=<your_key_id> status=200
 ```
 
+If you are verifying immediately after a `docker compose restart bifrost`,
+expect a brief window of HTTP 502 responses while Bifrost re-validates its
+provider key in the background. In the verified takeover flow this settles on
+its own after several seconds, after which routed chat requests return HTTP 200
+again.
+
 If you see the old direct-routing target URL without `key_id=`, the migration
 did not take effect. Verify that `BIFROST_OPENAI_KEY` is set correctly in the
 container environment and retry.
