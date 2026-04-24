@@ -720,7 +720,7 @@ write_artifact \
     "curl --compressed -sS -N -D - -o - -X POST http://127.0.0.1:4000/v1/chat/completions -H 'Authorization: Bearer [REDACTED]' -H 'Content-Type: application/json' -d '${litellm_allowed_payload}'"
 run_curl_capture \
     GET \
-    http://127.0.0.1:8080/api/status
+    http://127.0.0.1:6563/api/status
 p9_1_status_exit="$capture_exit"
 p9_1_status_code="$capture_status"
 if [[ "$capture_exit" -eq 0 && "$capture_status" == "200" ]]; then
@@ -772,7 +772,7 @@ p9_3_request_body="$(mktemp)"
 p9_3_status_body="$(mktemp)"
 run_curl_capture \
     POST \
-    http://127.0.0.1:8090/v1/request \
+    http://127.0.0.1:10199/v1/request \
     -H "Content-Type: application/json" \
     -d "$sidecar_allowed_payload"
 p9_3_request_exit="$capture_exit"
@@ -780,10 +780,10 @@ p9_3_request_status="$capture_status"
 cp "$capture_body" "$p9_3_request_body"
 write_artifact \
     "${artifact_dir}/p9-3-sidecar-allowed.txt" \
-    "curl --compressed -sS -N -D - -o - -X POST http://127.0.0.1:8090/v1/request -H 'Content-Type: application/json' -d '${sidecar_allowed_payload}'"
+    "curl --compressed -sS -N -D - -o - -X POST http://127.0.0.1:10199/v1/request -H 'Content-Type: application/json' -d '${sidecar_allowed_payload}'"
 run_curl_capture \
     GET \
-    http://127.0.0.1:8080/api/status
+    http://127.0.0.1:6563/api/status
 p9_3_status_exit="$capture_exit"
 p9_3_status_code="$capture_status"
 if [[ "$capture_exit" -eq 0 && "$capture_status" == "200" ]]; then
@@ -816,12 +816,12 @@ fi
 
 run_curl_capture \
     POST \
-    http://127.0.0.1:8090/v1/request \
+    http://127.0.0.1:10199/v1/request \
     -H "Content-Type: application/json" \
     -d "$sidecar_disallowed_payload"
 write_artifact \
     "${artifact_dir}/p9-4-sidecar-disallowed.txt" \
-    "curl --compressed -sS -N -D - -o - -X POST http://127.0.0.1:8090/v1/request -H 'Content-Type: application/json' -d '${sidecar_disallowed_payload}'"
+    "curl --compressed -sS -N -D - -o - -X POST http://127.0.0.1:10199/v1/request -H 'Content-Type: application/json' -d '${sidecar_disallowed_payload}'"
 exit_codes[p9_4]="$capture_exit"
 if [[ "$capture_exit" -eq 0 && "$capture_status" != "200" ]] && grep -q '403' "$capture_body"; then
     results[p9_4]="PASS"
@@ -838,10 +838,10 @@ fi
 
 run_curl_capture \
     GET \
-    http://127.0.0.1:8080/api/status
+    http://127.0.0.1:6563/api/status
 write_artifact \
     "${artifact_dir}/p9-5-ui-status.txt" \
-    "curl --compressed -sS -N -D - -o - -X GET http://127.0.0.1:8080/api/status"
+    "curl --compressed -sS -N -D - -o - -X GET http://127.0.0.1:6563/api/status"
 exit_codes[p9_5]="$capture_exit"
 if [[ "$capture_exit" -eq 0 && "$capture_status" == "200" ]] && grep -q '"subumbra_keys_healthy"' "$capture_body"; then
     results[p9_5]="PASS"
@@ -890,12 +890,12 @@ PY
     if wait_for_running_service subumbra-keys; then
         run_curl_capture \
             POST \
-            http://127.0.0.1:8090/v1/request \
+            http://127.0.0.1:10199/v1/request \
             -H "Content-Type: application/json" \
             -d "$sidecar_allowed_payload"
         write_artifact \
             "${artifact_dir}/p30-1-sidecar-expired-denied.txt" \
-            "curl --compressed -sS -N -D - -o - -X POST http://127.0.0.1:8090/v1/request -H 'Content-Type: application/json' -d '${sidecar_allowed_payload}'"
+            "curl --compressed -sS -N -D - -o - -X POST http://127.0.0.1:10199/v1/request -H 'Content-Type: application/json' -d '${sidecar_allowed_payload}'"
         exit_codes[p30_1]="$capture_exit"
         if [[ "$capture_exit" -eq 0 && "$capture_status" == "502" ]] && grep -q 'forge record fetch failed' "$capture_body"; then
             results[p30_1]="PASS"
@@ -911,12 +911,12 @@ PY
     round_restore_registry
     run_curl_capture \
         POST \
-        http://127.0.0.1:8090/v1/request \
+        http://127.0.0.1:10199/v1/request \
         -H "Content-Type: application/json" \
         -d "$sidecar_allowed_payload"
     write_artifact \
         "${artifact_dir}/p30-2-sidecar-restored-accepted.txt" \
-        "curl --compressed -sS -N -D - -o - -X POST http://127.0.0.1:8090/v1/request -H 'Content-Type: application/json' -d '${sidecar_allowed_payload}'"
+        "curl --compressed -sS -N -D - -o - -X POST http://127.0.0.1:10199/v1/request -H 'Content-Type: application/json' -d '${sidecar_allowed_payload}'"
     exit_codes[p30_2]="$capture_exit"
     if [[ "$capture_exit" -eq 0 && "$capture_status" == "200" ]] && grep -q "$proxy_success_pattern" "$capture_body"; then
         results[p30_2]="PASS"
@@ -929,7 +929,7 @@ fi
 if [[ "$round31_enabled" -eq 1 ]]; then
     run_curl_capture \
         POST \
-        http://127.0.0.1:8090/v1/request \
+        http://127.0.0.1:10199/v1/request \
         -H "Content-Type: application/json" \
         -d "$sidecar_allowed_payload"
     p31_allow_exit="$capture_exit"
@@ -940,10 +940,10 @@ if [[ "$round31_enabled" -eq 1 ]]; then
 
     run_curl_capture \
         GET \
-        http://127.0.0.1:8080/api/status
+        http://127.0.0.1:6563/api/status
     write_artifact \
         "${artifact_dir}/p31-1-audit-allow.txt" \
-        "sidecar allowed call then curl --compressed -sS -N -D - -o - -X GET http://127.0.0.1:8080/api/status"
+        "sidecar allowed call then curl --compressed -sS -N -D - -o - -X GET http://127.0.0.1:6563/api/status"
     exit_codes[p31_1]="$capture_exit"
     if [[ "$p31_allow_exit" -eq 0 && "$p31_allow_status" == "200" ]] && grep -q "$proxy_success_pattern" "$p31_allow_body" \
         && [[ "$capture_exit" -eq 0 && "$capture_status" == "200" ]] \
@@ -957,7 +957,7 @@ if [[ "$round31_enabled" -eq 1 ]]; then
 
     run_curl_capture \
         POST \
-        http://127.0.0.1:8090/v1/request \
+        http://127.0.0.1:10199/v1/request \
         -H "Content-Type: application/json" \
         -d "$sidecar_disallowed_payload"
     p31_deny_exit="$capture_exit"
@@ -968,10 +968,10 @@ if [[ "$round31_enabled" -eq 1 ]]; then
 
     run_curl_capture \
         GET \
-        http://127.0.0.1:8080/api/status
+        http://127.0.0.1:6563/api/status
     write_artifact \
         "${artifact_dir}/p31-2-audit-scope-denied.txt" \
-        "sidecar disallowed call then curl --compressed -sS -N -D - -o - -X GET http://127.0.0.1:8080/api/status"
+        "sidecar disallowed call then curl --compressed -sS -N -D - -o - -X GET http://127.0.0.1:6563/api/status"
     exit_codes[p31_2]="$capture_exit"
     if [[ "$p31_deny_exit" -eq 0 && "$p31_deny_status" != "200" ]] && grep -q '403' "$p31_deny_body" \
         && [[ "$capture_exit" -eq 0 && "$capture_status" == "200" ]] \
@@ -985,10 +985,10 @@ if [[ "$round31_enabled" -eq 1 ]]; then
 
     run_curl_capture \
         GET \
-        http://127.0.0.1:8080/api/status
+        http://127.0.0.1:6563/api/status
     write_artifact \
         "${artifact_dir}/p31-3-audit-list-keys.txt" \
-        "curl --compressed -sS -N -D - -o - -X GET http://127.0.0.1:8080/api/status"
+        "curl --compressed -sS -N -D - -o - -X GET http://127.0.0.1:6563/api/status"
     exit_codes[p31_3]="$capture_exit"
     if [[ "$capture_exit" -eq 0 && "$capture_status" == "200" ]] \
         && audit_event_in_file "$capture_body" "subumbra-ui" "list_keys" "allow" "allowed"; then
@@ -1021,7 +1021,7 @@ PY
     if wait_for_running_service subumbra-keys; then
         run_curl_capture \
             POST \
-            http://127.0.0.1:8090/v1/request \
+            http://127.0.0.1:10199/v1/request \
             -H "Content-Type: application/json" \
             -d "$sidecar_allowed_payload"
         {
@@ -1038,7 +1038,7 @@ PY
 
         run_curl_capture \
             GET \
-            http://127.0.0.1:8080/api/status
+            http://127.0.0.1:6563/api/status
         cp "$capture_body" "$artifact_dir/p31-4-before-restart-status.json"
         {
             echo 'before_restart_status:'
@@ -1057,7 +1057,7 @@ PY
 
         run_curl_capture \
             GET \
-            http://127.0.0.1:8080/api/status
+            http://127.0.0.1:6563/api/status
         cp "$capture_body" "$artifact_dir/p31-4-after-restart-status.json"
         {
             echo 'after_restart_status:'
@@ -1166,7 +1166,7 @@ if [[ "$round32_enabled" -eq 1 ]]; then
         if [[ "$p32_2_helper_exit" -eq 0 ]]; then
             env -u SUBUMBRA_ADAPTER_REGISTRY docker compose up -d --force-recreate subumbra-keys >/dev/null
             if wait_for_running_service subumbra-keys; then
-                run_curl_capture                     POST                     http://127.0.0.1:8090/v1/request                     -H "Content-Type: application/json"                     -d "$sidecar_allowed_payload"
+                run_curl_capture                     POST                     http://127.0.0.1:10199/v1/request                     -H "Content-Type: application/json"                     -d "$sidecar_allowed_payload"
                 echo 'expired_sidecar_status:'
                 echo "  exit_code: $capture_exit"
                 echo "  http_status: ${capture_status:-none}"
@@ -1181,7 +1181,7 @@ if [[ "$round32_enabled" -eq 1 ]]; then
 
                 p32_2_restore_body="$(mktemp)"
                 p32_2_restore_status_body="$(mktemp)"
-                run_curl_capture                     POST                     http://127.0.0.1:8090/v1/request                     -H "Content-Type: application/json"                     -d "$sidecar_allowed_payload"
+                run_curl_capture                     POST                     http://127.0.0.1:10199/v1/request                     -H "Content-Type: application/json"                     -d "$sidecar_allowed_payload"
                 p32_2_restore_exit="$capture_exit"
                 p32_2_restore_status="$capture_status"
                 cp "$capture_body" "$p32_2_restore_body"
@@ -1189,7 +1189,7 @@ if [[ "$round32_enabled" -eq 1 ]]; then
                 echo "  exit_code: $p32_2_restore_exit"
                 echo "  http_status: ${p32_2_restore_status:-none}"
                 sed -n '1,40p' "$p32_2_restore_body" | sed 's/^/  /'
-                run_curl_capture                     GET                     http://127.0.0.1:8080/api/status
+                run_curl_capture                     GET                     http://127.0.0.1:6563/api/status
                 p32_2_restore_status_exit="$capture_exit"
                 p32_2_restore_status_code="$capture_status"
                 if [[ "$capture_exit" -eq 0 && "$capture_status" == "200" ]]; then
@@ -1308,12 +1308,12 @@ fi
 if [[ "$round33_enabled" -eq 1 ]]; then
     p33_1_request_body="$(mktemp)"
     p33_1_status_body="$(mktemp)"
-    run_curl_capture         GET         http://127.0.0.1:8090/t/user         -H "Authorization: Bearer github_prod"         -H "Accept: application/json"
+    run_curl_capture         GET         http://127.0.0.1:10199/t/user         -H "Authorization: Bearer github_prod"         -H "Accept: application/json"
     p33_1_request_exit="$capture_exit"
     p33_1_request_status="$capture_status"
     cp "$capture_body" "$p33_1_request_body"
-    write_artifact         "${artifact_dir}/p33-1-transparent-allowed.txt"         "curl --compressed -sS -N -D - -o - -X GET http://127.0.0.1:8090/t/user -H 'Authorization: Bearer github_prod' -H 'Accept: application/json'"
-    run_curl_capture         GET         http://127.0.0.1:8080/api/status
+    write_artifact         "${artifact_dir}/p33-1-transparent-allowed.txt"         "curl --compressed -sS -N -D - -o - -X GET http://127.0.0.1:10199/t/user -H 'Authorization: Bearer github_prod' -H 'Accept: application/json'"
+    run_curl_capture         GET         http://127.0.0.1:6563/api/status
     p33_1_status_exit="$capture_exit"
     p33_1_status_code="$capture_status"
     if [[ "$capture_exit" -eq 0 && "$capture_status" == "200" ]]; then
@@ -1436,7 +1436,7 @@ PY
     p34_3_request_status="$capture_status"
     cp "$capture_body" "$p34_3_request_body"
     write_artifact         "${artifact_dir}/p34-3-mistral-allowed.txt"         "curl --compressed -sS -N -D - -o - -X POST http://127.0.0.1:4000/v1/chat/completions -H 'Authorization: Bearer [REDACTED]' -H 'Content-Type: application/json' -d '${p34_3_payload}'"
-    run_curl_capture         GET         http://127.0.0.1:8080/api/status
+    run_curl_capture         GET         http://127.0.0.1:6563/api/status
     p34_3_status_exit="$capture_exit"
     p34_3_status_code="$capture_status"
     if [[ "$capture_exit" -eq 0 && "$capture_status" == "200" ]]; then
@@ -1657,7 +1657,7 @@ if denied_status != 403:
     raise SystemExit(1)
 PY
         if [[ "$p35_4_exit" -eq 0 ]]; then
-            run_curl_capture GET http://127.0.0.1:8080/api/status
+            run_curl_capture GET http://127.0.0.1:6563/api/status
             p35_4_status_exit="$capture_exit"
             p35_4_status_code="$capture_status"
             if [[ "$capture_exit" -eq 0 && "$capture_status" == "200" ]]; then

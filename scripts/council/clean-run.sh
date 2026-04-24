@@ -125,7 +125,7 @@ capture_diagnostics() {
 
     api_tmp="$(mktemp)"
     for attempt in 1 2 3 4 5; do
-        if curl -sS --max-time 5 http://127.0.0.1:8080/api/status >"$api_tmp" 2>/dev/null; then
+        if curl -sS --max-time 5 http://127.0.0.1:6563/api/status >"$api_tmp" 2>/dev/null; then
             api_ok=1
             break
         fi
