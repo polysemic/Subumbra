@@ -7,6 +7,18 @@ your Bifrost instance has `config_store` enabled (SQLite-backed state).
 If you are setting up Bifrost for the first time, see
 [`install.md`](./install.md) instead.
 
+## Host Vs Docker-Internal Ports
+
+Use the host-published port only for operator checks from the VPS host:
+
+- host health check: `http://127.0.0.1:10199/health`
+
+Use the Docker-internal service address from app containers on `subumbra-net`:
+
+- Bifrost takeover base URL: `http://subumbra-proxy:8090/t`
+
+Do not change the Bifrost provider `base_url` to `127.0.0.1:10199`.
+
 ---
 
 ## Background: Why config.json edits don't work

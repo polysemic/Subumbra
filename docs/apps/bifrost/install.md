@@ -18,6 +18,19 @@ Deferred:
 Migration from a running Bifrost instance is covered separately in
 [takeover.md](./takeover.md).
 
+## Host Vs Docker-Internal Ports
+
+Use the host-published port only for operator checks from the VPS host:
+
+- host health check: `http://127.0.0.1:10199/health`
+
+Use the Docker-internal service address from app containers on `subumbra-net`:
+
+- Bifrost `network_config.base_url`: `http://subumbra-proxy:8090/t`
+
+Do not replace `subumbra-proxy:8090` with `127.0.0.1:10199` in the Bifrost
+container config.
+
 ## Prerequisites
 
 Standard Subumbra readiness:
