@@ -9,6 +9,19 @@ model is:
 - OpenWebUI runs in its own install, for example `/opt/open-webui`
 - OpenWebUI talks to `subumbra-proxy` over the OpenAI-compatible transparent path
 
+## Host Vs Docker-Internal Ports
+
+Use the host-published port only for operator checks from the VPS host:
+
+- host health check: `http://127.0.0.1:10199/health`
+
+Use the Docker-internal service address from app containers on `subumbra-net`:
+
+- OpenWebUI base URL: `http://subumbra-proxy:8090/t/v1`
+
+Do not set `OPENAI_API_BASE_URL` to `127.0.0.1:10199` inside the OpenWebUI
+container.
+
 ## Supported Production Authority
 
 The supported durable production authority is:
@@ -33,7 +46,7 @@ Before pointing OpenWebUI at Subumbra, confirm:
 ```bash
 cd /opt/subumbra
 docker compose ps
-curl -sS http://127.0.0.1:8090/health
+curl -sS http://127.0.0.1:10199/health
 grep '^PROXY_ALLOWED_KEYS=' .env
 ```
 
@@ -135,7 +148,7 @@ not require a service restart.
 ### Path A model discovery
 
 ```bash
-curl -sS http://127.0.0.1:8090/health
+curl -sS http://127.0.0.1:10199/health
 ```
 
 Then from OpenWebUI, load the models list and confirm proxy logs show:
@@ -160,7 +173,7 @@ An unscoped key ID must fail closed:
 ```bash
 curl -sS -i \
   -H 'Authorization: Bearer definitely_not_allowed' \
-  http://127.0.0.1:8090/t/v1/models
+  http://127.0.0.1:10199/t/v1/models
 ```
 
 Expected result: non-200 failure from the proxy path.

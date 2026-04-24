@@ -9,6 +9,18 @@ supported model is:
 - LiteLLM runs in its own install, for example `/opt/litellm`
 - LiteLLM talks to `subumbra-proxy` over `http://subumbra-proxy:8090/t`
 
+## Host Vs Docker-Internal Ports
+
+Use the host-published port only for operator checks from the VPS host:
+
+- host health check: `http://127.0.0.1:10199/health`
+
+Use the Docker-internal service address from app containers on `subumbra-net`:
+
+- app-to-proxy base: `http://subumbra-proxy:8090/...`
+
+Do not point LiteLLM at `127.0.0.1:10199` from inside the LiteLLM container.
+
 ## Important Identity Note
 
 The current universal `/t` path uses a shared `subumbra-proxy` identity at the
@@ -73,7 +85,7 @@ The Subumbra core stack must already be running in `/opt/subumbra`:
 ```bash
 cd /opt/subumbra
 docker compose up -d --force-recreate
-curl -sS http://127.0.0.1:8090/health
+curl -sS http://127.0.0.1:10199/health
 ```
 
 Healthy proxy output should include:

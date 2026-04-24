@@ -460,7 +460,7 @@ active debug sessions).
 
 **Tunnel routing note:** if the UI is exposed through cloudflared, route to the
 Docker-internal service name (`http://subumbra-ui:8080`), not `localhost:8080`.
-The UI binds to `127.0.0.1:8080` on the host but cloudflared inside the Docker
+The UI binds to `127.0.0.1:6563` on the host but cloudflared inside the Docker
 network resolves via Docker DNS.
 
 ---

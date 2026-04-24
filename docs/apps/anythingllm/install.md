@@ -9,6 +9,19 @@ model for this round is:
 - AnythingLLM runs in its own install, for example `/opt/anythingllm`
 - AnythingLLM talks to `subumbra-proxy` over the OpenAI-compatible transparent path
 
+## Host Vs Docker-Internal Ports
+
+Use the host-published port only for operator checks from the VPS host:
+
+- host health check: `http://127.0.0.1:10199/health`
+
+Use the Docker-internal service address from app containers on `subumbra-net`:
+
+- AnythingLLM base URL: `http://subumbra-proxy:8090/t/v1`
+
+Do not set `GENERIC_OPEN_AI_BASE_PATH` or `EMBEDDING_BASE_PATH` to
+`127.0.0.1:10199` inside the AnythingLLM container.
+
 ## Scope
 
 **Scope: Clean Install Path**
@@ -41,7 +54,7 @@ Before pointing AnythingLLM at Subumbra, confirm:
 ```bash
 cd /opt/subumbra
 docker compose ps
-curl -sS http://127.0.0.1:8090/health
+curl -sS http://127.0.0.1:10199/health
 grep '^PROXY_ALLOWED_KEYS=' .env
 ```
 
@@ -187,7 +200,7 @@ not require an AnythingLLM restart.
 ### Proxy health
 
 ```bash
-curl -sS http://127.0.0.1:8090/health
+curl -sS http://127.0.0.1:10199/health
 ```
 
 Expected:
@@ -226,7 +239,7 @@ curl -sS -i \
   -H 'Content-Type: application/json' \
   -X POST \
   -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"test"}]}' \
-  http://127.0.0.1:8090/t/v1/chat/completions
+  http://127.0.0.1:10199/t/v1/chat/completions
 ```
 
 Expected result: non-200 failure from the proxy path, typically `502`.
