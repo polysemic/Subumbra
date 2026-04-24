@@ -9,6 +9,19 @@ model for this round is:
 - AnythingLLM runs in its own install, for example `/opt/anythingllm`
 - AnythingLLM talks to `subumbra-proxy` over the OpenAI-compatible transparent path
 
+## Host Vs Docker-Internal Ports
+
+Use the host-published port only for operator checks from the VPS host:
+
+- host health check: `http://127.0.0.1:10199/health`
+
+Use the Docker-internal service address from app containers on `subumbra-net`:
+
+- AnythingLLM base URL: `http://subumbra-proxy:8090/t/v1`
+
+Do not set `GENERIC_OPEN_AI_BASE_PATH` or `EMBEDDING_BASE_PATH` to
+`127.0.0.1:10199` inside the AnythingLLM container.
+
 ## Scope
 
 **Scope: Clean Install Path**
