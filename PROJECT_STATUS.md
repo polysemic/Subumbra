@@ -123,6 +123,7 @@ This arc focuses on evolving Subumbra from a static, bundled configuration into 
 - **Round 43.1 — OpenWebUI App-Owned Validation** (Closed): standalone OpenWebUI is now a proven app-owned integration with env-authoritative proxy routing, LiteLLM aggregator proof, zero-restart rotation, and fail-closed negative validation.
 - **Round 43.2 — AnythingLLM App-Owned Validation** (Closed): standalone AnythingLLM is now a proven app-owned integration with chat, embeddings, zero-restart rotation, and fail-closed negative validation through the proxy.
 - **Round 43-5 — LibreChat Direct Subumbra Integration** (Closed): LibreChat is now a proven app-owned integration with staged-and-promoted install docs, routed OpenAI-compatible chat proof, model discovery via `models.fetch`, and fail-closed invalid-key verification.
+- **Round 43-5-1 — LibreChat Takeover** (Closed): existing LibreChat installs are now proven for in-place takeover onto the supported Subumbra path with login continuity, conversation continuity, routed chat success, invalid-key fail-closed behavior, and restore proof.
 - **Round 43-2 — Documentation and Templates Cleanup** (Closed): established the `docs/apps/` structure, split OpenWebUI guides, and promoted operational templates from council archives to tracked documentation.
 
 ## Path Forward

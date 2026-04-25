@@ -156,6 +156,10 @@ Important:
 
 - LibreChat custom endpoints are configured in `librechat.yaml`, not in the
   chat UI.
+- When adopting the Subumbra path, remove or comment out real direct-provider
+  secrets (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_KEY`,
+  `ASSISTANTS_API_KEY`, `AZURE_API_KEY`) from `.env`. Leaving them active keeps
+  built-in provider routes available and bypasses Subumbra.
 - LibreChat custom-endpoint chat uses the normal authenticated user session.
   It does **not** use the Agents API or LibreChat API keys.
 - The first registered LibreChat account becomes the admin account.
