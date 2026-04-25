@@ -1,0 +1,39 @@
+services:
+  api:
+    volumes:
+      - type: bind
+        source: ./librechat.yaml
+        target: /app/librechat.yaml
+    networks:
+      - subumbra-net
+      - default
+
+  # Essential for internal service name resolution when api joins subumbra-net
+  mongodb:
+    hostname: mongodb
+    networks:
+      - subumbra-net
+      - default
+
+  meilisearch:
+    hostname: meilisearch
+    networks:
+      - subumbra-net
+      - default
+
+  vectordb:
+    hostname: vectordb
+    networks:
+      - subumbra-net
+      - default
+
+  rag_api:
+    hostname: rag_api
+    networks:
+      - subumbra-net
+      - default
+
+networks:
+  subumbra-net:
+    external: true
+    name: subumbra-net
