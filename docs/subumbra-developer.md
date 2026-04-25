@@ -459,7 +459,7 @@ active debug sessions).
 - Durable Objects: `https://developers.cloudflare.com/durable-objects/platform/pricing/`
 
 **Tunnel routing note:** if the UI is exposed through cloudflared, route to the
-Docker-internal service name (`http://subumbra-ui:8080`), not `localhost:8080`.
+Docker-internal service name (`http://subumbra-ui:8080`), not `localhost:6563`.
 The UI binds to `127.0.0.1:6563` on the host but cloudflared inside the Docker
 network resolves via Docker DNS.
 

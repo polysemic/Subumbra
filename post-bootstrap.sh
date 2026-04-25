@@ -25,12 +25,57 @@ RUNTIME=$(SUBUMBRA_ADAPTER_REGISTRY=x SUBUMBRA_TOKEN_PROXY=x SUBUMBRA_TOKEN_UI=x
 
 _get() { printf '%s\n' "$RUNTIME" | grep "^${1}=" | cut -d= -f2- || true; }
 
-SUBUMBRA_ADAPTER_REGISTRY=$(_get SUBUMBRA_ADAPTER_REGISTRY)
-SUBUMBRA_TOKEN_PROXY=$(_get SUBUMBRA_TOKEN_PROXY)
-SUBUMBRA_TOKEN_UI=$(_get SUBUMBRA_TOKEN_UI)
-SUBUMBRA_TOKEN_PROBE=$(_get SUBUMBRA_TOKEN_PROBE)
-SUBUMBRA_HMAC_KEY=$(_get SUBUMBRA_HMAC_KEY)
+runtime_registry_raw="$(_get SUBUMBRA_ADAPTER_REGISTRY)"
+if [[ -z "$runtime_registry_raw" ]]; then
+    runtime_registry_raw="$(_get FORGE_ADAPTER_REGISTRY)"
+fi
+
+SUBUMBRA_ADAPTER_REGISTRY="$(
+    python3 - "$runtime_registry_raw" <<'PY'
+import json
+import sys
+
+raw = sys.argv[1]
+if not raw:
+    print("")
+    raise SystemExit(0)
+
+registry = json.loads(raw)
+rename = {
+    "keyvault-proxy": "subumbra-proxy",
+    "keyvault-ui": "subumbra-ui",
+    "adapter-probe": "subumbra-probe",
+}
+
+normalized = {}
+for adapter_id, payload in registry.items():
+    normalized[rename.get(adapter_id, adapter_id)] = payload
+
+print(json.dumps(normalized, separators=(",", ":")))
+PY
+)"
+SUBUMBRA_TOKEN_LITELLM="$(_get SUBUMBRA_TOKEN_LITELLM)"
+if [[ -z "$SUBUMBRA_TOKEN_LITELLM" ]]; then
+    SUBUMBRA_TOKEN_LITELLM="$(_get FORGE_TOKEN_LITELLM)"
+fi
+SUBUMBRA_TOKEN_PROXY="$(_get SUBUMBRA_TOKEN_PROXY)"
+if [[ -z "$SUBUMBRA_TOKEN_PROXY" ]]; then
+    SUBUMBRA_TOKEN_PROXY="$(_get FORGE_TOKEN_PROXY)"
+fi
+SUBUMBRA_TOKEN_UI="$(_get SUBUMBRA_TOKEN_UI)"
+if [[ -z "$SUBUMBRA_TOKEN_UI" ]]; then
+    SUBUMBRA_TOKEN_UI="$(_get FORGE_TOKEN_UI)"
+fi
+SUBUMBRA_TOKEN_PROBE="$(_get SUBUMBRA_TOKEN_PROBE)"
+if [[ -z "$SUBUMBRA_TOKEN_PROBE" ]]; then
+    SUBUMBRA_TOKEN_PROBE="$(_get FORGE_TOKEN_PROBE)"
+fi
+SUBUMBRA_HMAC_KEY="$(_get SUBUMBRA_HMAC_KEY)"
+if [[ -z "$SUBUMBRA_HMAC_KEY" ]]; then
+    SUBUMBRA_HMAC_KEY="$(_get FORGE_HMAC_KEY)"
+fi
 CF_WORKER_URL=$(_get CF_WORKER_URL)
+LITELLM_ALLOWED_KEYS=$(_get LITELLM_ALLOWED_KEYS)
 PROXY_ALLOWED_KEYS=$(_get PROXY_ALLOWED_KEYS)
 PROBE_ALLOWED_KEYS=$(_get PROBE_ALLOWED_KEYS)
 UI_ALLOWED_KEYS=$(_get UI_ALLOWED_KEYS)
@@ -59,11 +104,17 @@ update_env() {
 echo ""
 echo "Writing to $ENV_FILE..."
 update_env "SUBUMBRA_ADAPTER_REGISTRY" "$SUBUMBRA_ADAPTER_REGISTRY"
+if [[ -n "$SUBUMBRA_TOKEN_LITELLM" ]]; then
+    update_env "SUBUMBRA_TOKEN_LITELLM"    "$SUBUMBRA_TOKEN_LITELLM"
+fi
 update_env "SUBUMBRA_TOKEN_PROXY"      "$SUBUMBRA_TOKEN_PROXY"
 update_env "SUBUMBRA_TOKEN_UI"         "$SUBUMBRA_TOKEN_UI"
 update_env "SUBUMBRA_TOKEN_PROBE"      "$SUBUMBRA_TOKEN_PROBE"
 update_env "SUBUMBRA_HMAC_KEY"         "$SUBUMBRA_HMAC_KEY"
 update_env "CF_WORKER_URL"             "$CF_WORKER_URL"
+if [[ -n "$LITELLM_ALLOWED_KEYS" ]]; then
+    update_env "LITELLM_ALLOWED_KEYS"      "$LITELLM_ALLOWED_KEYS"
+fi
 update_env "PROXY_ALLOWED_KEYS"        "$PROXY_ALLOWED_KEYS"
 update_env "PROBE_ALLOWED_KEYS"        "$PROBE_ALLOWED_KEYS"
 update_env "UI_ALLOWED_KEYS"           "$UI_ALLOWED_KEYS"
