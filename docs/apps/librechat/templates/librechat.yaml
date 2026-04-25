@@ -1,0 +1,12 @@
+version: 1.3.9
+cache: true
+endpoints:
+  custom:
+    - name: "Subumbra"
+      apiKey: "${SUBUMBRA_KEY_ID}"
+      baseURL: "http://subumbra-proxy:8090/t/v1"
+      models:
+        fetch: true
+        default:
+          - "gpt-4o-mini"
+      modelDisplayLabel: "Subumbra"
