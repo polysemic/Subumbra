@@ -5,6 +5,7 @@ Read-only dashboard; never exposes or fetches key values.
 Talks to subumbra-keys over the Docker internal network.
 
 Routes:
+  GET /health    → lightweight health JSON
   GET /           → dashboard HTML
   GET /api/status → aggregated JSON (health + keys + stats + audit)
 """
@@ -115,6 +116,11 @@ def _proxy_get(path: str) -> tuple[dict | list | None, str | None]:
 # ─────────────────────────────────────────────────────────────────────────────
 # Routes
 # ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/health")
+def health():
+    return jsonify({"status": "ok"}), 200
+
 
 @app.get("/")
 @_require_auth
