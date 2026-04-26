@@ -12,9 +12,13 @@ What this folder covers:
 - [install.md](./install.md) — clean fresh install path
 - [templates/](./templates/) — operator-facing config templates
 
+The tracked `config-subumbra.json` template now includes ready-to-edit JSON
+provider entries for the providers proven working in Round 43-6, excluding
+Together and Gemini for Bifrost.
+
 What is not yet proven:
 
-- multi-provider Bifrost configs
+- a full multi-provider fresh-install walkthrough beyond the included template
 - Bifrost UI behind Cloudflare Access
 - migration from a running non-Subumbra Bifrost install
 

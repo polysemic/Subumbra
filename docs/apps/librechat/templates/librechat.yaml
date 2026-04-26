@@ -1,12 +1,132 @@
 version: 1.3.9
 cache: true
+# ─────────────────────────────────────────────────────────────────────────────
+# LibreChat config — Subumbra multi-provider (Round 43-6)
+#
+# All routes go through the transparent sidecar at http://subumbra-proxy:8090/t
+# apiKey = plain key_id (no real keys in this file)
+#
+# Base URL patterns:
+#   /t/v1          — OpenAI, DeepSeek, Cerebras, Mistral, xAI
+#   /t/openai/v1   — Groq
+#   /t/api/v1      — OpenRouter
+#   /t             — Together (returns non-OpenAI /models format; fetch: false)
+#
+# Anthropic: uses LibreChat's native Anthropic endpoint type.
+# Requires ANTHROPIC_REVERSE_PROXY=http://subumbra-proxy:8090/t in LibreChat .env
+# ─────────────────────────────────────────────────────────────────────────────
+
 endpoints:
+
+  # ── Anthropic (native endpoint — correct format, full model fetch) ──────────
+  # Requires in LibreChat .env:
+  #   ANTHROPIC_API_KEY=anthropic_prod
+  #   ANTHROPIC_REVERSE_PROXY=http://subumbra-proxy:8090/t
+  anthropic:
+    apiKey: "anthropic_prod"
+    models:
+      - "claude-sonnet-4-6"
+      - "claude-opus-4-5"
+      - "claude-haiku-4-5-20251001"
+    titleConvo: true
+    titleModel: "claude-haiku-4-5-20251001"
+
   custom:
-    - name: "Subumbra"
-      apiKey: "${SUBUMBRA_KEY_ID}"
+
+    # ── OpenAI ─────────────────────────────────────────────────────────────────
+    - name: "OpenAI via Subumbra"
+      apiKey: "openai_prod"
       baseURL: "http://subumbra-proxy:8090/t/v1"
       models:
         fetch: true
         default:
           - "gpt-4o-mini"
-      modelDisplayLabel: "Subumbra"
+          - "gpt-4o"
+          - "o3"
+      modelDisplayLabel: "OpenAI"
+      titleConvo: true
+      titleModel: "gpt-4o-mini"
+
+    # ── Groq ───────────────────────────────────────────────────────────────────
+    - name: "Groq via Subumbra"
+      apiKey: "groq_prod"
+      baseURL: "http://subumbra-proxy:8090/t/openai/v1"
+      models:
+        fetch: true
+        default:
+          - "llama-3.3-70b-versatile"
+          - "llama-3.1-8b-instant"
+      modelDisplayLabel: "Groq"
+      titleConvo: true
+      titleModel: "llama-3.1-8b-instant"
+
+    # ── DeepSeek ───────────────────────────────────────────────────────────────
+    - name: "DeepSeek via Subumbra"
+      apiKey: "deepseek_prod"
+      baseURL: "http://subumbra-proxy:8090/t/v1"
+      models:
+        fetch: true
+        default:
+          - "deepseek-chat"
+          - "deepseek-reasoner"
+      modelDisplayLabel: "DeepSeek"
+
+    # ── Cerebras ───────────────────────────────────────────────────────────────
+    - name: "Cerebras via Subumbra"
+      apiKey: "cerebras_prod"
+      baseURL: "http://subumbra-proxy:8090/t/v1"
+      models:
+        fetch: true
+        default:
+          - "llama3.1-8b"
+      modelDisplayLabel: "Cerebras"
+
+    # ── Mistral ────────────────────────────────────────────────────────────────
+    - name: "Mistral via Subumbra"
+      apiKey: "mistral_prod"
+      baseURL: "http://subumbra-proxy:8090/t/v1"
+      models:
+        fetch: true
+        default:
+          - "mistral-large-latest"
+          - "mistral-small-latest"
+          - "open-mistral-nemo"
+      modelDisplayLabel: "Mistral"
+      dropParams:
+        - "user"
+        - "frequency_penalty"
+        - "presence_penalty"
+        - "parallel_tool_calls"
+        - "stop"
+
+    # ── OpenRouter ─────────────────────────────────────────────────────────────
+    - name: "OpenRouter via Subumbra"
+      apiKey: "openrouter_prod"
+      baseURL: "http://subumbra-proxy:8090/t/api/v1"
+      models:
+        fetch: true
+        default:
+          - "anthropic/claude-sonnet-4"
+      modelDisplayLabel: "OpenRouter"
+
+    # ── Together ───────────────────────────────────────────────────────────────
+    - name: "Together via Subumbra"
+      apiKey: "together_prod"
+      baseURL: "http://subumbra-proxy:8090/t"
+      models:
+        fetch: false
+        default:
+          - "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+          - "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"
+      modelDisplayLabel: "Together"
+      # fetch: false — Together /models returns raw array, not OpenAI {data:[]} format
+
+    # ── xAI ────────────────────────────────────────────────────────────────────
+    - name: "xAI via Subumbra"
+      apiKey: "xai_prod"
+      baseURL: "http://subumbra-proxy:8090/t/v1"
+      models:
+        fetch: true
+        default:
+          - "grok-3"
+      modelDisplayLabel: "xAI"
