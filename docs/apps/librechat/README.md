@@ -1,11 +1,15 @@
 # LibreChat
 
-LibreChat is in scope for a direct, app-owned Subumbra integration.
+LibreChat is a proven app-owned Subumbra integration.
 
 Start here:
 
 - [install.md](./install.md) — clean Docker install
 - [takeover.md](./takeover.md) — migrate an existing LibreChat install onto Subumbra
+- [switching.md](./switching.md) — multi-provider switching guide (R43-6)
+
+Tested providers (R43-6): anthropic (native endpoint), openai, groq, deepseek, cerebras,
+mistral (requires dropParams), openrouter, together (fetch: false), xai.
 
 Deferred:
 
