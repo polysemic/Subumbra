@@ -1,5 +1,80 @@
 {
   "providers": {
+    "anthropic": {
+      "keys": [
+        {
+          "name": "subumbra-anthropic-key",
+          "value": "env.BIFROST_ANTHROPIC_KEY",
+          "models": [
+            "claude-sonnet-4-6"
+          ],
+          "weight": 1.0
+        }
+      ],
+      "network_config": {
+        "base_url": "http://subumbra-proxy:8090/t"
+      }
+    },
+    "cerebras": {
+      "keys": [
+        {
+          "name": "subumbra-cerebras-key",
+          "value": "env.BIFROST_CEREBRAS_KEY",
+          "models": [
+            "llama3.1-8b"
+          ],
+          "weight": 1.0
+        }
+      ],
+      "network_config": {
+        "base_url": "http://subumbra-proxy:8090/t"
+      }
+    },
+    "deepseek": {
+      "keys": [
+        {
+          "name": "subumbra-deepseek-key",
+          "value": "env.BIFROST_DEEPSEEK_KEY",
+          "models": [
+            "deepseek-chat"
+          ],
+          "weight": 1.0
+        }
+      ],
+      "network_config": {
+        "base_url": "http://subumbra-proxy:8090/t"
+      }
+    },
+    "groq": {
+      "keys": [
+        {
+          "name": "subumbra-groq-key",
+          "value": "env.BIFROST_GROQ_KEY",
+          "models": [
+            "llama-3.3-70b-versatile"
+          ],
+          "weight": 1.0
+        }
+      ],
+      "network_config": {
+        "base_url": "http://subumbra-proxy:8090/t/openai"
+      }
+    },
+    "mistral": {
+      "keys": [
+        {
+          "name": "subumbra-mistral-key",
+          "value": "env.BIFROST_MISTRAL_KEY",
+          "models": [
+            "mistral-large-latest"
+          ],
+          "weight": 1.0
+        }
+      ],
+      "network_config": {
+        "base_url": "http://subumbra-proxy:8090/t"
+      }
+    },
     "openai": {
       "keys": [
         {
@@ -7,6 +82,36 @@
           "value": "env.BIFROST_OPENAI_KEY",
           "models": [
             "gpt-4o-mini"
+          ],
+          "weight": 1.0
+        }
+      ],
+      "network_config": {
+        "base_url": "http://subumbra-proxy:8090/t"
+      }
+    },
+    "openrouter": {
+      "keys": [
+        {
+          "name": "subumbra-openrouter-key",
+          "value": "env.BIFROST_OPENROUTER_KEY",
+          "models": [
+            "anthropic/claude-sonnet-4"
+          ],
+          "weight": 1.0
+        }
+      ],
+      "network_config": {
+        "base_url": "http://subumbra-proxy:8090/t/api"
+      }
+    },
+    "xai": {
+      "keys": [
+        {
+          "name": "subumbra-xai-key",
+          "value": "env.BIFROST_XAI_KEY",
+          "models": [
+            "grok-3"
           ],
           "weight": 1.0
         }
