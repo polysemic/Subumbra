@@ -1,0 +1,102 @@
+{
+  "name": "Subumbra — Workflow Node (API) via CF Worker",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "e1f2a3b4-0001-0001-0001-000000000001",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://subumbra-proxy.YOUR-SUBDOMAIN.workers.dev/proxy",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Subumbra-Token",
+              "value": "={{ $credentials.httpHeaderAuth.value }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={\n  \"key_id\": \"anthropic_prod\",\n  \"provider\": \"anthropic\",\n  \"target_url\": \"https://api.anthropic.com/v1/messages\",\n  \"method\": \"POST\",\n  \"headers\": {\n    \"anthropic-version\": \"2023-06-01\",\n    \"content-type\": \"application/json\"\n  },\n  \"body\": {\n    \"model\": \"claude-haiku-4-5-20251001\",\n    \"max_tokens\": 20,\n    \"messages\": [\n      {\n        \"role\": \"user\",\n        \"content\": \"Say hello in exactly 5 words.\"\n      }\n    ]\n  }\n}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": false
+            }
+          }
+        }
+      },
+      "id": "e1f2a3b4-0002-0002-0002-000000000002",
+      "name": "Call via CF Worker",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "subumbra-worker-token",
+          "name": "Subumbra Worker Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\n// Anthropic response shape\nconst content = response?.content?.[0]?.text\n  // OpenAI response shape (if using openai_prod key)\n  ?? response?.choices?.[0]?.message?.content\n  ?? 'No content in response';\n\nconst model = response?.model ?? 'unknown';\nconst tokens = (response?.usage?.input_tokens ?? 0) + (response?.usage?.output_tokens ?? 0)\n  || response?.usage?.total_tokens\n  || 0;\n\nreturn [{\n  json: {\n    success: true,\n    routed_via: 'cloudflare-worker-direct',\n    model,\n    reply: content,\n    tokens_used: tokens\n  }\n}];"
+      },
+      "id": "e1f2a3b4-0003-0003-0003-000000000003",
+      "name": "Extract Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "Call via CF Worker",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call via CF Worker": {
+      "main": [
+        [
+          {
+            "node": "Extract Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "pinData": {},
+  "_subumbra_notes": {
+    "pattern": "Workflow-Node (API) — calls CF Worker /proxy directly, not subumbra-proxy",
+    "credential": "HTTP Header Auth with name=X-Subumbra-Token, value=<SUBUMBRA_TOKEN_PROXY from .env>",
+    "url": "Replace YOUR-SUBDOMAIN with your CF Worker subdomain from CF_WORKER_URL in .env",
+    "provider_switching": "Change key_id, provider, target_url, headers, and body.model for a different provider",
+    "proof": "Requests appear in CF Worker logs and Cloudflare DO dashboard — not in subumbra-proxy logs",
+    "replaces": "test-llm-via-subumbra.json (legacy filename)"
+  }
+}

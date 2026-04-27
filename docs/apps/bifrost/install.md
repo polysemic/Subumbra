@@ -12,7 +12,7 @@ This install path proves:
 
 Deferred:
 
-- multi-provider configs (additional providers beyond OpenAI)
+- a full multi-provider operator walkthrough beyond the included template
 - Bifrost UI behind Cloudflare Access
 
 Migration from a running Bifrost instance is covered separately in
@@ -59,7 +59,8 @@ docker compose up -d subumbra-proxy
 
 ## Supported Env Shape
 
-Bifrost reads its provider API key from the environment:
+Bifrost reads provider key IDs from the environment. The single-provider fresh
+install flow only requires:
 
 ```
 BIFROST_OPENAI_KEY=<key_id>
@@ -67,6 +68,10 @@ BIFROST_OPENAI_KEY=<key_id>
 
 The value is the plain Subumbra key ID (not a real API key). Extract from
 [templates/bifrost.env](./templates/bifrost.env).
+
+The promoted JSON template also includes additional ready-to-edit provider
+entries for the other Bifrost providers proven in Round 43-6. Those optional
+entries use `env.BIFROST_<PROVIDER>_KEY` placeholders in the same style.
 
 ## Cut-Over Steps
 
