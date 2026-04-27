@@ -124,6 +124,8 @@ This arc focuses on evolving Subumbra from a static, bundled configuration into 
 - **Round 43.2 — AnythingLLM App-Owned Validation** (Closed): standalone AnythingLLM is now a proven app-owned integration with chat, embeddings, zero-restart rotation, and fail-closed negative validation through the proxy.
 - **Round 43-5 — LibreChat Direct Subumbra Integration** (Closed): LibreChat is now a proven app-owned integration with staged-and-promoted install docs, routed OpenAI-compatible chat proof, model discovery via `models.fetch`, and fail-closed invalid-key verification.
 - **Round 43-5-1 — LibreChat Takeover** (Closed): existing LibreChat installs are now proven for in-place takeover onto the supported Subumbra path with login continuity, conversation continuity, routed chat success, invalid-key fail-closed behavior, and restore proof.
+- **Round 43-6-1 — Env Ingestion + Alpha Polish** (Closed): multi-app env ingestion, shared-key deduplication, alpha versioning, and promoted provider-matrix templates are now in place under the current single-provider-key bootstrap contract.
+- **Round 43-6-2 — Identity Routing** (Closed): `subumbra-proxy` now enforces per-app secure routing with app-token identity, path-based `key_id` extraction, downstream token forwarding, secure-mode `403` passthrough, and transitional legacy pseudo-key compatibility.
 - **Round 43-2 — Documentation and Templates Cleanup** (Closed): established the `docs/apps/` structure, split OpenWebUI guides, and promoted operational templates from council archives to tracked documentation.
 
 ## Path Forward
@@ -132,6 +134,10 @@ Current direction after the first two Round 43 app validations:
 
 1. **Round 43 — App-Owned Integration Validation**
    Continue the app-owned validation arc with `round-43-openclaw` and other later candidates once they meet the Round 43 filter. OpenWebUI and AnythingLLM are complete.
+2. **Round 43-6-3 — Richer Same-Provider Multi-Key Ingestion**
+   Build on the closed 43-6-1/43-6-2 foundation by adding explicit multi-secret same-provider import support without changing the secure routing contract.
+3. **Round 43-6-4 — Operator Bootstrap UX**
+   Consolidate the multi-step ingestion/bootstrap flow into a cleaner operator path after the underlying secure routing and key-ingestion semantics are proven.
 
 Guiding note:
 - Keep project language as **POC** for now.
