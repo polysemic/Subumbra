@@ -82,8 +82,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Generate a reviewable .env.bootstrap.proposed file from one or more app .env files. "
-            "Supports shared-key deduplication across apps under the current one-distinct-secret-"
-            "per-provider bootstrap contract."
+            "Supports multiple same-provider secrets, app-aware generated key_ids, and duplicate-"
+            "secret reuse prompts across app inputs."
         )
     )
     parser.add_argument("--source", action="append", default=[], help="Path to an app .env file")
@@ -138,13 +138,10 @@ def parse_env_file(path: Path) -> OrderedDict[str, tuple[str, str]]:
     return results
 
 
-def collect_sources(
-    source_paths: list[str], app_ids: list[str]
-) -> tuple[list[str], OrderedDict[str, str], dict[str, list[tuple[str, str]]]]:
+def collect_sources(source_paths: list[str], app_ids: list[str]) -> tuple[list[str], list[dict[str, str]]]:
     ordered_apps: list[str] = []
     apps_seen: set[str] = set()
-    providers_by_app: OrderedDict[str, str] = OrderedDict()
-    provider_sources: dict[str, list[tuple[str, str]]] = {}
+    candidates: list[dict[str, str]] = []
 
     for raw_app_id, raw_source in zip(app_ids, source_paths):
         if not ADAPTER_ID_RE.fullmatch(raw_app_id):
@@ -157,44 +154,129 @@ def collect_sources(
             apps_seen.add(raw_app_id)
 
         entries = parse_env_file(source_path)
-        for _env_var, (provider, secret_value) in entries.items():
-            app_key = f"{raw_app_id}:{provider}"
-            providers_by_app[app_key] = secret_value
-            provider_sources.setdefault(provider, []).append((raw_source, secret_value))
-
-    return ordered_apps, providers_by_app, provider_sources
-
-
-def resolve_provider_values(
-    providers_by_app: OrderedDict[str, str], provider_sources: dict[str, list[tuple[str, str]]]
-) -> tuple[OrderedDict[str, str], dict[str, list[str]]]:
-    resolved_values: OrderedDict[str, str] = OrderedDict()
-    provider_to_apps: dict[str, list[str]] = {}
-
-    for app_provider_key, secret_value in providers_by_app.items():
-        app_id, provider = app_provider_key.split(":", 1)
-        if provider not in resolved_values:
-            resolved_values[provider] = secret_value
-            provider_to_apps[provider] = [app_id]
-            continue
-        if resolved_values[provider] != secret_value:
-            source_names = sorted({source for source, _value in provider_sources[provider]})
-            source_summary = ", ".join(source_names)
-            raise RuntimeError(
-                f"conflicting secrets detected for provider '{provider}' from: {source_summary}\n"
-                "43-6-1 supports one distinct secret per provider per generated artifact.\n"
-                "Richer same-provider multi-secret import support is deferred."
+        for env_var, (provider, secret_value) in entries.items():
+            candidates.append(
+                {
+                    "app_id": raw_app_id,
+                    "provider": provider,
+                    "secret_value": secret_value,
+                    "env_var": env_var,
+                    "source_path": raw_source,
+                }
             )
-        if app_id not in provider_to_apps[provider]:
-            provider_to_apps[provider].append(app_id)
 
-    return resolved_values, provider_to_apps
+    return ordered_apps, candidates
+
+
+def generate_key_id(provider: str, app_id: str, ordinal: int) -> str:
+    return f"{provider}_{app_id}_{ordinal}"
+
+
+def _next_key_id(
+    provider: str,
+    app_id: str,
+    ordinals: dict[tuple[str, str], int],
+    used_key_ids: set[str],
+) -> str:
+    key = (provider, app_id)
+    ordinal = ordinals.get(key, 0) + 1
+    candidate = generate_key_id(provider, app_id, ordinal)
+    while candidate in used_key_ids:
+        ordinal += 1
+        candidate = generate_key_id(provider, app_id, ordinal)
+    ordinals[key] = ordinal
+    used_key_ids.add(candidate)
+    return candidate
+
+
+def _duplicate_prompt(
+    candidate: dict[str, str],
+    existing_record: dict[str, object],
+    *,
+    interactive: bool,
+) -> bool:
+    provider = candidate["provider"]
+    app_id = candidate["app_id"]
+    env_var = candidate["env_var"]
+    source_path = candidate["source_path"]
+    existing_key_id = str(existing_record["key_id"])
+    existing_apps = ",".join(existing_record["apps"])
+    message = (
+        f"duplicate secret detected for provider '{provider}' from app '{app_id}' "
+        f"({source_path}:{env_var}); existing record '{existing_key_id}' currently maps to app(s): "
+        f"{existing_apps}"
+    )
+    if not interactive:
+        print(f"WARNING: {message}; reusing existing record in non-interactive mode.", file=sys.stderr)
+        return False
+    print(f"WARNING: {message}")
+    while True:
+        choice = input("Reuse existing record? [Y/n]: ").strip().lower()
+        if choice in {"", "y", "yes"}:
+            return False
+        if choice in {"n", "no"}:
+            return True
+        print("Please answer 'y' to reuse the existing record or 'n' to create a new record.")
+
+
+def resolve_provider_values(candidates: list[dict[str, str]]) -> list[dict[str, object]]:
+    planned_records: list[dict[str, object]] = []
+    used_key_ids: set[str] = set()
+    ordinals: dict[tuple[str, str], int] = {}
+    interactive = sys.stdin.isatty()
+
+    for candidate in candidates:
+        existing_same_secret = None
+        for record in planned_records:
+            if record["provider"] == candidate["provider"] and record["secret_value"] == candidate["secret_value"]:
+                existing_same_secret = record
+                break
+
+        if existing_same_secret is not None:
+            create_new = _duplicate_prompt(candidate, existing_same_secret, interactive=interactive)
+            if not create_new:
+                if candidate["app_id"] not in existing_same_secret["apps"]:
+                    existing_same_secret["apps"].append(candidate["app_id"])
+                existing_same_secret["origins"].append(
+                    {
+                        "app_id": candidate["app_id"],
+                        "env_var": candidate["env_var"],
+                        "source_path": candidate["source_path"],
+                    }
+                )
+                existing_same_secret["duplicate_reused"] = True
+                continue
+            duplicate_created = True
+        else:
+            duplicate_created = False
+
+        app_id = candidate["app_id"]
+        provider = candidate["provider"]
+        key_id = _next_key_id(provider, app_id, ordinals, used_key_ids)
+        planned_records.append(
+            {
+                "provider": provider,
+                "key_id": key_id,
+                "secret_value": candidate["secret_value"],
+                "apps": [app_id],
+                "origins": [
+                    {
+                        "app_id": app_id,
+                        "env_var": candidate["env_var"],
+                        "source_path": candidate["source_path"],
+                    }
+                ],
+                "duplicate_reused": False,
+                "duplicate_created": duplicate_created,
+            }
+        )
+
+    return planned_records
 
 
 def build_artifact(
     ordered_apps: list[str],
-    resolved_values: OrderedDict[str, str],
-    provider_to_apps: dict[str, list[str]],
+    planned_records: list[dict[str, object]],
 ) -> str:
     app_allowed_keys: OrderedDict[str, list[str]] = OrderedDict((app_id, []) for app_id in ordered_apps)
     union_allowed_keys: list[str] = []
@@ -202,8 +284,6 @@ def build_artifact(
     lines: list[str] = [
         "# Generated by scripts/subumbra-env-ingest.py",
         "# WARNING: This file contains real API keys. Review, use for bootstrap, then shred/delete it.",
-        "# 43-6-1 supports one distinct secret per provider per generated artifact.",
-        "# Richer same-provider multi-secret import support is deferred beyond this round.",
         "",
         "# Cloudflare credentials required before bootstrap",
         "CF_API_TOKEN=REPLACE_ME",
@@ -214,22 +294,29 @@ def build_artifact(
         "# Provider secrets and optional key_id overrides",
     ]
 
+    provider_records: dict[str, list[dict[str, object]]] = OrderedDict()
+    for record in planned_records:
+        provider_records.setdefault(str(record["provider"]), []).append(record)
+
     for provider, env_var, key_id_var in PROVIDER_OUTPUT_SPECS:
-        if provider not in resolved_values:
+        if provider not in provider_records:
             continue
-        key_id = f"{provider}_prod"
-        lines.extend(
-            [
-                f"{env_var}={resolved_values[provider]}",
-                f"{key_id_var}={key_id}",
-                "",
-            ]
-        )
-        if key_id not in union_allowed_keys:
-            union_allowed_keys.append(key_id)
-        for app_id in provider_to_apps[provider]:
-            if key_id not in app_allowed_keys[app_id]:
-                app_allowed_keys[app_id].append(key_id)
+        for slot_idx, record in enumerate(provider_records[provider], start=1):
+            slot_env_var = env_var if slot_idx == 1 else f"{env_var}_{slot_idx}"
+            slot_key_id_var = key_id_var if slot_idx == 1 else f"{key_id_var}_{slot_idx}"
+            key_id = str(record["key_id"])
+            lines.extend(
+                [
+                    f"{slot_env_var}={record['secret_value']}",
+                    f"{slot_key_id_var}={key_id}",
+                    "",
+                ]
+            )
+            if key_id not in union_allowed_keys:
+                union_allowed_keys.append(key_id)
+            for app_id in record["apps"]:
+                if key_id not in app_allowed_keys[app_id]:
+                    app_allowed_keys[app_id].append(key_id)
 
     lines.extend(
         [
@@ -267,15 +354,24 @@ def write_output(output_path: Path, content: str, force: bool) -> None:
 def main(argv: list[str] | None = None) -> int:
     try:
         args = parse_args(argv)
-        ordered_apps, providers_by_app, provider_sources = collect_sources(args.source, args.app)
-        if not providers_by_app:
+        ordered_apps, candidates = collect_sources(args.source, args.app)
+        if not candidates:
             raise RuntimeError("no supported provider secrets were detected across the provided source files")
-        resolved_values, provider_to_apps = resolve_provider_values(providers_by_app, provider_sources)
-        artifact = build_artifact(ordered_apps, resolved_values, provider_to_apps)
+        planned_records = resolve_provider_values(candidates)
+        artifact = build_artifact(ordered_apps, planned_records)
         write_output(Path(args.output), artifact, args.force)
         print(f"Processed {len(args.source)} source file(s).")
-        print(f"Detected {len(providers_by_app)} provider secret mapping(s) across app inputs.")
-        print(f"Emitted {len(resolved_values)} merged provider entr{'y' if len(resolved_values) == 1 else 'ies'}.")
+        print(f"Detected {len(candidates)} provider secret mapping(s) across app inputs.")
+        print(f"Emitted {len(planned_records)} key record{'s' if len(planned_records) != 1 else ''}.")
+        for record in planned_records:
+            apps = ",".join(record["apps"])
+            duplicate_note = []
+            if record["duplicate_reused"]:
+                duplicate_note.append("reused duplicate")
+            if record["duplicate_created"]:
+                duplicate_note.append("created from duplicate")
+            note = f" ({'; '.join(duplicate_note)})" if duplicate_note else ""
+            print(f"  - {record['provider']} {record['key_id']} apps={apps}{note}")
         print(f"Wrote reviewable bootstrap artifact: {args.output}")
         return 0
     except RuntimeError as exc:
