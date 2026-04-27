@@ -119,6 +119,26 @@ update_env "PROXY_ALLOWED_KEYS"        "$PROXY_ALLOWED_KEYS"
 update_env "PROBE_ALLOWED_KEYS"        "$PROBE_ALLOWED_KEYS"
 update_env "UI_ALLOWED_KEYS"           "$UI_ALLOWED_KEYS"
 
+custom_token_keys=()
+while IFS= read -r runtime_line; do
+    [[ "$runtime_line" == SUBUMBRA_TOKEN_*=* ]] || continue
+    runtime_key="${runtime_line%%=*}"
+    runtime_value="${runtime_line#*=}"
+    case "$runtime_key" in
+        SUBUMBRA_TOKEN_PROXY|SUBUMBRA_TOKEN_UI|SUBUMBRA_TOKEN_PROBE|SUBUMBRA_TOKEN_LITELLM)
+            continue
+            ;;
+    esac
+    custom_token_keys+=("$runtime_key")
+    update_env "$runtime_key" "$runtime_value"
+done <<< "$RUNTIME"
+if [[ "${#custom_token_keys[@]}" -gt 0 ]]; then
+    echo "Writing custom adapter tokens to $ENV_FILE..."
+    for runtime_key in "${custom_token_keys[@]}"; do
+        echo "  $runtime_key : present"
+    done
+fi
+
 VERIFY_FAILED=0
 for key in SUBUMBRA_ADAPTER_REGISTRY SUBUMBRA_TOKEN_PROXY SUBUMBRA_TOKEN_UI SUBUMBRA_TOKEN_PROBE SUBUMBRA_HMAC_KEY CF_WORKER_URL; do
     if ! grep -q "^${key}=" "$ENV_FILE"; then
