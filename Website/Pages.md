@@ -1,0 +1,1 @@
+Github pages to info pages on website, like docs
