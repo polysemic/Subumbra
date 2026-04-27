@@ -410,6 +410,50 @@ def _parse_env_file(path: str) -> list[tuple[str, str, str]]:
     return list(results.values())
 
 
+def _prompt_app_label(prompt: str = "  App/label for this key: ") -> str:
+    while True:
+        app_label = input(prompt).strip().lower()
+        if ADAPTER_ID_RE.fullmatch(app_label):
+            return app_label
+        print("  ✗  App/label must match ^[a-z0-9][a-z0-9_-]{0,61}[a-z0-9]$.\n")
+
+
+def _next_generated_key_id(
+    provider: str,
+    app_id: str,
+    api_keys: dict[str, tuple[str, str, str, str, str]],
+    existing_keys: dict,
+) -> str:
+    ordinal = 1
+    while True:
+        candidate = f"{provider}_{app_id}_{ordinal}"
+        if candidate not in api_keys and candidate not in existing_keys:
+            return candidate
+        ordinal += 1
+
+
+def _find_duplicate_secret_key_id(
+    api_keys: dict[str, tuple[str, str, str, str, str]],
+    provider: str,
+    raw_value: str,
+) -> str | None:
+    for key_id, (existing_provider, _target_host, _auth_header, _auth_prefix, existing_value) in api_keys.items():
+        if existing_provider == provider and existing_value == raw_value:
+            return key_id
+    return None
+
+
+def _prompt_duplicate_secret_action(provider: str, existing_key_id: str) -> bool:
+    print(f"\n  ⚠  WARNING: duplicate {provider} secret detected; existing record is {existing_key_id}.")
+    while True:
+        choice = input("     Reuse existing record? [Y/n]: ").strip().lower()
+        if choice in {"", "y", "yes"}:
+            return False
+        if choice in {"n", "no"}:
+            return True
+        print("     Please answer 'y' to reuse or 'n' to create a new record.")
+
+
 def _run_import_screen(
     api_keys: dict[str, tuple[str, str, str, str, str]],
     existing_keys: dict,
@@ -455,35 +499,20 @@ def _run_import_screen(
                 break
             continue
 
+        app_label = _prompt_app_label("\n  App/label for keys from this file: ")
         for env_var, provider_id, raw_value in detected:
             target_host = _resolve_target_host(provider_id, prompt_if_missing=False)
             provider_entry = BUILTIN_PROVIDER_BY_ID[provider_id]
             auth_header = provider_entry["auth_header"]
             auth_prefix = provider_entry["auth_prefix"]
-
-            default_key_id = _default_key_id(provider_id)
-            while True:
-                key_id_input = input(
-                    f"\n  Key ID for {env_var} (provider={provider_id}) [{default_key_id}]: "
-                ).strip()
-                key_id = key_id_input or default_key_id
-
-                if not KEY_ID_RE.match(key_id):
-                    print(f"  ✗  Invalid key_id. Must match ^[a-z0-9][a-z0-9_-]{{2,63}}$")
+            duplicate_key_id = _find_duplicate_secret_key_id(api_keys, provider_id, raw_value)
+            if duplicate_key_id is not None:
+                create_new = _prompt_duplicate_secret_action(provider_id, duplicate_key_id)
+                if not create_new:
+                    ok(f"{provider_id:12s}  →  reusing {duplicate_key_id}  (from {env_var}, key hidden)")
                     continue
-                if key_id in api_keys:
-                    print(f"  ✗  key_id '{key_id}' already added. Choose a different name.")
-                    continue
-                if key_id in existing_keys:
-                    ex_provider = existing_keys[key_id].get("provider", "unknown")
-                    if ex_provider != provider_id:
-                        print(f"\n  ⚠  WARNING: key_id '{key_id}' already exists under provider '{ex_provider}'.")
-                        overwrite = input("     Overwrite? [y/N]: ").strip().lower()
-                        if overwrite != "y":
-                            print("  Cancelled. Choose a different key_id.")
-                            continue
-                break
 
+            key_id = _next_generated_key_id(provider_id, app_label, api_keys, existing_keys)
             api_keys[key_id] = (provider_id, target_host, auth_header, auth_prefix, raw_value)
             ok(f"{provider_id:12s}  →  {key_id}  (from {env_var}, key hidden)")
 
@@ -809,9 +838,23 @@ def _load_env_fallback() -> tuple[dict[str, tuple[str, str, str, str, str]], dic
 
     api_keys: dict[str, tuple[str, str, str, str, str]] = {}
     for provider, env_var in KNOWN_PROVIDERS:
-        val = os.environ.get(env_var, "").strip()
-        if val:
-            key_id, key_id_var = _resolve_env_key_id(provider, env_var)
+        base_key_id_var = _key_id_env_var_name(env_var)
+        provider_entry = BUILTIN_PROVIDER_BY_ID[provider]
+        for slot_idx in range(1, 10):
+            slot_env_var = env_var if slot_idx == 1 else f"{env_var}_{slot_idx}"
+            slot_key_id_var = base_key_id_var if slot_idx == 1 else f"{base_key_id_var}_{slot_idx}"
+            val = os.environ.get(slot_env_var, "").strip()
+            if not val:
+                continue
+            key_id = os.environ.get(slot_key_id_var, "").strip()
+            if not key_id:
+                warn(f"Automation mode: skipping {slot_env_var} because companion {slot_key_id_var} is missing")
+                continue
+            if not KEY_ID_RE.fullmatch(key_id):
+                die(
+                    f"Automation mode: invalid key_id {key_id!r} from {slot_key_id_var}\n"
+                    f"  Must match ^[a-z0-9][a-z0-9_-]{{2,63}}$"
+                )
             if key_id in api_keys:
                 existing_provider = api_keys[key_id][0]
                 die(
@@ -819,13 +862,11 @@ def _load_env_fallback() -> tuple[dict[str, tuple[str, str, str, str, str]], dic
                     f"  key_id      : {key_id}\n"
                     f"  provider    : {provider}\n"
                     f"  collides with provider {existing_provider}\n"
-                    f"  env var     : {key_id_var}"
+                    f"  env var     : {slot_key_id_var}"
                 )
-            provider_entry = BUILTIN_PROVIDER_BY_ID[provider]
-            target_host = provider_entry["target_host"]
             api_keys[key_id] = (
                 provider,
-                target_host,
+                provider_entry["target_host"],
                 provider_entry["auth_header"],
                 provider_entry["auth_prefix"],
                 val,
@@ -971,33 +1012,15 @@ def run_interactive_wizard(
             auth_prefix = input("  Auth prefix (e.g. Bearer , leave blank for none): ")
             _upsert_custom_provider_registry_entry(provider, target_host, auth_header, auth_prefix)
 
-        # Prompt for key_id
-        default_key_id = _default_key_id(provider)
-        while True:
-            key_id_input = input(f"  Key ID [{default_key_id}]: ").strip()
-            key_id = key_id_input or default_key_id
-
-            if not KEY_ID_RE.match(key_id):
-                print(f"  ✗  Invalid key_id. Must match ^[a-z0-9][a-z0-9_-]{{2,63}}$\n")
-                continue
-            if key_id in api_keys:
-                print(f"  ✗  key_id '{key_id}' already added in this session. Choose a different name.\n")
-                continue
-            # Cross-provider collision check against existing keys.json
-            if key_id in existing_keys:
-                ex_provider = existing_keys[key_id].get("provider", "unknown")
-                if ex_provider != provider:
-                    print(f"\n  ⚠  WARNING: key_id '{key_id}' already exists in keys.json")
-                    print(f"     under provider '{ex_provider}', not '{provider}'.")
-                    confirm = input("     Overwrite? [y/N]: ").strip().lower()
-                    if confirm != "y":
-                        print("  Cancelled. Choose a different key_id.\n")
-                        continue
-            break
+        app_label = None
+        key_id = ""
+        if choice_num <= n_known:
+            app_label = _prompt_app_label("  App/label for this key: ")
 
         # Prompt for API key value (twice to confirm)
+        key_prompt_label = provider if choice_num <= n_known else key_id
         while True:
-            api_key_1 = getpass.getpass(f"  API Key for {key_id} (hidden): ").strip()
+            api_key_1 = getpass.getpass(f"  API Key for {key_prompt_label} (hidden): ").strip()
             if not api_key_1:
                 print("  ✗  API Key cannot be empty.\n")
                 continue
@@ -1006,6 +1029,38 @@ def run_interactive_wizard(
                 print("  ✗  Keys do not match. Please try again.\n")
                 continue
             break
+
+        if choice_num <= n_known:
+            duplicate_key_id = _find_duplicate_secret_key_id(api_keys, provider, api_key_1)
+            if duplicate_key_id is not None:
+                create_new = _prompt_duplicate_secret_action(provider, duplicate_key_id)
+                if not create_new:
+                    ok(f"{provider:12s}  →  reusing {duplicate_key_id}  (key hidden)")
+                    continue
+            key_id = _next_generated_key_id(provider, app_label, api_keys, existing_keys)
+            info(f"Generated key_id: {key_id}")
+        else:
+            default_key_id = _default_key_id(provider)
+            while True:
+                key_id_input = input(f"  Key ID [{default_key_id}]: ").strip()
+                key_id = key_id_input or default_key_id
+
+                if not KEY_ID_RE.match(key_id):
+                    print(f"  ✗  Invalid key_id. Must match ^[a-z0-9][a-z0-9_-]{{2,63}}$\n")
+                    continue
+                if key_id in api_keys:
+                    print(f"  ✗  key_id '{key_id}' already added in this session. Choose a different name.\n")
+                    continue
+                if key_id in existing_keys:
+                    ex_provider = existing_keys[key_id].get("provider", "unknown")
+                    if ex_provider != provider:
+                        print(f"\n  ⚠  WARNING: key_id '{key_id}' already exists in keys.json")
+                        print(f"     under provider '{ex_provider}', not '{provider}'.")
+                        confirm = input("     Overwrite? [y/N]: ").strip().lower()
+                        if confirm != "y":
+                            print("  Cancelled. Choose a different key_id.\n")
+                            continue
+                break
 
         api_keys[key_id] = (provider, target_host, auth_header, auth_prefix, api_key_1)
         ok(f"{provider:12s}  →  {key_id}  (key hidden)")
