@@ -1,5 +1,7 @@
 # Subumbra — Split-Trust Secret Mediation
 
+Current version label: `0.0.1-alpha`
+
 Subumbra is the core secret-mediation layer. It keeps provider API keys split
 across:
 
@@ -50,6 +52,14 @@ The current transparent contract is:
 - `api_key: <key_id>` using a plain key ID
 
 Do **not** use callback-era `subumbra:<key_id>` values on the supported path.
+
+## Alpha Notes
+
+- `DOUBLE-FETCH` remains an open known limitation and is not fixed in the
+  43-6-1 alpha-polish round.
+- Env ingestion in 43-6-1 supports multi-app deduplication under the current
+  bootstrap contract, but richer same-provider multi-secret import support is
+  deferred to a future round.
 
 ## Quick Start
 

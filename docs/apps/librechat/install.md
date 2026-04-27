@@ -70,8 +70,10 @@ LibreChat custom endpoints use three files:
 
 For the Subumbra path:
 
-- `SUBUMBRA_KEY_ID` is the plain Subumbra key ID, not a real provider secret
-- `librechat.yaml` defines exactly one custom endpoint
+- the promoted `librechat.yaml` ships one active OpenAI endpoint
+  (`openai_prod`) plus additional provider examples proven in R43-6
+- plain key IDs are used in `librechat.yaml`; no real provider secrets belong
+  in the file
 - `docker-compose.override.yml` mounts `librechat.yaml`, attaches the LibreChat
   services to `subumbra-net`, and preserves explicit service names on that
   network so internal DNS stays stable
@@ -108,10 +110,7 @@ Important:
    cat /path/to/templates/librechat.env >> /opt/librechat/.env
    ```
 
-   Then edit:
-
-   - `SUBUMBRA_KEY_ID=<plain-key-id>`
-   - set `UID` / `GID` if your host requires explicit values
+   Then set `UID` / `GID` if your host requires explicit values.
 
 3. Copy the staged LibreChat config files into the LibreChat root:
 
@@ -178,11 +177,10 @@ Fail closed means:
 ## Operator Checklist
 
 1. Confirm `http://127.0.0.1:10199/health` returns `worker_auth":"ok"`.
-2. Confirm the chosen `SUBUMBRA_KEY_ID` appears in `PROXY_ALLOWED_KEYS`.
-3. Set `SUBUMBRA_KEY_ID=<plain-key-id>` in LibreChat `.env`.
-4. Keep `baseURL: http://subumbra-proxy:8090/t/v1` in `librechat.yaml`.
-5. Confirm `apiKey: "${SUBUMBRA_KEY_ID}"`, `models.fetch: true`, and no
+2. Confirm the active key ID in `librechat.yaml` appears in `PROXY_ALLOWED_KEYS`.
+3. Keep `baseURL: http://subumbra-proxy:8090/t/v1` in the active OpenAI entry.
+4. Confirm the active entry uses a plain key ID, `models.fetch: true`, and no
    `user_provided`.
-6. Register the first LibreChat user through the UI.
-7. Export `LIBRECHAT_EMAIL` and `LIBRECHAT_PASSWORD` before verification.
-8. Confirm the routed chat proof in `subumbra-proxy` logs.
+5. Register the first LibreChat user through the UI.
+6. Export `LIBRECHAT_EMAIL` and `LIBRECHAT_PASSWORD` before verification.
+7. Confirm the routed chat proof in `subumbra-proxy` logs.
