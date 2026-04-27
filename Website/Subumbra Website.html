@@ -1,9 +1,11 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="Subumbra — Zero-trust API key broker. Your keys never touch your servers in plaintext.">
+  <meta name="description"
+    content="Subumbra — Zero-trust API key broker. Your keys never touch your servers in plaintext.">
   <meta name="referrer" content="no-referrer">
   <title>Subumbra — Zero-Trust API Key Broker</title>
   <style>
@@ -11,36 +13,47 @@
        Design tokens — matches dashboard template.css
     ══════════════════════════════════════════════════════════ */
     :root {
-      --bg-page:        #061027;
-      --bg-surface:     #1e293b;
-      --bg-raised:      #263044;
-      --bg-sunken:      #0f172a;
-      --border-subtle:  #334155;
-      --border:         1px solid #334155;
-      --text-primary:   #f1f5f9;
+      --bg-page: #061027;
+      --bg-surface: #1e293b;
+      --bg-raised: #263044;
+      --bg-sunken: #0f172a;
+      --border-subtle: #334155;
+      --border: 1px solid #334155;
+      --text-primary: #f1f5f9;
       --text-secondary: #e2e8f0;
-      --text-muted:     #94a3b8;
-      --text-faint:     #64748b;
-      --text-ghost:     #475569;
-      --blue:           #3b82f6;
-      --blue-dim:       #1d4ed8;
-      --green:          #22c55e;
-      --red:            #ef4444;
-      --yellow:         #f59e0b;
+      --text-muted: #94a3b8;
+      --text-faint: #64748b;
+      --text-ghost: #475569;
+      --blue: #3b82f6;
+      --blue-dim: #1d4ed8;
+      --green: #22c55e;
+      --red: #ef4444;
+      --yellow: #f59e0b;
       --font-sans: 'Segoe UI', system-ui, -apple-system, sans-serif;
       --font-mono: ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
-      --radius-sm:   4px;
-      --radius-md:   8px;
-      --radius-lg:   12px;
+      --radius-sm: 4px;
+      --radius-md: 8px;
+      --radius-lg: 12px;
       --radius-full: 9999px;
-      --max-w:       1160px;
-      --nav-h:       60px;
+      --max-w: 1160px;
+      --nav-h: 60px;
       --section-gap: 100px;
     }
 
     /* ── Reset ─────────────────────────────────────────────── */
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html {
+      scroll-behavior: smooth;
+      -webkit-text-size-adjust: 100%;
+    }
+
     body {
       background-color: var(--bg-page);
       color: var(--text-secondary);
@@ -49,7 +62,11 @@
       line-height: 1.6;
       overflow-x: hidden;
     }
-    a { color: inherit; text-decoration: none; }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
 
     /* ── Layout ────────────────────────────────────────────── */
     .wrap {
@@ -71,6 +88,7 @@
       backdrop-filter: blur(12px);
       -webkit-backdrop-filter: blur(12px);
     }
+
     .nav-inner {
       max-width: var(--max-w);
       margin-inline: auto;
@@ -81,6 +99,7 @@
       justify-content: space-between;
       gap: 2rem;
     }
+
     .nav-logo {
       font-size: 1.15rem;
       font-weight: 700;
@@ -88,14 +107,24 @@
       color: var(--text-primary);
       white-space: nowrap;
     }
-    .nav-logo span { color: var(--blue); }
+
+    .nav-logo span {
+      color: var(--blue);
+    }
+
     .nav-links {
       display: flex;
       align-items: center;
       gap: 0.25rem;
       list-style: none;
     }
-    @media (max-width: 640px) { .nav-links { display: none; } }
+
+    @media (max-width: 640px) {
+      .nav-links {
+        display: none;
+      }
+    }
+
     .nav-links a {
       display: block;
       padding: 0.3rem 0.75rem;
@@ -104,7 +133,12 @@
       border-radius: var(--radius-sm);
       transition: color 0.15s, background-color 0.15s;
     }
-    .nav-links a:hover { color: var(--text-primary); background-color: var(--bg-raised); }
+
+    .nav-links a:hover {
+      color: var(--text-primary);
+      background-color: var(--bg-raised);
+    }
+
     .nav-cta {
       display: inline-flex;
       align-items: center;
@@ -120,7 +154,10 @@
       transition: background-color 0.15s;
       white-space: nowrap;
     }
-    .nav-cta:hover { background-color: var(--blue-dim); }
+
+    .nav-cta:hover {
+      background-color: var(--blue-dim);
+    }
 
     /* ══════════════════════════════════════════════════════════
        Hero
@@ -131,6 +168,7 @@
       position: relative;
       overflow: hidden;
     }
+
     /* Grid background */
     .hero::before {
       content: "";
@@ -143,6 +181,7 @@
       opacity: 0.15;
       pointer-events: none;
     }
+
     .hero::after {
       content: "";
       position: absolute;
@@ -153,6 +192,7 @@
       background: linear-gradient(transparent, var(--bg-page));
       pointer-events: none;
     }
+
     .hero-inner {
       position: relative;
       z-index: 1;
@@ -161,8 +201,12 @@
       gap: 3rem;
       align-items: start;
     }
+
     @media (min-width: 900px) {
-      .hero-inner { grid-template-columns: 1fr 1fr; align-items: start; }
+      .hero-inner {
+        grid-template-columns: 1fr 1fr;
+        align-items: start;
+      }
     }
 
     /* Hero text */
@@ -182,6 +226,7 @@
       padding: 0.25rem 0.75rem;
       margin-bottom: 1.25rem;
     }
+
     .hero-eyebrow-dot {
       width: 6px;
       height: 6px;
@@ -189,10 +234,19 @@
       background-color: var(--green);
       animation: pulse 2s infinite;
     }
+
     @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50%       { opacity: 0.3; }
+
+      0%,
+      100% {
+        opacity: 1;
+      }
+
+      50% {
+        opacity: 0.3;
+      }
     }
+
     .hero-title {
       font-size: clamp(2.2rem, 5vw, 3.5rem);
       font-weight: 800;
@@ -202,7 +256,11 @@
       text-wrap: balance;
       margin-bottom: 1.25rem;
     }
-    .hero-title .accent { color: var(--blue); }
+
+    .hero-title .accent {
+      color: var(--blue);
+    }
+
     .hero-body {
       font-size: 1.05rem;
       color: var(--text-muted);
@@ -211,12 +269,14 @@
       text-wrap: pretty;
       margin-bottom: 2rem;
     }
+
     .hero-actions {
       display: flex;
       flex-wrap: wrap;
       gap: 0.75rem;
       align-items: center;
     }
+
     .btn-primary {
       display: inline-flex;
       align-items: center;
@@ -231,7 +291,11 @@
       cursor: pointer;
       transition: background-color 0.15s;
     }
-    .btn-primary:hover { background-color: var(--blue-dim); }
+
+    .btn-primary:hover {
+      background-color: var(--blue-dim);
+    }
+
     .btn-secondary {
       display: inline-flex;
       align-items: center;
@@ -246,7 +310,11 @@
       cursor: pointer;
       transition: color 0.15s, border-color 0.15s;
     }
-    .btn-secondary:hover { color: var(--text-primary); border-color: var(--text-ghost); }
+
+    .btn-secondary:hover {
+      color: var(--text-primary);
+      border-color: var(--text-ghost);
+    }
 
     /* ══════════════════════════════════════════════════════════
        Architecture Diagram
@@ -265,6 +333,7 @@
       border-radius: var(--radius-md);
       padding: 0.75rem 0.9rem;
     }
+
     .arch-box-label {
       font-size: 0.62rem;
       font-weight: 700;
@@ -273,24 +342,44 @@
       color: var(--text-faint);
       margin-bottom: 0.25rem;
     }
+
     .arch-box-name {
       font-family: var(--font-mono);
       font-size: 0.78rem;
       color: var(--text-primary);
       font-weight: 600;
     }
+
     .arch-box-sub {
       font-size: 0.67rem;
       color: var(--text-ghost);
       margin-top: 0.2rem;
       line-height: 1.4;
     }
-    .arch-box.blue-tint   { border-color: rgba(59,130,246,0.35);  background-color: rgba(30,58,138,0.15); }
-    .arch-box.orange-tint { border-color: rgba(249,115,22,0.35);  background-color: rgba(69,26,3,0.2);   }
-    .arch-box.purple-tint { border-color: rgba(167,139,250,0.35); background-color: rgba(30,27,75,0.3);  }
+
+    .arch-box.blue-tint {
+      border-color: rgba(59, 130, 246, 0.35);
+      background-color: rgba(30, 58, 138, 0.15);
+    }
+
+    .arch-box.orange-tint {
+      border-color: rgba(249, 115, 22, 0.35);
+      background-color: rgba(69, 26, 3, 0.2);
+    }
+
+    .arch-box.purple-tint {
+      border-color: rgba(167, 139, 250, 0.35);
+      background-color: rgba(30, 27, 75, 0.3);
+    }
 
     /* Tags */
-    .arch-tags { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.35rem; }
+    .arch-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.3rem;
+      margin-top: 0.35rem;
+    }
+
     .arch-tag {
       display: inline-block;
       font-size: 0.58rem;
@@ -300,10 +389,26 @@
       padding: 2px 5px;
       border-radius: var(--radius-sm);
     }
-    .tag-green  { background: #052e16; color: #4ade80; }
-    .tag-cyan   { background: #082f49; color: #38bdf8; }
-    .tag-purple { background: #1e1b4b; color: #a78bfa; }
-    .tag-red    { background: #450a0a; color: #fca5a5; }
+
+    .tag-green {
+      background: #052e16;
+      color: #4ade80;
+    }
+
+    .tag-cyan {
+      background: #082f49;
+      color: #38bdf8;
+    }
+
+    .tag-purple {
+      background: #1e1b4b;
+      color: #a78bfa;
+    }
+
+    .tag-red {
+      background: #450a0a;
+      color: #fca5a5;
+    }
 
     .arch-audit {
       font-family: var(--font-mono);
@@ -320,12 +425,14 @@
       gap: 0.1rem;
       padding-block: 0.1rem;
     }
+
     .arch-arrow-line {
       width: 2px;
       height: 18px;
       background: linear-gradient(to bottom, var(--border-subtle), var(--blue), var(--border-subtle));
       border-radius: 1px;
     }
+
     .arch-arrow-label {
       font-family: var(--font-mono);
       font-size: 0.58rem;
@@ -340,8 +447,16 @@
       grid-template-columns: 1fr 20px 1fr;
       align-items: start;
     }
-    .arch-j-left  { display: flex; flex-direction: column; }
-    .arch-j-right { display: flex; flex-direction: column; }
+
+    .arch-j-left {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .arch-j-right {
+      display: flex;
+      flex-direction: column;
+    }
 
     /* Horizontal arm: left col connects to junction dot */
     .arch-j-arm-h {
@@ -356,11 +471,13 @@
       flex-direction: column;
       align-items: center;
     }
+
     .arch-j-v-in {
       height: 11px;
       width: 2px;
       background: linear-gradient(to bottom, var(--border-subtle), var(--blue));
     }
+
     .arch-j-dot {
       width: 8px;
       height: 8px;
@@ -368,6 +485,7 @@
       background: var(--blue);
       flex-shrink: 0;
     }
+
     .arch-j-split {
       flex: 1;
       display: flex;
@@ -375,12 +493,14 @@
       align-items: center;
       width: 100%;
     }
+
     .arch-j-split-line {
       flex: 1;
       width: 2px;
       background: #475569;
       min-height: 20px;
     }
+
     .arch-j-split-label {
       writing-mode: vertical-rl;
       font-family: var(--font-mono);
@@ -409,12 +529,14 @@
       gap: 0.1rem;
       padding-block: 0.1rem;
     }
+
     .arch-do-arrow-line {
       width: 2px;
       height: 14px;
-      background: linear-gradient(to bottom, rgba(249,115,22,0.5), rgba(167,139,250,0.5));
+      background: linear-gradient(to bottom, rgba(249, 115, 22, 0.5), rgba(167, 139, 250, 0.5));
       border-radius: 1px;
     }
+
     .arch-do-arrow-label {
       font-family: var(--font-mono);
       font-size: 0.56rem;
@@ -431,6 +553,7 @@
       border-top: var(--border);
       border-bottom: var(--border);
     }
+
     .providers-label {
       font-size: 0.72rem;
       font-weight: 700;
@@ -440,12 +563,14 @@
       text-align: center;
       margin-bottom: 1.5rem;
     }
+
     .providers-grid {
       display: flex;
       flex-wrap: wrap;
       gap: 0.6rem;
       justify-content: center;
     }
+
     .provider-chip {
       display: inline-flex;
       align-items: center;
@@ -457,17 +582,63 @@
       letter-spacing: 0.06em;
       text-transform: uppercase;
     }
-    .chip-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
-    .chip-anthropic { background: #451a03; color: #fb923c; }
-    .chip-openai    { background: #052e16; color: #4ade80; }
-    .chip-groq      { background: #1e1b4b; color: #a78bfa; }
-    .chip-deepseek  { background: #082f49; color: #38bdf8; }
-    .chip-gemini    { background: #0c2d48; color: #7ec8e3; }
-    .chip-mistral   { background: #1a1a2e; color: #e0aaff; }
-    .chip-cerebras  { background: #1a0a00; color: #fdba74; }
-    .chip-openrouter{ background: #0d1f0d; color: #86efac; }
-    .chip-xai       { background: #111827; color: #d1d5db; }
-    .chip-together  { background: #1a0a2e; color: #c4b5fd; }
+
+    .chip-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .chip-anthropic {
+      background: #451a03;
+      color: #fb923c;
+    }
+
+    .chip-openai {
+      background: #052e16;
+      color: #4ade80;
+    }
+
+    .chip-groq {
+      background: #1e1b4b;
+      color: #a78bfa;
+    }
+
+    .chip-deepseek {
+      background: #082f49;
+      color: #38bdf8;
+    }
+
+    .chip-gemini {
+      background: #0c2d48;
+      color: #7ec8e3;
+    }
+
+    .chip-mistral {
+      background: #1a1a2e;
+      color: #e0aaff;
+    }
+
+    .chip-cerebras {
+      background: #1a0a00;
+      color: #fdba74;
+    }
+
+    .chip-openrouter {
+      background: #0d1f0d;
+      color: #86efac;
+    }
+
+    .chip-xai {
+      background: #111827;
+      color: #d1d5db;
+    }
+
+    .chip-together {
+      background: #1a0a2e;
+      color: #c4b5fd;
+    }
 
     /* ══════════════════════════════════════════════════════════
        Section shared
@@ -475,6 +646,7 @@
     .section {
       padding-block: var(--section-gap);
     }
+
     .section-label {
       font-family: var(--font-mono);
       font-size: 0.72rem;
@@ -484,6 +656,7 @@
       color: var(--blue);
       margin-bottom: 0.85rem;
     }
+
     .section-title {
       font-size: clamp(1.75rem, 3.5vw, 2.4rem);
       font-weight: 800;
@@ -493,6 +666,7 @@
       text-wrap: balance;
       margin-bottom: 1rem;
     }
+
     .section-body {
       font-size: 1rem;
       color: var(--text-muted);
@@ -500,7 +674,10 @@
       text-wrap: pretty;
       line-height: 1.65;
     }
-    .section-head { margin-bottom: clamp(2.5rem, 5vw, 3.5rem); }
+
+    .section-head {
+      margin-bottom: clamp(2.5rem, 5vw, 3.5rem);
+    }
 
     /* ══════════════════════════════════════════════════════════
        How it works
@@ -514,8 +691,19 @@
       border-radius: var(--radius-lg);
       overflow: hidden;
     }
-    @media (min-width: 700px)  { .how-grid { grid-template-columns: repeat(2, 1fr); } }
-    @media (min-width: 1000px) { .how-grid { grid-template-columns: repeat(4, 1fr); } }
+
+    @media (min-width: 700px) {
+      .how-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    @media (min-width: 1000px) {
+      .how-grid {
+        grid-template-columns: repeat(4, 1fr);
+      }
+    }
+
     .how-step {
       background-color: var(--bg-surface);
       padding: 1.75rem 1.5rem;
@@ -523,6 +711,7 @@
       flex-direction: column;
       gap: 0.65rem;
     }
+
     .how-step-num {
       font-family: var(--font-mono);
       font-size: 0.68rem;
@@ -530,18 +719,21 @@
       letter-spacing: 0.1em;
       color: var(--blue);
     }
+
     .how-step-title {
       font-size: 0.92rem;
       font-weight: 700;
       color: var(--text-primary);
       line-height: 1.3;
     }
+
     .how-step-body {
       font-size: 0.83rem;
       color: var(--text-muted);
       line-height: 1.55;
       flex: 1;
     }
+
     .how-step-code {
       font-family: var(--font-mono);
       font-size: 0.7rem;
@@ -561,13 +753,25 @@
       border-top: var(--border);
       border-bottom: var(--border);
     }
+
     .features-grid {
       display: grid;
       grid-template-columns: 1fr;
       gap: 1.25rem;
     }
-    @media (min-width: 600px) { .features-grid { grid-template-columns: repeat(2, 1fr); } }
-    @media (min-width: 900px) { .features-grid { grid-template-columns: repeat(3, 1fr); } }
+
+    @media (min-width: 600px) {
+      .features-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    @media (min-width: 900px) {
+      .features-grid {
+        grid-template-columns: repeat(3, 1fr);
+      }
+    }
+
     .feature-card {
       background-color: var(--bg-surface);
       border: var(--border);
@@ -578,7 +782,11 @@
       gap: 0.65rem;
       transition: border-color 0.2s;
     }
-    .feature-card:hover { border-color: var(--blue); }
+
+    .feature-card:hover {
+      border-color: var(--blue);
+    }
+
     .feature-icon {
       width: 36px;
       height: 36px;
@@ -589,14 +797,42 @@
       font-size: 1rem;
       flex-shrink: 0;
     }
-    .fi-blue   { background: rgba(59,130,246,0.12); }
-    .fi-green  { background: rgba(34,197,94,0.12);  }
-    .fi-orange { background: rgba(249,115,22,0.12); }
-    .fi-purple { background: rgba(167,139,250,0.12);}
-    .fi-cyan   { background: rgba(56,189,248,0.12); }
-    .fi-yellow { background: rgba(245,158,11,0.12); }
-    .feature-title { font-size: 0.92rem; font-weight: 700; color: var(--text-primary); }
-    .feature-body  { font-size: 0.83rem; color: var(--text-muted); line-height: 1.55; }
+
+    .fi-blue {
+      background: rgba(59, 130, 246, 0.12);
+    }
+
+    .fi-green {
+      background: rgba(34, 197, 94, 0.12);
+    }
+
+    .fi-orange {
+      background: rgba(249, 115, 22, 0.12);
+    }
+
+    .fi-purple {
+      background: rgba(167, 139, 250, 0.12);
+    }
+
+    .fi-cyan {
+      background: rgba(56, 189, 248, 0.12);
+    }
+
+    .fi-yellow {
+      background: rgba(245, 158, 11, 0.12);
+    }
+
+    .feature-title {
+      font-size: 0.92rem;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+
+    .feature-body {
+      font-size: 0.83rem;
+      color: var(--text-muted);
+      line-height: 1.55;
+    }
 
     /* ══════════════════════════════════════════════════════════
        Security
@@ -606,9 +842,26 @@
       grid-template-columns: 1fr;
       gap: 3rem;
     }
-    @media (min-width: 900px) { .security-layout { grid-template-columns: 1fr 1fr; } }
-    .security-list { list-style: none; display: flex; flex-direction: column; gap: 1rem; }
-    .security-item { display: flex; gap: 0.85rem; align-items: flex-start; }
+
+    @media (min-width: 900px) {
+      .security-layout {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+
+    .security-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .security-item {
+      display: flex;
+      gap: 0.85rem;
+      align-items: flex-start;
+    }
+
     .security-check {
       width: 20px;
       height: 20px;
@@ -623,14 +876,27 @@
       flex-shrink: 0;
       margin-top: 2px;
     }
-    .security-item-title { font-size: 0.88rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.2rem; }
-    .security-item-body  { font-size: 0.8rem; color: var(--text-muted); line-height: 1.5; }
+
+    .security-item-title {
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 0.2rem;
+    }
+
+    .security-item-body {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
     .threat-panel {
       background-color: var(--bg-surface);
       border: var(--border);
       border-radius: var(--radius-lg);
       overflow: hidden;
     }
+
     .threat-panel-header {
       background-color: var(--bg-raised);
       border-bottom: var(--border);
@@ -644,10 +910,25 @@
       text-transform: uppercase;
       color: var(--text-faint);
     }
-    .tdot { width: 8px; height: 8px; border-radius: 50%; }
-    .tdot-r { background: #ef4444; }
-    .tdot-y { background: #f59e0b; }
-    .tdot-g { background: #22c55e; }
+
+    .tdot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+
+    .tdot-r {
+      background: #ef4444;
+    }
+
+    .tdot-y {
+      background: #f59e0b;
+    }
+
+    .tdot-g {
+      background: #22c55e;
+    }
+
     .threat-row {
       display: grid;
       grid-template-columns: 1fr auto;
@@ -657,8 +938,15 @@
       border-bottom: var(--border);
       font-size: 0.8rem;
     }
-    .threat-row:last-child { border-bottom: none; }
-    .threat-name { color: var(--text-muted); }
+
+    .threat-row:last-child {
+      border-bottom: none;
+    }
+
+    .threat-name {
+      color: var(--text-muted);
+    }
+
     .threat-verdict {
       font-family: var(--font-mono);
       font-size: 0.65rem;
@@ -667,14 +955,30 @@
       border-radius: var(--radius-full);
       white-space: nowrap;
     }
-    .v-blocked   { background: #052e16; color: #4ade80; }
-    .v-mitigated { background: #082f49; color: #38bdf8; }
-    .v-partial   { background: #451a03; color: #fb923c; }
+
+    .v-blocked {
+      background: #052e16;
+      color: #4ade80;
+    }
+
+    .v-mitigated {
+      background: #082f49;
+      color: #38bdf8;
+    }
+
+    .v-partial {
+      background: #451a03;
+      color: #fb923c;
+    }
 
     /* ══════════════════════════════════════════════════════════
        CTA
     ══════════════════════════════════════════════════════════ */
-    .cta-section { padding-block: var(--section-gap); text-align: center; }
+    .cta-section {
+      padding-block: var(--section-gap);
+      text-align: center;
+    }
+
     .cta-box {
       background-color: var(--bg-surface);
       border: var(--border);
@@ -683,15 +987,19 @@
       position: relative;
       overflow: hidden;
     }
+
     .cta-box::before {
       content: "";
       position: absolute;
-      top: 0; left: 50%;
+      top: 0;
+      left: 50%;
       translate: -50% -50%;
-      width: 500px; height: 500px;
-      background: radial-gradient(circle, rgba(59,130,246,0.05) 0%, transparent 70%);
+      width: 500px;
+      height: 500px;
+      background: radial-gradient(circle, rgba(59, 130, 246, 0.05) 0%, transparent 70%);
       pointer-events: none;
     }
+
     .cta-title {
       font-size: clamp(1.6rem, 3.5vw, 2.4rem);
       font-weight: 800;
@@ -700,6 +1008,7 @@
       margin-bottom: 1rem;
       text-wrap: balance;
     }
+
     .cta-body {
       font-size: 1rem;
       color: var(--text-muted);
@@ -708,12 +1017,14 @@
       margin-bottom: 2rem;
       text-wrap: pretty;
     }
+
     .cta-actions {
       display: flex;
       flex-wrap: wrap;
       justify-content: center;
       gap: 0.75rem;
     }
+
     .cta-mono {
       font-family: var(--font-mono);
       font-size: 0.78rem;
@@ -734,17 +1045,38 @@
       background-color: var(--bg-sunken);
       padding-block: 3rem;
     }
+
     .footer-inner {
       display: grid;
       grid-template-columns: 1fr;
       gap: 2.5rem;
     }
+
     @media (min-width: 700px) {
-      .footer-inner { grid-template-columns: 2fr 1fr 1fr 1fr; gap: 3rem; }
+      .footer-inner {
+        grid-template-columns: 2fr 1fr 1fr 1fr;
+        gap: 3rem;
+      }
     }
-    .footer-brand { font-size: 1.05rem; font-weight: 700; color: var(--text-primary); margin-bottom: 0.6rem; }
-    .footer-brand span { color: var(--blue); }
-    .footer-tagline { font-size: 0.82rem; color: var(--text-ghost); line-height: 1.6; max-width: 28ch; }
+
+    .footer-brand {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin-bottom: 0.6rem;
+    }
+
+    .footer-brand span {
+      color: var(--blue);
+    }
+
+    .footer-tagline {
+      font-size: 0.82rem;
+      color: var(--text-ghost);
+      line-height: 1.6;
+      max-width: 28ch;
+    }
+
     .footer-col-title {
       font-size: 0.7rem;
       font-weight: 700;
@@ -753,9 +1085,24 @@
       color: var(--text-faint);
       margin-bottom: 1rem;
     }
-    .footer-links { list-style: none; display: flex; flex-direction: column; gap: 0.55rem; }
-    .footer-links a { font-size: 0.85rem; color: var(--text-ghost); transition: color 0.15s; }
-    .footer-links a:hover { color: var(--text-muted); }
+
+    .footer-links {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+    }
+
+    .footer-links a {
+      font-size: 0.85rem;
+      color: var(--text-ghost);
+      transition: color 0.15s;
+    }
+
+    .footer-links a:hover {
+      color: var(--text-muted);
+    }
+
     .footer-bottom {
       margin-top: 2.5rem;
       padding-top: 1.25rem;
@@ -768,6 +1115,7 @@
       font-size: 0.78rem;
       color: var(--text-ghost);
     }
+
     .footer-badge {
       display: inline-flex;
       align-items: center;
@@ -776,14 +1124,17 @@
       font-size: 0.68rem;
       color: var(--text-faint);
     }
+
     .footer-badge-dot {
-      width: 6px; height: 6px;
+      width: 6px;
+      height: 6px;
       border-radius: 50%;
       background: var(--green);
       animation: pulse 2s infinite;
     }
   </style>
 </head>
+
 <body>
 
   <!-- ── Navigation ──────────────────────────────────────────── -->
@@ -851,7 +1202,6 @@
           <div class="arch-junction">
 
             <div class="arch-j-left">
-              <div class="arch-j-arm-h"></div>
               <div class="arch-box blue-tint">
                 <div class="arch-box-label">subumbra-keys</div>
                 <div class="arch-box-name">Encrypted blob store</div>
@@ -881,6 +1231,7 @@
                 <div class="arch-tags">
                   <span class="arch-tag tag-cyan">private key in CF Secrets</span>
                 </div>
+                <div class="arch-audit">✓ every call logged to audit</div>
               </div>
               <div class="arch-do-mini-arrow">
                 <div class="arch-do-arrow-line"></div>
@@ -900,7 +1251,6 @@
               <span class="arch-tag tag-purple">~100ms memory</span>
               <span class="arch-tag tag-red">then destroyed</span>
             </div>
-            <div class="arch-audit">✓ every call logged to audit</div>
           </div>
 
           <!-- Arrow: DO → Provider -->
@@ -928,18 +1278,24 @@
   <!-- ── Providers ────────────────────────────────────────────── -->
   <div class="providers-strip">
     <div class="wrap">
-      <p class="providers-label">Supported providers</p>
+      <p class="providers-label">Tested providers</p>
       <div class="providers-grid">
-        <span class="provider-chip chip-anthropic"><span class="chip-dot" style="background:#fb923c;"></span>Anthropic</span>
+        <span class="provider-chip chip-anthropic"><span class="chip-dot"
+            style="background:#fb923c;"></span>Anthropic</span>
         <span class="provider-chip chip-openai"><span class="chip-dot" style="background:#4ade80;"></span>OpenAI</span>
         <span class="provider-chip chip-groq"><span class="chip-dot" style="background:#a78bfa;"></span>Groq</span>
-        <span class="provider-chip chip-deepseek"><span class="chip-dot" style="background:#38bdf8;"></span>DeepSeek</span>
+        <span class="provider-chip chip-deepseek"><span class="chip-dot"
+            style="background:#38bdf8;"></span>DeepSeek</span>
         <span class="provider-chip chip-gemini"><span class="chip-dot" style="background:#7ec8e3;"></span>Gemini</span>
-        <span class="provider-chip chip-mistral"><span class="chip-dot" style="background:#e0aaff;"></span>Mistral</span>
-        <span class="provider-chip chip-cerebras"><span class="chip-dot" style="background:#fdba74;"></span>Cerebras</span>
-        <span class="provider-chip chip-openrouter"><span class="chip-dot" style="background:#86efac;"></span>OpenRouter</span>
+        <span class="provider-chip chip-mistral"><span class="chip-dot"
+            style="background:#e0aaff;"></span>Mistral</span>
+        <span class="provider-chip chip-cerebras"><span class="chip-dot"
+            style="background:#fdba74;"></span>Cerebras</span>
+        <span class="provider-chip chip-openrouter"><span class="chip-dot"
+            style="background:#86efac;"></span>OpenRouter</span>
         <span class="provider-chip chip-xai"><span class="chip-dot" style="background:#d1d5db;"></span>xAI</span>
-        <span class="provider-chip chip-together"><span class="chip-dot" style="background:#c4b5fd;"></span>Together</span>
+        <span class="provider-chip chip-together"><span class="chip-dot"
+            style="background:#c4b5fd;"></span>Together</span>
       </div>
     </div>
   </div>
@@ -959,25 +1315,67 @@
         <div class="how-step">
           <div class="how-step-num">01 / Bootstrap</div>
           <div class="how-step-title">Keys enter RAM only</div>
-          <div class="how-step-body">Run the interactive wizard. Your API keys exist only in process memory — never written to disk at any point.</div>
+          <div class="how-step-body">Run the interactive wizard. Your API keys exist only in process memory — never
+            written to disk at any point.</div>
           <div class="how-step-code">docker compose --profile bootstrap<br>run --rm -it bootstrap</div>
         </div>
         <div class="how-step">
           <div class="how-step-num">02 / Encrypt</div>
           <div class="how-step-title">RSA-4096 + AES-256-GCM</div>
-          <div class="how-step-body">Each key gets a unique DEK wrapped by an RSA-4096 public key. AAD binding ties each ciphertext to its key ID — transplant attacks fail.</div>
+          <div class="how-step-body">Each key gets a unique DEK wrapped by an RSA-4096 public key. AAD binding ties each
+            ciphertext to its key ID — transplant attacks fail.</div>
           <div class="how-step-code">subumbra:v2:&lt;key_id&gt;<br>AES-256-GCM · OAEP-SHA256</div>
         </div>
         <div class="how-step">
           <div class="how-step-num">03 / Split</div>
           <div class="how-step-title">Private key goes to Cloudflare</div>
-          <div class="how-step-body">The RSA private key is pushed directly to Cloudflare Secrets and deleted from memory. Your VPS holds ciphertext only.</div>
+          <div class="how-step-body">The RSA private key is pushed directly to Cloudflare Secrets and deleted from
+            memory. Your VPS holds ciphertext only.</div>
           <div class="how-step-code">WORKER_PRIVATE_KEY → CF Secrets<br>keys.json → your volume</div>
         </div>
         <div class="how-step">
           <div class="how-step-num">04 / Proxy</div>
           <div class="how-step-title">Apps use a plain key ID</div>
-          <div class="how-step-body">Apps point at subumbra-proxy with a plain key_id. The Durable Object decrypts for ~100ms, calls the provider, and the key is gone.</div>
+          <div class="how-step-body">Apps point at subumbra-proxy with a plain key_id. The Durable Object decrypts for
+            ~100ms, calls the provider, and the key is gone.</div>
+          <div class="how-step-code">api_base: http://subumbra-proxy<br>api_key: anthropic_prod</div>
+        </div>
+      </div>
+      <div class="section-head">
+        <p class="section-label">How it works</p>
+        <h2 class="section-title">One bootstrap. Encrypt All Your Secrets at Once</h2>
+        <p class="section-body">
+          A one-shot setup encrypts your keys and deploys the decryption
+          authority to Cloudflare. After that, your servers only ever hold useless ciphertext.
+        </p>
+      </div>
+      <div class="how-grid">
+        <div class="how-step">
+          <div class="how-step-num">01 / Bootstrap</div>
+          <div class="how-step-title">Encrypt Your Current Secrets</div>
+          <div class="how-step-body">Run the interactive wizard. Your API keys are encrypted directly into Subumbra. All
+            your files, one easy process.</div>
+          <div class="how-step-code">docker compose --profile bootstrap<br>run --rm -it bootstrap</div>
+        </div>
+        <div class="how-step">
+          <div class="how-step-num">02 / Encrypt</div>
+          <div class="how-step-title">RSA-4096 + AES-256-GCM</div>
+          <div class="how-step-body">Each key gets a unique DEK wrapped by an RSA-4096 public key. AAD binding ties each
+            ciphertext to its key ID — transplant attacks fail.</div>
+          <div class="how-step-code">subumbra:v2:&lt;key_id&gt;<br>AES-256-GCM · OAEP-SHA256</div>
+        </div>
+        <div class="how-step">
+          <div class="how-step-num">03 / Split</div>
+          <div class="how-step-title">Private key goes to Cloudflare</div>
+          <div class="how-step-body">The RSA private key is pushed directly to Cloudflare Secrets and deleted from
+            memory. Your VPS holds ciphertext only.</div>
+          <div class="how-step-code">WORKER_PRIVATE_KEY → CF Secrets<br>keys.json → your volume</div>
+        </div>
+        <div class="how-step">
+          <div class="how-step-num">04 / Proxy</div>
+          <div class="how-step-title">Apps use a plain key ID</div>
+          <div class="how-step-body">Apps point at subumbra-proxy with a plain key_id. The Durable Object decrypts for
+            ~100ms, calls the provider, and the key is gone.</div>
           <div class="how-step-code">api_base: http://subumbra-proxy<br>api_key: anthropic_prod</div>
         </div>
       </div>
@@ -996,32 +1394,39 @@
           <article class="feature-card">
             <div class="feature-icon fi-blue">⚡</div>
             <div class="feature-title">Transparent proxy</div>
-            <div class="feature-body">Drop-in sidecar at <code style="font-family:var(--font-mono);font-size:0.8em;color:#7dd3fc;">:8090/t</code>. No app code changes — swap the base URL and use a key ID instead of a real key.</div>
+            <div class="feature-body">Drop-in sidecar at <code
+                style="font-family:var(--font-mono);font-size:0.8em;color:#7dd3fc;">:8090/t</code>. No app code changes
+              — swap the base URL and use a key ID instead of a real key.</div>
           </article>
           <article class="feature-card">
             <div class="feature-icon fi-green">🔄</div>
             <div class="feature-title">Offline key rotation</div>
-            <div class="feature-body">Rotate individual keys using the public key on disk. No Cloudflare interaction, no Worker redeploy, no service restart. Zero downtime.</div>
+            <div class="feature-body">Rotate individual keys using the public key on disk. No Cloudflare interaction, no
+              Worker redeploy, no service restart. Zero downtime.</div>
           </article>
           <article class="feature-card">
             <div class="feature-icon fi-orange">🧩</div>
             <div class="feature-title">Live provider registry</div>
-            <div class="feature-body">Provider allowlists live in Cloudflare KV. Add or update providers without redeploying the Worker. Custom providers fully supported.</div>
+            <div class="feature-body">Provider allowlists live in Cloudflare KV. Add or update providers without
+              redeploying the Worker. Custom providers fully supported.</div>
           </article>
           <article class="feature-card">
             <div class="feature-icon fi-purple">📊</div>
             <div class="feature-title">Management dashboard</div>
-            <div class="feature-body">Health status, per-key request counts, last access times, and a live structured audit log — without ever displaying key values.</div>
+            <div class="feature-body">Health status, per-key request counts, last access times, and a live structured
+              audit log — without ever displaying key values.</div>
           </article>
           <article class="feature-card">
             <div class="feature-icon fi-cyan">🔒</div>
             <div class="feature-title">Secure browser key entry</div>
-            <div class="feature-body">Add or rotate keys via the browser with ephemeral RSA session keypairs and SubtleCrypto paste interception. Plaintext never touches the DOM.</div>
+            <div class="feature-body">Add or rotate keys via the browser with ephemeral RSA session keypairs and
+              SubtleCrypto paste interception. Plaintext never touches the DOM.</div>
           </article>
           <article class="feature-card">
             <div class="feature-icon fi-yellow">🧱</div>
             <div class="feature-title">Multi-adapter support</div>
-            <div class="feature-body">Named adapters with scoped key access, independent tokens, and configurable expiry. OpenWebUI, AnythingLLM, n8n, and custom apps all work.</div>
+            <div class="feature-body">Named adapters with scoped key access, independent tokens, and configurable
+              expiry. OpenWebUI, AnythingLLM, n8n, and custom apps all work.</div>
           </article>
         </div>
       </div>
@@ -1045,42 +1450,48 @@
             <div class="security-check">✓</div>
             <div>
               <div class="security-item-title">RSA-4096 + AES-256-GCM envelope encryption</div>
-              <div class="security-item-body">Per-record DEKs wrapped by RSA-4096. AAD binding prevents ciphertext transplant between records.</div>
+              <div class="security-item-body">Per-record DEKs wrapped by RSA-4096. AAD binding prevents ciphertext
+                transplant between records.</div>
             </div>
           </li>
           <li class="security-item">
             <div class="security-check">✓</div>
             <div>
               <div class="security-item-title">Private key lives only in Cloudflare Secrets</div>
-              <div class="security-item-body">Your VPS holds encrypted blobs — useless without the private key. Neither side alone is enough.</div>
+              <div class="security-item-body">Your VPS holds encrypted blobs — useless without the private key. Neither
+                side alone is enough.</div>
             </div>
           </li>
           <li class="security-item">
             <div class="security-check">✓</div>
             <div>
               <div class="security-item-title">Durable Object: one-time decrypt, ~100ms</div>
-              <div class="security-item-body">Decryption happens in an isolated CF Durable Object. The key is used to call the provider and immediately destroyed. Every call is logged.</div>
+              <div class="security-item-body">Decryption happens in an isolated CF Durable Object. The key is used to
+                call the provider and immediately destroyed. Every call is logged.</div>
             </div>
           </li>
           <li class="security-item">
             <div class="security-check">✓</div>
             <div>
               <div class="security-item-title">HMAC-signed, replay-protected fetches</div>
-              <div class="security-item-body">Every ciphertext fetch requires a per-request HMAC signature with a single-use nonce and timestamp tolerance window.</div>
+              <div class="security-item-body">Every ciphertext fetch requires a per-request HMAC signature with a
+                single-use nonce and timestamp tolerance window.</div>
             </div>
           </li>
           <li class="security-item">
             <div class="security-check">✓</div>
             <div>
               <div class="security-item-title">Fail-closed provider validation</div>
-              <div class="security-item-body">The Worker validates target hostnames and provider identity against a live Cloudflare KV registry before decrypting. Mismatches hard-fail.</div>
+              <div class="security-item-body">The Worker validates target hostnames and provider identity against a live
+                Cloudflare KV registry before decrypting. Mismatches hard-fail.</div>
             </div>
           </li>
           <li class="security-item">
             <div class="security-check">✓</div>
             <div>
               <div class="security-item-title">Durable structured audit log</div>
-              <div class="security-item-body">Every key fetch, denial, and rotation is written to a local SQLite audit database with verdict, reason code, adapter ID, and remote IP.</div>
+              <div class="security-item-body">Every key fetch, denial, and rotation is written to a local SQLite audit
+                database with verdict, reason code, adapter ID, and remote IP.</div>
             </div>
           </li>
         </ul>
@@ -1091,14 +1502,22 @@
             <span class="tdot tdot-g"></span>
             &nbsp;Threat matrix
           </div>
-          <div class="threat-row"><span class="threat-name">Server filesystem compromise</span><span class="threat-verdict v-blocked">Blocked</span></div>
-          <div class="threat-row"><span class="threat-name">keys.json stolen</span><span class="threat-verdict v-blocked">Blocked</span></div>
-          <div class="threat-row"><span class="threat-name">Ciphertext replay attack</span><span class="threat-verdict v-blocked">Blocked</span></div>
-          <div class="threat-row"><span class="threat-name">Ciphertext transplant</span><span class="threat-verdict v-blocked">Blocked</span></div>
-          <div class="threat-row"><span class="threat-name">Network interception (TLS)</span><span class="threat-verdict v-blocked">Blocked</span></div>
-          <div class="threat-row"><span class="threat-name">Adapter token leak</span><span class="threat-verdict v-mitigated">Mitigated</span></div>
-          <div class="threat-row"><span class="threat-name">UI XSS during key entry</span><span class="threat-verdict v-mitigated">Mitigated</span></div>
-          <div class="threat-row"><span class="threat-name">Host OS compromise</span><span class="threat-verdict v-partial">Partial</span></div>
+          <div class="threat-row"><span class="threat-name">Server filesystem compromise</span><span
+              class="threat-verdict v-blocked">Blocked</span></div>
+          <div class="threat-row"><span class="threat-name">keys.json stolen</span><span
+              class="threat-verdict v-blocked">Blocked</span></div>
+          <div class="threat-row"><span class="threat-name">Ciphertext replay attack</span><span
+              class="threat-verdict v-blocked">Blocked</span></div>
+          <div class="threat-row"><span class="threat-name">Ciphertext transplant</span><span
+              class="threat-verdict v-blocked">Blocked</span></div>
+          <div class="threat-row"><span class="threat-name">Network interception (TLS)</span><span
+              class="threat-verdict v-blocked">Blocked</span></div>
+          <div class="threat-row"><span class="threat-name">Adapter token leak</span><span
+              class="threat-verdict v-mitigated">Mitigated</span></div>
+          <div class="threat-row"><span class="threat-name">UI XSS during key entry</span><span
+              class="threat-verdict v-mitigated">Mitigated</span></div>
+          <div class="threat-row"><span class="threat-name">Host OS compromise</span><span
+              class="threat-verdict v-partial">Partial</span></div>
         </div>
       </div>
     </div>
@@ -1109,7 +1528,8 @@
     <div class="wrap">
       <div class="cta-box">
         <h2 class="cta-title">Ready to stop trusting your servers with secrets?</h2>
-        <p class="cta-body">Self-hosted, open source, deployable in minutes. Your infrastructure. Your control. Zero plaintext at rest.</p>
+        <p class="cta-body">Self-hosted, open source, deployable in minutes. Your infrastructure. Your control. Zero
+          plaintext at rest.</p>
         <div class="cta-actions">
           <a href="https://github.com/polysemic/Subumbra" class="btn-primary">View on GitHub ↗</a>
           <a href="/docs" class="btn-secondary">Read the docs</a>
@@ -1127,7 +1547,8 @@
       <div class="footer-inner">
         <div>
           <div class="footer-brand">Sub<span>umbra</span></div>
-          <p class="footer-tagline">Zero-trust API key broker. Encrypted blobs on your servers. Decrypt authority on Cloudflare. Neither side alone is enough.</p>
+          <p class="footer-tagline">Zero-trust API key broker. Encrypted blobs on your servers. Decrypt authority on
+            Cloudflare. Neither side alone is enough.</p>
         </div>
         <div>
           <div class="footer-col-title">Project</div>
@@ -1167,4 +1588,5 @@
   </footer>
 
 </body>
+
 </html>
