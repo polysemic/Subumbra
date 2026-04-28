@@ -70,10 +70,10 @@
   "_subumbra_notes": {
     "credential_type": "anthropicApi",
     "credential_fields": {
-      "apiKey": "anthropic_prod",
-      "url": "http://subumbra-proxy:8090/t"
+      "apiKey": "${SUBUMBRA_TOKEN_N8N}",
+      "url": "http://subumbra-proxy:8090/t/anthropic_prod"
     },
-    "base_url": "http://subumbra-proxy:8090/t",
-    "note": "Set the Anthropic credential Base URL / Custom API URL to http://subumbra-proxy:8090/t. The node appends /v1/messages. Proxy log confirms: POST /t/v1/messages complete key_id=anthropic_prod status=200"
+    "base_url": "http://subumbra-proxy:8090/t/anthropic_prod",
+    "note": "Set the Anthropic credential Base URL / Custom API URL to http://subumbra-proxy:8090/t/anthropic_prod and the API key to the n8n adapter token. The node appends /v1/messages after the path-carried key_id."
   }
 }

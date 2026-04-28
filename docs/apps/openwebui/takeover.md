@@ -35,8 +35,8 @@ rowid, raw = cur.execute("select rowid, data from config limit 1").fetchone()
 cfg = json.loads(raw)
 
 cfg.setdefault("openai", {})
-cfg["openai"]["api_base_urls"] = ["http://subumbra-proxy:8090/t/v1"]
-cfg["openai"]["api_keys"] = ["openai_prod"]
+cfg["openai"]["api_base_urls"] = ["http://subumbra-proxy:8090/t/openai_prod/v1"]
+cfg["openai"]["api_keys"] = ["${SUBUMBRA_TOKEN_OPENWEBUI}"]
 cfg["openai"]["api_configs"] = {}
 
 cur.execute("update config set data=? where rowid=?", (json.dumps(cfg), rowid))
@@ -65,7 +65,7 @@ If you previously used:
 
 then migrate in this order:
 
-1. update `/opt/open-webui/.env` to the supported proxy route
+1. update `/opt/open-webui/.env` to the supported secure proxy route
 2. set `ENABLE_PERSISTENT_CONFIG=False`
 3. run the DB cleanup command above
 4. restart OpenWebUI

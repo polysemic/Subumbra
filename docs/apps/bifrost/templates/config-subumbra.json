@@ -4,7 +4,7 @@
       "keys": [
         {
           "name": "subumbra-anthropic-key",
-          "value": "env.BIFROST_ANTHROPIC_KEY",
+          "value": "env.BIFROST_SUBUMBRA_TOKEN",
           "models": [
             "claude-sonnet-4-6"
           ],
@@ -12,14 +12,14 @@
         }
       ],
       "network_config": {
-        "base_url": "http://subumbra-proxy:8090/t"
+        "base_url": "http://subumbra-proxy:8090/t/anthropic_prod"
       }
     },
     "cerebras": {
       "keys": [
         {
           "name": "subumbra-cerebras-key",
-          "value": "env.BIFROST_CEREBRAS_KEY",
+          "value": "env.BIFROST_SUBUMBRA_TOKEN",
           "models": [
             "llama3.1-8b"
           ],
@@ -27,14 +27,14 @@
         }
       ],
       "network_config": {
-        "base_url": "http://subumbra-proxy:8090/t"
+        "base_url": "http://subumbra-proxy:8090/t/cerebras_prod"
       }
     },
     "deepseek": {
       "keys": [
         {
           "name": "subumbra-deepseek-key",
-          "value": "env.BIFROST_DEEPSEEK_KEY",
+          "value": "env.BIFROST_SUBUMBRA_TOKEN",
           "models": [
             "deepseek-chat"
           ],
@@ -42,14 +42,14 @@
         }
       ],
       "network_config": {
-        "base_url": "http://subumbra-proxy:8090/t"
+        "base_url": "http://subumbra-proxy:8090/t/deepseek_prod"
       }
     },
     "groq": {
       "keys": [
         {
           "name": "subumbra-groq-key",
-          "value": "env.BIFROST_GROQ_KEY",
+          "value": "env.BIFROST_SUBUMBRA_TOKEN",
           "models": [
             "llama-3.3-70b-versatile"
           ],
@@ -57,14 +57,14 @@
         }
       ],
       "network_config": {
-        "base_url": "http://subumbra-proxy:8090/t/openai"
+        "base_url": "http://subumbra-proxy:8090/t/groq_prod/openai"
       }
     },
     "mistral": {
       "keys": [
         {
           "name": "subumbra-mistral-key",
-          "value": "env.BIFROST_MISTRAL_KEY",
+          "value": "env.BIFROST_SUBUMBRA_TOKEN",
           "models": [
             "mistral-large-latest"
           ],
@@ -72,14 +72,14 @@
         }
       ],
       "network_config": {
-        "base_url": "http://subumbra-proxy:8090/t"
+        "base_url": "http://subumbra-proxy:8090/t/mistral_prod"
       }
     },
     "openai": {
       "keys": [
         {
           "name": "subumbra-key",
-          "value": "env.BIFROST_OPENAI_KEY",
+          "value": "env.BIFROST_SUBUMBRA_TOKEN",
           "models": [
             "gpt-4o-mini"
           ],
@@ -87,14 +87,14 @@
         }
       ],
       "network_config": {
-        "base_url": "http://subumbra-proxy:8090/t"
+        "base_url": "http://subumbra-proxy:8090/t/openai_prod"
       }
     },
     "openrouter": {
       "keys": [
         {
           "name": "subumbra-openrouter-key",
-          "value": "env.BIFROST_OPENROUTER_KEY",
+          "value": "env.BIFROST_SUBUMBRA_TOKEN",
           "models": [
             "anthropic/claude-sonnet-4"
           ],
@@ -102,14 +102,14 @@
         }
       ],
       "network_config": {
-        "base_url": "http://subumbra-proxy:8090/t/api"
+        "base_url": "http://subumbra-proxy:8090/t/openrouter_prod/api"
       }
     },
     "xai": {
       "keys": [
         {
           "name": "subumbra-xai-key",
-          "value": "env.BIFROST_XAI_KEY",
+          "value": "env.BIFROST_SUBUMBRA_TOKEN",
           "models": [
             "grok-3"
           ],
@@ -117,7 +117,7 @@
         }
       ],
       "network_config": {
-        "base_url": "http://subumbra-proxy:8090/t"
+        "base_url": "http://subumbra-proxy:8090/t/xai_prod"
       }
     }
   },

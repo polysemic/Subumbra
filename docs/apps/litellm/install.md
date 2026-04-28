@@ -21,62 +21,63 @@ Use the Docker-internal service address from app containers on `subumbra-net`:
 
 Do not point LiteLLM at `127.0.0.1:10199` from inside the LiteLLM container.
 
-## Important Identity Note
+## Secure Identity Contract
 
-The current universal `/t` path uses a shared `subumbra-proxy` identity at the
-Worker boundary. LiteLLM does **not** get a distinct Worker identity in this
-round. Requests are authorized through the `subumbra-proxy` scope.
+LiteLLM now uses the secure transparent contract:
+
+- `api_key` is the LiteLLM adapter token, for example
+  `SUBUMBRA_TOKEN_LITELLM`
+- `key_id` moves into the `api_base` path
+- LiteLLM no longer sends plain Subumbra key IDs as credentials
 
 ## Required LiteLLM Model Shape
 
-Each model entry should use the transparent sidecar contract. The Subumbra
-transparent route root is `/t`; any extra suffix after `/t` is a provider API
-path requirement that LiteLLM must still send because the proxy forwards the
-path verbatim to the upstream host.
+Each model entry uses the same LiteLLM adapter token and its own path-carried
+`key_id`.
 
 ```yaml
 model_list:
   - model_name: claude-sonnet-4
     litellm_params:
       model: anthropic/claude-sonnet-4
-      api_base: http://subumbra-proxy:8090/t
-      api_key: anthropic_prod
+      api_base: http://subumbra-proxy:8090/t/anthropic_prod
+      api_key: ${SUBUMBRA_TOKEN_LITELLM}
 
   - model_name: gpt-4o-mini
     litellm_params:
       model: openai/gpt-4o-mini
-      api_base: http://subumbra-proxy:8090/t/v1
-      api_key: openai_prod
+      api_base: http://subumbra-proxy:8090/t/openai_prod/v1
+      api_key: ${SUBUMBRA_TOKEN_LITELLM}
 
   - model_name: llama-3.1-8b
     litellm_params:
       model: groq/llama-3.1-8b
-      api_base: http://subumbra-proxy:8090/t/openai/v1
-      api_key: groq_prod
+      api_base: http://subumbra-proxy:8090/t/groq_prod/openai/v1
+      api_key: ${SUBUMBRA_TOKEN_LITELLM}
 
   - model_name: openrouter-claude
     litellm_params:
       model: openrouter/anthropic/claude-sonnet-4
-      api_base: http://subumbra-proxy:8090/t/api/v1
-      api_key: openrouter_prod
+      api_base: http://subumbra-proxy:8090/t/openrouter_prod/api/v1
+      api_key: ${SUBUMBRA_TOKEN_LITELLM}
 
   - model_name: cerebras-llama-3
     litellm_params:
       model: cerebras/llama3.1-8b
-      api_base: http://subumbra-proxy:8090/t/v1
-      api_key: cerebras_prod
+      api_base: http://subumbra-proxy:8090/t/cerebras_prod/v1
+      api_key: ${SUBUMBRA_TOKEN_LITELLM}
 ```
 
 Rules:
 
-- `api_base` starts at `subumbra-proxy:8090/t`. Some LiteLLM provider aliases require additional upstream path suffixes, so the app must append the correct provider API path after `/t`:
-  - **OpenAI, Cerebras, X.ai (Grok)**: `/t/v1`
-  - **Groq**: `/t/openai/v1`
-  - **OpenRouter**: `/t/api/v1`
-  - **Anthropic**: `/t` (or omit for native SDK headers)
-- `api_key` is the plain `key_id`
-- do **not** use `subumbra:<key_id>`
-- the `key_id` must be included in `PROXY_ALLOWED_KEYS`
+- `api_key` is always the LiteLLM adapter token
+- the first path segment after `/t/` is the requested Subumbra `key_id`
+- provider-specific upstream suffixes still remain after the `key_id` segment:
+  - **OpenAI, Cerebras, X.ai (Grok-compatible), DeepSeek, Mistral**:
+    `/t/<key_id>/v1`
+  - **Groq**: `/t/<key_id>/openai/v1`
+  - **OpenRouter**: `/t/<key_id>/api/v1`
+  - **Anthropic**: `/t/<key_id>`
 
 ## Core Dependency
 
@@ -116,11 +117,12 @@ curl http://127.0.0.1:4000/v1/chat/completions \
 
 ## Operator Checklist
 
-1. Put the provider key IDs used by LiteLLM into `PROXY_ALLOWED_KEYS` during bootstrap.
-2. Run `./post-bootstrap.sh` in `/opt/subumbra`.
-3. Recreate the core stack so `subumbra-proxy` picks up the new runtime values.
-4. Configure LiteLLM models with `api_base` pointing to the proxy (e.g. `http://subumbra-proxy:8090/t/v1` for OpenAI).
-5. Use plain key IDs in LiteLLM config.
+1. Confirm `subumbra-proxy` health returns `worker_auth":"ok"`.
+2. Confirm the LiteLLM adapter token is available to the LiteLLM container.
+3. Configure LiteLLM models with `api_base` pointing to
+   `http://subumbra-proxy:8090/t/<key_id>/...`.
+4. Use the LiteLLM adapter token as `api_key` for every model entry.
+5. Do not use plain key IDs as LiteLLM credentials.
 
 Round 41.7’s callback-era standalone LiteLLM flow is superseded by this
-transparent sidecar contract.
+secure transparent sidecar contract.

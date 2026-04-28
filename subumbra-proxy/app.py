@@ -138,7 +138,7 @@ def subumbra_headers(key_id: str, *, adapter_token: str | None = None) -> dict[s
         hashlib.sha256,
     ).hexdigest()
     return {
-        "X-Subumbra-Token": adapter_token or SUBUMBRA_ACCESS_TOKEN,
+        "X-Subumbra-Token": adapter_token,
         "X-Subumbra-Timestamp": timestamp,
         "X-Subumbra-Nonce": nonce,
         "X-Subumbra-Signature": signature,
@@ -179,7 +179,7 @@ def proxy_payload(record, key_id, *, target_url, method, headers, body):
 def worker_headers(*, adapter_token: str | None = None):
     headers = {
         "Content-Type": "application/json",
-        "X-Subumbra-Token": adapter_token or SUBUMBRA_ACCESS_TOKEN,
+        "X-Subumbra-Token": adapter_token,
     }
     if CF_ACCESS_CLIENT_ID:
         headers["CF-Access-Client-Id"] = CF_ACCESS_CLIENT_ID
@@ -263,10 +263,7 @@ async def proxy_via_worker(
     adapter_token: str | None = None,
     adapter_id: str | None = None,
 ) -> Response:
-    if adapter_id is not None:
-        LOG.info("request adapter=%s key_id=%s method=%s target_url=%s", adapter_id, key_id, method, target_url)
-    else:
-        LOG.info("request key_id=%s method=%s target_url=%s", key_id, method, target_url)
+    LOG.info("request adapter=%s key_id=%s method=%s target_url=%s", adapter_id, key_id, method, target_url)
 
     try:
         record = await fetch_record(CLIENT, key_id, adapter_token=adapter_token)
@@ -274,15 +271,12 @@ async def proxy_via_worker(
         LOG.error("subumbra failure key_id=%s error=subumbra-keys unreachable", key_id)
         raise HTTPException(502, detail="subumbra-keys unreachable")
     except SubumbraForbiddenError:
-        if adapter_id is not None:
-            LOG.warning(
-                "transparent reject adapter=%s key_id=%s reason=key_scope_denied",
-                adapter_id,
-                key_id,
-            )
-            raise HTTPException(403, detail="forbidden")
-        LOG.error("subumbra failure key_id=%s error=forbidden", key_id)
-        raise HTTPException(502, detail="subumbra record fetch failed: forbidden")
+        LOG.warning(
+            "transparent reject adapter=%s key_id=%s reason=key_scope_denied",
+            adapter_id,
+            key_id,
+        )
+        raise HTTPException(403, detail="forbidden")
     except Exception as exc:
         LOG.error("subumbra failure key_id=%s error=%s", key_id, exc)
         raise HTTPException(502, detail=f"subumbra record fetch failed: {exc}")
@@ -365,7 +359,7 @@ async def get_worker_auth_status() -> str:
     try:
         response = await CLIENT.get(
             f"{CF_WORKER_URL}/auth-ping",
-            headers=worker_headers(),
+            headers=worker_headers(adapter_token=SUBUMBRA_ACCESS_TOKEN),
             timeout=WORKER_AUTH_TIMEOUT_SECONDS,
         )
     except httpx.RequestError:
@@ -405,35 +399,29 @@ async def handle_transparent_request(path: str, request: Request):
         raise HTTPException(401, detail="missing pseudo-key")
 
     secure_match = resolve_adapter_token(credential)
-    secure_mode = secure_match is not None
-    adapter_id: str | None = None
-    adapter_token: str | None = None
+    if secure_match is None:
+        LOG.warning("transparent reject reason=adapter_unknown")
+        raise HTTPException(401, detail="unauthorized")
+
+    adapter_id: str
+    adapter_token: str
     forwarded_path = path
-    if secure_match is not None:
-        adapter_id, adapter_entry = secure_match
-        adapter_token = adapter_entry["token"]
-        key_id, forwarded_path = split_secure_path(path)
-        if key_id is None:
-            LOG.warning("transparent reject adapter=%s reason=missing_key_id_segment", adapter_id)
-            raise HTTPException(400, detail="invalid key_id")
-        if not validate_transparent_key_id(key_id):
-            LOG.warning("transparent reject adapter=%s reason=invalid_key_id", adapter_id)
-            raise HTTPException(400, detail="invalid key_id")
-    else:
-        key_id = credential
-        if not validate_transparent_key_id(key_id):
-            LOG.warning("transparent reject reason=invalid_key_id")
-            raise HTTPException(400, detail="invalid key_id")
+    adapter_id, adapter_entry = secure_match
+    adapter_token = adapter_entry["token"]
+    key_id, forwarded_path = split_secure_path(path)
+    if key_id is None:
+        LOG.warning("transparent reject adapter=%s reason=missing_key_id_segment", adapter_id)
+        raise HTTPException(400, detail="invalid key_id")
+    if not validate_transparent_key_id(key_id):
+        LOG.warning("transparent reject adapter=%s reason=invalid_key_id", adapter_id)
+        raise HTTPException(400, detail="invalid key_id")
 
     if dual_header_present:
-        if secure_mode:
-            LOG.warning(
-                "transparent warning adapter=%s reason=authorization_precedence key_id=%s",
-                adapter_id,
-                key_id,
-            )
-        else:
-            LOG.warning("transparent warning reason=authorization_precedence key_id=%s", key_id)
+        LOG.warning(
+            "transparent warning adapter=%s reason=authorization_precedence key_id=%s",
+            adapter_id,
+            key_id,
+        )
 
     body = None
     raw_body = await request.body()

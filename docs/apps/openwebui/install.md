@@ -7,7 +7,7 @@ model is:
 
 - Subumbra core runs in `/opt/subumbra`
 - OpenWebUI runs in its own install, for example `/opt/open-webui`
-- OpenWebUI talks to `subumbra-proxy` over the OpenAI-compatible transparent path
+- OpenWebUI talks to `subumbra-proxy` over the secure transparent path
 
 ## Host Vs Docker-Internal Ports
 
@@ -15,9 +15,7 @@ Use the host-published port only for operator checks from the VPS host:
 
 - host health check: `http://127.0.0.1:10199/health`
 
-Use the Docker-internal service address from app containers on `subumbra-net`:
-
-- OpenWebUI base URL: `http://subumbra-proxy:8090/t/v1`
+Use the Docker-internal service address from app containers on `subumbra-net`.
 
 Do not set `OPENAI_API_BASE_URL` to `127.0.0.1:10199` inside the OpenWebUI
 container.
@@ -28,26 +26,43 @@ The supported durable production authority is:
 
 - env-defined OpenWebUI provider configuration
 - `ENABLE_PERSISTENT_CONFIG=False`
-- `webui.db` cleaned of legacy direct-provider OpenAI connection state
+- `webui.db` cleaned of legacy direct-provider connection state
 
-UI-managed provider edits are technically viable, but they are not the
-supported durable production authority for this round. Treat them as transient
-testing/admin actions, not the long-term source of truth.
+## Secure Path Contract
 
-## Prerequisites
+OpenWebUI now uses:
+
+- `OPENAI_API_KEY` = the OpenWebUI adapter token
+- `OPENAI_API_BASE_URL` = `http://subumbra-proxy:8090/t/<key_id>/v1`
+
+Example:
+
+```dotenv
+OPENAI_API_BASE_URL=http://subumbra-proxy:8090/t/openai_prod/v1
+OPENAI_API_KEY=${SUBUMBRA_TOKEN_OPENWEBUI}
+ENABLE_PERSISTENT_CONFIG=False
+WEBUI_AUTH=false
+WEBUI_SECRET_KEY=<random-long-value>
+```
+
+Rules:
+
+- the app credential is the adapter token, not a plain key ID
+- the Subumbra `key_id` lives in the URL path
+- `ENABLE_PERSISTENT_CONFIG=False` is required
+
+## Core Dependency
 
 Before pointing OpenWebUI at Subumbra, confirm:
 
-1. The Subumbra core stack is already running in `/opt/subumbra`
+1. the Subumbra core stack is already running in `/opt/subumbra`
 2. `subumbra-proxy` reports healthy Worker auth
-3. The required `key_id` is already included in `PROXY_ALLOWED_KEYS`
-4. OpenWebUI is attached to `subumbra-net`
+3. the OpenWebUI adapter token is available to the OpenWebUI container
 
 ```bash
 cd /opt/subumbra
 docker compose ps
 curl -sS http://127.0.0.1:10199/health
-grep '^PROXY_ALLOWED_KEYS=' .env
 ```
 
 Healthy proxy output should include:
@@ -56,61 +71,30 @@ Healthy proxy output should include:
 {"status":"ok","worker_auth":"ok"}
 ```
 
-## Important Path Note
+## OpenAI-Compatible Direct Path
 
-OpenWebUI uses the OpenAI-compatible `/models` and `/chat/completions` routes
-directly. In live proof, that means the supported OpenWebUI base is:
+For the OpenAI-compatible path, use:
 
 ```text
-http://subumbra-proxy:8090/t/v1
+http://subumbra-proxy:8090/t/openai_prod/v1
 ```
 
-Do not use bare `/t` for the OpenWebUI OpenAI-compatible path. Bare `/t` causes
-OpenWebUI model discovery to hit the wrong upstream route.
+OpenWebUI then appends `/models` and `/chat/completions` to that base URL.
 
-## Path A — Env-Defined OpenWebUI -> Subumbra
+## Anthropic Direct Path
 
-Use this as the supported production setup in `/opt/open-webui/.env`:
+For Anthropic through the Local connector, use:
 
-```dotenv
-OPENAI_API_BASE_URL=http://subumbra-proxy:8090/t/v1
-OPENAI_API_KEY=openai_prod
-ENABLE_PERSISTENT_CONFIG=False
-WEBUI_AUTH=false
-WEBUI_SECRET_KEY=<random-long-value>
-```
+- **Base URL:** `http://subumbra-proxy:8090/t/anthropic_prod/v1`
+- **API Key:** `${SUBUMBRA_TOKEN_OPENWEBUI}`
+- **Custom headers:** `{"anthropic-version":"2023-06-01"}`
 
-Rules:
+This keeps the secure split intact:
 
-- `OPENAI_API_KEY` is the plain `key_id`
-- do **not** use `subumbra:<key_id>`
-- `ENABLE_PERSISTENT_CONFIG=False` is required
-- restart OpenWebUI after changing `.env`
+- adapter token in credential
+- `anthropic_prod` in the path
 
-```bash
-cd /opt/open-webui
-docker compose up -d
-```
-
-## Path B — UI / Admin Connection Behavior
-
-OpenWebUI’s admin connection surface can accept:
-
-- base URL: `http://subumbra-proxy:8090/t/v1`
-- API key: plain `key_id` such as `openai_prod`
-
-That is useful for testing and diagnostics, but it is not the supported durable
-production authority. The supported production source of truth remains the env
-file plus `ENABLE_PERSISTENT_CONFIG=False`.
-
-If you use the admin UI or admin API for a temporary test:
-
-1. point it at `http://subumbra-proxy:8090/t/v1`
-2. use a plain `key_id`
-3. finish the test
-4. restart OpenWebUI so the env-defined production config is re-applied
-
-## Path C — OpenWebUI -> LiteLLM -> Subumbra
+## Via LiteLLM
 
 For the aggregator path, point OpenWebUI at standalone LiteLLM:
 
@@ -119,72 +103,44 @@ OPENAI_API_BASE_URL=http://litellm:4000/v1
 OPENAI_API_KEY=<LITELLM_MASTER_KEY>
 ```
 
-This path is in-scope for Round 43 because:
-
-- OpenWebUI still speaks OpenAI-compatible requests
-- LiteLLM remains app-owned outside `/opt/subumbra`
-- Subumbra proof remains visible in `subumbra-proxy` logs
-
-## Rotation Proof
-
-The supported rotation proof is zero-restart:
-
-```bash
-cd /opt/subumbra
-docker compose --profile bootstrap run --rm -T bootstrap --rotate openai_prod
-```
-
-Then send a fresh OpenWebUI request and confirm in `subumbra-proxy` logs that:
-
-- `key_id=openai_prod`
-- the request still succeeds
-- no containers were restarted
-
-Do **not** add `--force-recreate` to the rotation proof. Per-key rotation does
-not require a service restart.
-
 ## Functional Checks
 
-### Path A model discovery
+### Model discovery
 
-```bash
-curl -sS http://127.0.0.1:10199/health
-```
-
-Then from OpenWebUI, load the models list and confirm proxy logs show:
+From OpenWebUI, load the models list and confirm proxy logs show the chosen
+path-carried `key_id`, for example:
 
 ```text
 key_id=openai_prod method=GET target_url=https://api.openai.com/v1/models
 ```
 
-### Path C LiteLLM check
+### Chat proof
 
-With OpenWebUI pointed at `http://litellm:4000/v1`, confirm proxy logs show the
-underlying provider route, for example:
+A successful OpenWebUI chat should produce a matching secure-path proxy log,
+for example:
 
 ```text
-key_id=anthropic_prod method=POST target_url=https://api.anthropic.com/v1/messages
+key_id=openai_prod method=POST target_url=https://api.openai.com/v1/chat/completions
 ```
 
 ### Fail-closed check
 
-An unscoped key ID must fail closed:
+An invalid adapter token must fail closed:
 
 ```bash
 curl -sS -i \
   -H 'Authorization: Bearer definitely_not_allowed' \
-  http://127.0.0.1:10199/t/v1/models
+  http://127.0.0.1:10199/t/openai_prod/v1/models
 ```
 
-Expected result: non-200 failure from the proxy path.
+Expected result: `401`.
 
 ## Operator Checklist
 
-1. Put the OpenWebUI key IDs you want to use into `PROXY_ALLOWED_KEYS` during bootstrap.
-2. Confirm `subumbra-proxy` health is `worker_auth":"ok"`.
-3. Set `OPENAI_API_BASE_URL=http://subumbra-proxy:8090/t/v1`.
-4. Set `OPENAI_API_KEY=<plain key_id>`.
-5. Set `ENABLE_PERSISTENT_CONFIG=False`.
-6. Clean legacy direct-provider DB state once.
-7. Restart OpenWebUI.
-8. Confirm the live request path in proxy logs.
+1. Confirm `subumbra-proxy` health is `worker_auth":"ok"`.
+2. Set `OPENAI_API_BASE_URL=http://subumbra-proxy:8090/t/<key_id>/v1`.
+3. Set `OPENAI_API_KEY` to the OpenWebUI adapter token.
+4. Set `ENABLE_PERSISTENT_CONFIG=False`.
+5. Clean legacy direct-provider DB state once.
+6. Restart OpenWebUI.
+7. Confirm the live request path in proxy logs.

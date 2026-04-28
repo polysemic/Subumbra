@@ -41,7 +41,6 @@ Confirm Subumbra is ready:
 cd /opt/subumbra
 docker compose ps
 curl -sS http://127.0.0.1:10199/health
-grep '^PROXY_ALLOWED_KEYS=' .env
 ```
 
 Expected proxy health:
@@ -50,7 +49,7 @@ Expected proxy health:
 {"status":"ok","worker_auth":"ok"}
 ```
 
-Confirm the chosen LibreChat key ID appears in `PROXY_ALLOWED_KEYS`.
+Confirm the LibreChat adapter token is available to the LibreChat container.
 
 Confirm the LibreChat before-state is not already on Subumbra:
 
@@ -77,8 +76,8 @@ configuration.
    AZURE_API_KEY=
    ```
 
-2. Ensure the active `apiKey:` in `librechat.yaml` is the Subumbra plain key
-   ID you want to use:
+2. Ensure the active `apiKey:` in `librechat.yaml` is the LibreChat adapter
+   token and that the selected `key_id` lives in the endpoint path:
 
    ```bash
    grep -n 'apiKey:' /opt/librechat/librechat.yaml
@@ -107,8 +106,8 @@ The supported endpoint shape is:
 
 ```yaml
 name: "OpenAI via Subumbra"
-apiKey: "openai_prod"
-baseURL: "http://subumbra-proxy:8090/t/v1"
+apiKey: "${SUBUMBRA_TOKEN_LIBRECHAT}"
+baseURL: "http://subumbra-proxy:8090/t/openai_prod/v1"
 models:
   fetch: true
 ```
@@ -152,7 +151,7 @@ The verified target expectation for the direct proxy failure path is `502`.
 - Direct-provider secrets left in `.env` can keep built-in provider routes
   available and bypass Subumbra.
 - User-level saved keys are inert for the fixed Subumbra endpoint because
-  the active `apiKey:` uses a fixed plain key ID and does not use
+  the active `apiKey:` uses the fixed LibreChat adapter token and does not use
   `user_provided`.
 - If an operator has used LibreChat's admin config override system, DB overrides
   may supersede YAML by endpoint name. This round does not prove automatic
@@ -177,12 +176,13 @@ The verified target expectation for the direct proxy failure path is `502`.
 ## Operator Checklist
 
 1. Confirm Subumbra proxy health is `{"status":"ok","worker_auth":"ok"}`.
-2. Confirm the chosen key ID appears in `PROXY_ALLOWED_KEYS`.
+2. Confirm the LibreChat adapter token is present for the container.
 3. Confirm the LibreChat before-state is not already on Subumbra.
 4. Confirm operator login works and at least one conversation exists.
 5. Remove direct-provider secrets from LibreChat `.env`.
 6. Copy `librechat.yaml` and `docker-compose.override.yml`.
-7. Confirm the active `apiKey:` value is the plain key ID you intend to route.
+7. Confirm the active `apiKey:` value is the LibreChat adapter token and the
+   target `key_id` lives in the endpoint path.
 8. Run `docker compose up -d --force-recreate`.
 9. Confirm the promoted OpenAI endpoint appears.
 10. Confirm routed chat succeeds and proxy logs show the Subumbra route.
