@@ -12,7 +12,8 @@ Single-key rotation (no Cloudflare interaction):
     docker compose --profile bootstrap run --rm -it bootstrap --rotate
 
 What it does (full bootstrap, in order):
-  1. Detects mode: interactive wizard (no TTY env vars) or env-var fallback (CI)
+  1. Detects mode: headless env-var fallback (CI) or, in a TTY, prompts when
+     environment credentials are already present
   2. Collects CF credentials + provider API keys (RAM only — never written to disk)
   3. Warns if keys.json already exists (rotation mode) and identifies any
      keys that will be removed because they are absent from this session
@@ -128,6 +129,16 @@ def warn(msg: str) -> None:
 def die(msg: str) -> NoReturn:
     print(f"\n✗  ERROR: {msg}\n", file=sys.stderr, flush=True)
     sys.exit(1)
+
+
+class AutomationInputError(RuntimeError):
+    """Raised when interactive operators should be offered a fallback path."""
+
+
+def _automation_fail(msg: str) -> NoReturn:
+    if sys.stdin.isatty():
+        raise AutomationInputError(msg)
+    die(msg)
 
 
 def _load_provider_registry() -> list[dict]:
@@ -751,6 +762,49 @@ def _has_cf_credentials() -> bool:
     return all(os.environ.get(name, "").strip() for name in required)
 
 
+def _choose_bootstrap_mode() -> bool:
+    """
+    Return True when bootstrap should continue into the interactive wizard.
+
+    Headless runs keep the existing automation behavior. In a real TTY, if
+    environment credentials are already present, let the operator choose
+    between RAM-only interactive entry and automated environment processing.
+    """
+    if not _has_env_credentials():
+        return True
+    if not sys.stdin.isatty():
+        return False
+
+    print("\n▶  Environment credentials detected")
+    print("   This usually means Docker loaded values from .env.bootstrap.")
+    print("   Choose bootstrap mode:\n")
+    print("   1. Interactive RAM-only setup")
+    print("   2. Automated setup from detected environment credentials\n")
+
+    while True:
+        choice = input("  Enter 1 or 2: ").strip()
+        if choice == "1":
+            return True
+        if choice == "2":
+            return False
+        print("  ✗  Enter 1 for interactive mode or 2 for automated mode.\n")
+
+
+def _prompt_after_automation_error(message: str) -> bool:
+    warn(message)
+    print("   Choose next step:\n")
+    print("   1. Continue with interactive RAM-only setup")
+    print("   2. Abort and fix automated input\n")
+
+    while True:
+        choice = input("  Enter 1 or 2: ").strip()
+        if choice == "1":
+            return True
+        if choice == "2":
+            die("Aborted so you can fix automated input and rerun bootstrap.")
+        print("  ✗  Enter 1 to continue interactively or 2 to abort.\n")
+
+
 def _get_push_registry_cf_creds() -> dict[str, str]:
     if _has_cf_credentials():
         return {
@@ -837,6 +891,7 @@ def _load_env_fallback() -> tuple[dict[str, tuple[str, str, str, str, str]], dic
     )
 
     api_keys: dict[str, tuple[str, str, str, str, str]] = {}
+    missing_key_ids: list[tuple[str, str]] = []
     for provider, env_var in KNOWN_PROVIDERS:
         base_key_id_var = _key_id_env_var_name(env_var)
         provider_entry = BUILTIN_PROVIDER_BY_ID[provider]
@@ -848,16 +903,16 @@ def _load_env_fallback() -> tuple[dict[str, tuple[str, str, str, str, str]], dic
                 continue
             key_id = os.environ.get(slot_key_id_var, "").strip()
             if not key_id:
-                warn(f"Automation mode: skipping {slot_env_var} because companion {slot_key_id_var} is missing")
+                missing_key_ids.append((slot_env_var, slot_key_id_var))
                 continue
             if not KEY_ID_RE.fullmatch(key_id):
-                die(
+                _automation_fail(
                     f"Automation mode: invalid key_id {key_id!r} from {slot_key_id_var}\n"
                     f"  Must match ^[a-z0-9][a-z0-9_-]{{2,63}}$"
                 )
             if key_id in api_keys:
                 existing_provider = api_keys[key_id][0]
-                die(
+                _automation_fail(
                     "Automation mode: duplicate key_id requested\n"
                     f"  key_id      : {key_id}\n"
                     f"  provider    : {provider}\n"
@@ -872,11 +927,23 @@ def _load_env_fallback() -> tuple[dict[str, tuple[str, str, str, str, str]], dic
                 val,
             )
 
+    if missing_key_ids:
+        preview = ", ".join(
+            f"{slot_env_var} -> {slot_key_id_var}"
+            for slot_env_var, slot_key_id_var in missing_key_ids[:3]
+        )
+        if len(missing_key_ids) > 3:
+            preview += f", +{len(missing_key_ids) - 3} more"
+        warn(
+            "Automation mode: detected key values without companion key IDs: "
+            + preview
+        )
+
     if not api_keys:
         missing.append(f"at least one of: {', '.join(ev for _, ev in KNOWN_PROVIDERS)}")
 
     if missing:
-        die(
+        _automation_fail(
             "Automation mode: missing required environment variables:\n"
             + "\n".join(f"    {v}" for v in missing)
             + "\n\n  Populate .env.bootstrap with all credentials, or run interactively:\n"
@@ -1543,15 +1610,23 @@ def main() -> None:
             warn("Could not parse existing keys.json — treating as fresh bootstrap")
 
     # ── Step 1: collect credentials ───────────────────────────────────────────
-    use_wizard = not _has_env_credentials()
+    use_wizard = _choose_bootstrap_mode()
 
     if not use_wizard:
         step("Automation mode — loading credentials from environment")
-        api_keys, cf_creds, allowed_keys_by_adapter, token_ttl_days = _load_env_fallback()
-        ok(f"Found {len(api_keys)} API key(s): {', '.join(api_keys.keys())}")
-        ok("Cloudflare credentials present")
+        try:
+            api_keys, cf_creds, allowed_keys_by_adapter, token_ttl_days = _load_env_fallback()
+        except AutomationInputError as exc:
+            use_wizard = _prompt_after_automation_error(str(exc))
+        else:
+            ok(f"Found {len(api_keys)} API key(s): {', '.join(api_keys.keys())}")
+            ok("Cloudflare credentials present")
     else:
-        step("Interactive wizard — no credentials found in environment")
+        if _has_env_credentials():
+            step("Interactive wizard — RAM-only entry selected")
+        else:
+            step("Interactive wizard — no credentials found in environment")
+    if use_wizard:
         try:
             api_keys, cf_creds, allowed_keys_by_adapter, token_ttl_days, shred_paths = run_interactive_wizard(existing_keys)
         except KeyboardInterrupt:
