@@ -445,15 +445,12 @@ async def handle_transparent_request(path: str, request: Request):
         LOG.error("subumbra failure key_id=%s error=subumbra-keys unreachable", key_id)
         raise HTTPException(502, detail="subumbra-keys unreachable")
     except SubumbraForbiddenError:
-        if secure_mode and adapter_id is not None:
-            LOG.warning(
-                "transparent reject adapter=%s key_id=%s reason=key_scope_denied",
-                adapter_id,
-                key_id,
-            )
-            raise HTTPException(403, detail="forbidden")
-        LOG.error("subumbra failure key_id=%s error=forbidden", key_id)
-        raise HTTPException(502, detail="subumbra record fetch failed: forbidden")
+        LOG.warning(
+            "transparent reject adapter=%s key_id=%s reason=key_scope_denied",
+            adapter_id,
+            key_id,
+        )
+        raise HTTPException(403, detail="forbidden")
     except Exception as exc:
         LOG.error("subumbra failure key_id=%s error=%s", key_id, exc)
         raise HTTPException(502, detail=f"subumbra record fetch failed: {exc}")
