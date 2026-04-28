@@ -213,10 +213,11 @@ explicitly include all headers the upstream provider requires (e.g.
 
 The current supported app-owned contract is the transparent sidecar path:
 
-- app points to `api_base: http://subumbra-proxy:8090/t`
-- app sends a plain `key_id`
-- `subumbra-proxy` authenticates to the Worker using the shared `subumbra-proxy`
-  identity boundary
+- app presents an adapter token in `Authorization` or `X-API-Key`
+- app points to `api_base: http://subumbra-proxy:8090/t/<key_id>/...`
+- `subumbra-proxy` uses the first path segment after `/t/` as the requested
+  `key_id`
+- `subumbra-keys` enforces the adapter's `allowed_keys`
 
 This is the current primary adapter path for standalone LiteLLM and similar
 external apps.
