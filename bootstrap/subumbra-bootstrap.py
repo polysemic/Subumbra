@@ -996,7 +996,7 @@ def run_interactive_wizard(
         print("  ✗  API Token cannot be empty. Please try again.\n")
 
     while True:
-        cf_account_id = input("  Cloudflare Account ID: ").strip()
+        cf_account_id = getpass.getpass("  Cloudflare Account ID (hidden): ").strip()
         if cf_account_id:
             break
         print("  ✗  Account ID cannot be empty. Please try again.\n")
@@ -1013,16 +1013,6 @@ def run_interactive_wizard(
     api_keys: dict[str, tuple[str, str, str, str, str]] = {}
     shred_paths: list[str] = []
     n_known = len(KNOWN_PROVIDERS)
-
-    print("\n" + "═" * 70)
-    print("  Subumbra Bootstrap — Step 2 of 4: Provider API Keys")
-    print("  Add one key per provider. Press Enter when finished.\n")
-    print("  Option: import provider keys from an existing .env file.")
-    print("  Run bootstrap with: -v /opt/litellm:/host_litellm:ro")
-    print("  then enter the in-container path (e.g. /host_litellm/.env)\n")
-    do_import = input("  Import from .env file(s)? [y/N]: ").strip().lower()
-    if do_import == "y":
-        api_keys, shred_paths = _run_import_screen(api_keys, existing_keys)
 
     while True:
         print("\n" + "═" * 70)
