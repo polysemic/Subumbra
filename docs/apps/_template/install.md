@@ -18,7 +18,7 @@ Include the standard Subumbra readiness checks:
 cd /opt/subumbra
 docker compose ps
 curl -sS http://127.0.0.1:10199/health
-grep '^PROXY_ALLOWED_KEYS=' .env
+grep '^SUBUMBRA_TOKEN_' .env | cut -d= -f1
 ```
 
 Expected proxy health:
