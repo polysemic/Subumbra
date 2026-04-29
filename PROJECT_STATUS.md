@@ -1,6 +1,6 @@
 # PROJECT_STATUS
 *Current state — updated 2026-04-29*
-*Rounds 1–43.6 and 43-6-3 closed. Round 43-6-4-1 is the current active close-out branch. See `council/COUNCIL.md` for round history and current status.*
+*Rounds 1–43.6, 43-6-3, and 43-6-4-1 closed. Round 43-6-4-bootstrap-ux is next. See `council/COUNCIL.md` for round history and current status.*
 
 ---
 
@@ -129,16 +129,16 @@ This arc focuses on evolving Subumbra from a static, bundled configuration into 
 - **Round 43-6-1 — Env Ingestion + Alpha 0.0.1 Polish** (Closed): multi-app env ingestion, shared-key deduplication, alpha versioning, and promoted provider-matrix templates are now in place under the current single-provider-key bootstrap contract.
 - **Round 43-6-2 — Identity Routing** (Closed): `subumbra-proxy` now enforces per-app secure routing with app-token identity, path-based `key_id` extraction, downstream token forwarding, secure-mode `403` passthrough, and transitional legacy pseudo-key compatibility.
 - **Round 43-6-3 — Richer Same-Provider Multi-Key Ingestion** (Closed): multi-key same-provider import support now exists in both bootstrap automation and env-ingest planning under the secure transparent contract.
-- **Round 43-6-4-1 — Proxy Lockdown** (In verification close-out): removes legacy raw-`key_id` transparent auth, requires adapter-token identity on `/t`, empties generated `PROXY_ALLOWED_KEYS`, and aligns the promoted app docs to the secure transparent contract.
+- **Round 43-6-4-1 — Proxy Lockdown** (Closed 2026-04-29): removed legacy raw-`key_id` transparent auth, requires adapter-token identity on `/t`, empties generated `PROXY_ALLOWED_KEYS`, retires `/v1/request` as a supported app-facing sidecar surface, and aligns the promoted app docs to the secure transparent contract.
 
 ## Path Forward
 
-Round 43 arc closing sequence — targeting 0.0.1 Alpha:
+Round 43 arc close-out sequence — targeting 0.0.1 Alpha:
 
-1. **Round 43-6-4-1 — Proxy Lockdown**
-   Finish close-out, accept the secure transparent contract as the only supported app-facing proxy path, and update remaining operator/reference docs that still teach legacy or `/v1/request` behavior.
-2. **Round 43-6-4-bootstrap-ux**
+1. **Round 43-6-4-bootstrap-ux**
    Continue bootstrap UX work from the narrower remaining scope after the already-applied `1af902b` items: mode selection prompt, hidden CF account ID entry, and removal of the old interactive env-import prompt do not need to be re-done.
+2. **Nonce-store hardening**
+   Investigate and fix intermittent `subumbra-keys` `nonce_store_failure reason=nonce_store_error` seen during some manual verification runs.
 3. **Round 44 (Planned)** — Secure UI round. UI-based env ingestion, encrypted paste/input for browser security. See `council/round-44-secure-ui/`.
 
 Guiding note:
