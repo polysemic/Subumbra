@@ -80,7 +80,7 @@ PROXY_ALLOWED_KEYS=$(_get PROXY_ALLOWED_KEYS)
 PROBE_ALLOWED_KEYS=$(_get PROBE_ALLOWED_KEYS)
 UI_ALLOWED_KEYS=$(_get UI_ALLOWED_KEYS)
 
-if [[ -z "$SUBUMBRA_ADAPTER_REGISTRY" || -z "$SUBUMBRA_TOKEN_PROXY" || -z "$SUBUMBRA_TOKEN_UI" || -z "$SUBUMBRA_TOKEN_PROBE" || -z "$SUBUMBRA_HMAC_KEY" || -z "$CF_WORKER_URL" ]]; then
+if [[ -z "$SUBUMBRA_ADAPTER_REGISTRY" || -z "$SUBUMBRA_TOKEN_PROXY" || -z "$SUBUMBRA_TOKEN_UI" || -z "$SUBUMBRA_HMAC_KEY" || -z "$CF_WORKER_URL" ]]; then
     echo "ERROR: runtime.env is missing one or more required values." >&2
     exit 1
 fi
@@ -88,7 +88,11 @@ fi
 echo "  SUBUMBRA_ADAPTER_REGISTRY : present"
 echo "  SUBUMBRA_TOKEN_PROXY      : ${SUBUMBRA_TOKEN_PROXY:0:8}..."
 echo "  SUBUMBRA_TOKEN_UI         : ${SUBUMBRA_TOKEN_UI:0:8}..."
-echo "  SUBUMBRA_TOKEN_PROBE      : ${SUBUMBRA_TOKEN_PROBE:0:8}..."
+if [[ -n "$SUBUMBRA_TOKEN_PROBE" ]]; then
+    echo "  SUBUMBRA_TOKEN_PROBE      : ${SUBUMBRA_TOKEN_PROBE:0:8}..."
+else
+    echo "  SUBUMBRA_TOKEN_PROBE      : not provisioned"
+fi
 echo "  SUBUMBRA_HMAC_KEY         : ${SUBUMBRA_HMAC_KEY:0:8}..."
 echo "  CF_WORKER_URL             : $CF_WORKER_URL"
 
@@ -140,7 +144,7 @@ if [[ "${#custom_token_keys[@]}" -gt 0 ]]; then
 fi
 
 VERIFY_FAILED=0
-for key in SUBUMBRA_ADAPTER_REGISTRY SUBUMBRA_TOKEN_PROXY SUBUMBRA_TOKEN_UI SUBUMBRA_TOKEN_PROBE SUBUMBRA_HMAC_KEY CF_WORKER_URL; do
+for key in SUBUMBRA_ADAPTER_REGISTRY SUBUMBRA_TOKEN_PROXY SUBUMBRA_TOKEN_UI SUBUMBRA_HMAC_KEY CF_WORKER_URL; do
     if ! grep -q "^${key}=" "$ENV_FILE"; then
         echo "ERROR: Failed to write ${key} to $ENV_FILE" >&2
         VERIFY_FAILED=1
