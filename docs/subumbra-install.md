@@ -80,8 +80,9 @@ The wizard collects:
 - provider API keys and `key_id` labels
 - built-in adapter scopes:
   - `subumbra-proxy`
-  - `subumbra-probe`
   - `subumbra-ui` (metadata only)
+- optional diagnostic adapter scope:
+  - `subumbra-probe`
 
 At Step 3, put the app-facing provider keys in `subumbra-proxy`. This is the
 shared app-owned path used by standalone LiteLLM and other external apps.
@@ -111,18 +112,23 @@ This copies the generated Subumbra runtime values into `.env`:
 - `SUBUMBRA_ADAPTER_REGISTRY`
 - `SUBUMBRA_TOKEN_PROXY`
 - `SUBUMBRA_TOKEN_UI`
-- `SUBUMBRA_TOKEN_PROBE`
 - `SUBUMBRA_HMAC_KEY`
 - `CF_WORKER_URL`
 - `PROXY_ALLOWED_KEYS` (intentionally empty after proxy lockdown)
-- `PROBE_ALLOWED_KEYS`
 - `UI_ALLOWED_KEYS`
+
+If probe provisioning was enabled during bootstrap, this step also writes:
+
+- `SUBUMBRA_TOKEN_PROBE`
+- `PROBE_ALLOWED_KEYS`
 
 Verify:
 
 ```bash
 grep -E '^(SUBUMBRA_TOKEN_|CF_WORKER_URL|PROBE_ALLOWED_KEYS|UI_ALLOWED_KEYS)' .env
 ```
+
+Probe values may be blank when probe was intentionally left unprovisioned.
 
 ## 7. Start The Core Stack
 

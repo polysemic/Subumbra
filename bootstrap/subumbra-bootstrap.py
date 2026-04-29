@@ -629,14 +629,6 @@ def _build_adapter_registry(
             "issued_at": issued_at,
             "expires_at": expires_at,
         },
-        "subumbra-probe": {
-            "token": adapter_tokens["subumbra-probe"],
-            "allowed_keys": allowed_keys_by_adapter["subumbra-probe"],
-            "can_list_keys": False,
-            "can_read_stats": False,
-            "issued_at": issued_at,
-            "expires_at": expires_at,
-        },
         "subumbra-ui": {
             "token": adapter_tokens["subumbra-ui"],
             "allowed_keys": [],
@@ -646,6 +638,15 @@ def _build_adapter_registry(
             "expires_at": expires_at,
         },
     }
+    if "subumbra-probe" in adapter_tokens and "subumbra-probe" in allowed_keys_by_adapter:
+        registry["subumbra-probe"] = {
+            "token": adapter_tokens["subumbra-probe"],
+            "allowed_keys": allowed_keys_by_adapter["subumbra-probe"],
+            "can_list_keys": False,
+            "can_read_stats": False,
+            "issued_at": issued_at,
+            "expires_at": expires_at,
+        }
     for adapter_id, token in adapter_tokens.items():
         if adapter_id in BUILTIN_ADAPTER_IDS:
             continue
@@ -953,9 +954,12 @@ def _load_env_fallback() -> tuple[dict[str, tuple[str, str, str, str, str]], dic
     custom_adapter_ids = _parse_adapter_ids(os.environ.get("ADAPTER_IDS", ""))
     custom_scope_vars = _build_custom_adapter_scope_vars(custom_adapter_ids)
     allowed_keys_by_adapter = {
-        adapter_id: _parse_allowed_keys_csv(os.environ.get(scope_var, ""))
-        for adapter_id, scope_var in ADAPTER_SCOPE_VARS.items()
+        "subumbra-proxy": _parse_allowed_keys_csv(os.environ.get("PROXY_ALLOWED_KEYS", "")),
+        "subumbra-ui": _parse_allowed_keys_csv(os.environ.get("UI_ALLOWED_KEYS", "")),
     }
+    probe_allowed_keys = _parse_allowed_keys_csv(os.environ.get("PROBE_ALLOWED_KEYS", ""))
+    if probe_allowed_keys:
+        allowed_keys_by_adapter["subumbra-probe"] = probe_allowed_keys
     for adapter_id, scope_var in custom_scope_vars.items():
         allowed_keys_by_adapter[adapter_id] = _parse_allowed_keys_csv(os.environ.get(scope_var, ""))
     if allowed_keys_by_adapter["subumbra-ui"]:
@@ -1136,9 +1140,17 @@ def run_interactive_wizard(
     available_key_ids = sorted(api_keys.keys())
     allowed_keys_by_adapter = {
         "subumbra-proxy": _prompt_allowed_keys("subumbra-proxy", available_key_ids),
-        "subumbra-probe": _prompt_allowed_keys("subumbra-probe", available_key_ids),
         "subumbra-ui": [],
     }
+    enable_probe = input(
+        "  Enable subumbra-probe optional diagnostic provisioning? [y/N]: "
+    ).strip().lower()
+    if enable_probe == "y":
+        allowed_keys_by_adapter["subumbra-probe"] = _prompt_allowed_keys(
+            "subumbra-probe", available_key_ids
+        )
+    else:
+        info("Probe provisioning skipped — optional diagnostic container not provisioned.")
 
     while True:
         raw_ttl = input("\n  Token TTL in days [90]: ").strip()
@@ -1726,15 +1738,19 @@ def main() -> None:
     adapter_tokens = {
         "subumbra-proxy": secrets.token_hex(32),
         "subumbra-ui": secrets.token_hex(32),
-        "subumbra-probe": secrets.token_hex(32),
     }
+    if "subumbra-probe" in allowed_keys_by_adapter:
+        adapter_tokens["subumbra-probe"] = secrets.token_hex(32)
     for adapter_id in allowed_keys_by_adapter:
         if adapter_id not in adapter_tokens:
             adapter_tokens[adapter_id] = secrets.token_hex(32)
     subumbra_hmac_key = secrets.token_hex(32)   # 64-char hex
     ok("SUBUMBRA_TOKEN_PROXY generated")
     ok("SUBUMBRA_TOKEN_UI generated")
-    ok("SUBUMBRA_TOKEN_PROBE generated")
+    if "subumbra-probe" in adapter_tokens:
+        ok("SUBUMBRA_TOKEN_PROBE generated")
+    else:
+        info("Probe provisioning skipped — optional diagnostic container not provisioned.")
     for adapter_id in allowed_keys_by_adapter:
         if adapter_id not in BUILTIN_ADAPTER_IDS:
             ok(f"SUBUMBRA_TOKEN_{_normalize_adapter_id(adapter_id)} generated")
@@ -1807,12 +1823,17 @@ def main() -> None:
         "# PRIVILEGED — treat like an API key; restrict access to this file",
         f"SUBUMBRA_ADAPTER_REGISTRY={json.dumps(adapter_registry, separators=(',', ':'))}",
         f"PROXY_ALLOWED_KEYS={','.join(allowed_keys_by_adapter['subumbra-proxy'])}",
-        f"PROBE_ALLOWED_KEYS={','.join(allowed_keys_by_adapter['subumbra-probe'])}",
         f"UI_ALLOWED_KEYS={','.join(allowed_keys_by_adapter['subumbra-ui'])}",
         f"SUBUMBRA_TOKEN_PROXY={adapter_tokens['subumbra-proxy']}",
         f"SUBUMBRA_TOKEN_UI={adapter_tokens['subumbra-ui']}",
-        f"SUBUMBRA_TOKEN_PROBE={adapter_tokens['subumbra-probe']}",
     ]
+    if "subumbra-probe" in allowed_keys_by_adapter:
+        runtime_env_lines.append(
+            f"PROBE_ALLOWED_KEYS={','.join(allowed_keys_by_adapter['subumbra-probe'])}"
+        )
+        runtime_env_lines.append(
+            f"SUBUMBRA_TOKEN_PROBE={adapter_tokens['subumbra-probe']}"
+        )
     for adapter_id in allowed_keys_by_adapter:
         if adapter_id not in BUILTIN_ADAPTER_IDS:
             runtime_env_lines.append(
