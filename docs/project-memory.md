@@ -56,6 +56,8 @@ them.
   and performs Cloudflare-side provisioning work.
 - The interactive bootstrap wizard is now manual RAM-only entry; machine-readable
   env-driven input belongs to automation mode rather than an in-wizard import prompt.
+- `subumbra-probe` is an optional diagnostic profile now; baseline bootstrap and
+  runtime bring-up do not require probe provisioning.
 - `post-bootstrap.sh` runs on the host and writes runtime values into the
   repo-local `.env`.
 - The project expects a **project-local `.env` in the repo root**.

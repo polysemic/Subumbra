@@ -75,7 +75,10 @@ expected_proxy_token="$(grep '^SUBUMBRA_TOKEN_PROXY=' .env | cut -d= -f2- || tru
 expected_ui_token="$(grep '^SUBUMBRA_TOKEN_UI=' .env | cut -d= -f2- || true)"
 expected_probe_token="$(grep '^SUBUMBRA_TOKEN_PROBE=' .env | cut -d= -f2- || true)"
 
-required_keys=(expected_registry expected_proxy_token expected_ui_token expected_probe_token)
+required_keys=(expected_registry expected_proxy_token expected_ui_token)
+if [[ -n "$expected_probe_token" ]]; then
+    required_keys+=(expected_probe_token)
+fi
 if docker compose config --services 2>/dev/null | grep -qx 'litellm'; then
     required_keys+=(expected_litellm_token)
 fi
