@@ -114,6 +114,10 @@ for r in db.execute('SELECT verdict, reason_code, COUNT(*) FROM audit_events GRO
 
 ## 7. Adapter-Probe
 
+Optional diagnostic checks for the direct Worker-facing verification path.
+These are not required for baseline core stack bring-up, and they do not test
+the normal app-facing transparent `/t/<key_id>/...` path.
+
 ```bash
 docker compose run --rm subumbra-probe python probe.py
 docker compose run --rm subumbra-probe python probe.py --key anthropic_prod
