@@ -17,8 +17,8 @@ Integration patterns:
   Supports full request control and any provider. Does not go through `subumbra-proxy`.
 
 Confirmed in R43-6 (2026-04-25):
-- Anthropic AI-node: `http://subumbra-proxy:8090/t` → `complete key_id=anthropic_prod status=200`
-- OpenAI AI-node: `http://subumbra-proxy:8090/t/v1` → `complete key_id=openai_prod status=200`
+- Anthropic AI-node: `http://subumbra-proxy:8090/t/anthropic_prod` with adapter token credential
+- OpenAI AI-node: `http://subumbra-proxy:8090/t/openai_prod/v1` with adapter token credential
 
 Scope note:
 

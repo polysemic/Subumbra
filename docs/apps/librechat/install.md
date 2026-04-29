@@ -7,8 +7,7 @@ model is:
 
 - Subumbra core runs in `/opt/subumbra`
 - LibreChat runs in its own install, for example `/opt/librechat`
-- LibreChat talks to `subumbra-proxy` over the OpenAI-compatible transparent
-  path
+- LibreChat talks to `subumbra-proxy` over the secure transparent path
 
 ## Host Vs Docker-Internal Ports
 
@@ -17,28 +16,15 @@ Use the host-published port only for operator checks from the VPS host:
 - Subumbra proxy health: `http://127.0.0.1:10199/health`
 - LibreChat UI/API: `http://127.0.0.1:3080`
 
-Use the Docker-internal service address from app containers on `subumbra-net`:
-
-- LibreChat custom endpoint base URL:
-  `http://subumbra-proxy:8090/t/v1`
-
-Do not replace `subumbra-proxy:8090` with `127.0.0.1:10199` inside the
-LibreChat container config.
+Use the Docker-internal service address from app containers on `subumbra-net`.
 
 ## Scope
 
 This install path proves:
 
 - direct Docker install of LibreChat
-- one custom LibreChat endpoint routed through Subumbra
+- one or more LibreChat endpoints routed through Subumbra
 - normal LibreChat user login plus authenticated session chat proof
-- fail-closed behavior for an invalid or unscoped Subumbra key ID
-
-Deferred:
-
-- takeover of an existing LibreChat install
-- agents API, plugins, MCP, tool store, OAuth, SSO
-- multi-endpoint LibreChat setups
 
 ## Prerequisites
 
@@ -48,7 +34,6 @@ Standard Subumbra readiness:
 cd /opt/subumbra
 docker compose ps
 curl -sS http://127.0.0.1:10199/health
-grep '^PROXY_ALLOWED_KEYS=' .env
 ```
 
 Expected proxy health:
@@ -57,8 +42,8 @@ Expected proxy health:
 {"status":"ok","worker_auth":"ok"}
 ```
 
-The Subumbra key ID you plan to use for LibreChat must already appear in
-`PROXY_ALLOWED_KEYS`.
+The LibreChat adapter token must already be available to the LibreChat
+container.
 
 ## Supported Config Shape
 
@@ -68,17 +53,11 @@ LibreChat custom endpoints use three files:
 - `librechat.yaml`
 - `docker-compose.override.yml`
 
-For the Subumbra path:
+For the secure Subumbra path:
 
-- the promoted `librechat.yaml` ships one active OpenAI endpoint
-  (`openai_prod`) plus additional provider examples proven in R43-6
-- plain key IDs are used in `librechat.yaml`; no real provider secrets belong
-  in the file
-- `docker-compose.override.yml` mounts `librechat.yaml`, attaches the LibreChat
-  services to `subumbra-net`, and preserves explicit service names on that
-  network so internal DNS stays stable
-- `models.fetch: true` lets LibreChat request the available model list through
-  the Subumbra OpenAI-compatible path, while `default` remains as a fallback
+- the adapter token is the credential
+- the target `key_id` lives in the path
+- no real provider secret belongs in LibreChat config
 
 Use the staged templates in `templates/`:
 
@@ -89,98 +68,56 @@ Use the staged templates in `templates/`:
 Important:
 
 - do **not** use `apiKey: "user_provided"`
-- do **not** put a real OpenAI key in LibreChat for the Subumbra endpoint
+- do **not** put a real provider key in LibreChat for the Subumbra endpoint
 - keep the endpoint base URL on the Docker-internal proxy path
-- after changing `librechat.yaml`, recreate the LibreChat `api` service so the
-  mounted config is re-read on startup
+
+## Secure Path Patterns
+
+Examples from the promoted template:
+
+- OpenAI custom endpoint:
+  - `apiKey: "${SUBUMBRA_TOKEN_LIBRECHAT}"`
+  - `baseURL: "http://subumbra-proxy:8090/t/openai_prod/v1"`
+- Groq custom endpoint:
+  - `baseURL: "http://subumbra-proxy:8090/t/groq_prod/openai/v1"`
+- OpenRouter custom endpoint:
+  - `baseURL: "http://subumbra-proxy:8090/t/openrouter_prod/api/v1"`
+- Anthropic native endpoint:
+  - `ANTHROPIC_API_KEY=${SUBUMBRA_TOKEN_LIBRECHAT}`
+  - `ANTHROPIC_REVERSE_PROXY=http://subumbra-proxy:8090/t/anthropic_prod`
 
 ## Cut-Over Steps
 
-1. Install LibreChat in its own directory:
-
-   ```bash
-   git clone https://github.com/danny-avila/LibreChat.git /opt/librechat
-   cd /opt/librechat
-   cp .env.example .env
-   ```
-
-2. Append the staged env excerpt:
-
-   ```bash
-   cat /path/to/templates/librechat.env >> /opt/librechat/.env
-   ```
-
-   Then set `UID` / `GID` if your host requires explicit values.
-
-3. Copy the staged LibreChat config files into the LibreChat root:
-
-   ```bash
-   cp /path/to/templates/librechat.yaml /opt/librechat/librechat.yaml
-   cp /path/to/templates/docker-compose.override.yml /opt/librechat/docker-compose.override.yml
-   ```
-
-4. Start LibreChat:
-
-   ```bash
-   cd /opt/librechat
-   docker compose up -d
-   ```
-
-5. Verify the containers started and the config mounted cleanly:
-
-   ```bash
-   docker compose ps
-   docker compose logs api
-   curl -sS http://127.0.0.1:3080/api/config
-   ```
-
-   If you change `librechat.yaml` later, reload the config with:
-
-   ```bash
-   cd /opt/librechat
-   docker compose up -d --force-recreate api
-   ```
-
-6. Open LibreChat in the browser and register the first account.
-
-7. Before running the verifier, export the LibreChat login used for that
-   account:
-
-   ```bash
-   export LIBRECHAT_EMAIL='<librechat-login-email>'
-   export LIBRECHAT_PASSWORD='<librechat-login-password>'
-   ```
+1. Install LibreChat in its own directory.
+2. Append the staged env excerpt to `.env`.
+3. Copy `librechat.yaml` and `docker-compose.override.yml` into the LibreChat root.
+4. Start LibreChat with Docker Compose.
+5. Register the first account.
+6. Export `LIBRECHAT_EMAIL` and `LIBRECHAT_PASSWORD` before verification.
 
 ## Operator Notes
 
-- LibreChat custom endpoints are configured in `librechat.yaml`, not in the
-  chat UI.
-- When adopting the Subumbra path, remove or comment out real direct-provider
-  secrets (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_KEY`,
-  `ASSISTANTS_API_KEY`, `AZURE_API_KEY`) from `.env`. Leaving them active keeps
-  built-in provider routes available and bypasses Subumbra.
-- LibreChat custom-endpoint chat uses the normal authenticated user session.
-  It does **not** use the Agents API or LibreChat API keys.
-- The first registered LibreChat account becomes the admin account.
-- If `librechat.yaml` is invalid, LibreChat fails fast on startup. Use
-  `docker compose logs api` first.
+- LibreChat custom endpoints are configured in `librechat.yaml`, not in the chat UI.
+- Remove or comment out real direct-provider secrets from `.env` when adopting
+  the Subumbra path.
+- The active credential is the LibreChat adapter token. The target provider key
+  selection happens in the URL path.
 
 ## Fail-Closed Check
 
 Fail closed means:
 
 - LibreChat attempts a normal routed chat
-- `subumbra-proxy` cannot resolve or use the configured key ID
+- `subumbra-proxy` cannot resolve the configured adapter token or cannot use the
+  path-carried `key_id`
 - the caller-facing chat attempt returns a non-200 failure
-- the verified target expectation for this path is `502`
 
 ## Operator Checklist
 
 1. Confirm `http://127.0.0.1:10199/health` returns `worker_auth":"ok"`.
-2. Confirm the active key ID in `librechat.yaml` appears in `PROXY_ALLOWED_KEYS`.
-3. Keep `baseURL: http://subumbra-proxy:8090/t/v1` in the active OpenAI entry.
-4. Confirm the active entry uses a plain key ID, `models.fetch: true`, and no
-   `user_provided`.
+2. Confirm the LibreChat adapter token is available to the container.
+3. Keep the active endpoint `baseURL` on `http://subumbra-proxy:8090/t/<key_id>/...`.
+4. Keep `apiKey` on the shared LibreChat adapter token.
 5. Register the first LibreChat user through the UI.
 6. Export `LIBRECHAT_EMAIL` and `LIBRECHAT_PASSWORD` before verification.
 7. Confirm the routed chat proof in `subumbra-proxy` logs.

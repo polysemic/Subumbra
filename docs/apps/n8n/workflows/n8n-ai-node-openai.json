@@ -70,10 +70,10 @@
   "_subumbra_notes": {
     "credential_type": "openAiApi",
     "credential_fields": {
-      "apiKey": "openai_prod",
-      "baseURL": "http://subumbra-proxy:8090/t/v1"
+      "apiKey": "${SUBUMBRA_TOKEN_N8N}",
+      "baseURL": "http://subumbra-proxy:8090/t/openai_prod/v1"
     },
-    "base_url": "http://subumbra-proxy:8090/t/v1",
-    "note": "Set the OpenAI credential Base URL to http://subumbra-proxy:8090/t/v1. The node appends /responses. Proxy log confirms: POST /t/v1/responses complete key_id=openai_prod status=200"
+    "base_url": "http://subumbra-proxy:8090/t/openai_prod/v1",
+    "note": "Set the OpenAI credential Base URL to http://subumbra-proxy:8090/t/openai_prod/v1 and the API key to the n8n adapter token. The node appends /responses after the path-carried key_id."
   }
 }

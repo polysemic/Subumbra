@@ -26,8 +26,8 @@ Before takeover:
 1. AnythingLLM is already running with direct OpenAI credentials
 2. app data persists under `/opt/anythingllm/storage`
 3. the app is not already using Subumbra for the proof path
-4. `subumbra-proxy` is healthy and the required `key_id` is present in
-   `PROXY_ALLOWED_KEYS`
+4. `subumbra-proxy` is healthy
+5. the AnythingLLM adapter token is available to the container
 
 Useful checks:
 
@@ -35,7 +35,6 @@ Useful checks:
 cd /opt/subumbra
 docker compose ps
 curl -sS http://127.0.0.1:10199/health
-grep '^PROXY_ALLOWED_KEYS=' .env
 ```
 
 Expected proxy health:
@@ -49,7 +48,7 @@ Expected proxy health:
 The supported takeover LLM path is:
 
 ```text
-http://subumbra-proxy:8090/t/v1
+http://subumbra-proxy:8090/t/openai_prod/v1
 ```
 
 Use the tracked LLM takeover template:
@@ -88,8 +87,8 @@ docker exec anythingllm env | sort | grep -E 'LLM_PROVIDER|GENERIC_OPEN_AI_BASE_
 Expected output includes:
 
 ```text
-GENERIC_OPEN_AI_API_KEY=openai_prod
-GENERIC_OPEN_AI_BASE_PATH=http://subumbra-proxy:8090/t/v1
+GENERIC_OPEN_AI_API_KEY=${SUBUMBRA_TOKEN_ANYTHINGLLM}
+GENERIC_OPEN_AI_BASE_PATH=http://subumbra-proxy:8090/t/openai_prod/v1
 LLM_PROVIDER=generic-openai
 ```
 
@@ -162,7 +161,7 @@ target_url=https://api.openai.com/v1/embeddings
 
 ## Fail-Closed Verification
 
-An invalid or unscoped key must fail closed:
+An invalid adapter token must fail closed:
 
 ```bash
 curl -sS -i \
@@ -170,7 +169,7 @@ curl -sS -i \
   -H 'Content-Type: application/json' \
   -X POST \
   -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"test"}]}' \
-  http://127.0.0.1:10199/t/v1/chat/completions
+  http://127.0.0.1:10199/t/openai_prod/v1/chat/completions
 ```
 
 Expected result: non-200 failure from the proxy path.

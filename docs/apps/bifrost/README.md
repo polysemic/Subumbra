@@ -23,6 +23,6 @@ What is not yet proven:
 - migration from a running non-Subumbra Bifrost install
 
 **Critical operator note:** Bifrost appends its own `/v1/` segment to
-`network_config.base_url`. The correct Subumbra entry point for Bifrost is
-bare `http://subumbra-proxy:8090/t` — **not** `/t/v1`. Adding `/v1` causes a
-double-path 404 (`/t/v1/v1/chat/completions`).
+`network_config.base_url`. The secure Subumbra entry point for Bifrost is
+`http://subumbra-proxy:8090/t/<key_id>` — **not** `/t/<key_id>/v1`.
+Adding `/v1` causes a double-path 404.

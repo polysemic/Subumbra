@@ -15,7 +15,7 @@ Use the host-published port only for operator checks from the VPS host:
 
 Use the Docker-internal service address from app containers on `subumbra-net`:
 
-- Bifrost takeover base URL: `http://subumbra-proxy:8090/t`
+- Bifrost takeover base URL pattern: `http://subumbra-proxy:8090/t/<key_id>`
 
 Do not change the Bifrost provider `base_url` to `127.0.0.1:10199`.
 
@@ -50,7 +50,7 @@ variables.
 
 **Prerequisites:**
 - Bifrost container is running
-- `BIFROST_OPENAI_KEY` is set to your Subumbra `key_id` in the container environment
+- `BIFROST_SUBUMBRA_TOKEN` is set to the Bifrost adapter token in the container environment
 
 **Step 1: Send the migration API call**
 
@@ -68,14 +68,14 @@ curl -s -X PUT http://127.0.0.1:<bifrost-host-port>/api/providers/openai \
     "keys": [
       {
         "name": "subumbra-key",
-        "value": "env.BIFROST_OPENAI_KEY",
+        "value": "env.BIFROST_SUBUMBRA_TOKEN",
         "models": ["gpt-4o-mini"],
         "weight": 1,
         "enabled": true
       }
     ],
     "network_config": {
-      "base_url": "http://subumbra-proxy:8090/t"
+      "base_url": "http://subumbra-proxy:8090/t/openai_prod"
     },
     "concurrency_and_buffer_size": {
       "concurrency": 1000,
@@ -84,8 +84,8 @@ curl -s -X PUT http://127.0.0.1:<bifrost-host-port>/api/providers/openai \
   }'
 ```
 
-> **Note on `base_url`**: The value must be `http://subumbra-proxy:8090/t` —
-> the bare `/t` path with no `/v1` suffix. Bifrost appends the provider path
+> **Note on `base_url`**: The value must be `http://subumbra-proxy:8090/t/openai_prod` —
+> the path-carried `key_id` with no trailing `/v1` suffix. Bifrost appends the provider path
 > itself. Bifrost does **not** support environment variable references in
 > `base_url`.
 
@@ -122,7 +122,7 @@ rm -f config.db config.db-shm config.db-wal
 **Step 3: Update config.json for Subumbra routing**
 
 Replace your `config.json` with the Subumbra configuration. Ensure
-`BIFROST_OPENAI_KEY` is set to your Subumbra `key_id` in the container
+`BIFROST_SUBUMBRA_TOKEN` is set to the Bifrost adapter token in the container
 environment before starting.
 
 ```json
@@ -132,13 +132,13 @@ environment before starting.
       "keys": [
         {
           "name": "subumbra-key",
-          "value": "env.BIFROST_OPENAI_KEY",
+          "value": "env.BIFROST_SUBUMBRA_TOKEN",
           "models": ["gpt-4o-mini"],
           "weight": 1.0
         }
       ],
       "network_config": {
-        "base_url": "http://subumbra-proxy:8090/t"
+        "base_url": "http://subumbra-proxy:8090/t/openai_prod"
       }
     }
   },
@@ -185,5 +185,5 @@ its own after several seconds, after which routed chat requests return HTTP 200
 again.
 
 If you see the old direct-routing target URL without `key_id=`, the migration
-did not take effect. Verify that `BIFROST_OPENAI_KEY` is set correctly in the
+did not take effect. Verify that `BIFROST_SUBUMBRA_TOKEN` is set correctly in the
 container environment and retry.

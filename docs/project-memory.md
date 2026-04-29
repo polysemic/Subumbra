@@ -38,8 +38,12 @@ them.
 - The canonical core API is `POST /proxy`.
 - `subumbra-keys` is Docker-internal only and is not the public app-facing API.
 - The Worker is the only place where provider secrets become usable plaintext.
-- The transparent sidecar route (`subumbra-proxy` / `/t`) is the current
-  reference integration path.
+- The transparent sidecar route (`subumbra-proxy` / `/t/<key_id>/...`) is the
+  current reference integration path.
+- App-facing transparent traffic now authenticates with adapter token in
+  `Authorization` or `X-API-Key`; legacy raw-`key_id` transparent auth is gone.
+- The legacy sidecar `/v1/request` surface is no longer a supported app-facing
+  contract.
 - Live provider validation has moved away from a purely bundled model; local
   repo metadata can still remain as operator/bootstrap seed material.
 
@@ -50,6 +54,8 @@ them.
 - The clean supported install path is still **terminal-first**.
 - Bootstrap currently runs through `docker compose --profile bootstrap run ...`
   and performs Cloudflare-side provisioning work.
+- The interactive bootstrap wizard is now manual RAM-only entry; machine-readable
+  env-driven input belongs to automation mode rather than an in-wizard import prompt.
 - `post-bootstrap.sh` runs on the host and writes runtime values into the
   repo-local `.env`.
 - The project expects a **project-local `.env` in the repo root**.

@@ -86,16 +86,19 @@ The wizard collects:
 At Step 3, put the app-facing provider keys in `subumbra-proxy`. This is the
 shared app-owned path used by standalone LiteLLM and other external apps.
 
-If you already have provider keys in an app-owned `.env` file, you may mount it
-read-only and import the provider keys during the wizard:
+The interactive wizard now stays RAM-only and manual. If you already have
+machine-readable provider keys, use the automation path instead of an
+interactive import prompt:
 
 ```bash
-docker compose --profile bootstrap run --rm \
-  -v /opt/litellm:/host_litellm:ro \
-  -it bootstrap
+cp .env.bootstrap.example .env.bootstrap
+# populate .env.bootstrap with CF credentials, provider keys, key_ids, and scopes
+docker compose --profile bootstrap run --rm bootstrap
 ```
 
-Then enter `/host_litellm/.env` when prompted.
+In a real TTY, when bootstrap detects environment credentials already present,
+it now asks whether to continue in interactive RAM-only mode or proceed with the
+automated environment-driven mode.
 
 ## 6. Run `post-bootstrap.sh`
 
@@ -111,14 +114,14 @@ This copies the generated Subumbra runtime values into `.env`:
 - `SUBUMBRA_TOKEN_PROBE`
 - `SUBUMBRA_HMAC_KEY`
 - `CF_WORKER_URL`
-- `PROXY_ALLOWED_KEYS`
+- `PROXY_ALLOWED_KEYS` (intentionally empty after proxy lockdown)
 - `PROBE_ALLOWED_KEYS`
 - `UI_ALLOWED_KEYS`
 
 Verify:
 
 ```bash
-grep -E '^(SUBUMBRA_TOKEN_|CF_WORKER_URL|PROXY_ALLOWED_KEYS|PROBE_ALLOWED_KEYS|UI_ALLOWED_KEYS)' .env
+grep -E '^(SUBUMBRA_TOKEN_|CF_WORKER_URL|PROBE_ALLOWED_KEYS|UI_ALLOWED_KEYS)' .env
 ```
 
 ## 7. Start The Core Stack
@@ -163,8 +166,8 @@ Use the standalone guide:
 
 That guide shows the supported app-owned contract:
 
-- `api_base: http://subumbra-proxy:8090/t`
-- `api_key: <key_id>` using a plain key ID
+- `api_base: http://subumbra-proxy:8090/t/<key_id>/...`
+- `api_key: <SUBUMBRA_TOKEN_YOUR_APP>` — adapter token from `.env`, not a plain key_id
 
 ## Next
 
