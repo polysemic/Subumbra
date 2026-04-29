@@ -1126,8 +1126,8 @@ def run_interactive_wizard(
     print("  Subumbra Bootstrap — Step 3 of 4: Adapter Key Scopes")
     print("═" * 70)
     print("  Choose which key_ids each built-in adapter may fetch from subumbra-keys.")
-    print("  1. subumbra-proxy: all key_ids that LiteLLM and other apps access via")
-    print("     the transparent sidecar (api_base: http://subumbra-proxy:8090/t).")
+    print("  1. subumbra-proxy: all key_ids that apps access via the transparent sidecar")
+    print("     (api_base: http://subumbra-proxy:8090/t/<key_id>/...).")
     print("     For most deployments, enter all provider key_ids here.")
     print("  2. subumbra-probe: keys available to the verification/proof container")
     print("  subumbra-ui is metadata-only and never receives ciphertext fetch scope.")
@@ -1895,10 +1895,10 @@ def main() -> None:
        docker compose up -d --force-recreate
     3. Check all containers running:  docker compose ps
     4. Check worker health:           curl {worker_url}/health
-    5. For standalone LiteLLM or another app-owned integration, use:
-         api_base: http://subumbra-proxy:8090/t
-         api_key:  <key_id>   (plain, no subumbra: prefix)
-       See docs/standalone-litellm.md for the canonical example.
+    5. For any app-owned integration, set:
+         api_base: http://subumbra-proxy:8090/t/<key_id>/...
+         api_key:  <SUBUMBRA_TOKEN_YOUR_APP>   (adapter token from .env, NOT the key_id)
+       See docs/adapter-contract.md for the canonical integration reference.
 
   V2 envelope encryption active:
     Public key:    {PUBLIC_KEY_FILE}

@@ -13,7 +13,6 @@ import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.background import BackgroundTasks
 from fastapi.responses import JSONResponse, Response, StreamingResponse
-from pydantic import BaseModel
 
 
 SUBUMBRA_ACCESS_TOKEN = os.environ.get("SUBUMBRA_ACCESS_TOKEN", "")
@@ -83,13 +82,6 @@ WORKER_AUTH_TIMEOUT_SECONDS = 2.0
 WORKER_AUTH_UNAUTHORIZED_BODY = b'{"error":"unauthorized"}'
 _worker_auth_ok_until = 0.0
 
-
-class ProxyRequest(BaseModel):
-    key_id: str
-    target_url: str
-    method: str
-    headers: dict
-    body: Optional[Any] = None
 
 
 class SubumbraForbiddenError(RuntimeError):
@@ -262,24 +254,26 @@ async def proxy_via_worker(
     *,
     adapter_token: str | None = None,
     adapter_id: str | None = None,
+    record: dict | None = None,
 ) -> Response:
     LOG.info("request adapter=%s key_id=%s method=%s target_url=%s", adapter_id, key_id, method, target_url)
 
-    try:
-        record = await fetch_record(CLIENT, key_id, adapter_token=adapter_token)
-    except httpx.ConnectError:
-        LOG.error("subumbra failure key_id=%s error=subumbra-keys unreachable", key_id)
-        raise HTTPException(502, detail="subumbra-keys unreachable")
-    except SubumbraForbiddenError:
-        LOG.warning(
-            "transparent reject adapter=%s key_id=%s reason=key_scope_denied",
-            adapter_id,
-            key_id,
-        )
-        raise HTTPException(403, detail="forbidden")
-    except Exception as exc:
-        LOG.error("subumbra failure key_id=%s error=%s", key_id, exc)
-        raise HTTPException(502, detail=f"subumbra record fetch failed: {exc}")
+    if record is None:
+        try:
+            record = await fetch_record(CLIENT, key_id, adapter_token=adapter_token)
+        except httpx.ConnectError:
+            LOG.error("subumbra failure key_id=%s error=subumbra-keys unreachable", key_id)
+            raise HTTPException(502, detail="subumbra-keys unreachable")
+        except SubumbraForbiddenError:
+            LOG.warning(
+                "transparent reject adapter=%s key_id=%s reason=key_scope_denied",
+                adapter_id,
+                key_id,
+            )
+            raise HTTPException(403, detail="forbidden")
+        except Exception as exc:
+            LOG.error("subumbra failure key_id=%s error=%s", key_id, exc)
+            raise HTTPException(502, detail=f"subumbra record fetch failed: {exc}")
 
     payload = proxy_payload(
         record,
@@ -337,10 +331,7 @@ async def proxy_via_worker(
     tasks = BackgroundTasks()
     tasks.add_task(worker_resp.aclose)
 
-    if adapter_id is not None:
-        LOG.info("complete adapter=%s key_id=%s status=%s", adapter_id, key_id, worker_resp.status_code)
-    else:
-        LOG.info("complete key_id=%s status=%s", key_id, worker_resp.status_code)
+    LOG.info("complete adapter=%s key_id=%s status=%s", adapter_id, key_id, worker_resp.status_code)
     return StreamingResponse(
         worker_resp.aiter_bytes(),
         status_code=worker_resp.status_code,
@@ -377,16 +368,6 @@ async def get_worker_auth_status() -> str:
 async def health():
     return {"status": "ok", "worker_auth": await get_worker_auth_status()}
 
-
-@app.post("/v1/request")
-async def handle_request(req: ProxyRequest):
-    return await proxy_via_worker(
-        req.key_id,
-        req.target_url,
-        req.method,
-        req.headers,
-        req.body,
-    )
 
 
 @app.api_route("/t/{path:path}", methods=TRANSPARENT_METHODS)
@@ -465,4 +446,5 @@ async def handle_transparent_request(path: str, request: Request):
         body,
         adapter_token=adapter_token,
         adapter_id=adapter_id,
+        record=record,
     )

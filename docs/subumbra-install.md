@@ -111,14 +111,14 @@ This copies the generated Subumbra runtime values into `.env`:
 - `SUBUMBRA_TOKEN_PROBE`
 - `SUBUMBRA_HMAC_KEY`
 - `CF_WORKER_URL`
-- `PROXY_ALLOWED_KEYS`
+- `PROXY_ALLOWED_KEYS` (intentionally empty after proxy lockdown)
 - `PROBE_ALLOWED_KEYS`
 - `UI_ALLOWED_KEYS`
 
 Verify:
 
 ```bash
-grep -E '^(SUBUMBRA_TOKEN_|CF_WORKER_URL|PROXY_ALLOWED_KEYS|PROBE_ALLOWED_KEYS|UI_ALLOWED_KEYS)' .env
+grep -E '^(SUBUMBRA_TOKEN_|CF_WORKER_URL|PROBE_ALLOWED_KEYS|UI_ALLOWED_KEYS)' .env
 ```
 
 ## 7. Start The Core Stack
@@ -163,8 +163,8 @@ Use the standalone guide:
 
 That guide shows the supported app-owned contract:
 
-- `api_base: http://subumbra-proxy:8090/t`
-- `api_key: <key_id>` using a plain key ID
+- `api_base: http://subumbra-proxy:8090/t/<key_id>/...`
+- `api_key: <SUBUMBRA_TOKEN_YOUR_APP>` — adapter token from `.env`, not a plain key_id
 
 ## Next
 

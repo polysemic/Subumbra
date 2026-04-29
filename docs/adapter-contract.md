@@ -40,7 +40,7 @@ GET /keys/<key_id>
 Required headers:
 
 ```text
-X-Subumbra-Token: <SUBUMBRA_ACCESS_TOKEN>
+X-Subumbra-Token: <adapter token from SUBUMBRA_ACCESS_TOKEN env var>
 X-Subumbra-Timestamp: <unix epoch seconds>
 X-Subumbra-Nonce: <single-use hex nonce>
 X-Subumbra-Signature: <hex hmac>
@@ -79,7 +79,7 @@ subumbra-keys response before making the Worker call.
 Authentication header (required on every request):
 
 ```
-X-Subumbra-Token: <SUBUMBRA_ACCESS_TOKEN>
+X-Subumbra-Token: <adapter token — SUBUMBRA_TOKEN_<APP> from .env, injected as SUBUMBRA_ACCESS_TOKEN in the container>
 ```
 
 Request body (JSON, all fields required unless noted):
