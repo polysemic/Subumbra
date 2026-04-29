@@ -441,10 +441,11 @@
       white-space: nowrap;
     }
 
-    /* ── Junction: 3-col grid ──────────────────────────────── */
+    /* ── Junction: encrypted record store → Worker verifier ─── */
     .arch-junction {
       display: grid;
-      grid-template-columns: 1fr 20px 1fr;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
       align-items: start;
     }
 
@@ -458,67 +459,57 @@
       flex-direction: column;
     }
 
-    /* Horizontal arm: left col connects to junction dot */
-    .arch-j-arm-h {
-      height: 0;
-      border-top: 2px solid var(--blue);
-      margin-top: 14px;
+    .arch-arrow-to-keys {
+      align-items: flex-start;
+      padding-left: calc((100% - 20px) / 4);
     }
 
-    /* Center column */
-    .arch-j-center {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
+    .arch-arrow-to-keys .arch-arrow-line {
+      transform: translateX(-1px);
     }
 
-    .arch-j-v-in {
-      height: 11px;
-      width: 2px;
-      background: linear-gradient(to bottom, var(--border-subtle), var(--blue));
+    .arch-arrow-to-keys .arch-arrow-label {
+      transform: translateX(-50%);
     }
 
-    .arch-j-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--blue);
-      flex-shrink: 0;
-    }
-
-    .arch-j-split {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      width: 100%;
-    }
-
-    .arch-j-split-line {
-      flex: 1;
-      width: 2px;
-      background: #475569;
-      min-height: 20px;
-    }
-
-    .arch-j-split-label {
-      writing-mode: vertical-rl;
-      font-family: var(--font-mono);
-      font-size: 0.52rem;
-      font-weight: 700;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      color: #64748b;
-      padding-block: 0.35rem;
-    }
-
-    /* Right-angle elbow: horizontal from junction → turns DOWN to CF Worker */
-    .arch-j-elbow {
+    /* Shows the encrypted envelope moving from your VPS to Cloudflare. */
+    .arch-key-worker-link {
+      position: relative;
       height: 30px;
-      margin-top: 1px;
-      border-top: 2px solid var(--blue);
-      border-right: 2px solid var(--blue);
-      border-radius: 0 4px 0 0;
+      margin-top: 0;
+    }
+
+    .arch-key-worker-link::before {
+      content: "";
+      position: absolute;
+      left: 50%;
+      right: -20px;
+      bottom: 0;
+      height: 2px;
+      background: linear-gradient(90deg, var(--blue), #f97316);
+      border-radius: 1px;
+    }
+
+    .arch-key-worker-link::after {
+      content: "";
+      position: absolute;
+      right: -20px;
+      bottom: 0;
+      width: 2px;
+      height: 30px;
+      background: linear-gradient(180deg, #f97316, rgba(249, 115, 22, 0.4));
+      border-radius: 1px;
+    }
+
+    .arch-key-worker-link span {
+      position: absolute;
+      left: 50%;
+      bottom: 0.35rem;
+      transform: translateX(-10%);
+      font-family: var(--font-mono);
+      font-size: 0.54rem;
+      color: var(--text-ghost);
+      white-space: nowrap;
     }
 
     /* Small arrow inside right col, Worker → DO */
@@ -543,6 +534,46 @@
       color: var(--text-ghost);
       text-align: center;
       white-space: nowrap;
+    }
+
+    @media (max-width: 560px) {
+      .arch-junction {
+        grid-template-columns: 1fr;
+        gap: 0;
+      }
+
+      .arch-arrow-to-keys {
+        align-items: center;
+        padding-left: 0;
+      }
+
+      .arch-arrow-to-keys .arch-arrow-line,
+      .arch-arrow-to-keys .arch-arrow-label {
+        transform: none;
+      }
+
+      .arch-key-worker-link {
+        height: 34px;
+      }
+
+      .arch-key-worker-link::before {
+        left: 50%;
+        right: auto;
+        bottom: 0;
+        width: 2px;
+        height: 34px;
+        background: linear-gradient(180deg, var(--blue), #f97316);
+      }
+
+      .arch-key-worker-link::after {
+        display: none;
+      }
+
+      .arch-key-worker-link span {
+        left: 50%;
+        bottom: 0.8rem;
+        transform: translateX(0.65rem);
+      }
     }
 
     /* ══════════════════════════════════════════════════════════
@@ -1191,43 +1222,35 @@
             <div class="arch-box-sub">Uses a plain key_id · proxy enforces per-adapter key scoping</div>
           </div>
 
-          <!-- Arrow: App → junction -->
-          <div class="arch-arrow">
+          <!-- Arrow: App → proxy → encrypted record fetch -->
+          <div class="arch-arrow arch-arrow-to-keys">
             <div class="arch-arrow-line"></div>
-            <div class="arch-arrow-label">subumbra-proxy :8090/t</div>
+            <div class="arch-arrow-label">adapter token + key_id via subumbra-proxy :8090/t</div>
             <div class="arch-arrow-line"></div>
           </div>
 
-          <!-- Junction: left arm to keys | dot + split | right elbow to CF Worker -->
+          <!-- Junction: encrypted metadata on your VPS, private key in Cloudflare -->
           <div class="arch-junction">
 
             <div class="arch-j-left">
               <div class="arch-box blue-tint">
                 <div class="arch-box-label">subumbra-keys</div>
-                <div class="arch-box-name">Encrypted blob store</div>
-                <div class="arch-box-sub">Your VPS · Docker internal only</div>
+                <div class="arch-box-name">Encrypted envelope store</div>
+                <div class="arch-box-sub">Your VPS · Docker internal only · no plaintext keys</div>
                 <div class="arch-tags">
-                  <span class="arch-tag tag-green">ciphertext only</span>
+                  <span class="arch-tag tag-green">ciphertext + wrapped DEK only</span>
                 </div>
               </div>
-            </div>
-
-            <div class="arch-j-center">
-              <div class="arch-j-v-in"></div>
-              <div class="arch-j-dot"></div>
-              <div class="arch-j-split">
-                <div class="arch-j-split-line"></div>
-                <div class="arch-j-split-label">split</div>
-                <div class="arch-j-split-line"></div>
+              <div class="arch-key-worker-link">
+                <span>encrypted envelope fetch</span>
               </div>
             </div>
 
             <div class="arch-j-right">
-              <div class="arch-j-elbow"></div>
               <div class="arch-box orange-tint">
                 <div class="arch-box-label">Cloudflare Worker</div>
-                <div class="arch-box-name">Verifier &amp; Secure Store</div>
-                <div class="arch-box-sub">Per-adapter scoping · provider validation · fail-closed allowlist</div>
+                <div class="arch-box-name">Policy gate &amp; verifier</div>
+                <div class="arch-box-sub">Validates adapter scope · provider host · key fingerprint</div>
                 <div class="arch-tags">
                   <span class="arch-tag tag-cyan">private key in CF Secrets</span>
                 </div>
@@ -1235,7 +1258,7 @@
               </div>
               <div class="arch-do-mini-arrow">
                 <div class="arch-do-arrow-line"></div>
-                <div class="arch-do-arrow-label">verified · passes to DO</div>
+                <div class="arch-do-arrow-label">verified request + encrypted record</div>
                 <div class="arch-do-arrow-line"></div>
               </div>
             </div>
@@ -1245,7 +1268,7 @@
           <!-- DO: FULL WIDTH — same span as App and API Provider -->
           <div class="arch-box purple-tint">
             <div class="arch-box-label">Durable Object · one per request · isolated</div>
-            <div class="arch-box-name">One-time Decrypt Point</div>
+            <div class="arch-box-name">Ephemeral Decrypt Runtime</div>
             <div class="arch-box-sub">Unwraps DEK · decrypts provider key · calls API · streams response</div>
             <div class="arch-tags">
               <span class="arch-tag tag-purple">~100ms memory</span>
