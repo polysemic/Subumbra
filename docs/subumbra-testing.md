@@ -34,30 +34,26 @@ Healthy core means:
 ### Transparent route test
 
 ```bash
+OPENWEBUI_TOKEN="$(sed -n 's/^SUBUMBRA_TOKEN_OPENWEBUI=//p' .env)"
+
 curl -sS -w "\nHTTP %{http_code}\n" \
-  http://127.0.0.1:10199/t/user \
-  -H "Authorization: Bearer github_prod" \
-  -H "Accept: application/json"
+  http://127.0.0.1:10199/t/openai_prod/v1/models \
+  -H "Authorization: Bearer $OPENWEBUI_TOKEN"
 ```
 
-### Explicit `/v1/request` test
+### Explicit secure transparent test
 
 ```bash
 PROXY_TOKEN="$(sed -n 's/^SUBUMBRA_TOKEN_PROXY=//p' .env)"
 
-curl -sS http://127.0.0.1:10199/v1/request \
+curl -sS http://127.0.0.1:10199/t/anthropic_prod/v1/messages \
   -H "Authorization: Bearer $PROXY_TOKEN" \
   -H "Content-Type: application/json" \
+  -H "anthropic-version: 2023-06-01" \
   -d '{
-    "key_id": "anthropic_prod",
-    "target_url": "https://api.anthropic.com/v1/messages",
-    "method": "POST",
-    "headers": {"anthropic-version": "2023-06-01"},
-    "body": {
-      "model": "claude-haiku-4-5-20251001",
-      "max_tokens": 10,
-      "messages": [{"role": "user", "content": "hi"}]
-    }
+    "model": "claude-haiku-4-5-20251001",
+    "max_tokens": 10,
+    "messages": [{"role": "user", "content": "hi"}]
   }'
 ```
 
@@ -89,13 +85,13 @@ curl http://127.0.0.1:4000/v1/chat/completions \
 
 ```bash
 curl -sS -o /dev/null -w "HTTP %{http_code}\n" \
-  http://127.0.0.1:10199/v1/request \
+  http://127.0.0.1:10199/t/anthropic_prod/v1/messages \
   -H "Authorization: Bearer badtoken" \
   -H "Content-Type: application/json" \
-  -d '{"key_id":"anthropic_prod","target_url":"https://api.anthropic.com","method":"POST","headers":{},"body":{}}'
+  -d '{"model":"claude-haiku-4-5-20251001","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}'
 ```
 
-Expected: `401` or `403`.
+Expected: `401`.
 
 ### Worker-auth visibility
 

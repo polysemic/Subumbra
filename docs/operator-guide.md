@@ -74,17 +74,25 @@ docker compose up -d --force-recreate subumbra-keys subumbra-proxy
 The sidecar listens on:
 
 - `http://localhost:10199/health`
-- `http://localhost:10199/v1/request`
+- `http://localhost:10199/t/<key_id>/...`
 
-Applications call the sidecar using the five-field request contract:
+Applications now use the secure transparent contract:
 
-- `key_id`
-- `target_url`
-- `method`
-- `headers`
-- `body`
+- present the adapter token in `Authorization` or `X-API-Key`
+- put the requested `key_id` in the first path segment after `/t/`
+- let `subumbra-proxy` package the canonical Worker `/proxy` request internally
 
-`key_id` must exactly match the key ID chosen during bootstrap for that record.
+Example:
+
+```bash
+OPENWEBUI_TOKEN="$(sed -n 's/^SUBUMBRA_TOKEN_OPENWEBUI=//p' .env)"
+
+curl -sS \
+  -H "Authorization: Bearer $OPENWEBUI_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}' \
+  http://localhost:10199/t/openai_prod/v1/chat/completions
+```
 
 ## 3. Registry Publish And Removal Guidance
 
@@ -288,13 +296,15 @@ See [`docs/subumbra-testing.md`](./subumbra-testing.md) for audit query examples
 
 ## 7. Transparent Sidecar Route
 
-Bounded transparent ingress at `http://localhost:10199/t/{path}`.
+Bounded transparent ingress at `http://localhost:10199/t/<key_id>/...`.
 
-Accepted pseudo-key header forms:
+Accepted app-facing credential header forms:
 
-- `Authorization: Bearer <key_id>`
-- `Authorization: <key_id>`
-- `x-api-key: <key_id>`
+- `Authorization: Bearer <adapter_token>`
+- `Authorization: <adapter_token>`
+- `x-api-key: <adapter_token>`
+
+The first path segment after `/t/` is the requested `key_id`.
 
 `Authorization` takes precedence if both headers are present.
 

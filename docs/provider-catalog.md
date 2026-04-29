@@ -4,18 +4,14 @@
 
 ## Sidecar Request Contract
 
-Every sidecar request uses the same five fields:
+Every app-facing sidecar request now uses the secure transparent contract:
 
-- `key_id`
-- `target_url`
-- `method`
-- `headers`
-- `body`
+- send the adapter token in `Authorization` or `X-API-Key`
+- put the requested `key_id` in the first path segment after `/t/`
+- append the provider-specific upstream path after that
 
-Callers must **not** include the provider authorization header in `headers`.
-The Worker/Durable Object injects provider auth from the subumbra record.
-`key_id` must exactly match the key ID you entered during bootstrap for that
-provider record.
+Callers must **not** include the provider authorization header. The
+Worker/Durable Object injects provider auth from the subumbra record.
 
 ## Providers
 
@@ -37,9 +33,11 @@ provider record.
 ```
 
 ```bash
-curl -s -X POST http://localhost:10199/v1/request \
+curl -s -X POST http://localhost:10199/t/<your_anthropic_key_id>/v1/messages \
+  -H "Authorization: Bearer <your_adapter_token>" \
   -H "Content-Type: application/json" \
-  -d '{"key_id":"<your_anthropic_key_id>","target_url":"https://api.anthropic.com/v1/messages","method":"POST","headers":{"content-type":"application/json","anthropic-version":"2023-06-01"},"body":{"model":"claude-3-5-haiku-latest","max_tokens":16,"messages":[{"role":"user","content":"Say test"}]}}'
+  -H "anthropic-version: 2023-06-01" \
+  -d '{"model":"claude-3-5-haiku-latest","max_tokens":16,"messages":[{"role":"user","content":"Say test"}]}'
 ```
 
 ### openai
@@ -59,9 +57,10 @@ curl -s -X POST http://localhost:10199/v1/request \
 ```
 
 ```bash
-curl -s -X POST http://localhost:10199/v1/request \
+curl -s -X POST http://localhost:10199/t/<your_openai_key_id>/v1/chat/completions \
+  -H "Authorization: Bearer <your_adapter_token>" \
   -H "Content-Type: application/json" \
-  -d '{"key_id":"<your_openai_key_id>","target_url":"https://api.openai.com/v1/chat/completions","method":"POST","headers":{"content-type":"application/json"},"body":{"model":"gpt-4o-mini","messages":[{"role":"user","content":"Say test"}],"max_tokens":16}}'
+  -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"Say test"}],"max_tokens":16}'
 ```
 
 ### groq
@@ -81,9 +80,10 @@ curl -s -X POST http://localhost:10199/v1/request \
 ```
 
 ```bash
-curl -s -X POST http://localhost:10199/v1/request \
+curl -s -X POST http://localhost:10199/t/<your_groq_key_id>/openai/v1/chat/completions \
+  -H "Authorization: Bearer <your_adapter_token>" \
   -H "Content-Type: application/json" \
-  -d '{"key_id":"<your_groq_key_id>","target_url":"https://api.groq.com/openai/v1/chat/completions","method":"POST","headers":{"content-type":"application/json"},"body":{"model":"llama-3.1-8b-instant","messages":[{"role":"user","content":"Say test"}],"max_tokens":16}}'
+  -d '{"model":"llama-3.1-8b-instant","messages":[{"role":"user","content":"Say test"}],"max_tokens":16}'
 ```
 
 ### deepseek
@@ -103,9 +103,10 @@ curl -s -X POST http://localhost:10199/v1/request \
 ```
 
 ```bash
-curl -s -X POST http://localhost:10199/v1/request \
+curl -s -X POST http://localhost:10199/t/<your_deepseek_key_id>/v1/chat/completions \
+  -H "Authorization: Bearer <your_adapter_token>" \
   -H "Content-Type: application/json" \
-  -d '{"key_id":"<your_deepseek_key_id>","target_url":"https://api.deepseek.com/v1/chat/completions","method":"POST","headers":{"content-type":"application/json"},"body":{"model":"deepseek-chat","messages":[{"role":"user","content":"Say test"}],"max_tokens":16}}'
+  -d '{"model":"deepseek-chat","messages":[{"role":"user","content":"Say test"}],"max_tokens":16}'
 ```
 
 ### github
@@ -123,9 +124,11 @@ null
 ```
 
 ```bash
-curl -s -X POST http://localhost:10199/v1/request \
-  -H "Content-Type: application/json" \
-  -d '{"key_id":"<your_github_key_id>","target_url":"https://api.github.com/user","method":"GET","headers":{"accept":"application/vnd.github+json","x-github-api-version":"2022-11-28","user-agent":"subumbra-proxy/1.0"},"body":null}'
+curl -s http://localhost:10199/t/<your_github_key_id>/user \
+  -H "Authorization: Bearer <your_adapter_token>" \
+  -H "Accept: application/vnd.github+json" \
+  -H "X-GitHub-Api-Version: 2022-11-28" \
+  -H "User-Agent: subumbra-proxy/1.0"
 ```
 
 ### slack
@@ -141,9 +144,10 @@ curl -s -X POST http://localhost:10199/v1/request \
 ```
 
 ```bash
-curl -s -X POST http://localhost:10199/v1/request \
+curl -s -X POST http://localhost:10199/t/<your_slack_key_id>/api/auth.test \
+  -H "Authorization: Bearer <your_adapter_token>" \
   -H "Content-Type: application/json" \
-  -d '{"key_id":"<your_slack_key_id>","target_url":"https://slack.com/api/auth.test","method":"POST","headers":{"content-type":"application/json"},"body":{}}'
+  -d '{}'
 ```
 
 ### sendgrid
@@ -159,7 +163,7 @@ null
 ```
 
 ```bash
-curl -s -X POST http://localhost:10199/v1/request \
-  -H "Content-Type: application/json" \
-  -d '{"key_id":"<your_sendgrid_key_id>","target_url":"https://api.sendgrid.com/v3/scopes","method":"GET","headers":{"content-type":"application/json"},"body":null}'
+curl -s http://localhost:10199/t/<your_sendgrid_key_id>/v3/scopes \
+  -H "Authorization: Bearer <your_adapter_token>" \
+  -H "Content-Type: application/json"
 ```

@@ -86,16 +86,19 @@ The wizard collects:
 At Step 3, put the app-facing provider keys in `subumbra-proxy`. This is the
 shared app-owned path used by standalone LiteLLM and other external apps.
 
-If you already have provider keys in an app-owned `.env` file, you may mount it
-read-only and import the provider keys during the wizard:
+The interactive wizard now stays RAM-only and manual. If you already have
+machine-readable provider keys, use the automation path instead of an
+interactive import prompt:
 
 ```bash
-docker compose --profile bootstrap run --rm \
-  -v /opt/litellm:/host_litellm:ro \
-  -it bootstrap
+cp .env.bootstrap.example .env.bootstrap
+# populate .env.bootstrap with CF credentials, provider keys, key_ids, and scopes
+docker compose --profile bootstrap run --rm bootstrap
 ```
 
-Then enter `/host_litellm/.env` when prompted.
+In a real TTY, when bootstrap detects environment credentials already present,
+it now asks whether to continue in interactive RAM-only mode or proceed with the
+automated environment-driven mode.
 
 ## 6. Run `post-bootstrap.sh`
 
