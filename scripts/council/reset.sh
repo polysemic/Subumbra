@@ -82,7 +82,7 @@ fi
 
 for required_key in "${required_keys[@]}"; do
     if [[ -z "${!required_key}" ]]; then
-        echo "ERROR: missing required Round 41.4 Subumbra value in .env (${required_key#expected_})" >&2
+        echo "ERROR: missing required Subumbra value in .env (${required_key#expected_})" >&2
         exit 1
     fi
 done
