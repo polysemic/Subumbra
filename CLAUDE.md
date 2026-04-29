@@ -69,7 +69,7 @@ subumbra/
 │
 ├── subumbra-proxy/              ← transparent sidecar (primary integration path)
 │   ├── Dockerfile
-│   ├── app.py                   ← FastAPI; /t transparent route; /health worker_auth; /v1/request
+│   ├── app.py                   ← FastAPI; secure transparent /t route; /health worker_auth
 │   └── requirements.txt
 │
 ├── subumbra-probe/              ← dedicated second-adapter proof container
