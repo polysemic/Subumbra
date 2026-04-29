@@ -40,7 +40,7 @@ GET /keys/<key_id>
 Required headers:
 
 ```text
-X-Subumbra-Token: <SUBUMBRA_ACCESS_TOKEN>
+X-Subumbra-Token: <adapter token from SUBUMBRA_ACCESS_TOKEN env var>
 X-Subumbra-Timestamp: <unix epoch seconds>
 X-Subumbra-Nonce: <single-use hex nonce>
 X-Subumbra-Signature: <hex hmac>
@@ -79,7 +79,7 @@ subumbra-keys response before making the Worker call.
 Authentication header (required on every request):
 
 ```
-X-Subumbra-Token: <SUBUMBRA_ACCESS_TOKEN>
+X-Subumbra-Token: <adapter token — SUBUMBRA_TOKEN_<APP> from .env, injected as SUBUMBRA_ACCESS_TOKEN in the container>
 ```
 
 Request body (JSON, all fields required unless noted):
@@ -213,10 +213,11 @@ explicitly include all headers the upstream provider requires (e.g.
 
 The current supported app-owned contract is the transparent sidecar path:
 
-- app points to `api_base: http://subumbra-proxy:8090/t`
-- app sends a plain `key_id`
-- `subumbra-proxy` authenticates to the Worker using the shared `subumbra-proxy`
-  identity boundary
+- app presents an adapter token in `Authorization` or `X-API-Key`
+- app points to `api_base: http://subumbra-proxy:8090/t/<key_id>/...`
+- `subumbra-proxy` uses the first path segment after `/t/` as the requested
+  `key_id`
+- `subumbra-keys` enforces the adapter's `allowed_keys`
 
 This is the current primary adapter path for standalone LiteLLM and similar
 external apps.

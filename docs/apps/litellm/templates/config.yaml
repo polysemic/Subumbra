@@ -2,29 +2,29 @@ model_list:
   - model_name: claude-sonnet-4
     litellm_params:
       model: anthropic/claude-sonnet-4
-      api_base: http://subumbra-proxy:8090/t
-      api_key: <key_id>
+      api_base: http://subumbra-proxy:8090/t/anthropic_prod
+      api_key: ${SUBUMBRA_TOKEN_LITELLM}
 
   - model_name: gpt-4o-mini
     litellm_params:
       model: openai/gpt-4o-mini
-      api_base: http://subumbra-proxy:8090/t/v1
-      api_key: <key_id>
+      api_base: http://subumbra-proxy:8090/t/openai_prod/v1
+      api_key: ${SUBUMBRA_TOKEN_LITELLM}
 
   - model_name: llama-3.1-8b
     litellm_params:
       model: groq/llama-3.1-8b
-      api_base: http://subumbra-proxy:8090/t/openai/v1
-      api_key: <key_id>
+      api_base: http://subumbra-proxy:8090/t/groq_prod/openai/v1
+      api_key: ${SUBUMBRA_TOKEN_LITELLM}
 
   - model_name: openrouter-claude
     litellm_params:
       model: openrouter/anthropic/claude-sonnet-4
-      api_base: http://subumbra-proxy:8090/t/api/v1
-      api_key: <key_id>
+      api_base: http://subumbra-proxy:8090/t/openrouter_prod/api/v1
+      api_key: ${SUBUMBRA_TOKEN_LITELLM}
 
   - model_name: cerebras-llama-3
     litellm_params:
       model: cerebras/llama3.1-8b
-      api_base: http://subumbra-proxy:8090/t/v1
-      api_key: <key_id>
+      api_base: http://subumbra-proxy:8090/t/cerebras_prod/v1
+      api_key: ${SUBUMBRA_TOKEN_LITELLM}

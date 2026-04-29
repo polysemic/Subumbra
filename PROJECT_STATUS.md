@@ -1,6 +1,6 @@
 # PROJECT_STATUS
-*Current state — updated 2026-04-26*
-*Rounds 1–43.6 and 43-6-1 closed. Round 43-6-2 is next. See `council/COUNCIL.md` for round history and current status.*
+*Current state — updated 2026-04-29*
+*Rounds 1–43.6, 43-6-3, and 43-6-4-1 closed. Round 43-6-4-bootstrap-ux is next. See `council/COUNCIL.md` for round history and current status.*
 
 ---
 
@@ -12,7 +12,8 @@ V2 Asymmetric Envelope Encryption (deployed, verified by all three council membe
 - Per-record AES-256-GCM DEKs wrapped by RSA public key
 - AAD binding: `subumbra:v2:<key_id>`
 - Offline per-key rotation via `--rotate` (no CF interaction)
-- App-owned integrations now use `subumbra-proxy` and the transparent `/t` path with plain key IDs; callback-era LiteLLM artifacts remain as legacy reference only
+- App-owned integrations now use `subumbra-proxy` with adapter token as the app credential and the requested `key_id` carried in the `/t/<key_id>/...` path
+- The legacy raw-`key_id` transparent auth path has been removed
 - Worker-side provider validation and upstream routing policy now come from the live Cloudflare KV provider registry; provider-specific auth branches are removed from Worker/DO logic
 - V1 symmetric `MASTER_DECRYPTION_KEY` path fully removed from code
 - Current status of project is proof of concept with no userbase. No backward compatibility required or should be considered, unless required for functionality or security. This will be updated as the project grows into an MVP with a userbase.
@@ -58,10 +59,9 @@ Deferred by council consensus. Acceptable for current single-operator POC deploy
 | DEV-AUDIT | `npm audit` vulnerabilities in wrangler dev tooling | Dev-only; never deployed to CF production |
 | DASH-COUNT | Occasional missing entries in dashboard request log | Root cause not yet investigated |
 | DASH-FLICKER | Recent Requests table briefly shows fewer entries on some poll cycles | UI polling race; entries return on next poll |
-| DOUBLE-FETCH | `subumbra-proxy` makes two `GET /keys/<key_id>` calls to `subumbra-keys` per proxied request — confirmed in round 43-6 operator proof run (2026-04-25). Root cause not yet investigated; likely one fetch for key_id validation and a second for `/proxy` payload construction. Doubles subumbra-keys load and adds per-request latency. **High priority — dedicated investigation round remains open and is carried forward into Alpha.** | `council/cleanup.md` 2026-04-25 |
 | PROVIDER-COUPLING | App-owned integrations still maintain their own model/provider declarations outside the core stack (for example `litellm/config.yaml`) | Full multi-adapter generalization remains a later round |
-| TOKEN-SYNC | `post-bootstrap.sh` now detects and warns on stale container tokens for `subumbra-keys`, `subumbra-proxy`, and `ui`; bootstrap summary, `README.md`, and `CLAUDE.md` all require `docker compose up -d --force-recreate` after full bootstrap | Closed by Round 13 |
 | TTL-EXPIRY-ONLY | subumbra-keys TTL prevents new record fetches after token expiry but does not remove Worker-side token authority. Replay of previously captured records plus a stolen token remains possible until re-bootstrap rotates Worker-side token state | Intentionally deferred beyond Round 30 |
+| NONCE-STORE | `subumbra-keys` nonce store shows intermittent `nonce_store_failure reason=nonce_store_error` on the VPS during some manual runs | Carried into the broader bootstrap/hardening work |
 
 ---
 
@@ -79,7 +79,7 @@ Current pin: `main-latest@sha256:7c311546c25e7bb6e8cafede9fcd3d0d622ac636b5c9418
 
 ## Roadmap Arc (Rounds 34-36)
 
-This arc focuses on evolving Subumbra from a static, bundled configuration into a flexible, operator-managed system. Approved 2026-04-09 in [provider-adapter-flexibility-roadmap.md](file:///home/eric/git/Subumbra/council/approved/provider-adapter-flexibility-roadmap.md).
+This arc focuses on evolving Subumbra from a static, bundled configuration into a flexible, operator-managed system. Approved 2026-04-09 in [provider-adapter-flexibility-roadmap.md](/home/eric/git/Subumbra/council/approved/provider-adapter-flexibility-roadmap.md).
 
 ### Round 34: Provider Flexibility (Closed 2026-04-10)
 - **Focus**: Built-in provider catalog expansion on the current architecture.
@@ -125,40 +125,23 @@ This arc focuses on evolving Subumbra from a static, bundled configuration into 
 - **Round 43.2 — AnythingLLM App-Owned Validation** (Closed): standalone AnythingLLM is now a proven app-owned integration with chat, embeddings, zero-restart rotation, and fail-closed negative validation through the proxy.
 - **Round 43-5 — LibreChat Direct Subumbra Integration** (Closed): LibreChat is now a proven app-owned integration with staged-and-promoted install docs, routed OpenAI-compatible chat proof, model discovery via `models.fetch`, and fail-closed invalid-key verification.
 - **Round 43-5-1 — LibreChat Takeover** (Closed): existing LibreChat installs are now proven for in-place takeover onto the supported Subumbra path with login continuity, conversation continuity, routed chat success, invalid-key fail-closed behavior, and restore proof.
-- **Round 43-6-1 — Env Ingestion + Alpha Polish** (Closed): multi-app env ingestion, shared-key deduplication, alpha versioning, and promoted provider-matrix templates are now in place under the current single-provider-key bootstrap contract.
+- **Round 43-6 — Provider Matrix + UI Switching Guides** (Closed): all 9 providers tested across OpenWebUI, AnythingLLM, LibreChat, Bifrost, and N8N. Provider matrix, per-app switching guides, README updates, and N8N workflow JSONs promoted to `docs/`.
+- **Round 43-6-1 — Env Ingestion + Alpha 0.0.1 Polish** (Closed): multi-app env ingestion, shared-key deduplication, alpha versioning, and promoted provider-matrix templates are now in place under the current single-provider-key bootstrap contract.
 - **Round 43-6-2 — Identity Routing** (Closed): `subumbra-proxy` now enforces per-app secure routing with app-token identity, path-based `key_id` extraction, downstream token forwarding, secure-mode `403` passthrough, and transitional legacy pseudo-key compatibility.
-- **Round 43-2 — Documentation and Templates Cleanup** (Closed): established the `docs/apps/` structure, split OpenWebUI guides, and promoted operational templates from council archives to tracked documentation.
-- **Round 43-6 — Provider Matrix + UI Switching Guides** (Closed): all 9 providers tested across OpenWebUI, AnythingLLM, LibreChat, Bifrost, and N8N. Provider matrix, per-app switching guides, README updates, and N8N workflow JSONs promoted to `docs/`. Known exceptions: Bifrost/Together fails (Bifrost limitation); AnythingLLM named providers hardcoded (app design); Gemini deferred (path mismatch); N8N multi-provider not exhaustively tested (AI-node pattern generalizes).
-- **Round 43-6-1 — Env Ingestion Script + Alpha 0.0.1 Polish** (Closed): env ingestion script for migrating existing app `.env` files into Subumbra bootstrap format; `subumbra-ui` health endpoint; multi-provider template updates; `0.0.1-alpha` version identifier. Scope remains intentionally narrow: multi-app ingestion and shared-key deduplication under the current single-canonical-key-per-provider bootstrap contract. Richer same-provider multi-secret import support is deferred.
-- **Round 43-6-2 — Enforce Per-App Identity / Routing** (Queued): activate the app-scoped metadata generated by 43-6-1 through a secure-gateway cutover in `subumbra-proxy`, using bearer app identity plus requested `key_id` path routing while keeping a transitional legacy mode during cutover.
-- **Round 43-6-3 — Richer Same-Provider Multi-Key Ingestion** (Planned): add explicit support for multiple distinct secrets for the same provider in one operator ingestion workflow, with exact collision semantics and a deliberately scoped bootstrap/input contract upgrade.
-- **Round 43-6-4 — Operator Bootstrap UX Cleanup** (Planned): collapse the operator experience into a cleaner terminal-first bootstrap path that can read app env sources directly, summarize what Subumbra is ingesting, and delay destructive cleanup of legacy plaintext env files until post-validation.
+- **Round 43-6-3 — Richer Same-Provider Multi-Key Ingestion** (Closed): multi-key same-provider import support now exists in both bootstrap automation and env-ingest planning under the secure transparent contract.
+- **Round 43-6-4-1 — Proxy Lockdown** (Closed 2026-04-29): removed legacy raw-`key_id` transparent auth, requires adapter-token identity on `/t`, empties generated `PROXY_ALLOWED_KEYS`, retires `/v1/request` as a supported app-facing sidecar surface, and aligns the promoted app docs to the secure transparent contract.
 
 ## Path Forward
 
-Round 43 arc closing sequence — targeting 0.0.1 Alpha:
+Round 43 arc close-out sequence — targeting 0.0.1 Alpha:
 
-1. **Round 43 — App-Owned Integration Validation**
-   Continue the app-owned validation arc with `round-43-openclaw` and other later candidates once they meet the Round 43 filter. OpenWebUI and AnythingLLM are complete.
-2. **Round 43-6-3 — Richer Same-Provider Multi-Key Ingestion**
-   Build on the closed 43-6-1/43-6-2 foundation by adding explicit multi-secret same-provider import support without changing the secure routing contract.
-3. **Round 43-6-4 — Operator Bootstrap UX**
-   Consolidate the multi-step ingestion/bootstrap flow into a cleaner operator path after the underlying secure routing and key-ingestion semantics are proven.
-1. **Round 43-6 (Closed)** — Provider matrix + UI switching guides. All 9 providers tested. Docs promoted.
-
-2. **Round 43-6-1 (Closed)** — Env ingestion script, `subumbra-ui` health endpoint, multi-provider template updates, `0.0.1-alpha` version bump. Scope is limited to multi-app ingestion plus shared-key deduplication under the current bootstrap contract; richer same-provider multi-secret import support is deferred.
-
-3. **Round 43-6-2 (Queued)** — Enforce per-app identity/routing in `subumbra-proxy`. Use the app-scoped metadata generated by 43-6-1, move toward bearer caller identity plus requested `key_id` path routing, and keep the cutover narrow and testable.
-
-4. **Round 43-6-3 (Planned)** — Add richer same-provider multi-key ingestion. This round is the right place for multiple OpenAI/Anthropic/etc. secrets in one operator flow, with exact conflict semantics and a controlled bootstrap/input-contract upgrade.
-
-5. **Round 43-6-4 (Planned)** — Improve the operator bootstrap UX. Aim for a cleaner single terminal workflow that can read source env paths directly, summarize decisions live, and postpone shredding/cleanup of legacy plaintext env files until the operator validates the cutover.
-
-6. **Round 44 (Planned)** — Secure UI round. UI-based env ingestion, encrypted paste/input for browser security. See `council/round-44-secure-ui/`.
+1. **Round 43-6-4-bootstrap-ux**
+   Continue bootstrap UX work from the narrower remaining scope after the already-applied `1af902b` items: mode selection prompt, hidden CF account ID entry, and removal of the old interactive env-import prompt do not need to be re-done.
+2. **Nonce-store hardening**
+   Investigate and fix intermittent `subumbra-keys` `nonce_store_failure reason=nonce_store_error` seen during some manual verification runs.
+3. **Round 44 (Planned)** — Secure UI round. UI-based env ingestion, encrypted paste/input for browser security. See `council/round-44-secure-ui/`.
 
 Guiding note:
-- Language transitions from **POC** to **0.0.1 Alpha** at the close of round 43-6-1, with `DOUBLE-FETCH` still carried as an open known limitation.
-- Prioritize deployment/testing readiness first, then the hardening needed for
-  credible live testing, then real-app validation.
-- Treat broader universality as part of the hardening path, not as a
-  post-validation cleanup step.
+- Language transitions from **POC** to **0.0.1 Alpha** as the Round 43 arc closes.
+- Prioritize deployment/testing readiness first, then the hardening needed for credible live testing, then real-app validation.
+- Treat broader universality as part of the hardening path, not as a post-validation cleanup step.
