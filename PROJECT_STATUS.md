@@ -1,6 +1,6 @@
 # PROJECT_STATUS
 *Current state — updated 2026-04-29*
-*Rounds 1–43.6, 43-6-3, and 43-6-4-1 closed. Round 43-6-4-bootstrap-ux is next. See `council/COUNCIL.md` for round history and current status.*
+*Rounds 1–43.6, 43-6-3, 43-6-4-1, and 43-6-4-2 closed. Round 43-6-4-bootstrap-ux is next. See `council/COUNCIL.md` for round history and current status.*
 
 ---
 
@@ -130,6 +130,7 @@ This arc focuses on evolving Subumbra from a static, bundled configuration into 
 - **Round 43-6-2 — Identity Routing** (Closed): `subumbra-proxy` now enforces per-app secure routing with app-token identity, path-based `key_id` extraction, downstream token forwarding, secure-mode `403` passthrough, and transitional legacy pseudo-key compatibility.
 - **Round 43-6-3 — Richer Same-Provider Multi-Key Ingestion** (Closed): multi-key same-provider import support now exists in both bootstrap automation and env-ingest planning under the secure transparent contract.
 - **Round 43-6-4-1 — Proxy Lockdown** (Closed 2026-04-29): removed legacy raw-`key_id` transparent auth, requires adapter-token identity on `/t`, empties generated `PROXY_ALLOWED_KEYS`, retires `/v1/request` as a supported app-facing sidecar surface, and aligns the promoted app docs to the secure transparent contract.
+- **Round 43-6-4-2 — Probe Role Decoupling** (Closed 2026-04-29): `subumbra-probe` is now optional by default, bootstrap/post-bootstrap/reset no longer require probe provisioning, and install/testing docs now frame probe as optional direct Worker-path diagnostics rather than baseline runtime.
 
 ## Path Forward
 
