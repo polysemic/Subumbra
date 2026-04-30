@@ -68,38 +68,46 @@ You need:
 
 The interactive bootstrap wizard prompts for these values.
 
-## 5. Run Interactive Bootstrap
+## 5. Run Bootstrap
+
+Subumbra bootstrap supports two operator paths. Choose one:
+
+### 5a. Interactive RAM-only (recommended for first-time setup)
 
 ```bash
 docker compose --profile bootstrap run --rm -it bootstrap
 ```
 
+Enter keys one at a time in the terminal. Nothing touches disk until the
+wizard finishes - keys exist in RAM only during the session.
+
 The wizard collects:
 
-- Cloudflare credentials
-- provider API keys and `key_id` labels
-- built-in adapter scopes:
-  - `subumbra-proxy`
-  - `subumbra-ui` (metadata only)
-- optional diagnostic adapter scope:
-  - `subumbra-probe`
+- Cloudflare credentials (API token, account ID, worker name)
+- provider API keys and `key_id` labels (one key per prompt, hidden input)
+- built-in adapter scopes via numbered selection:
+  - `subumbra-proxy` - the shared app-facing sidecar
+  - `subumbra-ui` - metadata only (no key fetch scope)
+- optional: `subumbra-probe` - an optional diagnostic container for verifying your
+  deployment; its scope is usually the same as or narrower than `subumbra-proxy`
 
 At Step 3, put the app-facing provider keys in `subumbra-proxy`. This is the
 shared app-owned path used by standalone LiteLLM and other external apps.
 
-The interactive wizard now stays RAM-only and manual. If you already have
-machine-readable provider keys, use the automation path instead of an
-interactive import prompt:
+### 5b. Automation path (`.env.bootstrap`)
+
+Use this path if you already have provider keys in a file, are scripting
+installation, or are migrating from an existing deployment.
 
 ```bash
 cp .env.bootstrap.example .env.bootstrap
-# populate .env.bootstrap with CF credentials, provider keys, key_ids, and scopes
+# edit .env.bootstrap: CF credentials, provider keys, key_ids, and adapter scopes
 docker compose --profile bootstrap run --rm bootstrap
 ```
 
-In a real TTY, when bootstrap detects environment credentials already present,
-it now asks whether to continue in interactive RAM-only mode or proceed with the
-automated environment-driven mode.
+See `.env.bootstrap.example` for the full list of expected variables. Key format:
+`{PROVIDER}_KEY=<value>` with optional `KEY_ID_SUFFIX` and `ALLOWED_KEYS` entries
+per adapter. The automation path does not start an interactive wizard.
 
 ## 6. Run `post-bootstrap.sh`
 
