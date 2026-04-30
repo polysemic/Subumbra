@@ -5,8 +5,8 @@
  *   - WORKER_PRIVATE_KEY (RSA-4096 PKCS#8 DER, base64) lives in CF Secrets
  *   - Each API key record has its own DEK wrapped by the RSA public key
  *   - Worker unwraps DEK with private key, then decrypts API key with DEK
- *   - Decrypted API key exists only inside the Durable Object's V8 isolate
- *     for the duration of a single upstream fetch (~100 ms), then is GC'd
+ *   - Decrypted API key exists in Worker memory briefly, then is forwarded
+ *     to the Durable Object for the upstream fetch and later GC'd
  *   - Nothing sensitive is logged, stored, or returned in error messages
  *
  * Endpoints:
@@ -181,8 +181,7 @@ async function decryptV2(env, ciphertextB64, wrappedDekB64, pubKeyFp, keyId) {
   }
 
   // 1. Verify pub_key_fp matches loaded private key's fingerprint
-  if (pubKeyFp && env.WORKER_KEY_FINGERPRINT &&
-    pubKeyFp !== env.WORKER_KEY_FINGERPRINT) {
+  if (pubKeyFp !== env.WORKER_KEY_FINGERPRINT) {
     throw new Error(
       `record wrapped with unknown key pair (record: ${pubKeyFp}, ` +
       `loaded: ${env.WORKER_KEY_FINGERPRINT}) — re-bootstrap required`
@@ -296,7 +295,8 @@ function jsonError(message, status) {
  * decrypted API key + full proxy request from the Worker, makes the upstream
  * API call, and streams the response back.
  *
- * The decrypted key exists ONLY inside this V8 isolate for ~100 ms.
+ * The DO holds the forwarded decrypted key only for the duration of the
+ * upstream fetch (~100 ms).
  * No state is persisted to Durable Object storage.
  */
 export class SubumbraProxy {
@@ -476,7 +476,7 @@ async function handleProxy(request, env) {
     return auth.response;
   }
 
-  if (!env.WORKER_PRIVATE_KEY || !env.PROVIDER_REGISTRY_KV) {
+  if (!env.WORKER_PRIVATE_KEY || !env.WORKER_KEY_FINGERPRINT || !env.PROVIDER_REGISTRY_KV) {
     console.error("subumbra: worker bindings not configured (run bootstrap)");
     return jsonError("worker not configured", 503);
   }
@@ -500,6 +500,9 @@ async function handleProxy(request, env) {
   }
   if (!target_url || typeof target_url !== "string") {
     return jsonError("missing or invalid field: target_url", 400);
+  }
+  if (!pub_key_fp || typeof pub_key_fp !== "string") {
+    return jsonError("missing or invalid field: pub_key_fp", 400);
   }
 
   // ── Hard reject non-V2 records ────────────────────────────────────────────
@@ -561,10 +564,6 @@ async function handleProxy(request, env) {
     apiKey = await decryptV2(env, ciphertext, wrapped_dek, pub_key_fp, key_id);
   } catch (err) {
     console.error("subumbra: decryption failed:", err.message);
-    // Surface fingerprint mismatch details to help operators diagnose
-    if (err.message.includes("wrapped with unknown key pair")) {
-      return jsonError(err.message, 500);
-    }
     return jsonError("decryption failed", 500);
   }
 
@@ -575,7 +574,7 @@ async function handleProxy(request, env) {
   const doStub = env.SUBUMBRA_PROXY.get(doId);
 
   const doPayload = JSON.stringify({
-    apiKey,         // decrypted — lives in DO memory only
+    apiKey,
     targetUrl: target_url,
     method: method ?? "POST",
     headers: cleanHeaders,
