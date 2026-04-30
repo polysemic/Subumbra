@@ -121,8 +121,7 @@ The Worker enforces these security invariants before any upstream request is mad
 5. **Decryption** — RSA-OAEP unwraps the per-record DEK using `WORKER_PRIVATE_KEY`
    (from CF Secrets); AES-256-GCM decrypts the ciphertext with
    AAD `subumbra:v2:<key_id>`; pub_key_fp fingerprint must match
-   `WORKER_KEY_FINGERPRINT` (from CF Secrets). Fingerprint mismatch surfaced
-   in the error message to help operators diagnose key rotation issues.
+   `WORKER_KEY_FINGERPRINT` (from CF Secrets).
 
 6. **Auth injection** — the Durable Object injects provider-specific auth
    headers using auth policy from the live provider registry (`auth_header`,
@@ -163,7 +162,7 @@ All error responses use `Content-Type: application/json` with body
 | Non-V2 `enc_version` or missing `wrapped_dek` | 400 |
 | Invalid JSON body | 400 |
 | Decryption failure (generic) | 500 |
-| RSA fingerprint mismatch | 500 (message includes detail) |
+| RSA fingerprint mismatch | 500 |
 | CF Secrets not configured | 503 |
 | Provider registry binding missing / key missing / invalid | 503 |
 
