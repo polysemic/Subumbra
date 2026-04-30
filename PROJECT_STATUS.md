@@ -139,7 +139,13 @@ Round 43 arc close-out sequence — targeting 0.0.1 Alpha:
 
 1. **Nonce-store hardening**
    Investigate and fix intermittent `subumbra-keys` `nonce_store_failure reason=nonce_store_error` seen during some manual verification runs.
-2. **Round 44 (Planned)** — Secure UI round. UI-based env ingestion, encrypted paste/input for browser security. See `council/round-44-secure-ui/`.
+2. **Round 44 Security Arc (Approved sequence)**
+   The council planning round in `council/closed/round-44-security-review/` converged on a four-round implementation arc:
+   - `council/round-44-1-security-quick-wins/` — strict `pub_key_fp` enforcement, generic decryption failures, and truth-aligned Worker/docs comments
+   - `council/round-44-2-decrypt-in-existing-do/` — move decrypt into the existing `SubumbraProxy` DO so plaintext exists only in the DO isolate
+   - `council/round-44-3-cf-keygen-custody/` — CF-side key generation and custody while preserving offline no-restart rotation
+   - `council/round-44-4-bootstrap-docker-finalization/` — absorb `post-bootstrap.sh`, complete Docker-only/bootstrap flow, and stage bootstrap UX polish
+3. **Round 45 (Planned)** — Secure UI round. UI-based env ingestion, encrypted paste/input for browser security. See `council/round-45-secure-ui/`.
 
 Guiding note:
 - Language transitions from **POC** to **0.0.1 Alpha** as the Round 43 arc closes.
