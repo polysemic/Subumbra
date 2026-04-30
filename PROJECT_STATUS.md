@@ -133,6 +133,7 @@ This arc focuses on evolving Subumbra from a static, bundled configuration into 
 - **Round 43-6-4-2 — Probe Role Decoupling** (Closed 2026-04-29): `subumbra-probe` is now optional by default, bootstrap/post-bootstrap/reset no longer require probe provisioning, and install/testing docs now frame probe as optional direct Worker-path diagnostics rather than baseline runtime.
 - **Round 43-6-4-Bootstrap-UX — Operator Bootstrap UX Cleanup** (Closed 2026-04-29): bootstrap now uses an env-aware Worker-name default, clearer multi-key/app-label prompts, per-key summary lines, numbered allowed-key selection, and clearer optional probe wording. `docs/subumbra-install.md` now separates interactive wizard and `.env.bootstrap` automation walkthroughs.
 - **Round 44-1 — Security Quick Wins** (Closed 2026-04-30): strict `pub_key_fp` enforcement is now fail-closed, caller-visible fingerprint mismatch detail is removed, and Worker/docs comments are aligned with the current plaintext boundary.
+- **Round 44-2 — Decrypt In Existing DO** (Closed 2026-04-30): the decrypt execution boundary now lives in the existing `SubumbraProxy` Durable Object, the Worker→DO hop carries the encrypted envelope instead of plaintext `apiKey`, and public `/proxy` validation/error behavior remains unchanged.
 
 ## Path Forward
 
@@ -143,7 +144,7 @@ Round 43 arc close-out sequence — targeting 0.0.1 Alpha:
 2. **Round 44 Security Arc (Approved sequence)**
    The council planning round in `council/closed/round-44-security-review/` converged on a four-round implementation arc:
    - `council/closed/round-44-1-security-quick-wins/` — closed 2026-04-30; strict `pub_key_fp` enforcement, generic decryption failures, and truth-aligned Worker/docs comments
-   - `council/round-44-2-decrypt-in-existing-do/` — move decrypt into the existing `SubumbraProxy` DO so plaintext exists only in the DO isolate
+   - `council/closed/round-44-2-decrypt-in-existing-do/` — closed 2026-04-30; decrypt now runs inside the existing `SubumbraProxy` DO, and the Worker→DO hop keeps the original encrypted envelope intact
    - `council/round-44-3-cf-keygen-custody/` — CF-side key generation and custody while preserving offline no-restart rotation
    - `council/round-44-4-bootstrap-docker-finalization/` — absorb `post-bootstrap.sh`, complete Docker-only/bootstrap flow, and stage bootstrap UX polish
 3. **Round 45 (Planned)** — Secure UI round. UI-based env ingestion, encrypted paste/input for browser security. See `council/round-45-secure-ui/`.
