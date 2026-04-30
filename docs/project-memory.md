@@ -37,7 +37,8 @@ them.
 
 - The canonical core API is `POST /proxy`.
 - `subumbra-keys` is Docker-internal only and is not the public app-facing API.
-- The Worker is the only place where provider secrets become usable plaintext.
+- Provider secrets become usable plaintext only inside the Cloudflare Worker
+  runtime, currently within the existing `SubumbraProxy` Durable Object isolate.
 - The transparent sidecar route (`subumbra-proxy` / `/t/<key_id>/...`) is the
   current reference integration path.
 - App-facing transparent traffic now authenticates with adapter token in
