@@ -426,7 +426,8 @@ def _prompt_app_label(prompt: str = "  App/label for this key: ") -> str:
         app_label = input(prompt).strip().lower()
         if ADAPTER_ID_RE.fullmatch(app_label):
             return app_label
-        print("  ✗  App/label must match ^[a-z0-9][a-z0-9_-]{0,61}[a-z0-9]$.\n")
+        print("  ✗  App/label must be lowercase letters, numbers, hyphens, or underscores.")
+        print("     It must start and end with a letter or number. Examples: litellm, open-webui, myapp1\n")
 
 
 def _next_generated_key_id(
@@ -662,16 +663,30 @@ def _build_adapter_registry(
 
 
 def _prompt_allowed_keys(adapter_label: str, available_key_ids: list[str]) -> list[str]:
-    available_set = set(available_key_ids)
     while True:
-        print(f"\n  {adapter_label} allowed key_ids (comma-separated, Enter for none)")
-        print("    Available: " + ", ".join(available_key_ids))
-        raw = input("    Allowed key_ids: ").strip()
-        result = _parse_allowed_keys_csv(raw)
-        invalid = [k for k in result if k not in available_set]
+        print(f"\n  {adapter_label} — select allowed key_ids:")
+        for i, kid in enumerate(available_key_ids, 1):
+            print(f"    {i}. {kid}")
+        print(f"  Enter space-separated numbers (e.g. 1 3), blank = all, 'none' = none: ", end="")
+        raw = input("").strip().lower()
+        if raw == "" or raw == "all":
+            return list(available_key_ids)
+        if raw == "none":
+            return []
+
+        parts = raw.split()
+        result = []
+        invalid = []
+        for part in parts:
+            if part.isdigit() and 1 <= int(part) <= len(available_key_ids):
+                result.append(available_key_ids[int(part) - 1])
+            else:
+                invalid.append(part)
         if invalid:
-            print(f"  ✗  Unknown key_id(s): {', '.join(sorted(invalid))}")
-            print(f"     Valid options: {', '.join(available_key_ids)}\n")
+            print(
+                f"  ✗  Invalid selection(s): {', '.join(invalid)}. "
+                f"Enter numbers 1-{len(available_key_ids)}, blank, or 'none'.\n"
+            )
             continue
         return result
 
@@ -1005,7 +1020,10 @@ def run_interactive_wizard(
             break
         print("  ✗  Account ID cannot be empty. Please try again.\n")
 
-    cf_worker_name = input("  CF Worker name [subumbra-proxy]: ").strip() or "subumbra-proxy"
+    _worker_default = os.environ.get("CF_WORKER_NAME", "subumbra-proxy")
+    cf_worker_name = input(
+        f"  CF Worker name (press Enter for '{_worker_default}'): "
+    ).strip() or _worker_default
 
     cf_creds: dict[str, str] = {
         "CF_API_TOKEN":   cf_token,
@@ -1021,16 +1039,23 @@ def run_interactive_wizard(
     while True:
         print("\n" + "═" * 70)
         print("  Subumbra Bootstrap — Step 2 of 4: Provider API Keys")
-        print("  Add one key per provider. Press Enter when finished.\n")
+        print("  Add provider API keys. Multiple keys per provider are supported.\n")
+        print("  Press Enter with no selection to finish adding keys.\n")
         print("  Known providers:")
         for i, (provider, _) in enumerate(KNOWN_PROVIDERS, 1):
             print(f"    {i}. {provider}")
         print(f"    {n_known + 1}. Custom provider\n")
 
         if api_keys:
-            print("  Added so far: " + ", ".join(
-                f"{kid} ({prov})" for kid, (prov, _, _, _, _) in api_keys.items()
-            ) + "\n")
+            print("  Added so far:")
+            for kid, (prov, _, _, _, _) in api_keys.items():
+                tail = kid.rsplit("_", 1)
+                if len(tail) == 2 and tail[1].isdigit() and kid.startswith(prov + "_"):
+                    app = kid[len(prov) + 1:].rsplit("_", 1)[0]
+                    print(f"    {kid}  ({prov} -> {app})")
+                else:
+                    print(f"    {kid}  ({prov})")
+            print()
 
         choice = input(f"  Select provider (1-{n_known + 1}, or Enter to finish): ").strip()
 
@@ -1076,7 +1101,7 @@ def run_interactive_wizard(
         app_label = None
         key_id = ""
         if choice_num <= n_known:
-            app_label = _prompt_app_label("  App/label for this key: ")
+            app_label = _prompt_app_label("  App label (which app uses this key, e.g. litellm): ")
 
         # Prompt for API key value (twice to confirm)
         key_prompt_label = provider if choice_num <= n_known else key_id
@@ -1146,9 +1171,19 @@ def run_interactive_wizard(
         "  Enable subumbra-probe optional diagnostic provisioning? [y/N]: "
     ).strip().lower()
     if enable_probe == "y":
-        allowed_keys_by_adapter["subumbra-probe"] = _prompt_allowed_keys(
-            "subumbra-probe", available_key_ids
-        )
+        print("\n  subumbra-probe is an optional diagnostic container for verifying your")
+        print("  deployment. Its scope is usually the same as or narrower than subumbra-proxy.")
+        proxy_scope = allowed_keys_by_adapter["subumbra-proxy"]
+        mirror = input(
+            f"  Mirror subumbra-proxy scope ({len(proxy_scope)} key(s))? [Y/n]: "
+        ).strip().lower()
+        if mirror != "n":
+            allowed_keys_by_adapter["subumbra-probe"] = list(proxy_scope)
+            ok("subumbra-probe scope mirrors subumbra-proxy.")
+        else:
+            allowed_keys_by_adapter["subumbra-probe"] = _prompt_allowed_keys(
+                "subumbra-probe", available_key_ids
+            )
     else:
         info("Probe provisioning skipped — optional diagnostic container not provisioned.")
 
