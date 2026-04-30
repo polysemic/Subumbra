@@ -320,7 +320,10 @@ export class SubumbraProxy {
     }
 
     const {
-      apiKey,
+      ciphertext,
+      wrappedDek,
+      pubKeyFp,
+      keyId,
       targetUrl,
       method,
       headers: reqHeaders,
@@ -329,8 +332,24 @@ export class SubumbraProxy {
       authPrefix,
     } = payload;
 
-    if (!apiKey || !targetUrl || !authHeader || typeof authPrefix !== "string") {
+    if (
+      !ciphertext ||
+      !wrappedDek ||
+      !pubKeyFp ||
+      !keyId ||
+      !targetUrl ||
+      !authHeader ||
+      typeof authPrefix !== "string"
+    ) {
       return jsonError("missing required fields", 400);
+    }
+
+    let apiKey;
+    try {
+      apiKey = await decryptV2(this.env, ciphertext, wrappedDek, pubKeyFp, keyId);
+    } catch (err) {
+      console.error("subumbra: decryption failed:", err.message);
+      return jsonError("decryption failed", 500);
     }
 
     // Build upstream request headers:
@@ -558,23 +577,15 @@ async function handleProxy(request, env) {
     }
   }
 
-  // ── 5. Decrypt V2 envelope ────────────────────────────────────────────────
-  let apiKey;
-  try {
-    apiKey = await decryptV2(env, ciphertext, wrapped_dek, pub_key_fp, key_id);
-  } catch (err) {
-    console.error("subumbra: decryption failed:", err.message);
-    return jsonError("decryption failed", 500);
-  }
-
-  // ── 6. Forward to Durable Object ──────────────────────────────────────────
-  //   The DO lives in CF infrastructure, so apiKey is never in transit
-  //   outside of CF.  The DO will zero its reference once the fetch returns.
+  // ── 5. Forward encrypted envelope to Durable Object ───────────────────────
   const doId = env.SUBUMBRA_PROXY.newUniqueId();
   const doStub = env.SUBUMBRA_PROXY.get(doId);
 
   const doPayload = JSON.stringify({
-    apiKey,
+    ciphertext,
+    wrappedDek: wrapped_dek,
+    pubKeyFp: pub_key_fp,
+    keyId: key_id,
     targetUrl: target_url,
     method: method ?? "POST",
     headers: cleanHeaders,
@@ -582,9 +593,6 @@ async function handleProxy(request, env) {
     authHeader: registryEntry.auth_header,
     authPrefix: registryEntry.auth_prefix,
   });
-
-  // Immediately remove our own reference to the decrypted key
-  apiKey = null; // eslint-disable-line no-param-reassign
 
   const doResponse = await doStub.fetch("https://do-internal/execute", {
     method: "POST",
