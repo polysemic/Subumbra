@@ -1,6 +1,6 @@
 # PROJECT_STATUS
 *Current state — updated 2026-04-29*
-*Rounds 1–43.6, 43-6-3, 43-6-4-1, and 43-6-4-2 closed. Round 43-6-4-bootstrap-ux is next. See `council/COUNCIL.md` for round history and current status.*
+*Rounds 1–43.6, 43-6-3, 43-6-4-1, 43-6-4-2, and 43-6-4-bootstrap-ux closed. See `council/COUNCIL.md` for round history and current status.*
 
 ---
 
@@ -131,16 +131,15 @@ This arc focuses on evolving Subumbra from a static, bundled configuration into 
 - **Round 43-6-3 — Richer Same-Provider Multi-Key Ingestion** (Closed): multi-key same-provider import support now exists in both bootstrap automation and env-ingest planning under the secure transparent contract.
 - **Round 43-6-4-1 — Proxy Lockdown** (Closed 2026-04-29): removed legacy raw-`key_id` transparent auth, requires adapter-token identity on `/t`, empties generated `PROXY_ALLOWED_KEYS`, retires `/v1/request` as a supported app-facing sidecar surface, and aligns the promoted app docs to the secure transparent contract.
 - **Round 43-6-4-2 — Probe Role Decoupling** (Closed 2026-04-29): `subumbra-probe` is now optional by default, bootstrap/post-bootstrap/reset no longer require probe provisioning, and install/testing docs now frame probe as optional direct Worker-path diagnostics rather than baseline runtime.
+- **Round 43-6-4-Bootstrap-UX — Operator Bootstrap UX Cleanup** (Closed 2026-04-29): bootstrap now uses an env-aware Worker-name default, clearer multi-key/app-label prompts, per-key summary lines, numbered allowed-key selection, and clearer optional probe wording. `docs/subumbra-install.md` now separates interactive wizard and `.env.bootstrap` automation walkthroughs.
 
 ## Path Forward
 
 Round 43 arc close-out sequence — targeting 0.0.1 Alpha:
 
-1. **Round 43-6-4-bootstrap-ux**
-   Continue bootstrap UX work from the narrower remaining scope after the already-applied `1af902b` items: mode selection prompt, hidden CF account ID entry, and removal of the old interactive env-import prompt do not need to be re-done.
-2. **Nonce-store hardening**
+1. **Nonce-store hardening**
    Investigate and fix intermittent `subumbra-keys` `nonce_store_failure reason=nonce_store_error` seen during some manual verification runs.
-3. **Round 44 (Planned)** — Secure UI round. UI-based env ingestion, encrypted paste/input for browser security. See `council/round-44-secure-ui/`.
+2. **Round 44 (Planned)** — Secure UI round. UI-based env ingestion, encrypted paste/input for browser security. See `council/round-44-secure-ui/`.
 
 Guiding note:
 - Language transitions from **POC** to **0.0.1 Alpha** as the Round 43 arc closes.
