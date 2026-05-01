@@ -156,3 +156,12 @@ Guiding note:
 - Language transitions from **POC** to **0.0.1 Alpha** as the Round 43 arc closes.
 - Prioritize deployment/testing readiness first, then the hardening needed for credible live testing, then real-app validation.
 - Treat broader universality as part of the hardening path, not as a post-validation cleanup step.
+
+## Round 44.5 Synthesis Markers
+
+> Round 44.5 synthesis: status anchors from this file were consumed by `council/round-44-5-code-cleanup/initial-synthesis.md`.
+
+- `PROJECT_STATUS.md:15-16` -> `R44.5-A3` as the source of truth for adapter-token credential plus `/t/<key_id>/...` contract cleanup.
+- `PROJECT_STATUS.md:64` and `PROJECT_STATUS.md:144-145` -> `R44.5-A6` for nonce-store hardening.
+- `PROJECT_STATUS.md:135-138` -> baseline used to mark older security-review and Cloudflare-private-key findings as superseded.
+- `PROJECT_STATUS.md:152` -> explicitly deferred from Round 44.5; backup/export/recovery policy for CF-generated vault keys needs a dedicated design round.
