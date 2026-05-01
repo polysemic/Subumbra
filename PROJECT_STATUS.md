@@ -165,3 +165,22 @@ Guiding note:
 - `PROJECT_STATUS.md:64` and `PROJECT_STATUS.md:144-145` -> `R44.5-A6` for nonce-store hardening.
 - `PROJECT_STATUS.md:135-138` -> baseline used to mark older security-review and Cloudflare-private-key findings as superseded.
 - `PROJECT_STATUS.md:152` -> explicitly deferred from Round 44.5; backup/export/recovery policy for CF-generated vault keys needs a dedicated design round.
+
+## Round 44.5 Codex Synthesis Markers
+
+> Round 44.5 codex synthesis: status anchors from this file were re-used by `council/round-44-5-code-cleanup/codex-synthesis.md`.
+
+- `PROJECT_STATUS.md:15-16` -> `C2`.
+- `PROJECT_STATUS.md:64` and `PROJECT_STATUS.md:144-145` -> `C5`.
+- `PROJECT_STATUS.md:135-139` -> supersession baseline for `C3` and the excluded historical security/Cloudflare findings.
+- `PROJECT_STATUS.md:152` stays an explicit deferral outside the code-only cleanup synthesis.
+
+
+## Round 44.5 Claude Synthesis Markers
+
+> Round 44.5 claude synthesis: status anchors from this file were confirmed in `council/round-44-5-code-cleanup/claude-synthesis.md`.
+
+- `PROJECT_STATUS.md:15-16` -> `C2` (confirmed — adapter-token credential plus `/t/<key_id>/...` contract is the source of truth for C2 doc cleanup).
+- `PROJECT_STATUS.md:64` and `PROJECT_STATUS.md:144-145` -> `C5` (confirmed — nonce-store known limitation and hardening priority).
+- `PROJECT_STATUS.md:135-139` -> supersession baseline for `C3` and excluded historical security/Cloudflare findings.
+- `PROJECT_STATUS.md:152` -> explicitly deferred outside cleanup synthesis (backup/export/recovery policy for CF vault keys needs dedicated design round).
