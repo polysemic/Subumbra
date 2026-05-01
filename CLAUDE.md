@@ -18,7 +18,7 @@ subumbra-proxy
     ↓ fetches encrypted record metadata and packages canonical POST /proxy
 subumbra-keys (docker internal network only)
     ↓ returns V2 envelope: ciphertext + wrapped_dek + pub_key_fp + enc_version
-    ↓ (useless without RSA private key in CF Secrets)
+    ↓ (useless without RSA private key in SubumbraVault DO)
 Cloudflare Worker + Durable Object
     ↓ verifies fingerprint, unwraps DEK, decrypts provider key, injects auth
 API Provider
@@ -31,7 +31,7 @@ API Provider
 - Decrypted keys exist briefly in CF Durable Object memory (~100ms) and transit to API providers over HTTPS
 - Asymmetric hybrid envelope encryption (V2): RSA-4096 wraps per-record AES-256-GCM DEKs
 - subumbra-keys container: holds wrapped DEK + AES-GCM ciphertext only (useless without RSA private key)
-- CF Secrets: holds RSA-4096 private key (WORKER_PRIVATE_KEY) + fingerprint only
+- SubumbraVault DO: holds RSA-4096 private key in SQLite custody (never extractable after import)
 - Neither side can reconstruct keys alone
 - AAD binding (`subumbra:v2:<key_id>`) prevents ciphertext transplant between records
 - pub_key_fp verified by Worker before decryption — mismatched keys fail fast
