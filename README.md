@@ -6,7 +6,7 @@ Subumbra is the core secret-mediation layer. It keeps provider API keys split
 across:
 
 - encrypted records in `subumbra-keys`
-- decrypt authority in Cloudflare Worker secrets
+- decrypt authority in a Cloudflare Worker SQLite-backed Durable Object vault
 
 The supported integration model is now **app-owned installs**:
 
@@ -101,7 +101,8 @@ subumbra/
 
 - Real provider keys never live in plaintext on your VPS after bootstrap.
 - `subumbra-keys` stores ciphertext, wrapped DEKs, and metadata only.
-- Cloudflare stores the RSA private key and runtime auth material only.
+- Cloudflare generates and stores the RSA private key inside the vault DO, and
+  keeps runtime auth material in Worker secrets.
 - Neither side alone can reconstruct provider keys.
 - Proxy health now reports Worker-auth state via `worker_auth: ok|stale|unreachable`.
 
