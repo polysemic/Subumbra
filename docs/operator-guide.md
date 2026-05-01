@@ -117,9 +117,8 @@ Secure provider removal note:
 To rotate a provider token:
 
 1. update the secret value for that provider in your bootstrap input flow
-2. rerun bootstrap
-3. run `./post-bootstrap.sh`
-4. recreate the local services if needed
+2. rerun `./bootstrap.sh`
+3. recreate the local services if needed
 
 This keeps subumbra records, local env state, and the deployed Worker configuration
 aligned.
@@ -147,13 +146,16 @@ Use this when rotating Worker/subumbra runtime tokens, replacing the Cloudflare
 vault RSA key pair, or rebuilding the retained provider set.
 
 ```bash
-docker compose --profile bootstrap run --rm -it bootstrap
-./post-bootstrap.sh
+./bootstrap.sh
 docker compose up -d --force-recreate
 ```
 
 During a full bootstrap, re-enter every key you want to keep. Any omitted key is
 removed from the retained set.
+
+For automation-mode imports from app-owned `.env` files, define
+`IMPORT_PATH_<n>` together with the required `IMPORT_APP_LABEL_<n>` entries in
+`.env.bootstrap`, then run `./bootstrap.sh`.
 
 ### Custom Adapters (Round 35)
 
@@ -190,8 +192,8 @@ Warning:
 
 ### Token Drift Recovery
 
-If `./post-bootstrap.sh` warns that container tokens are stale, recreate the
-containers so they pick up the new runtime state:
+After full bootstrap, recreate the containers so they pick up the new runtime
+state:
 
 ```bash
 docker compose up -d --force-recreate

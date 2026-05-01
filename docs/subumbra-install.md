@@ -52,7 +52,7 @@ cp .env.example .env
 ```
 
 Leave `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`, and `TUNNEL_TOKEN`
-blank unless you already use them. `post-bootstrap.sh` fills in the generated
+blank unless you already use them. `bootstrap.sh` fills in the generated
 runtime values and `CF_WORKER_URL`.
 
 > Do not `source .env` — `SUBUMBRA_ADAPTER_REGISTRY` is JSON and bash mangles it.
@@ -75,7 +75,7 @@ Subumbra bootstrap supports two operator paths. Choose one:
 ### 5a. Interactive RAM-only (recommended for first-time setup)
 
 ```bash
-docker compose --profile bootstrap run --rm -it bootstrap
+./bootstrap.sh
 ```
 
 Enter keys one at a time in the terminal. Nothing touches disk until the
@@ -106,21 +106,24 @@ installation, or are migrating from an existing deployment.
 
 ```bash
 cp .env.bootstrap.example .env.bootstrap
-# edit .env.bootstrap: CF credentials, provider keys, key_ids, and adapter scopes
-docker compose --profile bootstrap run --rm bootstrap
+# edit .env.bootstrap: CF credentials, provider keys, key_ids, adapter scopes,
+# and optional IMPORT_PATH_<n> / IMPORT_APP_LABEL_<n> entries
+./bootstrap.sh
 ```
 
 See `.env.bootstrap.example` for the full list of expected variables. Key format:
 `{PROVIDER}_KEY=<value>` with optional `KEY_ID_SUFFIX` and `ALLOWED_KEYS` entries
-per adapter. The automation path does not start an interactive wizard.
+per adapter. App-owned imports use `IMPORT_PATH_<n>` plus required
+`IMPORT_APP_LABEL_<n>` entries; `bootstrap.sh` mounts those files readonly into
+the container. The automation path does not start an interactive wizard.
 
-## 6. Run `post-bootstrap.sh`
+## 6. Verify Generated Runtime Values
 
 ```bash
-./post-bootstrap.sh
+grep -E '^(SUBUMBRA_TOKEN_|CF_WORKER_URL|PROBE_ALLOWED_KEYS|UI_ALLOWED_KEYS)' .env
 ```
 
-This copies the generated Subumbra runtime values into `.env`:
+`bootstrap.sh` writes the generated Subumbra runtime values directly into `.env`:
 
 - `SUBUMBRA_ADAPTER_REGISTRY`
 - `SUBUMBRA_TOKEN_PROXY`
@@ -134,12 +137,6 @@ If probe provisioning was enabled during bootstrap, this step also writes:
 
 - `SUBUMBRA_TOKEN_PROBE`
 - `PROBE_ALLOWED_KEYS`
-
-Verify:
-
-```bash
-grep -E '^(SUBUMBRA_TOKEN_|CF_WORKER_URL|PROBE_ALLOWED_KEYS|UI_ALLOWED_KEYS)' .env
-```
 
 Probe values may be blank when probe was intentionally left unprovisioned.
 
