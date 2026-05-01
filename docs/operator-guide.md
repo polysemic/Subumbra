@@ -124,6 +124,10 @@ To rotate a provider token:
 This keeps subumbra records, local env state, and the deployed Worker configuration
 aligned.
 
+Full bootstrap also re-runs the one-shot Cloudflare setup path for a fresh
+vault key pair. Preserve `public_key.pem` locally if you intend to use offline
+single-key rotation after the bootstrap completes.
+
 ## 5. Recovery Playbook
 
 ### Single-Key Rotation
@@ -139,8 +143,8 @@ per-key rotation, no service restart is required.
 
 ### Full Re-Bootstrap
 
-Use this when rotating Worker/subumbra runtime tokens, replacing the RSA key pair,
-or rebuilding the retained provider set.
+Use this when rotating Worker/subumbra runtime tokens, replacing the Cloudflare
+vault RSA key pair, or rebuilding the retained provider set.
 
 ```bash
 docker compose --profile bootstrap run --rm -it bootstrap

@@ -94,6 +94,11 @@ The wizard collects:
 At Step 3, put the app-facing provider keys in `subumbra-proxy`. This is the
 shared app-owned path used by standalone LiteLLM and other external apps.
 
+During full bootstrap, Cloudflare now generates the RSA key pair through the
+one-shot `/setup/keygen` Worker path. The bootstrap container only receives the
+returned public key, writes `public_key.pem`, and uses that public key for the
+local V2 envelope records.
+
 ### 5b. Automation path (`.env.bootstrap`)
 
 Use this path if you already have provider keys in a file, are scripting
@@ -137,6 +142,9 @@ grep -E '^(SUBUMBRA_TOKEN_|CF_WORKER_URL|PROBE_ALLOWED_KEYS|UI_ALLOWED_KEYS)' .e
 ```
 
 Probe values may be blank when probe was intentionally left unprovisioned.
+
+`public_key.pem` is also written into the bootstrap data volume for offline
+single-key rotation. The Cloudflare-side private key never lands on the VPS.
 
 ## 7. Start The Core Stack
 

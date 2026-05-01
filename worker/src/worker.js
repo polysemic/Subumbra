@@ -2,12 +2,11 @@
  * Subumbra Proxy — Cloudflare Worker + Durable Object
  * ─────────────────────────────────────────────────────────────────────────────
  * V2 Asymmetric Envelope Encryption:
- *   - WORKER_PRIVATE_KEY (RSA-4096 PKCS#8 DER, base64) lives in CF Secrets
  *   - Each API key record has its own DEK wrapped by the RSA public key
- *   - Worker unwraps DEK with private key, then decrypts API key with DEK
- *   - Decrypted API key exists in Worker memory briefly, then is forwarded
- *     to the Durable Object for the upstream fetch and later GC'd
- *   - Nothing sensitive is logged, stored, or returned in error messages
+ *   - A SQLite-backed vault Durable Object generates and stores the key pair
+ *   - The vault decrypts the V2 envelope and proxies the upstream request
+ *   - Offline rotation still uses the public_key.pem artifact from bootstrap
+ *   - Nothing sensitive is logged, stored outside the vault, or returned
  *
  * Endpoints:
  *   GET  /health   → liveness check (no auth required)
@@ -17,9 +16,8 @@
  *   X-Subumbra-Token: <one adapter token from SUBUMBRA_ADAPTER_TOKENS>
  *
  * CF Secrets consumed:
- *   WORKER_PRIVATE_KEY      — base64(RSA-4096 PKCS#8 DER), set by bootstrap
- *   WORKER_KEY_FINGERPRINT  — sha256:<hex> of SPKI DER, set by bootstrap
  *   SUBUMBRA_ADAPTER_TOKENS — JSON array of adapter tokens, set by bootstrap
+ *   SUBUMBRA_SETUP_TOKEN    — transient setup token, set by bootstrap
  */
 
 "use strict";
@@ -122,6 +120,19 @@ const HOP_BY_HOP_HEADERS = new Set([
   "cf-ipcountry",
 ]);
 
+const VAULT_INSTANCE_NAME = "vault";
+const VAULT_SETUP_PATH = "/setup-keygen";
+const VAULT_EXECUTE_PATH = "/execute";
+const VAULT_SCHEMA = `
+  CREATE TABLE IF NOT EXISTS custody (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    private_key_pkcs8 BLOB NOT NULL,
+    public_key_spki BLOB NOT NULL,
+    pub_key_fp TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+`;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Crypto helpers  (Web Crypto API — available in CF Workers)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -139,26 +150,15 @@ function base64ToBytes(b64) {
   return bytes;
 }
 
-// Module-scope cache — RSA private key is imported once per isolate lifetime
-let _cachedPrivateKey = null;
-
-/**
- * Import and cache the RSA-4096 private key from CF Secrets.
- * The key is imported as non-extractable — raw bytes can never be read back.
- */
-async function getPrivateKey(env) {
-  if (_cachedPrivateKey) return _cachedPrivateKey;
-
+async function importLegacyPrivateKey(env) {
   const derBytes = base64ToBytes(env.WORKER_PRIVATE_KEY);
-  _cachedPrivateKey = await crypto.subtle.importKey(
+  return crypto.subtle.importKey(
     "pkcs8",
     derBytes,
     { name: "RSA-OAEP", hash: "SHA-256" },
-    false,        // not extractable
+    false,
     ["decrypt"],
   );
-
-  return _cachedPrivateKey;
 }
 
 /**
@@ -168,28 +168,28 @@ async function getPrivateKey(env) {
  * 2. Unwrap DEK using RSA-OAEP private key
  * 3. Decrypt API key using DEK with AES-256-GCM + AAD
  *
- * @param {object} env           - CF Worker env bindings
+ * @param {CryptoKey} privateKey - non-extractable RSA private key
+ * @param {string} expectedPubKeyFp - stored fingerprint for the loaded key
  * @param {string} ciphertextB64 - base64: nonce[12] || AES-GCM(api_key, aad)
  * @param {string} wrappedDekB64 - base64: RSA-OAEP(DEK[32])
  * @param {string} pubKeyFp      - sha256:<hex> fingerprint of wrapping public key
- * @param {string} keyId          - key_id for AAD binding
+ * @param {string} keyId         - key_id for AAD binding
  * @returns {Promise<string>}    - plaintext API key
  */
-async function decryptV2(env, ciphertextB64, wrappedDekB64, pubKeyFp, keyId) {
+async function decryptV2(privateKey, expectedPubKeyFp, ciphertextB64, wrappedDekB64, pubKeyFp, keyId) {
   if (!wrappedDekB64 || !ciphertextB64 || !keyId) {
     throw new Error("missing required V2 envelope fields");
   }
 
   // 1. Verify pub_key_fp matches loaded private key's fingerprint
-  if (pubKeyFp !== env.WORKER_KEY_FINGERPRINT) {
+  if (pubKeyFp !== expectedPubKeyFp) {
     throw new Error(
       `record wrapped with unknown key pair (record: ${pubKeyFp}, ` +
-      `loaded: ${env.WORKER_KEY_FINGERPRINT}) — re-bootstrap required`
+      `loaded: ${expectedPubKeyFp}) — re-bootstrap required`
     );
   }
 
   // 2. Unwrap DEK using RSA private key
-  const privateKey = await getPrivateKey(env);
   const dekBytes = await crypto.subtle.decrypt(
     { name: "RSA-OAEP" },
     privateKey,
@@ -284,6 +284,21 @@ function jsonError(message, status) {
   });
 }
 
+function getVaultStub(env) {
+  const vaultId = env.SUBUMBRA_VAULT.idFromName(VAULT_INSTANCE_NAME);
+  return env.SUBUMBRA_VAULT.get(vaultId);
+}
+
+function parseBearerToken(request) {
+  const auth = request.headers.get("authorization") ?? "";
+  const match = auth.match(/^Bearer\s+(.+)$/i);
+  return match ? match[1] : "";
+}
+
+function bytesToHex(bytes) {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Durable Object — SubumbraProxy
 // ─────────────────────────────────────────────────────────────────────────────
@@ -291,9 +306,8 @@ function jsonError(message, status) {
 /**
  * SubumbraProxy Durable Object
  *
- * One instance per request (created with newUniqueId()).  Receives the
- * decrypted API key + full proxy request from the Worker, makes the upstream
- * API call, and streams the response back.
+ * Legacy request-scoped proxy DO retained for compatibility during the vault
+ * migration round. Active traffic now routes through SubumbraVault instead.
  *
  * The DO holds the forwarded decrypted key only for the duration of the
  * upstream fetch (~100 ms).
@@ -346,7 +360,15 @@ export class SubumbraProxy {
 
     let apiKey;
     try {
-      apiKey = await decryptV2(this.env, ciphertext, wrappedDek, pubKeyFp, keyId);
+      const privateKey = await importLegacyPrivateKey(this.env);
+      apiKey = await decryptV2(
+        privateKey,
+        this.env.WORKER_KEY_FINGERPRINT,
+        ciphertext,
+        wrappedDek,
+        pubKeyFp,
+        keyId,
+      );
     } catch (err) {
       console.error("subumbra: decryption failed:", err.message);
       return jsonError("decryption failed", 500);
@@ -413,15 +435,254 @@ export class SubumbraProxy {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Durable Object — SubumbraVault
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class SubumbraVault {
+  constructor(state, env) {
+    this.state = state;
+    this.env = env;
+    this._cachedPrivateKey = null;
+    this.state.blockConcurrencyWhile(async () => {
+      this.state.storage.sql.exec(VAULT_SCHEMA);
+      await this._primeCachedPrivateKey();
+    });
+  }
+
+  async fetch(request) {
+    const url = new URL(request.url);
+
+    if (request.method !== "POST") {
+      return jsonError("method not allowed", 405);
+    }
+
+    if (url.pathname === VAULT_SETUP_PATH) {
+      return this._handleSetupKeygen(request);
+    }
+
+    if (url.pathname === VAULT_EXECUTE_PATH) {
+      return this._handleExecute(request);
+    }
+
+    return jsonError("not found", 404);
+  }
+
+  _loadCustodyRow() {
+    const rows = this.state.storage.sql.exec(
+      "SELECT private_key_pkcs8, public_key_spki, pub_key_fp, created_at FROM custody WHERE id = 1"
+    ).toArray();
+    if (rows.length === 0) {
+      return null;
+    }
+    const row = rows[0];
+    return {
+      private_key_pkcs8: row.private_key_pkcs8,
+      public_key_spki: row.public_key_spki,
+      pub_key_fp: row.pub_key_fp,
+      created_at: row.created_at,
+    };
+  }
+
+  async _importPrivateKey(pkcs8Bytes) {
+    return crypto.subtle.importKey(
+      "pkcs8",
+      pkcs8Bytes,
+      { name: "RSA-OAEP", hash: "SHA-256" },
+      false,
+      ["decrypt"],
+    );
+  }
+
+  async _primeCachedPrivateKey() {
+    if (this._cachedPrivateKey) {
+      return this._cachedPrivateKey;
+    }
+    const row = this._loadCustodyRow();
+    if (!row) {
+      return null;
+    }
+    this._cachedPrivateKey = await this._importPrivateKey(row.private_key_pkcs8);
+    return this._cachedPrivateKey;
+  }
+
+  async _computeFingerprint(spkiBytes) {
+    const digest = await crypto.subtle.digest("SHA-256", spkiBytes);
+    return `sha256:${bytesToHex(new Uint8Array(digest))}`;
+  }
+
+  _encodePublicKeyPem(spkiBytes) {
+    const base64 = btoa(String.fromCharCode(...new Uint8Array(spkiBytes)));
+    const body = base64.match(/.{1,64}/g)?.join("\n") ?? base64;
+    return `-----BEGIN PUBLIC KEY-----\n${body}\n-----END PUBLIC KEY-----\n`;
+  }
+
+  async _handleSetupKeygen(request) {
+    const bearerToken = parseBearerToken(request);
+    if (!bearerToken) {
+      console.warn("subumbra: setup keygen rejected (missing bearer token)");
+      return jsonError("unauthorized", 401);
+    }
+
+    const expectedToken = this.env.SUBUMBRA_SETUP_TOKEN ?? "";
+    const tokenOk = await timingSafeEqual(bearerToken, expectedToken);
+    if (!tokenOk) {
+      console.warn("subumbra: setup keygen rejected (invalid bearer token)");
+      return jsonError("forbidden", 403);
+    }
+
+    if (this._loadCustodyRow()) {
+      console.info("subumbra: setup keygen rejected (vault already initialized)");
+      return jsonError("already initialized", 409);
+    }
+
+    try {
+      const keyPair = await crypto.subtle.generateKey(
+        {
+          name: "RSA-OAEP",
+          modulusLength: 4096,
+          publicExponent: new Uint8Array([1, 0, 1]),
+          hash: "SHA-256",
+        },
+        true,
+        ["encrypt", "decrypt"],
+      );
+
+      const privateKeyPkcs8 = new Uint8Array(await crypto.subtle.exportKey("pkcs8", keyPair.privateKey));
+      const publicKeySpki = new Uint8Array(await crypto.subtle.exportKey("spki", keyPair.publicKey));
+      const pubKeyFp = await this._computeFingerprint(publicKeySpki);
+      const createdAt = new Date().toISOString();
+
+      this.state.storage.sql.exec(
+        "INSERT INTO custody (id, private_key_pkcs8, public_key_spki, pub_key_fp, created_at) VALUES (?, ?, ?, ?, ?)",
+        1,
+        privateKeyPkcs8,
+        publicKeySpki,
+        pubKeyFp,
+        createdAt,
+      );
+
+      this._cachedPrivateKey = await this._importPrivateKey(privateKeyPkcs8);
+
+      return new Response(JSON.stringify({
+        public_key_pem: this._encodePublicKeyPem(publicKeySpki),
+        pub_key_fp: pubKeyFp,
+        created_at: createdAt,
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    } catch (err) {
+      console.error("subumbra: setup keygen failed:", err && err.message ? err.message : err);
+      return jsonError("setup failed", 500);
+    }
+  }
+
+  async _handleExecute(request) {
+    let payload;
+    try {
+      payload = await request.json();
+    } catch {
+      return jsonError("invalid JSON body", 400);
+    }
+
+    const {
+      ciphertext,
+      wrappedDek,
+      pubKeyFp,
+      keyId,
+      targetUrl,
+      method,
+      headers: reqHeaders,
+      body,
+      authHeader,
+      authPrefix,
+    } = payload;
+
+    if (
+      !ciphertext ||
+      !wrappedDek ||
+      !pubKeyFp ||
+      !keyId ||
+      !targetUrl ||
+      !authHeader ||
+      typeof authPrefix !== "string"
+    ) {
+      return jsonError("missing required fields", 400);
+    }
+
+    const custodyRow = this._loadCustodyRow();
+    if (!custodyRow) {
+      console.error("subumbra: vault not initialized");
+      return jsonError("worker not configured", 503);
+    }
+
+    let apiKey;
+    try {
+      const privateKey = await this._primeCachedPrivateKey();
+      apiKey = await decryptV2(
+        privateKey,
+        custodyRow.pub_key_fp,
+        ciphertext,
+        wrappedDek,
+        pubKeyFp,
+        keyId,
+      );
+    } catch (err) {
+      console.error("subumbra: decryption failed:", err.message);
+      return jsonError("decryption failed", 500);
+    }
+
+    const upstreamHeaders = new Headers();
+    for (const [k, v] of Object.entries(reqHeaders || {})) {
+      upstreamHeaders.set(k, v);
+    }
+
+    upstreamHeaders.set(authHeader, `${authPrefix}${apiKey}`);
+
+    if (authHeader.toLowerCase() !== "authorization") {
+      upstreamHeaders.delete("authorization");
+    }
+
+    const cleanUrl = new URL(targetUrl);
+    cleanUrl.searchParams.delete("key");
+    cleanUrl.searchParams.delete("api_key");
+    cleanUrl.searchParams.delete("apikey");
+
+    let upstreamResponse;
+    try {
+      upstreamResponse = await fetch(cleanUrl.toString(), {
+        method: method ?? "POST",
+        headers: upstreamHeaders,
+        body: body != null ? JSON.stringify(body) : undefined,
+      });
+    } catch {
+      return jsonError("upstream connection failed", 502);
+    }
+
+    const responseHeaders = new Headers();
+    for (const [k, v] of upstreamResponse.headers.entries()) {
+      if (!HOP_BY_HOP_HEADERS.has(k.toLowerCase())) {
+        responseHeaders.set(k, v);
+      }
+    }
+
+    return new Response(upstreamResponse.body, {
+      status: upstreamResponse.status,
+      headers: responseHeaders,
+    });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Worker entry point
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default {
   /**
    * @param {Request}         request
-   * @param {{ WORKER_PRIVATE_KEY: string, WORKER_KEY_FINGERPRINT: string,
-   *           SUBUMBRA_ADAPTER_TOKENS: string,
-   *           SUBUMBRA_PROXY: DurableObjectNamespace }} env
+   * @param {{ SUBUMBRA_ADAPTER_TOKENS: string,
+   *           SUBUMBRA_PROXY: DurableObjectNamespace,
+   *           SUBUMBRA_VAULT: DurableObjectNamespace }} env
    * @param {ExecutionContext} ctx
    */
   async fetch(request, env, ctx) {
@@ -439,6 +700,10 @@ export default {
       return handleAuthPing(request, env);
     }
 
+    if (request.method === "POST" && url.pathname === "/setup/keygen") {
+      return handleSetupKeygen(request, env);
+    }
+
     // ── POST /proxy ─────────────────────────────────────────────────────────
     // Direct mode: caller wraps the full request in our custom JSON format.
     if (request.method === "POST" && url.pathname === "/proxy") {
@@ -448,6 +713,14 @@ export default {
     return jsonError("not found", 404);
   },
 };
+
+async function handleSetupKeygen(request, env) {
+  const vault = getVaultStub(env);
+  return vault.fetch(`https://do-internal${VAULT_SETUP_PATH}`, {
+    method: "POST",
+    headers: request.headers,
+  });
+}
 
 async function authorizeRequest(request, env) {
   if (!env.SUBUMBRA_ADAPTER_TOKENS) {
@@ -495,7 +768,7 @@ async function handleProxy(request, env) {
     return auth.response;
   }
 
-  if (!env.WORKER_PRIVATE_KEY || !env.WORKER_KEY_FINGERPRINT || !env.PROVIDER_REGISTRY_KV) {
+  if (!env.PROVIDER_REGISTRY_KV || !env.SUBUMBRA_VAULT) {
     console.error("subumbra: worker bindings not configured (run bootstrap)");
     return jsonError("worker not configured", 503);
   }
@@ -578,8 +851,7 @@ async function handleProxy(request, env) {
   }
 
   // ── 5. Forward encrypted envelope to Durable Object ───────────────────────
-  const doId = env.SUBUMBRA_PROXY.newUniqueId();
-  const doStub = env.SUBUMBRA_PROXY.get(doId);
+  const doStub = getVaultStub(env);
 
   const doPayload = JSON.stringify({
     ciphertext,
@@ -594,7 +866,7 @@ async function handleProxy(request, env) {
     authPrefix: registryEntry.auth_prefix,
   });
 
-  const doResponse = await doStub.fetch("https://do-internal/execute", {
+  const doResponse = await doStub.fetch(`https://do-internal${VAULT_EXECUTE_PATH}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: doPayload,
