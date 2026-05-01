@@ -18,7 +18,7 @@ subumbra-proxy
     ↓ fetches encrypted record metadata and packages canonical POST /proxy
 subumbra-keys (docker internal network only)
     ↓ returns V2 envelope: ciphertext + wrapped_dek + pub_key_fp + enc_version
-    ↓ (useless without RSA private key in CF Secrets)
+    ↓ (useless without RSA private key in SubumbraVault DO)
 Cloudflare Worker + Durable Object
     ↓ verifies fingerprint, unwraps DEK, decrypts provider key, injects auth
 API Provider
@@ -31,7 +31,7 @@ API Provider
 - Decrypted keys exist briefly in CF Durable Object memory (~100ms) and transit to API providers over HTTPS
 - Asymmetric hybrid envelope encryption (V2): RSA-4096 wraps per-record AES-256-GCM DEKs
 - subumbra-keys container: holds wrapped DEK + AES-GCM ciphertext only (useless without RSA private key)
-- CF Secrets: holds RSA-4096 private key (WORKER_PRIVATE_KEY) + fingerprint only
+- SubumbraVault DO: holds RSA-4096 private key in SQLite custody (never extractable after import)
 - Neither side can reconstruct keys alone
 - AAD binding (`subumbra:v2:<key_id>`) prevents ciphertext transplant between records
 - pub_key_fp verified by Worker before decryption — mismatched keys fail fast
@@ -122,17 +122,17 @@ subumbra/
 3. Bootstrap container:
    - Reads keys from env (RAM only)
    - Loads built-in provider `target_host` mappings and derives built-in `KNOWN_PROVIDERS` from `worker/src/providers.json`
-   - Generates RSA-4096 key pair (RAM only)
-   - For each key: generates random 32-byte DEK, wraps DEK with RSA public key, encrypts API key with AES-256-GCM using AAD `subumbra:v2:<key_id>`
-   - Writes V2 records (ciphertext + wrapped_dek + pub_key_fp + enc_version) to subumbra-keys volume
-   - Writes `public_key.pem` to data volume (for offline rotation)
    - Creates or reuses the provider-registry KV namespace and persists its namespace ID in `/app/data/kv-config.json`
    - Injects the `[[kv_namespaces]]` binding into the temporary deploy copy of `wrangler.toml`
    - Deploys CF Worker via wrangler
-   - Pushes `WORKER_PRIVATE_KEY` (PKCS#8 DER base64) to CF Secrets
-   - Pushes `WORKER_KEY_FINGERPRINT` (SHA-256 of DER SPKI) to CF Secrets
+   - Pushes `SUBUMBRA_ADAPTER_TOKENS`, `SUBUMBRA_HMAC_KEY`, and a transient `SUBUMBRA_SETUP_TOKEN`
+   - Calls one-shot `POST /setup/keygen` so Cloudflare generates and stores the RSA-4096 key pair in the vault DO
+   - Receives `public_key.pem` + `pub_key_fp` from Cloudflare
+   - For each key: generates random 32-byte DEK, wraps DEK with the returned RSA public key, encrypts API key with AES-256-GCM using AAD `subumbra:v2:<key_id>`
+   - Writes V2 records (ciphertext + wrapped_dek + pub_key_fp + enc_version) to subumbra-keys volume
+   - Writes `public_key.pem` to data volume (for offline rotation)
    - Publishes the initial `provider_registry_v1` entry to Cloudflare KV
-   - Deletes legacy `MASTER_DECRYPTION_KEY` from CF Secrets (`--force`)
+   - Deletes transient `SUBUMBRA_SETUP_TOKEN` and legacy `MASTER_DECRYPTION_KEY` / `WORKER_PRIVATE_KEY` / `WORKER_KEY_FINGERPRINT` secrets
    - Exits
 4. Run `./post-bootstrap.sh` to copy runtime env values to `.env` and shred `.env.bootstrap`
 5. Real keys existed only in RAM, never written to disk
@@ -148,12 +148,13 @@ subumbra/
 - Reads provider security metadata from the live Cloudflare KV provider registry
 - Validates `target_url` hostname against the live registry entry (fail-closed)
 - Validates `provider` matches the resolved registry entry
-- Verifies: pub_key_fp matches WORKER_KEY_FINGERPRINT from CF Secrets
-- Unwraps: per-record DEK via RSA-OAEP using WORKER_PRIVATE_KEY (cached per isolate)
+- Routes `/setup/keygen` to a named SQLite-backed `SubumbraVault` DO instance
+- Verifies: pub_key_fp matches the stored vault custody row
+- Unwraps: per-record DEK via RSA-OAEP using the non-extractable private key cached in the vault DO
 - Decrypts: AES-256-GCM with AAD `subumbra:v2:<key_id>`
 - Hard-rejects: non-V2 records, fingerprint mismatches
-- Resolves auth policy from the registry and passes generic auth config into the Durable Object
-- Creates: Durable Object per request
+- Resolves auth policy from the registry and passes generic auth config into the vault DO
+- Uses: a single named vault DO instance for both custody and upstream execution
 - DO calls: API provider directly with decrypted key
 - Durable Object no longer branches on provider identity to choose auth headers
 - Worker accepts canonical `/proxy` requests only

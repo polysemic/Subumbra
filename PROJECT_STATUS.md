@@ -1,5 +1,5 @@
 # PROJECT_STATUS
-*Current state — updated 2026-04-29*
+*Current state — updated 2026-05-01*
 *Rounds 1–43.6, 43-6-3, 43-6-4-1, 43-6-4-2, and 43-6-4-bootstrap-ux closed. See `council/COUNCIL.md` for round history and current status.*
 
 ---
@@ -8,7 +8,7 @@
 
 V2 Asymmetric Envelope Encryption (deployed, verified by all three council members).
 
-- RSA-4096 key pair: public key on host, private key in CF Secrets
+- RSA-4096 key pair: public key on host, private key in Cloudflare Durable Object custody
 - Per-record AES-256-GCM DEKs wrapped by RSA public key
 - AAD binding: `subumbra:v2:<key_id>`
 - Offline per-key rotation via `--rotate` (no CF interaction)
@@ -134,6 +134,7 @@ This arc focuses on evolving Subumbra from a static, bundled configuration into 
 - **Round 43-6-4-Bootstrap-UX — Operator Bootstrap UX Cleanup** (Closed 2026-04-29): bootstrap now uses an env-aware Worker-name default, clearer multi-key/app-label prompts, per-key summary lines, numbered allowed-key selection, and clearer optional probe wording. `docs/subumbra-install.md` now separates interactive wizard and `.env.bootstrap` automation walkthroughs.
 - **Round 44-1 — Security Quick Wins** (Closed 2026-04-30): strict `pub_key_fp` enforcement is now fail-closed, caller-visible fingerprint mismatch detail is removed, and Worker/docs comments are aligned with the current plaintext boundary.
 - **Round 44-2 — Decrypt In Existing DO** (Closed 2026-04-30): the decrypt execution boundary now lives in the existing `SubumbraProxy` Durable Object, the Worker→DO hop carries the encrypted envelope instead of plaintext `apiKey`, and public `/proxy` validation/error behavior remains unchanged.
+- **Round 44-3 — CF-Side Key Generation And Custody** (Closed 2026-05-01): bootstrap now uses one-shot Cloudflare `/setup/keygen`, the SQLite-backed `SubumbraVault` DO holds persistent private-key custody, active `/proxy` execution routes through the named vault instance, and offline `public_key.pem` rotation remains intact.
 
 ## Path Forward
 
@@ -145,8 +146,9 @@ Round 43 arc close-out sequence — targeting 0.0.1 Alpha:
    The council planning round in `council/closed/round-44-security-review/` converged on a four-round implementation arc:
    - `council/closed/round-44-1-security-quick-wins/` — closed 2026-04-30; strict `pub_key_fp` enforcement, generic decryption failures, and truth-aligned Worker/docs comments
    - `council/closed/round-44-2-decrypt-in-existing-do/` — closed 2026-04-30; decrypt now runs inside the existing `SubumbraProxy` DO, and the Worker→DO hop keeps the original encrypted envelope intact
-   - `council/round-44-3-cf-keygen-custody/` — CF-side key generation and custody while preserving offline no-restart rotation
+   - `council/closed/round-44-3-cf-keygen-custody/` — closed 2026-05-01; CF-side key generation and custody landed in the SQLite-backed `SubumbraVault` DO while preserving offline no-restart rotation
    - `council/round-44-4-bootstrap-docker-finalization/` — absorb `post-bootstrap.sh`, complete Docker-only/bootstrap flow, and stage bootstrap UX polish
+   - Future high-priority follow-up: define backup/export/recovery policy for CF-generated vault keys before broader production-facing deployment claims
 3. **Round 45 (Planned)** — Secure UI round. UI-based env ingestion, encrypted paste/input for browser security. See `council/round-45-secure-ui/`.
 
 Guiding note:

@@ -18,21 +18,20 @@ What it does (full bootstrap, in order):
   3. Warns if keys.json already exists (rotation mode) and identifies any
      keys that will be removed because they are absent from this session
   4. Confirms with the operator before proceeding (interactive mode only)
-  5. Generates an RSA-4096 key pair (RAM only)
-  6. Writes public key to /app/data/public_key.pem (not sensitive)
-  7. Generates NEW runtime auth tokens (per-adapter Subumbra tokens, SUBUMBRA_HMAC_KEY)
-  8. Encrypts each API key: per-key DEK -> AES-256-GCM (AAD bound), DEK -> RSA-OAEP wrap
-  9. Copies worker source to a temp dir and deploys via wrangler
- 10. Pushes WORKER_PRIVATE_KEY + WORKER_KEY_FINGERPRINT + auth tokens to CF Secrets
- 11. Deletes stale MASTER_DECRYPTION_KEY CF Secret (V1 cleanup)
- 12. ONLY after remote deploy succeeds: atomically writes keys.json
- 13. Writes runtime tokens to /app/data/runtime.env (mode 0600)
- 14. Zeroes sensitive memory and exits
+  5. Generates NEW runtime auth tokens (per-adapter Subumbra tokens,
+     SUBUMBRA_HMAC_KEY, transient SUBUMBRA_SETUP_TOKEN)
+  6. Copies worker source to a temp dir and deploys via wrangler
+  7. Calls CF-side one-shot /setup/keygen and receives the public key + fingerprint
+  8. Writes public key to /app/data/public_key.pem (not sensitive)
+  9. Encrypts each API key: per-key DEK -> AES-256-GCM (AAD bound), DEK -> RSA-OAEP wrap
+ 10. ONLY after remote deploy + remote keygen succeed: atomically writes keys.json
+ 11. Writes runtime tokens to /app/data/runtime.env (mode 0600)
+ 12. Zeroes sensitive memory and exits
 
 ROTATION NOTE (full bootstrap):
-  Every run generates a new RSA key pair and new runtime tokens.  ALL keys
-  that should remain accessible must be re-entered — any key omitted from
-  the wizard (or from .env.bootstrap in CI mode) will be removed from
+  Every run generates a new RSA key pair in Cloudflare and new runtime tokens.
+  ALL keys that should remain accessible must be re-entered — any key omitted
+  from the wizard (or from .env.bootstrap in CI mode) will be removed from
   keys.json and become permanently inaccessible under the new key pair.
 
   After bootstrap completes:
@@ -59,6 +58,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import time
 import urllib.error
 import urllib.request
 from base64 import b64encode
@@ -66,7 +66,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import NoReturn
 
-from cryptography.hazmat.primitives.asymmetric import rsa, padding
+from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
@@ -695,14 +695,6 @@ def _prompt_allowed_keys(adapter_label: str, available_key_ids: list[str]) -> li
 # V2 Crypto — RSA-4096-OAEP + AES-256-GCM with AAD
 # ─────────────────────────────────────────────────────────────────────────────
 
-def generate_keypair():
-    """Generate RSA-4096 key pair. Returns (private_key, public_key)."""
-    private_key = rsa.generate_private_key(
-        public_exponent=65537,
-        key_size=4096,
-    )
-    return private_key, private_key.public_key()
-
 
 def public_key_fingerprint(pub_key) -> str:
     """SHA-256 fingerprint of the DER-encoded SubjectPublicKeyInfo."""
@@ -1294,25 +1286,133 @@ def _append_provider_registry_kv_binding(wrangler_toml: Path, namespace_id: str)
         )
 
 
+def _wrangler_env(cf_creds: dict[str, str]) -> dict[str, str]:
+    return {
+        **os.environ,
+        "CLOUDFLARE_API_TOKEN": cf_creds["CF_API_TOKEN"],
+        "CLOUDFLARE_ACCOUNT_ID": cf_creds["CF_ACCOUNT_ID"],
+        "CI": "true",
+    }
+
+
+def _build_worker_url(worker_name: str, deploy_out: str | None = None) -> str:
+    worker_url = f"https://{worker_name}.workers.dev"
+    if not deploy_out:
+        return worker_url
+    for line in deploy_out.splitlines():
+        for token in line.split():
+            if token.startswith("https://") and "workers.dev" in token:
+                return token.rstrip(".,")
+    return worker_url
+
+
+def _delete_worker_secret(cf_creds: dict[str, str], secret_name: str, *, quiet_missing: bool = False) -> None:
+    if not WORKER_SRC.exists():
+        die(
+            f"Worker source not found at {WORKER_SRC}.\n"
+            "  Ensure ./worker is mounted into the bootstrap container\n"
+            "  (check volumes in docker-compose.yml)."
+        )
+
+    worker_name = cf_creds["CF_WORKER_NAME"]
+    env = _wrangler_env(cf_creds)
+
+    with tempfile.TemporaryDirectory(prefix="subumbra-worker-") as tmp:
+        tmp_dir = Path(tmp)
+        shutil.copytree(WORKER_SRC, tmp_dir / "worker")
+        work_dir = tmp_dir / "worker"
+        namespace_id = _create_or_reuse_kv_namespace(cf_creds)
+        _append_provider_registry_kv_binding(work_dir / "wrangler.toml", namespace_id)
+
+        result = subprocess.run(
+            ["wrangler", "secret", "delete", secret_name, "--name", worker_name],
+            cwd=work_dir,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            ok(f"Deleted {secret_name} secret")
+            return
+        if quiet_missing:
+            info(f"{secret_name} not present — already clean")
+            return
+        die(
+            f"Command failed: wrangler secret delete {secret_name} --name {worker_name}\n"
+            f"--- stdout ---\n{result.stdout}\n"
+            f"--- stderr ---\n{result.stderr}"
+        )
+
+
+def call_setup_keygen(worker_url: str, setup_token: str) -> tuple[str, str, str]:
+    last_http_error: urllib.error.HTTPError | None = None
+    for attempt in range(1, 13):
+        req = urllib.request.Request(
+            f"{worker_url.rstrip('/')}/setup/keygen",
+            data=b"",
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {setup_token}",
+                "Content-Type": "application/json",
+                "User-Agent": "curl/8.5.0",
+            },
+        )
+        try:
+            with urllib.request.urlopen(req) as resp:
+                payload = json.loads(resp.read())
+            break
+        except urllib.error.HTTPError as exc:
+            last_http_error = exc
+            if exc.code in (401, 403) and attempt < 12:
+                info(
+                    "Cloudflare setup token not visible yet; "
+                    f"retrying /setup/keygen ({attempt}/12)"
+                )
+                time.sleep(5)
+                continue
+            body = exc.read().decode("utf-8", errors="replace")
+            die(
+                f"Cloudflare setup keygen failed: HTTP {exc.code}\n"
+                f"--- response body ---\n{body}"
+            )
+        except Exception as exc:
+            die(f"Cloudflare setup keygen failed: {exc}")
+    else:
+        if last_http_error is not None:
+            body = last_http_error.read().decode("utf-8", errors="replace")
+            die(
+                f"Cloudflare setup keygen failed after retry window: HTTP {last_http_error.code}\n"
+                f"--- response body ---\n{body}"
+            )
+        die("Cloudflare setup keygen failed after retry window")
+
+    public_key_pem = payload.get("public_key_pem")
+    pub_key_fp = payload.get("pub_key_fp")
+    created_at = payload.get("created_at")
+    if not all(isinstance(value, str) and value for value in (public_key_pem, pub_key_fp, created_at)):
+        die("Cloudflare setup keygen returned an invalid response payload")
+    return public_key_pem, pub_key_fp, created_at
+
+
 def deploy_worker(
     cf_creds: dict[str, str],
-    private_key_b64: str,
-    pub_key_fp: str,
     adapter_tokens: dict[str, str],
     subumbra_hmac_key: str,
+    setup_token: str,
     provider_id_filter: "set[str] | None" = None,
 ) -> str:
     """
-    Deploy the CF Worker and push V2 secrets.  Returns the worker URL.
+    Deploy the CF Worker and push runtime/setup secrets. Returns the worker URL.
 
     Steps:
       1. Copy worker source to a temp dir (source mount is :ro)
       2. wrangler deploy --name <name>
-      3. wrangler secret put WORKER_PRIVATE_KEY
-      4. wrangler secret put WORKER_KEY_FINGERPRINT
-      5. wrangler secret delete MASTER_DECRYPTION_KEY (V1 cleanup, best-effort)
+      3. wrangler secret delete MASTER_DECRYPTION_KEY (V1 cleanup, best-effort)
+      4. wrangler secret delete WORKER_PRIVATE_KEY (legacy cleanup, best-effort)
+      5. wrangler secret delete WORKER_KEY_FINGERPRINT (legacy cleanup, best-effort)
       6. wrangler secret put SUBUMBRA_ADAPTER_TOKENS
       7. wrangler secret put SUBUMBRA_HMAC_KEY
+      8. wrangler secret put SUBUMBRA_SETUP_TOKEN
     """
     if not WORKER_SRC.exists():
         die(
@@ -1324,13 +1424,7 @@ def deploy_worker(
     worker_name = cf_creds["CF_WORKER_NAME"]
 
     # Wrangler reads CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID from env
-    env = {
-        **os.environ,
-        "CLOUDFLARE_API_TOKEN":   cf_creds["CF_API_TOKEN"],
-        "CLOUDFLARE_ACCOUNT_ID":  cf_creds["CF_ACCOUNT_ID"],
-        # Tell wrangler not to prompt for login
-        "CI": "true",
-    }
+    env = _wrangler_env(cf_creds)
 
     with tempfile.TemporaryDirectory(prefix="subumbra-worker-") as tmp:
         tmp_dir = Path(tmp)
@@ -1365,33 +1459,11 @@ def deploy_worker(
         )
         ok("Provider registry pushed")
 
-        # ── push WORKER_PRIVATE_KEY (RSA-4096 PKCS#8 DER, base64) ────────────
-        step("Pushing WORKER_PRIVATE_KEY to CF Secrets")
-        _run(
-            ["wrangler", "secret", "put", "WORKER_PRIVATE_KEY",
-             "--name", worker_name],
-            cwd=work_dir,
-            env=env,
-            input_text=private_key_b64 + "\n",
-        )
-        ok("WORKER_PRIVATE_KEY pushed (never written to disk)")
-
-        # ── push WORKER_KEY_FINGERPRINT ───────────────────────────────────────
-        step("Pushing WORKER_KEY_FINGERPRINT to CF Secrets")
-        _run(
-            ["wrangler", "secret", "put", "WORKER_KEY_FINGERPRINT",
-             "--name", worker_name],
-            cwd=work_dir,
-            env=env,
-            input_text=pub_key_fp + "\n",
-        )
-        ok(f"WORKER_KEY_FINGERPRINT pushed ({pub_key_fp[:24]}...)")
-
         # ── delete stale V1 secret (best-effort) ─────────────────────────────
         step("Cleaning up stale MASTER_DECRYPTION_KEY (V1)")
         del_result = subprocess.run(
             ["wrangler", "secret", "delete", "MASTER_DECRYPTION_KEY",
-             "--name", worker_name, "--force"],
+             "--name", worker_name],
             cwd=work_dir,
             env=env,
             capture_output=True,
@@ -1401,6 +1473,21 @@ def deploy_worker(
             ok("Deleted stale MASTER_DECRYPTION_KEY secret")
         else:
             info("MASTER_DECRYPTION_KEY not present — already clean")
+
+        # ── delete legacy custody secrets (best-effort) ──────────────────────
+        for secret_name in ("WORKER_PRIVATE_KEY", "WORKER_KEY_FINGERPRINT"):
+            step(f"Removing legacy {secret_name} secret")
+            del_result = subprocess.run(
+                ["wrangler", "secret", "delete", secret_name, "--name", worker_name],
+                cwd=work_dir,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            if del_result.returncode == 0:
+                ok(f"Deleted stale {secret_name} secret")
+            else:
+                info(f"{secret_name} not present — already clean")
 
         # ── push SUBUMBRA_ADAPTER_TOKENS ─────────────────────────────────────
         step("Pushing SUBUMBRA_ADAPTER_TOKENS to CF Secrets")
@@ -1425,16 +1512,19 @@ def deploy_worker(
         )
         ok("SUBUMBRA_HMAC_KEY pushed")
 
+        # ── push transient SUBUMBRA_SETUP_TOKEN ──────────────────────────────
+        step("Pushing transient SUBUMBRA_SETUP_TOKEN to CF Secrets")
+        _run(
+            ["wrangler", "secret", "put", "SUBUMBRA_SETUP_TOKEN",
+             "--name", worker_name],
+            cwd=work_dir,
+            env=env,
+            input_text=setup_token + "\n",
+        )
+        ok("SUBUMBRA_SETUP_TOKEN pushed")
 
-    # Derive URL — wrangler prints it, but it's also deterministic
-    worker_url = f"https://{worker_name}.workers.dev"
-    for line in deploy_out.splitlines():
-        for token in line.split():
-            if token.startswith("https://") and "workers.dev" in token:
-                worker_url = token.rstrip(".,")
-                break
 
-    return worker_url
+    return _build_worker_url(worker_name, deploy_out)
 
 
 def run_push_registry() -> None:
@@ -1733,39 +1823,7 @@ def main() -> None:
             print("\nAborted. No changes written.")
             sys.exit(0)
 
-    # ── Step 3: generate RSA-4096 key pair (RAM only) ────────────────────
-    step("Generating RSA-4096 key pair")
-    private_key, pub_key = generate_keypair()
-    ok("RSA-4096 key pair generated (private key stays in RAM)")
-
-    # ── Step 4: serialize and store public key ───────────────────────────
-    step(f"Writing public key → {PUBLIC_KEY_FILE}")
-    pem_public = pub_key.public_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PublicFormat.SubjectPublicKeyInfo,
-    )
-    try:
-        fd = os.open(str(PUBLIC_KEY_FILE), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
-        with os.fdopen(fd, "wb") as fh:
-            fh.write(pem_public)
-    except OSError as exc:
-        die(f"Failed to write public_key.pem: {exc}")
-    ok("Public key written (mode 0644 — safe to store)")
-
-    # Compute fingerprint
-    pub_key_fp = public_key_fingerprint(pub_key)
-    info(f"Fingerprint: {pub_key_fp}")
-
-    # Serialize private key for CF Secrets push
-    private_key_b64 = b64encode(
-        private_key.private_bytes(
-            encoding=serialization.Encoding.DER,
-            format=serialization.PrivateFormat.PKCS8,
-            encryption_algorithm=serialization.NoEncryption(),
-        )
-    ).decode("ascii")
-
-    # ── Step 5: generate runtime auth tokens ─────────────────────────────
+    # ── Step 3: generate runtime auth tokens ─────────────────────────────
     # SECURITY: These are privileged bearer/HMAC secrets. Anyone who obtains
     # an adapter token can drive the Worker as a scoped decryption oracle.
     # Treat them with the same care as the API keys they protect.
@@ -1790,11 +1848,56 @@ def main() -> None:
         if adapter_id not in BUILTIN_ADAPTER_IDS:
             ok(f"SUBUMBRA_TOKEN_{_normalize_adapter_id(adapter_id)} generated")
     ok("SUBUMBRA_HMAC_KEY generated")
+    setup_token = secrets.token_urlsafe(48)
+    ok("SUBUMBRA_SETUP_TOKEN generated")
     adapter_registry = _build_adapter_registry(
         adapter_tokens,
         allowed_keys_by_adapter,
         token_ttl_days=token_ttl_days,
     )
+
+    # ── Step 4: deploy worker + push secrets ─────────────────────────────
+    # CRITICAL ORDER: remote secrets are pushed BEFORE keys.json is written.
+    # If the deploy fails here, keys.json still holds the old blobs that match
+    # the old key pair — the system remains consistent.
+    bootstrapped_providers = {v[0] for v in api_keys.values()}
+    worker_url = deploy_worker(
+        cf_creds,
+        adapter_tokens, subumbra_hmac_key,
+        setup_token,
+        provider_id_filter=bootstrapped_providers,
+    )
+    ok(f"Worker URL: {worker_url}")
+
+    # ── Step 5: generate RSA key pair in Cloudflare and store public key ─
+    step("Calling Cloudflare one-shot setup keygen")
+    public_key_pem, returned_pub_key_fp, _created_at = call_setup_keygen(worker_url, setup_token)
+    ok("Cloudflare setup keygen completed")
+
+    step("Deleting transient SUBUMBRA_SETUP_TOKEN from CF Secrets")
+    _delete_worker_secret(cf_creds, "SUBUMBRA_SETUP_TOKEN")
+
+    step(f"Writing public key → {PUBLIC_KEY_FILE}")
+    try:
+        fd = os.open(str(PUBLIC_KEY_FILE), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(public_key_pem.encode("utf-8"))
+    except OSError as exc:
+        die(f"Failed to write public_key.pem: {exc}")
+    ok("Public key written (mode 0644 — safe to store)")
+
+    try:
+        pub_key = serialization.load_pem_public_key(public_key_pem.encode("utf-8"))
+    except Exception as exc:
+        die(f"Failed to load returned public key: {exc}")
+    pub_key_fp = public_key_fingerprint(pub_key)
+    if pub_key_fp != returned_pub_key_fp:
+        die(
+            "Cloudflare setup keygen returned inconsistent fingerprint\n"
+            f"  returned: {returned_pub_key_fp}\n"
+            f"  computed: {pub_key_fp}"
+        )
+    info(f"Fingerprint: {pub_key_fp}")
 
     # ── Step 6: encrypt API keys (V2 envelope) ───────────────────────────
     step("Encrypting API keys — V2 envelope (RSA-4096-OAEP + AES-256-GCM)")
@@ -1818,19 +1921,7 @@ def main() -> None:
         del dek
         ok(f"Encrypted {provider:12s} → {key_id}")
 
-    # ── Step 7+8: deploy worker + push secrets ───────────────────────────
-    # CRITICAL ORDER: remote secrets are pushed BEFORE keys.json is written.
-    # If the deploy fails here, keys.json still holds the old blobs that match
-    # the old key pair — the system remains consistent.
-    bootstrapped_providers = {v[0] for v in api_keys.values()}
-    worker_url = deploy_worker(
-        cf_creds, private_key_b64, pub_key_fp,
-        adapter_tokens, subumbra_hmac_key,
-        provider_id_filter=bootstrapped_providers,
-    )
-    ok(f"Worker URL: {worker_url}")
-
-    # ── Step 9: atomically write encrypted blobs ─────────────────────────
+    # ── Step 7: atomically write encrypted blobs ─────────────────────────
     # Write to a temp file in the same directory, then os.replace() for atomic
     # promotion.  subumbra-keys will never read a partially written file.
     # Mode 0o644: keys.json holds ciphertext only — safe to be world-readable.
@@ -1849,7 +1940,7 @@ def main() -> None:
     ok(f"Wrote {len(keys_payload)} key blob(s) — atomic rename complete")
     info("Blobs are useless without the CF private key — safe to store")
 
-    # ── Step 10: write runtime env with restricted permissions ───────────
+    # ── Step 8: write runtime env with restricted permissions ────────────
     # SECURITY: These tokens are privileged secrets.  Write with mode 0600
     # and do NOT print values to stdout (which may be captured in CI/CD logs).
     step(f"Writing runtime env → {RUNTIME_ENV_OUT}")
@@ -1891,14 +1982,13 @@ def main() -> None:
         die(f"Failed to write runtime.env: {exc}")
     ok("Runtime env written with mode 0600")
 
-    # ── Step 11: zero sensitive memory ───────────────────────────────────
+    # ── Step 9: zero sensitive memory ────────────────────────────────────
     step("Clearing sensitive values from memory")
-    del private_key
-    private_key_b64 = "0" * len(private_key_b64)  # noqa: F841
-    del private_key_b64
     for adapter_id in list(adapter_tokens):
         adapter_tokens[adapter_id] = "\x00" * len(adapter_tokens[adapter_id])
     del adapter_tokens
+    setup_token = "\x00" * len(setup_token)
+    del setup_token
     # Zero raw API key values (tuples are immutable but we can overwrite the dict)
     for k in list(api_keys):
         provider, target_host, auth_header, auth_prefix, raw = api_keys[k]
