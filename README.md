@@ -48,15 +48,14 @@ Bundled LiteLLM is no longer part of the core stack.
 
 The current transparent contract is:
 
-- `api_base: http://subumbra-proxy:8090/t`
-- `api_key: <key_id>` using a plain key ID
+- `api_base: http://subumbra-proxy:8090/t/<key_id>/...`
+- `api_key: <adapter token>` such as `${SUBUMBRA_TOKEN_LITELLM}`
 
-Do **not** use callback-era `subumbra:<key_id>` values on the supported path.
+Do **not** use callback-era `subumbra:<key_id>` values or raw key IDs in the
+supported auth slot.
 
 ## Alpha Notes
 
-- `DOUBLE-FETCH` remains an open known limitation and is not fixed in the
-  43-6-1 alpha-polish round.
 - Env ingestion in 43-6-1 supports multi-app deduplication under the current
   bootstrap contract, but richer same-provider multi-secret import support is
   deferred to a future round.

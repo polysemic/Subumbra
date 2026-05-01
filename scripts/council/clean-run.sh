@@ -370,7 +370,6 @@ if [[ -f ./bootstrap.sh ]]; then
     run_step "bootstrap" ./bootstrap.sh
 else
     run_step "bootstrap" docker compose --profile bootstrap run --rm bootstrap
-    run_step "post-bootstrap" ./post-bootstrap.sh
 fi
 run_step "reset" ./scripts/council/reset.sh
 run_step "preflight" ./scripts/council/preflight.sh

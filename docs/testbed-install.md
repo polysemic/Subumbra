@@ -562,9 +562,9 @@ Then the apps are re-pointed:
 
 | App | Before | After |
 |-----|--------|-------|
-| LiteLLM | `api_key: os.environ/ANTHROPIC_API_KEY` | `api_key: "subumbra:anthropic_prod"` |
-| OpenWebUI | `OPENAI_API_BASE_URL=https://api.openai.com/v1` | `OPENAI_API_BASE_URL=http://subumbra-proxy:8090` |
-| N8N | Credentials stored in N8N DB | HTTP node base URL → `http://subumbra-proxy:8090` |
+| LiteLLM | `api_key: os.environ/ANTHROPIC_API_KEY` | `api_base: http://subumbra-proxy:8090/t/anthropic_prod` + `api_key: ${SUBUMBRA_TOKEN_LITELLM}` |
+| OpenWebUI | `OPENAI_API_BASE_URL=https://api.openai.com/v1` | `OPENAI_API_BASE_URL=http://subumbra-proxy:8090/t/openai_prod/v1` |
+| N8N | Credentials stored in N8N DB | HTTP/node base URL carries `<key_id>` in the path and uses the n8n adapter token |
 
 The apps continue working identically. The keys are gone.
 

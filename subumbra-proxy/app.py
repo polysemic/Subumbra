@@ -273,7 +273,7 @@ async def proxy_via_worker(
             raise HTTPException(403, detail="forbidden")
         except Exception as exc:
             LOG.error("subumbra failure key_id=%s error=%s", key_id, exc)
-            raise HTTPException(502, detail=f"subumbra record fetch failed: {exc}")
+            raise HTTPException(502, detail="subumbra record fetch failed")
 
     payload = proxy_payload(
         record,
@@ -434,7 +434,7 @@ async def handle_transparent_request(path: str, request: Request):
         raise HTTPException(403, detail="forbidden")
     except Exception as exc:
         LOG.error("subumbra failure key_id=%s error=%s", key_id, exc)
-        raise HTTPException(502, detail=f"subumbra record fetch failed: {exc}")
+        raise HTTPException(502, detail="subumbra record fetch failed")
 
     target_url = build_transparent_target_url(record["target_host"], forwarded_path, request.url.query)
     stripped_headers = strip_transparent_headers(inbound_headers)

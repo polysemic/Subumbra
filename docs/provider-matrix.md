@@ -21,7 +21,8 @@
 | gemini | N/A ◇ | N/A ◇ | N/A ◇ | N/A ◇ | N/A ◇ |
 
 **† AnythingLLM openai:** Generic OpenAI path only; no model chooser; single model at a time.
-`GENERIC_OPEN_AI_BASE_PATH=http://subumbra-proxy:8090/t/v1`
+Use the app adapter token as the API key and carry `openai_prod` in the base path.
+`GENERIC_OPEN_AI_BASE_PATH=http://subumbra-proxy:8090/t/openai_prod/v1`
 
 **‡ AnythingLLM named providers:** All named providers (Anthropic, Groq, etc.) hardcode their
 official endpoints. PR #5295 to add `ANTHROPIC_BASE_URL` was explicitly rejected by the
@@ -74,16 +75,16 @@ recommended aggregator path for these apps.
 
 | App / node | Base URL | Notes |
 |---|---|---|
-| OpenWebUI | `http://subumbra-proxy:8090/t/v1` | OpenAI-compatible; use Local conn type for Anthropic |
-| AnythingLLM | `http://subumbra-proxy:8090/t/v1` | Generic OpenAI path only |
-| LibreChat (most) | `http://subumbra-proxy:8090/t/v1` | OpenAI-compatible endpoints |
-| LibreChat Groq | `http://subumbra-proxy:8090/t/openai/v1` | Groq uses `/openai/v1` prefix |
-| LibreChat OpenRouter | `http://subumbra-proxy:8090/t/api/v1` | OpenRouter uses `/api/v1` prefix |
-| LibreChat Together | `http://subumbra-proxy:8090/t` | bare; Together /models is non-standard |
-| LibreChat Anthropic | `ANTHROPIC_REVERSE_PROXY=http://subumbra-proxy:8090/t` | native endpoint type in yaml |
-| Bifrost | `http://subumbra-proxy:8090/t` | bare; Bifrost appends path itself |
-| N8N Anthropic AI-node | `http://subumbra-proxy:8090/t` | node appends `/v1/messages` |
-| N8N OpenAI AI-node | `http://subumbra-proxy:8090/t/v1` | node appends `/responses` |
+| OpenWebUI | `http://subumbra-proxy:8090/t/openai_prod/v1` | OpenAI-compatible; use Local conn type for Anthropic |
+| AnythingLLM | `http://subumbra-proxy:8090/t/openai_prod/v1` | Generic OpenAI path only |
+| LibreChat (most) | `http://subumbra-proxy:8090/t/openai_prod/v1` | OpenAI-compatible endpoints |
+| LibreChat Groq | `http://subumbra-proxy:8090/t/groq_prod/openai/v1` | Groq uses `/openai/v1` prefix |
+| LibreChat OpenRouter | `http://subumbra-proxy:8090/t/openrouter_prod/api/v1` | OpenRouter uses `/api/v1` prefix |
+| LibreChat Together | `http://subumbra-proxy:8090/t/together_prod` | bare; Together /models is non-standard |
+| LibreChat Anthropic | `ANTHROPIC_REVERSE_PROXY=http://subumbra-proxy:8090/t/anthropic_prod` | native endpoint type in yaml |
+| Bifrost | `http://subumbra-proxy:8090/t/openai_prod` | bare; Bifrost appends path itself |
+| N8N Anthropic AI-node | `http://subumbra-proxy:8090/t/anthropic_prod` | node appends `/v1/messages` |
+| N8N OpenAI AI-node | `http://subumbra-proxy:8090/t/openai_prod/v1` | node appends `/responses` |
 | N8N Workflow-node | `https://<worker-url>/proxy` | calls CF Worker directly, not subumbra-proxy |
 
 ### Via LiteLLM aggregator

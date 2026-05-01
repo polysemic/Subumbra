@@ -219,7 +219,8 @@ async function decryptV2(privateKey, expectedPubKeyFp, ciphertextB64, wrappedDek
 
 /**
  * Constant-time string comparison to prevent timing attacks.
- * Encodes both strings to UTF-8 bytes and uses crypto.subtle.timingSafeEqual.
+ * Signs both candidate strings with HMAC-SHA256 and XOR-compares the resulting
+ * fixed-length digests so equality checks do not short-circuit on prefix leaks.
  */
 async function timingSafeEqual(a, b) {
   if (!a || !b) return false;
@@ -681,8 +682,9 @@ export default {
   /**
    * @param {Request}         request
    * @param {{ SUBUMBRA_ADAPTER_TOKENS: string,
-   *           SUBUMBRA_PROXY: DurableObjectNamespace,
-   *           SUBUMBRA_VAULT: DurableObjectNamespace }} env
+   *           SUBUMBRA_VAULT: DurableObjectNamespace,
+   *           PROVIDER_REGISTRY_KV: KVNamespace,
+   *           SUBUMBRA_SETUP_TOKEN?: string }} env
    * @param {ExecutionContext} ctx
    */
   async fetch(request, env, ctx) {
