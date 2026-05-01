@@ -329,6 +329,7 @@ if ! rsync -a \
     --exclude='council/closed/' \
     --exclude='local-archive/' \
     --exclude='council/*/runs/' \
+    --exclude="temp/" \
     "${repo_root}/" "${workspace}/" >/dev/null 2>&1; then
     failed_step="workspace-copy"
     fail "failed workspace copy"
@@ -365,8 +366,12 @@ if [[ ${#build_targets[@]} -gt 0 ]]; then
     run_step "build" docker compose build "${build_targets[@]}"
 fi
 
-run_step "bootstrap" docker compose --profile bootstrap run --rm bootstrap
-run_step "post-bootstrap" ./post-bootstrap.sh
+if [[ -f ./bootstrap.sh ]]; then
+    run_step "bootstrap" ./bootstrap.sh
+else
+    run_step "bootstrap" docker compose --profile bootstrap run --rm bootstrap
+    run_step "post-bootstrap" ./post-bootstrap.sh
+fi
 run_step "reset" ./scripts/council/reset.sh
 run_step "preflight" ./scripts/council/preflight.sh
 
