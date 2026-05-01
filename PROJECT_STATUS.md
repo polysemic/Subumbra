@@ -136,6 +136,7 @@ This arc focuses on evolving Subumbra from a static, bundled configuration into 
 - **Round 44-2 — Decrypt In Existing DO** (Closed 2026-04-30): the decrypt execution boundary now lives in the existing `SubumbraProxy` Durable Object, the Worker→DO hop carries the encrypted envelope instead of plaintext `apiKey`, and public `/proxy` validation/error behavior remains unchanged.
 - **Round 44-3 — CF-Side Key Generation And Custody** (Closed 2026-05-01): bootstrap now uses one-shot Cloudflare `/setup/keygen`, the SQLite-backed `SubumbraVault` DO holds persistent private-key custody, active `/proxy` execution routes through the named vault instance, and offline `public_key.pem` rotation remains intact.
 - **Round 44-4 — Bootstrap Docker Finalization** (Closed 2026-05-01): `bootstrap.sh` now owns the host-side bootstrap flow, repo-local `.env` is finalized directly during bootstrap, `post-bootstrap.sh` is retired to a deprecation shim, and automation-mode app imports support explicit `IMPORT_PATH_<n>` / `IMPORT_APP_LABEL_<n>` inputs including the Gemini `GOOGLE_API_KEY` alias.
+- **Round 44-5-1 — Code Cleanup Alpha Blockers** (Closed 2026-05-01): retired `post-bootstrap.sh` references are removed from the scoped runtime/docs surfaces, public adapter-token and vault-custody docs/config now match the live contract, provider-registry publish/read naming is aligned on `subumbra_registry_v1`, `/stats` and `/audit` deny-paths now audit symmetrically, proxy fetch errors stay generic, probe headers honor optional CF Access env, and the historical nonce-store issue was not reproduced on the current WAL + `busy_timeout` stack.
 
 ## Path Forward
 
@@ -150,7 +151,10 @@ Immediate follow-up sequence — targeting 0.0.1 Alpha:
    - `council/closed/round-44-3-cf-keygen-custody/` — closed 2026-05-01; CF-side key generation and custody landed in the SQLite-backed `SubumbraVault` DO while preserving offline no-restart rotation
    - `council/closed/round-44-4-bootstrap-docker-finalization/` — closed 2026-05-01; bootstrap is now host-wrapper driven, `post-bootstrap.sh` is retired, and Docker-only env finalization is the documented flow
    - Future high-priority follow-up: define backup/export/recovery policy for CF-generated vault keys before broader production-facing deployment claims
-3. **Round 45 (Planned)** — Secure UI round. UI-based env ingestion, encrypted paste/input for browser security. See `council/round-45-secure-ui/`.
+3. **Round 44.5 cleanup continuation**
+   - `round-44-5-2` — follow-up code cleanup for the agreed non-blocking items from the Round 44.5 synthesis split
+   - `round-44-5-3` — investigation/disagreement cleanup round for the residual disputed items before the final prune/archive pass
+4. **Round 45 (Planned)** — Secure UI round. UI-based env ingestion, encrypted paste/input for browser security. See `council/round-45-secure-ui/`.
 
 Guiding note:
 - Language transitions from **POC** to **0.0.1 Alpha** as the Round 43 arc closes.
