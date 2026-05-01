@@ -118,10 +118,10 @@ The Worker enforces these security invariants before any upstream request is mad
 4. **V2 enforcement** — `enc_version !== 2` or missing `wrapped_dek` is
    hard-rejected with 400.
 
-5. **Decryption** — RSA-OAEP unwraps the per-record DEK using `WORKER_PRIVATE_KEY`
-   (from CF Secrets); AES-256-GCM decrypts the ciphertext with
-   AAD `subumbra:v2:<key_id>`; pub_key_fp fingerprint must match
-   `WORKER_KEY_FINGERPRINT` (from CF Secrets).
+5. **Decryption** — the `SubumbraVault` Durable Object loads the custody row it
+   generated during `/setup/keygen`, RSA-OAEP unwraps the per-record DEK, and
+   AES-256-GCM decrypts the ciphertext with AAD `subumbra:v2:<key_id>`. The
+   request `pub_key_fp` must match the vault-stored public-key fingerprint.
 
 6. **Auth injection** — the Durable Object injects provider-specific auth
    headers using auth policy from the live provider registry (`auth_header`,

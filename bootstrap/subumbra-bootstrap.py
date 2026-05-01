@@ -1607,17 +1607,23 @@ def run_push_registry() -> None:
         "CI": "true",
     }
 
-    _run(
-        [
-            "wrangler", "kv", "key", "put",
-            PROVIDER_REGISTRY_KV_KEY,
-            registry_json,
-            "--namespace-id", namespace_id,
-            "--remote",
-        ],
-        cwd=DATA_DIR,
-        env=env,
-    )
+    with tempfile.TemporaryDirectory(prefix="subumbra-push-registry-") as tmp:
+        tmp_dir = Path(tmp)
+        shutil.copytree(WORKER_SRC, tmp_dir / "worker")
+        work_dir = tmp_dir / "worker"
+        _append_provider_registry_kv_binding(work_dir / "wrangler.toml", namespace_id)
+
+        _run(
+            [
+                "wrangler", "kv", "key", "put",
+                PROVIDER_REGISTRY_KV_KEY,
+                registry_json,
+                "--namespace-id", namespace_id,
+                "--remote",
+            ],
+            cwd=work_dir,
+            env=env,
+        )
     ok("Provider registry pushed to Cloudflare KV")
 
 

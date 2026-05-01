@@ -61,7 +61,7 @@ Deferred by council consensus. Acceptable for current single-operator POC deploy
 | DASH-FLICKER | Recent Requests table briefly shows fewer entries on some poll cycles | UI polling race; entries return on next poll |
 | PROVIDER-COUPLING | App-owned integrations still maintain their own model/provider declarations outside the core stack (for example `litellm/config.yaml`) | Full multi-adapter generalization remains a later round |
 | TTL-EXPIRY-ONLY | subumbra-keys TTL prevents new record fetches after token expiry but does not remove Worker-side token authority. Replay of previously captured records plus a stolen token remains possible until re-bootstrap rotates Worker-side token state | Intentionally deferred beyond Round 30 |
-| NONCE-STORE | `subumbra-keys` nonce store shows intermittent `nonce_store_failure reason=nonce_store_error` on the VPS during some manual runs | Carried into the broader bootstrap/hardening work |
+| NONCE-STORE | Historical `subumbra-keys` `nonce_store_failure reason=nonce_store_error` reports were not reproduced in Round 44.5.1 under the current WAL + `busy_timeout` stack (12 concurrent signed key fetches) | Keep as a watch item; only reopen source changes if a current reproducer returns |
 
 ---
 
@@ -141,8 +141,8 @@ This arc focuses on evolving Subumbra from a static, bundled configuration into 
 
 Immediate follow-up sequence — targeting 0.0.1 Alpha:
 
-1. **Nonce-store hardening**
-   Investigate and fix intermittent `subumbra-keys` `nonce_store_failure reason=nonce_store_error` seen during some manual verification runs.
+1. **Nonce-store watch item**
+   Reproduce `subumbra-keys` `nonce_store_failure reason=nonce_store_error` on the current stack before attempting further source changes; Round 44.5.1 did not reproduce it under concurrent signed key fetches.
 2. **Round 44 Security Arc (Approved sequence)**
    The council planning round in `council/closed/round-44-security-review/` converged on a four-round implementation arc:
    - `council/closed/round-44-1-security-quick-wins/` — closed 2026-04-30; strict `pub_key_fp` enforcement, generic decryption failures, and truth-aligned Worker/docs comments

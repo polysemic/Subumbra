@@ -14,6 +14,8 @@ SUBUMBRA_HMAC_KEY = os.environ.get("SUBUMBRA_HMAC_KEY", "")
 SUBUMBRA_KEYS_URL = os.environ.get("SUBUMBRA_KEYS_URL", "")
 CF_WORKER_URL = os.environ.get("CF_WORKER_URL", "").rstrip("/")
 PROBE_ALLOWED_KEYS = os.environ.get("PROBE_ALLOWED_KEYS", "")
+CF_ACCESS_CLIENT_ID = os.environ.get("CF_ACCESS_CLIENT_ID", "")
+CF_ACCESS_CLIENT_SECRET = os.environ.get("CF_ACCESS_CLIENT_SECRET", "")
 
 REQUIRED_ENV = {
     "SUBUMBRA_ACCESS_TOKEN": SUBUMBRA_ACCESS_TOKEN,
@@ -139,10 +141,14 @@ def proxy_payload(record, key_id, provider=None, target_url=None):
 
 
 def worker_headers():
-    return {
+    headers = {
         "Content-Type": "application/json",
         "X-Subumbra-Token": SUBUMBRA_ACCESS_TOKEN,
     }
+    if CF_ACCESS_CLIENT_ID:
+        headers["CF-Access-Client-Id"] = CF_ACCESS_CLIENT_ID
+        headers["CF-Access-Client-Secret"] = CF_ACCESS_CLIENT_SECRET
+    return headers
 
 
 def run_provider_success(client, key_id, record=None):

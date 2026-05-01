@@ -6,7 +6,7 @@
 #   - Local .env, .env.bootstrap (if present)
 #   - Cloudflare Worker (CF_WORKER_NAME)
 #   - Cloudflare KV namespace (provider registry)
-#   - Cloudflare Secrets (WORKER_PRIVATE_KEY, WORKER_KEY_FINGERPRINT)
+#   - Legacy Cloudflare secret drift left by older bootstrap runs
 #
 # Does NOT touch:
 #   - App installs (LibreChat, OpenWebUI, AnythingLLM, Bifrost, N8N, LiteLLM)
@@ -287,10 +287,8 @@ echo "  Next steps:"
 echo "    1. Edit .env.bootstrap.example → copy to .env.bootstrap and fill in values"
 echo "    2. Set PROXY_ALLOWED_KEYS and LITELLM_ALLOWED_KEYS to the key_ids you want"
 echo "    3. Run bootstrap:"
-echo "         docker compose --profile bootstrap run --rm -it bootstrap"
-echo "    4. Run post-bootstrap:"
-echo "         ./post-bootstrap.sh"
-echo "    5. Start the stack:"
+echo "         ./bootstrap.sh"
+echo "    4. Start the stack:"
 echo "         docker compose up -d --force-recreate"
 echo ""
 [[ "$DRY_RUN" == true ]] && echo "  (dry-run mode — nothing was actually changed)"

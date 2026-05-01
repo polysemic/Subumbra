@@ -2,17 +2,17 @@
 # LiteLLM Proxy Config — Subumbra (Round 42.2+)
 #
 # All models route through the transparent sidecar:
-#   api_base: http://subumbra-proxy:8090/t
-#   api_key:  <key_id>   (plain, no "subumbra:" prefix)
+#   api_base: http://subumbra-proxy:8090/t/<key_id>/...
+#   api_key:  ${SUBUMBRA_TOKEN_LITELLM}
 #
-# The sidecar extracts the key_id from the Authorization header, fetches the
-# encrypted record from subumbra-keys, and routes to the CF Worker. Real API
-# keys never appear in this file.
+# The sidecar extracts the adapter token from Authorization, derives the key_id
+# from the proxied path, fetches the encrypted record from subumbra-keys, and
+# routes to the CF Worker. Real API keys never appear in this file.
 #
-# Key_id values must match what you entered during bootstrap. If you used
-# custom labels, update the api_key values below to match exactly.
+# Key_id path segments must match what you entered during bootstrap. If you used
+# custom labels, update the api_base values below to match exactly.
 # Mismatch symptom: subumbra-keys returns HTTP 403 with reason_code=key_scope_denied.
-# Ensure subumbra-proxy scope (PROXY_ALLOWED_KEYS) includes all key_ids used here.
+# Ensure the LiteLLM adapter scope includes all key_ids used here.
 # ─────────────────────────────────────────────────────────────────────────────
 
 model_list:
@@ -21,111 +21,111 @@ model_list:
   - model_name: claude-opus-4
     litellm_params:
       model: anthropic/claude-opus-4-5
-      api_base: http://subumbra-proxy:8090/t
-      api_key: anthropic_prod
+      api_base: http://subumbra-proxy:8090/t/anthropic_prod
+      api_key: ${SUBUMBRA_TOKEN_LITELLM}
 
   - model_name: claude-sonnet-4
     litellm_params:
       model: anthropic/claude-sonnet-4-5
-      api_base: http://subumbra-proxy:8090/t
-      api_key: anthropic_prod
+      api_base: http://subumbra-proxy:8090/t/anthropic_prod
+      api_key: ${SUBUMBRA_TOKEN_LITELLM}
 
   - model_name: claude-haiku-4
     litellm_params:
       model: anthropic/claude-haiku-4-5-20251001
-      api_base: http://subumbra-proxy:8090/t
-      api_key: anthropic_prod
+      api_base: http://subumbra-proxy:8090/t/anthropic_prod
+      api_key: ${SUBUMBRA_TOKEN_LITELLM}
 
   # ── OpenAI ──────────────────────────────────────────────────────────────────
   - model_name: gpt-4o
     litellm_params:
       model: openai/gpt-4o
-      api_base: http://subumbra-proxy:8090/t
-      api_key: openai_prod
+      api_base: http://subumbra-proxy:8090/t/openai_prod/v1
+      api_key: ${SUBUMBRA_TOKEN_LITELLM}
 
   - model_name: gpt-4o-mini
     litellm_params:
       model: openai/gpt-4o-mini
-      api_base: http://subumbra-proxy:8090/t
-      api_key: openai_prod
+      api_base: http://subumbra-proxy:8090/t/openai_prod/v1
+      api_key: ${SUBUMBRA_TOKEN_LITELLM}
 
   - model_name: o3
     litellm_params:
       model: openai/o3
-      api_base: http://subumbra-proxy:8090/t
-      api_key: openai_prod
+      api_base: http://subumbra-proxy:8090/t/openai_prod/v1
+      api_key: ${SUBUMBRA_TOKEN_LITELLM}
 
   # ── Groq ────────────────────────────────────────────────────────────────────
   - model_name: llama-3.3-70b
     litellm_params:
       model: groq/llama-3.3-70b-versatile
-      api_base: http://subumbra-proxy:8090/t
-      api_key: groq_prod
+      api_base: http://subumbra-proxy:8090/t/groq_prod/openai/v1
+      api_key: ${SUBUMBRA_TOKEN_LITELLM}
 
   - model_name: llama-3.1-8b
     litellm_params:
       model: groq/llama-3.1-8b-instant
-      api_base: http://subumbra-proxy:8090/t
-      api_key: groq_prod
+      api_base: http://subumbra-proxy:8090/t/groq_prod/openai/v1
+      api_key: ${SUBUMBRA_TOKEN_LITELLM}
 
   # ── DeepSeek ────────────────────────────────────────────────────────────────
   - model_name: deepseek-chat
     litellm_params:
       model: deepseek/deepseek-chat
-      api_base: http://subumbra-proxy:8090/t
-      api_key: deepseek_prod
+      api_base: http://subumbra-proxy:8090/t/deepseek_prod/v1
+      api_key: ${SUBUMBRA_TOKEN_LITELLM}
 
   - model_name: deepseek-reasoner
     litellm_params:
       model: deepseek/deepseek-reasoner
-      api_base: http://subumbra-proxy:8090/t
-      api_key: deepseek_prod
+      api_base: http://subumbra-proxy:8090/t/deepseek_prod/v1
+      api_key: ${SUBUMBRA_TOKEN_LITELLM}
 
   # ── Cerebras ───────────────────────────────────────────────────────────────
   - model_name: cerebras-llama-3.3-70b
     litellm_params:
       model: cerebras/llama3.1-8b
-      api_base: http://subumbra-proxy:8090/t
-      api_key: cerebras_prod
+      api_base: http://subumbra-proxy:8090/t/cerebras_prod/v1
+      api_key: ${SUBUMBRA_TOKEN_LITELLM}
 
   # ── Gemini — EXCLUDED FROM ROUND 42.2 ─────────────────────────────────────
   # Google's OpenAI-compatible endpoint is at /v1beta/openai/ not /v1/.
-  # The universal api_base: http://subumbra-proxy:8090/t routes to the wrong
-  # path (404). A per-model path-prefix exception is required but was not
+  # The key-carrying api_base must be http://subumbra-proxy:8090/t/<key_id>/v1beta/openai.
+  # A per-model path-prefix exception is required but was not
   # approved by all three syntheses. Deferred to a follow-on round.
   # - model_name: gemini-2.0-flash
   #   litellm_params:
   #     model: openai/gemini-2.0-flash-001
-  #     api_base: http://subumbra-proxy:8090/t/v1beta/openai
-  #     api_key: gemini_prod
+  #     api_base: http://subumbra-proxy:8090/t/gemini_prod/v1beta/openai
+  #     api_key: ${SUBUMBRA_TOKEN_LITELLM}
 
   # ── Mistral ────────────────────────────────────────────────────────────────
   - model_name: mistral-large
     litellm_params:
       model: mistral/mistral-large-latest
-      api_base: http://subumbra-proxy:8090/t
-      api_key: mistral_prod
+      api_base: http://subumbra-proxy:8090/t/mistral_prod/v1
+      api_key: ${SUBUMBRA_TOKEN_LITELLM}
 
   # ── OpenRouter ─────────────────────────────────────────────────────────────
   - model_name: openrouter-claude-sonnet-4
     litellm_params:
       model: openrouter/anthropic/claude-sonnet-4
-      api_base: http://subumbra-proxy:8090/t
-      api_key: openrouter_prod
+      api_base: http://subumbra-proxy:8090/t/openrouter_prod/api/v1
+      api_key: ${SUBUMBRA_TOKEN_LITELLM}
 
   # ── Together ───────────────────────────────────────────────────────────────
   - model_name: together-llama-3.3-70b
     litellm_params:
       model: together_ai/meta-llama/Llama-3.3-70B-Instruct-Turbo
-      api_base: http://subumbra-proxy:8090/t
-      api_key: together_prod
+      api_base: http://subumbra-proxy:8090/t/together_prod
+      api_key: ${SUBUMBRA_TOKEN_LITELLM}
 
   # ── xAI ────────────────────────────────────────────────────────────────────
   - model_name: grok-2
     litellm_params:
       model: xai/grok-3
-      api_base: http://subumbra-proxy:8090/t
-      api_key: xai_prod
+      api_base: http://subumbra-proxy:8090/t/xai_prod/v1
+      api_key: ${SUBUMBRA_TOKEN_LITELLM}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # LiteLLM settings

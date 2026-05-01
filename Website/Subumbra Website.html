@@ -1351,17 +1351,17 @@
         </div>
         <div class="how-step">
           <div class="how-step-num">03 / Split</div>
-          <div class="how-step-title">Private key goes to Cloudflare</div>
-          <div class="how-step-body">The RSA private key is pushed directly to Cloudflare Secrets and deleted from
-            memory. Your VPS holds ciphertext only.</div>
-          <div class="how-step-code">WORKER_PRIVATE_KEY → CF Secrets<br>keys.json → your volume</div>
+          <div class="how-step-title">Vault custody lives in Cloudflare</div>
+          <div class="how-step-body">A Cloudflare Durable Object generates and stores the private key material. Your
+            VPS keeps ciphertext and the exported public key only.</div>
+          <div class="how-step-code">SubumbraVault → CF DO storage<br>public_key.pem → your volume</div>
         </div>
         <div class="how-step">
           <div class="how-step-num">04 / Proxy</div>
-          <div class="how-step-title">Apps use a plain key ID</div>
-          <div class="how-step-body">Apps point at subumbra-proxy with a plain key_id. The Durable Object decrypts for
-            ~100ms, calls the provider, and the key is gone.</div>
-          <div class="how-step-code">api_base: http://subumbra-proxy<br>api_key: anthropic_prod</div>
+          <div class="how-step-title">Apps use adapter tokens</div>
+          <div class="how-step-body">Apps point at subumbra-proxy with the key_id in the path and an adapter token in
+            the auth slot. The vault decrypts inside Cloudflare, calls the provider, and the key is gone.</div>
+          <div class="how-step-code">api_base: http://subumbra-proxy/t/anthropic_prod<br>api_key: ${SUBUMBRA_TOKEN_APP}</div>
         </div>
       </div>
       <div class="section-head">
@@ -1389,17 +1389,17 @@
         </div>
         <div class="how-step">
           <div class="how-step-num">03 / Split</div>
-          <div class="how-step-title">Private key goes to Cloudflare</div>
-          <div class="how-step-body">The RSA private key is pushed directly to Cloudflare Secrets and deleted from
-            memory. Your VPS holds ciphertext only.</div>
-          <div class="how-step-code">WORKER_PRIVATE_KEY → CF Secrets<br>keys.json → your volume</div>
+          <div class="how-step-title">Vault custody lives in Cloudflare</div>
+          <div class="how-step-body">A Cloudflare Durable Object generates and stores the private key material. Your
+            VPS keeps ciphertext and the exported public key only.</div>
+          <div class="how-step-code">SubumbraVault → CF DO storage<br>public_key.pem → your volume</div>
         </div>
         <div class="how-step">
           <div class="how-step-num">04 / Proxy</div>
-          <div class="how-step-title">Apps use a plain key ID</div>
-          <div class="how-step-body">Apps point at subumbra-proxy with a plain key_id. The Durable Object decrypts for
-            ~100ms, calls the provider, and the key is gone.</div>
-          <div class="how-step-code">api_base: http://subumbra-proxy<br>api_key: anthropic_prod</div>
+          <div class="how-step-title">Apps use adapter tokens</div>
+          <div class="how-step-body">Apps point at subumbra-proxy with the key_id in the path and an adapter token in
+            the auth slot. The vault decrypts inside Cloudflare, calls the provider, and the key is gone.</div>
+          <div class="how-step-code">api_base: http://subumbra-proxy/t/anthropic_prod<br>api_key: ${SUBUMBRA_TOKEN_APP}</div>
         </div>
       </div>
     </div>
