@@ -1,8 +1,8 @@
 """
 subumbra-keys — encrypted envelope store
 ──────────────────────────────────────
-Runs on the Docker-internal network only.  External callers cannot reach this
-service; only the litellm container (and ui) can.
+Runs on the Docker-internal network only. External callers cannot reach this
+service; only internal Subumbra services such as the proxy, UI, and probe tooling can.
 
 Auth model:
   All endpoints except /health require:
@@ -598,8 +598,17 @@ def get_key(key_id: str) -> tuple[Response, int]:
 @app.get("/stats")
 def stats() -> tuple[Response, int]:
     """Usage stats for the UI dashboard.  Requires token (no HMAC needed)."""
+    remote = request.remote_addr or ""
     adapter_result = _resolve_adapter()
     if isinstance(adapter_result, _AdapterDenial):
+        _record_audit(
+            adapter_id=adapter_result.adapter_id,
+            key_id=None,
+            endpoint="stats",
+            verdict="deny",
+            reason_code=adapter_result.reason_code,
+            remote=remote,
+        )
         return _err("unauthorized", 401)
 
     adapter = adapter_result
@@ -607,7 +616,15 @@ def stats() -> tuple[Response, int]:
         log.warning(
             "stats: forbidden adapter=%s remote=%s",
             adapter["adapter_id"],
-            request.remote_addr,
+            remote,
+        )
+        _record_audit(
+            adapter_id=adapter["adapter_id"],
+            key_id=None,
+            endpoint="stats",
+            verdict="deny",
+            reason_code="stats_scope_denied",
+            remote=remote,
         )
         return _err("forbidden", 403)
 
@@ -632,8 +649,17 @@ def stats() -> tuple[Response, int]:
 @app.get("/audit")
 def audit() -> tuple[Response, int]:
     """Durable structured audit trail for operator-facing reads."""
+    remote = request.remote_addr or ""
     adapter_result = _resolve_adapter()
     if isinstance(adapter_result, _AdapterDenial):
+        _record_audit(
+            adapter_id=adapter_result.adapter_id,
+            key_id=None,
+            endpoint="audit",
+            verdict="deny",
+            reason_code=adapter_result.reason_code,
+            remote=remote,
+        )
         return _err("unauthorized", 401)
 
     adapter = adapter_result
@@ -641,7 +667,15 @@ def audit() -> tuple[Response, int]:
         log.warning(
             "audit: forbidden adapter=%s remote=%s",
             adapter["adapter_id"],
-            request.remote_addr,
+            remote,
+        )
+        _record_audit(
+            adapter_id=adapter["adapter_id"],
+            key_id=None,
+            endpoint="audit",
+            verdict="deny",
+            reason_code="audit_scope_denied",
+            remote=remote,
         )
         return _err("forbidden", 403)
 

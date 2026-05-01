@@ -28,13 +28,16 @@ new_sqlite_classes = ["SubumbraVault"]
 enabled            = true
 head_sampling_rate = 1
 
-# ── CF Secrets (set by bootstrap via `wrangler secret put`) ───────────────────
+# ── Runtime secrets (set by bootstrap via `wrangler secret put`) ──────────────
 # These are NOT defined here — they live in CF Secrets and are injected at
 # runtime as env bindings. Listing them here for documentation only:
 #
 #   SUBUMBRA_ADAPTER_TOKENS — JSON token map, set by bootstrap
 #   SUBUMBRA_HMAC_KEY       — HMAC signing key, set by bootstrap
 #   SUBUMBRA_SETUP_TOKEN    — transient bootstrap-time setup token
+#
+# The decrypt private key is not an operator-managed CF Secret anymore.
+# It lives inside the SQLite-backed SubumbraVault Durable Object.
 #
 # KV binding used by the live provider registry.
 # Bootstrap appends this binding to the temp wrangler.toml during deploy.
