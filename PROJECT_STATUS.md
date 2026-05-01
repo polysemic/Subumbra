@@ -61,7 +61,7 @@ Deferred by council consensus. Acceptable for current single-operator POC deploy
 | DASH-FLICKER | Recent Requests table briefly shows fewer entries on some poll cycles | UI polling race; entries return on next poll |
 | PROVIDER-COUPLING | App-owned integrations still maintain their own model/provider declarations outside the core stack (for example `litellm/config.yaml`) | Full multi-adapter generalization remains a later round |
 | TTL-EXPIRY-ONLY | subumbra-keys TTL prevents new record fetches after token expiry but does not remove Worker-side token authority. Replay of previously captured records plus a stolen token remains possible until re-bootstrap rotates Worker-side token state | Intentionally deferred beyond Round 30 |
-| NONCE-STORE | `subumbra-keys` nonce store shows intermittent `nonce_store_failure reason=nonce_store_error` on the VPS during some manual runs | Carried into the broader bootstrap/hardening work |
+| NONCE-STORE | Historical `subumbra-keys` `nonce_store_failure reason=nonce_store_error` reports were not reproduced in Round 44.5.1 under the current WAL + `busy_timeout` stack (12 concurrent signed key fetches) | Keep as a watch item; only reopen source changes if a current reproducer returns |
 
 ---
 
@@ -136,13 +136,14 @@ This arc focuses on evolving Subumbra from a static, bundled configuration into 
 - **Round 44-2 — Decrypt In Existing DO** (Closed 2026-04-30): the decrypt execution boundary now lives in the existing `SubumbraProxy` Durable Object, the Worker→DO hop carries the encrypted envelope instead of plaintext `apiKey`, and public `/proxy` validation/error behavior remains unchanged.
 - **Round 44-3 — CF-Side Key Generation And Custody** (Closed 2026-05-01): bootstrap now uses one-shot Cloudflare `/setup/keygen`, the SQLite-backed `SubumbraVault` DO holds persistent private-key custody, active `/proxy` execution routes through the named vault instance, and offline `public_key.pem` rotation remains intact.
 - **Round 44-4 — Bootstrap Docker Finalization** (Closed 2026-05-01): `bootstrap.sh` now owns the host-side bootstrap flow, repo-local `.env` is finalized directly during bootstrap, `post-bootstrap.sh` is retired to a deprecation shim, and automation-mode app imports support explicit `IMPORT_PATH_<n>` / `IMPORT_APP_LABEL_<n>` inputs including the Gemini `GOOGLE_API_KEY` alias.
+- **Round 44-5-1 — Code Cleanup Alpha Blockers** (Closed 2026-05-01): retired `post-bootstrap.sh` references are removed from the scoped runtime/docs surfaces, public adapter-token and vault-custody docs/config now match the live contract, provider-registry publish/read naming is aligned on `subumbra_registry_v1`, `/stats` and `/audit` deny-paths now audit symmetrically, proxy fetch errors stay generic, probe headers honor optional CF Access env, and the historical nonce-store issue was not reproduced on the current WAL + `busy_timeout` stack.
 
 ## Path Forward
 
 Immediate follow-up sequence — targeting 0.0.1 Alpha:
 
-1. **Nonce-store hardening**
-   Investigate and fix intermittent `subumbra-keys` `nonce_store_failure reason=nonce_store_error` seen during some manual verification runs.
+1. **Nonce-store watch item**
+   Reproduce `subumbra-keys` `nonce_store_failure reason=nonce_store_error` on the current stack before attempting further source changes; Round 44.5.1 did not reproduce it under concurrent signed key fetches.
 2. **Round 44 Security Arc (Approved sequence)**
    The council planning round in `council/closed/round-44-security-review/` converged on a four-round implementation arc:
    - `council/closed/round-44-1-security-quick-wins/` — closed 2026-04-30; strict `pub_key_fp` enforcement, generic decryption failures, and truth-aligned Worker/docs comments
@@ -150,7 +151,10 @@ Immediate follow-up sequence — targeting 0.0.1 Alpha:
    - `council/closed/round-44-3-cf-keygen-custody/` — closed 2026-05-01; CF-side key generation and custody landed in the SQLite-backed `SubumbraVault` DO while preserving offline no-restart rotation
    - `council/closed/round-44-4-bootstrap-docker-finalization/` — closed 2026-05-01; bootstrap is now host-wrapper driven, `post-bootstrap.sh` is retired, and Docker-only env finalization is the documented flow
    - Future high-priority follow-up: define backup/export/recovery policy for CF-generated vault keys before broader production-facing deployment claims
-3. **Round 45 (Planned)** — Secure UI round. UI-based env ingestion, encrypted paste/input for browser security. See `council/round-45-secure-ui/`.
+3. **Round 44.5 cleanup continuation**
+   - `round-44-5-2` — follow-up code cleanup for the agreed non-blocking items from the Round 44.5 synthesis split
+   - `round-44-5-3` — investigation/disagreement cleanup round for the residual disputed items before the final prune/archive pass
+4. **Round 45 (Planned)** — Secure UI round. UI-based env ingestion, encrypted paste/input for browser security. See `council/round-45-secure-ui/`.
 
 Guiding note:
 - Language transitions from **POC** to **0.0.1 Alpha** as the Round 43 arc closes.

@@ -283,8 +283,7 @@ Use after any change to bootstrap code, token rotation, or a clean reset:
 
 ```bash
 docker compose --profile bootstrap build bootstrap   # only if bootstrap code changed
-docker compose --profile bootstrap run --rm -it bootstrap
-./post-bootstrap.sh
+./bootstrap.sh
 docker compose up -d --force-recreate
 ```
 
@@ -413,8 +412,7 @@ No service restart required after per-key rotation.
 ### Full re-bootstrap (new RSA key pair, new tokens)
 
 ```bash
-docker compose --profile bootstrap run --rm -it bootstrap
-./post-bootstrap.sh
+./bootstrap.sh
 docker compose up -d --force-recreate
 ```
 
@@ -422,7 +420,7 @@ Re-enter every key you want to keep. Omitted keys are removed from the registry.
 
 ### Token drift recovery
 
-If `post-bootstrap.sh` warns about stale container tokens:
+If containers are still using stale tokens after bootstrap:
 
 ```bash
 docker compose up -d --force-recreate
