@@ -3,10 +3,10 @@
 subumbra-bootstrap — V2 Asymmetric Envelope Encryption & Deployment.
 
 Usage (interactive — primary):
-    docker compose --profile bootstrap run --rm -it bootstrap
+    ./bootstrap.sh
 
 Usage (automation / CI — requires .env.bootstrap with all credentials):
-    docker compose --profile bootstrap run --rm bootstrap
+    ./bootstrap.sh
 
 Single-key rotation (no Cloudflare interaction):
     docker compose --profile bootstrap run --rm -it bootstrap --rotate
@@ -35,7 +35,6 @@ ROTATION NOTE (full bootstrap):
   keys.json and become permanently inaccessible under the new key pair.
 
   After bootstrap completes:
-    ./post-bootstrap.sh
     docker compose up -d --force-recreate
 
 ROTATION NOTE (--rotate mode):
@@ -97,6 +96,7 @@ DATA_DIR        = Path(os.environ.get("DATA_DIR", "/app/data"))
 KEYS_FILE       = DATA_DIR / "keys.json"
 RUNTIME_ENV_OUT = DATA_DIR / "runtime.env"
 PUBLIC_KEY_FILE = DATA_DIR / "public_key.pem"
+HOST_ENV_FILE   = Path("/app/host-env")
 WORKER_SRC      = Path("/app/worker")
 CUSTOM_PROVIDER_REGISTRY_FILE = DATA_DIR / "custom-providers.json"
 KV_CONFIG_FILE = DATA_DIR / "kv-config.json"
@@ -215,6 +215,7 @@ IMPORT_PROVIDER_WHITELIST: dict[str, str] = {
     "DEEPSEEK_KEY":         "deepseek",
     "CEREBRAS_API_KEY":     "cerebras",
     "GEMINI_API_KEY":       "gemini",
+    "GOOGLE_API_KEY":       "gemini",
     "MISTRAL_API_KEY":      "mistral",
     "OPENROUTER_API_KEY":   "openrouter",
     "TOGETHER_AI_API_KEY":  "together",
@@ -428,6 +429,57 @@ def _prompt_app_label(prompt: str = "  App/label for this key: ") -> str:
             return app_label
         print("  ✗  App/label must be lowercase letters, numbers, hyphens, or underscores.")
         print("     It must start and end with a letter or number. Examples: litellm, open-webui, myapp1\n")
+
+
+def _collect_automation_imports() -> list[tuple[str, str]]:
+    imports: list[tuple[str, str]] = []
+    indices: list[int] = []
+    for key in os.environ:
+        match = re.fullmatch(r"IMPORT_PATH_(\d+)", key)
+        if match:
+            indices.append(int(match.group(1)))
+
+    for idx in sorted(set(indices)):
+        path = os.environ.get(f"IMPORT_PATH_{idx}", "").strip()
+        if not path:
+            continue
+        label = os.environ.get(f"IMPORT_APP_LABEL_{idx}", "").strip().lower()
+        if not label:
+            _automation_fail(
+                f"Automation mode: IMPORT_APP_LABEL_{idx} is required when IMPORT_PATH_{idx} is set"
+            )
+        if not ADAPTER_ID_RE.fullmatch(label):
+            _automation_fail(
+                f"Automation mode: invalid IMPORT_APP_LABEL_{idx} value {label!r}\n"
+                "  App/label must match ^[a-z0-9][a-z0-9_-]{0,61}[a-z0-9]$"
+            )
+        imports.append((path, label))
+
+    return imports
+
+
+def _upsert_env_file(path: Path, updates: dict[str, str]) -> None:
+    existing_lines = path.read_text(encoding="utf-8").splitlines()
+    remaining = dict(updates)
+    rewritten: list[str] = []
+
+    for line in existing_lines:
+        if line.startswith("#") or "=" not in line:
+            rewritten.append(line)
+            continue
+        key, _sep, _value = line.partition("=")
+        if key in remaining:
+            rewritten.append(f"{key}={remaining.pop(key)}")
+        else:
+            rewritten.append(line)
+
+    if remaining:
+        if rewritten and rewritten[-1] != "":
+            rewritten.append("")
+        for key, value in remaining.items():
+            rewritten.append(f"{key}={value}")
+
+    path.write_text("\n".join(rewritten) + "\n", encoding="utf-8")
 
 
 def _next_generated_key_id(
@@ -874,7 +926,9 @@ def _parse_token_ttl_days(raw: str) -> int:
     return token_ttl_days
 
 
-def _load_env_fallback() -> tuple[dict[str, tuple[str, str, str, str, str]], dict[str, str], dict[str, list[str]], int]:
+def _load_env_fallback(
+    existing_keys: dict,
+) -> tuple[dict[str, tuple[str, str, str, str, str]], dict[str, str], dict[str, list[str]], int]:
     """
     Load credentials from environment variables.
     Returns (api_keys, cf_creds, allowed_keys_by_adapter, token_ttl_days) in the same shape as
@@ -946,6 +1000,20 @@ def _load_env_fallback() -> tuple[dict[str, tuple[str, str, str, str, str]], dic
             "Automation mode: detected key values without companion key IDs: "
             + preview
         )
+
+    for import_path, app_label in _collect_automation_imports():
+        detected = _parse_env_file(import_path)
+        if not detected:
+            _automation_fail(
+                f"Automation mode: no recognised provider keys found in import path {import_path}"
+            )
+        for env_var, provider_id, raw_value in detected:
+            target_host = _resolve_target_host(provider_id, prompt_if_missing=False)
+            provider_entry = BUILTIN_PROVIDER_BY_ID[provider_id]
+            auth_header = provider_entry["auth_header"]
+            auth_prefix = provider_entry["auth_prefix"]
+            key_id = _next_generated_key_id(provider_id, app_label, api_keys, existing_keys)
+            api_keys[key_id] = (provider_id, target_host, auth_header, auth_prefix, raw_value)
 
     if not api_keys:
         missing.append(f"at least one of: {', '.join(ev for _, ev in KNOWN_PROVIDERS)}")
@@ -1742,7 +1810,7 @@ def main() -> None:
     if not use_wizard:
         step("Automation mode — loading credentials from environment")
         try:
-            api_keys, cf_creds, allowed_keys_by_adapter, token_ttl_days = _load_env_fallback()
+            api_keys, cf_creds, allowed_keys_by_adapter, token_ttl_days = _load_env_fallback(existing_keys)
         except AutomationInputError as exc:
             use_wizard = _prompt_after_automation_error(str(exc))
         else:
@@ -1982,6 +2050,32 @@ def main() -> None:
         die(f"Failed to write runtime.env: {exc}")
     ok("Runtime env written with mode 0600")
 
+    host_env_updates = {
+        "SUBUMBRA_ADAPTER_REGISTRY": json.dumps(adapter_registry, separators=(",", ":")),
+        "PROXY_ALLOWED_KEYS": ",".join(allowed_keys_by_adapter["subumbra-proxy"]),
+        "UI_ALLOWED_KEYS": ",".join(allowed_keys_by_adapter["subumbra-ui"]),
+        "SUBUMBRA_TOKEN_PROXY": adapter_tokens["subumbra-proxy"],
+        "SUBUMBRA_TOKEN_UI": adapter_tokens["subumbra-ui"],
+        "SUBUMBRA_HMAC_KEY": subumbra_hmac_key,
+        "CF_WORKER_URL": worker_url,
+    }
+    if "subumbra-probe" in allowed_keys_by_adapter:
+        host_env_updates["PROBE_ALLOWED_KEYS"] = ",".join(allowed_keys_by_adapter["subumbra-probe"])
+        host_env_updates["SUBUMBRA_TOKEN_PROBE"] = adapter_tokens["subumbra-probe"]
+    for adapter_id in allowed_keys_by_adapter:
+        if adapter_id not in BUILTIN_ADAPTER_IDS:
+            host_env_updates[f"SUBUMBRA_TOKEN_{_normalize_adapter_id(adapter_id)}"] = adapter_tokens[adapter_id]
+
+    if HOST_ENV_FILE.is_file():
+        try:
+            _upsert_env_file(HOST_ENV_FILE, host_env_updates)
+            os.chmod(HOST_ENV_FILE, 0o600)
+        except OSError as exc:
+            die(f"Failed to update host env file {HOST_ENV_FILE}: {exc}")
+        ok(f"Repo-local env updated via {HOST_ENV_FILE}")
+    else:
+        info(f"Host env sync skipped — {HOST_ENV_FILE} is unavailable")
+
     # ── Step 9: zero sensitive memory ────────────────────────────────────
     step("Clearing sensitive values from memory")
     for adapter_id in list(adapter_tokens):
@@ -2027,21 +2121,14 @@ def main() -> None:
     {RUNTIME_ENV_OUT}
 
   Token values are NOT printed here (to avoid CI/CD log capture).
-  Run post-bootstrap.sh to copy them into .env:
-
-    ./post-bootstrap.sh
+  Repo-local .env is updated automatically when /app/host-env is mounted.
 
   Next steps:
-    0. ⚠  If you used .env.bootstrap (automation path), back it up NOW if you
-       want to keep a copy — post-bootstrap.sh will shred it.
-       You do NOT need it after this point; your real keys are in CF Secrets.
-    1. ./post-bootstrap.sh
-       (copies SUBUMBRA_ADAPTER_REGISTRY, per-adapter Subumbra tokens, SUBUMBRA_HMAC_KEY, CF_WORKER_URL into .env)
-    2. Start/restart ALL services (new tokens generated):
+    1. Start/restart ALL services (new tokens generated):
        docker compose up -d --force-recreate
-    3. Check all containers running:  docker compose ps
-    4. Check worker health:           curl {worker_url}/health
-    5. For any app-owned integration, set:
+    2. Check all containers running:  docker compose ps
+    3. Check worker health:           curl {worker_url}/health
+    4. For any app-owned integration, set:
          api_base: http://subumbra-proxy:8090/t/<key_id>/...
          api_key:  <SUBUMBRA_TOKEN_YOUR_APP>   (adapter token from .env, NOT the key_id)
        See docs/adapter-contract.md for the canonical integration reference.

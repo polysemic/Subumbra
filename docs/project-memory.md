@@ -61,8 +61,10 @@ them.
   env-driven input belongs to automation mode rather than an in-wizard import prompt.
 - `subumbra-probe` is an optional diagnostic profile now; baseline bootstrap and
   runtime bring-up do not require probe provisioning.
-- `post-bootstrap.sh` runs on the host and writes runtime values into the
-  repo-local `.env`.
+- `bootstrap.sh` now runs on the host, mounts repo-local `.env` into the
+  bootstrap container, and shreds `.env.bootstrap` after a successful run.
+- Automation-mode app imports use `IMPORT_PATH_<n>` plus required
+  `IMPORT_APP_LABEL_<n>` entries in `.env.bootstrap`.
 - The project expects a **project-local `.env` in the repo root**.
 - Fresh installs should use a dedicated checkout path such as `/opt/subumbra`
   rather than sharing a directory with unrelated services.
