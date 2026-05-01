@@ -38,7 +38,7 @@ them.
 - The canonical core API is `POST /proxy`.
 - `subumbra-keys` is Docker-internal only and is not the public app-facing API.
 - Provider secrets become usable plaintext only inside the Cloudflare Worker
-  runtime, currently within the existing `SubumbraProxy` Durable Object isolate.
+  runtime, currently within the SQLite-backed `SubumbraVault` Durable Object isolate.
 - The transparent sidecar route (`subumbra-proxy` / `/t/<key_id>/...`) is the
   current reference integration path.
 - App-facing transparent traffic now authenticates with adapter token in
@@ -55,6 +55,8 @@ them.
 - The clean supported install path is still **terminal-first**.
 - Bootstrap currently runs through `docker compose --profile bootstrap run ...`
   and performs Cloudflare-side provisioning work.
+- Full bootstrap now uses a one-shot Cloudflare `/setup/keygen` flow so the RSA
+  private key is generated and retained in the vault DO rather than on the VPS.
 - The interactive bootstrap wizard is now manual RAM-only entry; machine-readable
   env-driven input belongs to automation mode rather than an in-wizard import prompt.
 - `subumbra-probe` is an optional diagnostic profile now; baseline bootstrap and
