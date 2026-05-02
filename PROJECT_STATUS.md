@@ -138,6 +138,7 @@ This arc focuses on evolving Subumbra from a static, bundled configuration into 
 - **Round 44-4 — Bootstrap Docker Finalization** (Closed 2026-05-01): `bootstrap.sh` now owns the host-side bootstrap flow, repo-local `.env` is finalized directly during bootstrap, `post-bootstrap.sh` is retired to a deprecation shim, and automation-mode app imports support explicit `IMPORT_PATH_<n>` / `IMPORT_APP_LABEL_<n>` inputs including the Gemini `GOOGLE_API_KEY` alias.
 - **Round 44-5-1 — Code Cleanup Alpha Blockers** (Closed 2026-05-01): retired `post-bootstrap.sh` references are removed from the scoped runtime/docs surfaces, public adapter-token and vault-custody docs/config now match the live contract, provider-registry publish/read naming is aligned on `subumbra_registry_v1`, `/stats` and `/audit` deny-paths now audit symmetrically, proxy fetch errors stay generic, probe headers honor optional CF Access env, and the historical nonce-store issue was not reproduced on the current WAL + `busy_timeout` stack.
 - **Round 44-5-3 — Code Cleanup Scope-Lock Follow-Up** (Closed 2026-05-02): `handleSetupKeygen` now fails closed with a structured `503` when the setup vault binding is unavailable, Worker-local no-vault proof coverage exists, and the round-local verification hook proves unchanged auth/initialized behavior plus bootstrap-helper visibility of the terse JSON failure.
+- **Round 44-5-4 — Code Cleanup Final Prune/Archive Pass** (Closed 2026-05-02): `SubumbraVault` constructor degradation is now caught and surfaced as a structured `503`, Worker `/health` now reports stateless `vault_configured` readiness, and setup-keygen internal failures log fixed strings only. Live Cloudflare verification passed against the deployed Worker.
 
 ## Path Forward
 
@@ -156,6 +157,8 @@ Immediate follow-up sequence — targeting 0.0.1 Alpha:
    - `round-44-5-2` — follow-up code cleanup for the agreed non-blocking items from the Round 44.5 synthesis split
    - `round-44-5-3` — investigation/disagreement cleanup round for the residual disputed items before the final prune/archive pass
    - High-priority follow-up from `round-44-5-3`: restore the closed `round-44-5-2` clean-run Worker-deletion behavior on the current branch line before relying on fresh-proof cleanup semantics again
+   - High-priority follow-up from `round-44-5-4`: make Cloudflare KV namespace tracking self-healing when the saved `kv-config.json` namespace ID has been deleted or drifted out of the account, instead of failing deploy with Cloudflare error `10041`
+   - High-priority follow-up from `round-44-5-4`: tighten env-authoritative Worker runtime state so `/opt/subumbra/.env` cannot silently drift to a stale `CF_WORKER_URL` or lose the setup-token value needed for live verification and recovery workflows
 4. **Round 45 (Planned)** — Secure UI round. UI-based env ingestion, encrypted paste/input for browser security. See `council/round-45-secure-ui/`.
 
 Guiding note:
