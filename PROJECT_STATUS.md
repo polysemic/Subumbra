@@ -190,3 +190,11 @@ Guiding note:
 - `PROJECT_STATUS.md:64` and `PROJECT_STATUS.md:144-145` -> `C5` (confirmed — nonce-store known limitation and hardening priority).
 - `PROJECT_STATUS.md:135-139` -> supersession baseline for `C3` and excluded historical security/Cloudflare findings.
 - `PROJECT_STATUS.md:152` -> explicitly deferred outside cleanup synthesis (backup/export/recovery policy for CF vault keys needs dedicated design round).
+
+## Round 44.6 Synthesis Markers
+
+> Round 44.6 documentation cleanup synthesis: status anchors from this file were consumed by `council/round-44-6-doc-cleanup/initial-synthesis.md`.
+
+- `PROJECT_STATUS.md:135-139` -> current vault-custody, adapter-token, and registry-name baseline for `R44.6-A1`, `R44.6-A2`, and `R44.6-B1` at `initial-synthesis.md:34`, `initial-synthesis.md:66`, and `initial-synthesis.md:174`.
+- `PROJECT_STATUS.md:139-159` -> `R44.6-B3` at `initial-synthesis.md:240` for reconciling Path Forward with already closed 44.5.x rounds.
+- `PROJECT_STATUS.md:155-159` -> `R44.6-B1` at `initial-synthesis.md:174` for developer/harness documentation follow-up.
