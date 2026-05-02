@@ -717,11 +717,19 @@ export default {
 };
 
 async function handleSetupKeygen(request, env) {
-  const vault = getVaultStub(env);
-  return vault.fetch(`https://do-internal${VAULT_SETUP_PATH}`, {
-    method: "POST",
-    headers: request.headers,
-  });
+  try {
+    if (!env.SUBUMBRA_VAULT) {
+      throw new Error("vault binding missing");
+    }
+    const vault = getVaultStub(env);
+    return await vault.fetch(`https://do-internal${VAULT_SETUP_PATH}`, {
+      method: "POST",
+      headers: request.headers,
+    });
+  } catch {
+    console.error("subumbra: setup keygen vault unavailable");
+    return jsonError("vault unavailable", 503);
+  }
 }
 
 async function authorizeRequest(request, env) {
