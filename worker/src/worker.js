@@ -444,13 +444,23 @@ export class SubumbraVault {
     this.state = state;
     this.env = env;
     this._cachedPrivateKey = null;
+    this._constructorError = null;
     this.state.blockConcurrencyWhile(async () => {
-      this.state.storage.sql.exec(VAULT_SCHEMA);
-      await this._primeCachedPrivateKey();
+      try {
+        this.state.storage.sql.exec(VAULT_SCHEMA);
+        await this._primeCachedPrivateKey();
+      } catch (err) {
+        this._constructorError = err;
+        console.error("subumbra: vault DO constructor failed — instance is degraded");
+      }
     });
   }
 
   async fetch(request) {
+    if (this._constructorError) {
+      return jsonError("vault unavailable", 503);
+    }
+
     const url = new URL(request.url);
 
     if (request.method !== "POST") {
@@ -572,8 +582,8 @@ export class SubumbraVault {
         status: 200,
         headers: { "content-type": "application/json" },
       });
-    } catch (err) {
-      console.error("subumbra: setup keygen failed:", err && err.message ? err.message : err);
+    } catch {
+      console.error("subumbra: vault setup keygen internal error");
       return jsonError("setup failed", 500);
     }
   }
@@ -693,7 +703,7 @@ export default {
     // ── GET /health ─────────────────────────────────────────────────────────
     if (request.method === "GET" && url.pathname === "/health") {
       return new Response(
-        JSON.stringify({ status: "ok", timestamp: new Date().toISOString() }),
+        JSON.stringify({ status: "ok", timestamp: new Date().toISOString(), vault_configured: !!env.SUBUMBRA_VAULT }),
         { status: 200, headers: { "content-type": "application/json" } },
       );
     }
