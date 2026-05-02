@@ -1,0 +1,43 @@
+name              = "subumbra-proxy"
+main              = "src/worker.js"
+compatibility_date = "2024-09-23"
+
+# account_id is read from CLOUDFLARE_ACCOUNT_ID env var at deploy time.
+# Do not hardcode it here — keep this file safe to commit.
+
+# ── Durable Objects ───────────────────────────────────────────────────────────
+[[durable_objects.bindings]]
+name       = "SUBUMBRA_PROXY"      # env.SUBUMBRA_PROXY in Worker code
+class_name = "SubumbraProxy"       # exported class name in worker.js
+
+# Required: tell CF about the DO class so it can provision storage
+[[migrations]]
+tag         = "v1"
+new_classes = ["SubumbraProxy"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["SubumbraVault"]
+
+# ── Observability ─────────────────────────────────────────────────────────────
+[observability]
+enabled            = true
+head_sampling_rate = 1
+
+# ── Runtime secrets (set by bootstrap via `wrangler secret put`) ──────────────
+# These are NOT defined here — they live in CF Secrets and are injected at
+# runtime as env bindings. Listing them here for documentation only:
+#
+#   SUBUMBRA_ADAPTER_TOKENS — JSON token map, set by bootstrap
+#   SUBUMBRA_HMAC_KEY       — HMAC signing key, set by bootstrap
+#   SUBUMBRA_SETUP_TOKEN    — transient bootstrap-time setup token
+#
+# The decrypt private key is not an operator-managed CF Secret anymore.
+# It lives inside the SQLite-backed SubumbraVault Durable Object.
+#
+# KV binding used by the live provider registry.
+# Bootstrap appends this binding to the temp wrangler.toml during deploy.
+# Do not commit a real namespace id here.
+# [[kv_namespaces]]
+# binding = "PROVIDER_REGISTRY_KV"
+# id = "<bootstrap injected>"
