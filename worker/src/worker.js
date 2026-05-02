@@ -458,6 +458,7 @@ export class SubumbraVault {
 
   async fetch(request) {
     if (this._constructorError) {
+      console.error("subumbra: vault DO degraded — request rejected");
       return jsonError("vault unavailable", 503);
     }
 
