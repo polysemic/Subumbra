@@ -9,7 +9,9 @@
 #        SUBUMBRA_HMAC_KEY=<any base64 value>
 #   2. Start the dev server in a separate terminal:
 #        cd worker && npx wrangler dev --local
-#   3. Run this script: bash test-local.sh
+#   3. Run this script:
+#        TEST_MODE=normal bash test-local.sh
+#        TEST_MODE=no-vault bash test-local.sh
 #
 # This script checks health and fail-closed auth surfaces only. It does not
 # provision a local KV namespace or vault custody state.
@@ -20,8 +22,8 @@ set -euo pipefail
 
 BASE_URL="${WORKER_URL:-http://localhost:8787}"
 DEV_VARS_FILE="$(dirname "$0")/.dev.vars"
+TEST_MODE="${TEST_MODE:-normal}"
 
-# ── Read local test tokens from .dev.vars ────────────────────────────────────────
 if [[ -f "$DEV_VARS_FILE" ]]; then
   VALID_TOKEN="$(grep '^SUBUMBRA_ADAPTER_TOKENS=' "$DEV_VARS_FILE" | sed -E 's/^SUBUMBRA_ADAPTER_TOKENS=\[\"([^\"]+)\"\].*/\1/' | tr -d '[:space:]')"
   SETUP_TOKEN="$(grep '^SUBUMBRA_SETUP_TOKEN=' "$DEV_VARS_FILE" | cut -d= -f2- | tr -d '[:space:]')"
@@ -37,10 +39,6 @@ fi
 
 PASS=0
 FAIL=0
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Helper
-# ─────────────────────────────────────────────────────────────────────────────
 
 check() {
   local label="$1"
@@ -58,9 +56,37 @@ check() {
   fi
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Health check — confirm the server is up before running auth tests
-# ─────────────────────────────────────────────────────────────────────────────
+check_exact_body() {
+  local label="$1"
+  local expected_body="$2"
+  local actual_body="$3"
+
+  if [[ "$actual_body" == "$expected_body" ]]; then
+    echo "  PASS  $label"
+    PASS=$((PASS + 1))
+  else
+    echo "  FAIL  $label — expected body: $expected_body"
+    echo "        actual body: $actual_body"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+check_absent_fragment() {
+  local label="$1"
+  local fragment="$2"
+  local body="$3"
+
+  if grep -Fqi -- "$fragment" <<<"$body"; then
+    echo "  FAIL  $label — body contains forbidden fragment: $fragment"
+    echo "        body: $body"
+    FAIL=$((FAIL + 1))
+  else
+    echo "  PASS  $label"
+    PASS=$((PASS + 1))
+  fi
+}
+
+echo "TEST_MODE=$TEST_MODE"
 
 echo ""
 echo "── Health check ─────────────────────────────────────────────────────────"
@@ -72,96 +98,104 @@ if [[ "$HEALTH_STATUS" != "200" ]]; then
 fi
 echo "  OK — server is up at $BASE_URL"
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Test 1 — Missing X-Subumbra-Token header → 401
-# ─────────────────────────────────────────────────────────────────────────────
+if [[ "$TEST_MODE" == "normal" ]]; then
+  echo ""
+  echo "── Test 1: Missing X-Subumbra-Token header ─────────────────────────────────"
+  echo "   Expect: HTTP 401 (no token supplied — should be rejected immediately)"
 
-echo ""
-echo "── Test 1: Missing X-Subumbra-Token header ─────────────────────────────────"
-echo "   Expect: HTTP 401 (no token supplied — should be rejected immediately)"
+  BODY=$(curl -s -X POST "$BASE_URL/proxy" \
+    -H "Content-Type: application/json" \
+    -d '{"ciphertext":"abc","provider":"anthropic","target_url":"https://api.anthropic.com/v1/messages"}')
+  STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE_URL/proxy" \
+    -H "Content-Type: application/json" \
+    -d '{"ciphertext":"abc","provider":"anthropic","target_url":"https://api.anthropic.com/v1/messages"}')
 
-BODY=$(curl -s -X POST "$BASE_URL/proxy" \
-  -H "Content-Type: application/json" \
-  -d '{"ciphertext":"abc","provider":"anthropic","target_url":"https://api.anthropic.com/v1/messages"}')
-STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE_URL/proxy" \
-  -H "Content-Type: application/json" \
-  -d '{"ciphertext":"abc","provider":"anthropic","target_url":"https://api.anthropic.com/v1/messages"}')
+  check "Missing X-Subumbra-Token → 401" "401" "$STATUS" "$BODY"
 
-check "Missing X-Subumbra-Token → 401" "401" "$STATUS" "$BODY"
+  echo ""
+  echo "── Test 2: Wrong X-Subumbra-Token ──────────────────────────────────────────"
+  echo "   Expect: HTTP 401 (token mismatch — timing-safe comparison must reject)"
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Test 2 — Wrong X-Subumbra-Token → 401
-# ─────────────────────────────────────────────────────────────────────────────
+  BODY=$(curl -s -X POST "$BASE_URL/proxy" \
+    -H "Content-Type: application/json" \
+    -H "X-Subumbra-Token: definitely-wrong-token" \
+    -d '{"ciphertext":"abc","provider":"anthropic","target_url":"https://api.anthropic.com/v1/messages"}')
+  STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE_URL/proxy" \
+    -H "Content-Type: application/json" \
+    -H "X-Subumbra-Token: definitely-wrong-token" \
+    -d '{"ciphertext":"abc","provider":"anthropic","target_url":"https://api.anthropic.com/v1/messages"}')
 
-echo ""
-echo "── Test 2: Wrong X-Subumbra-Token ──────────────────────────────────────────"
-echo "   Expect: HTTP 401 (token mismatch — timing-safe comparison must reject)"
+  check "Wrong X-Subumbra-Token → 401" "401" "$STATUS" "$BODY"
 
-BODY=$(curl -s -X POST "$BASE_URL/proxy" \
-  -H "Content-Type: application/json" \
-  -H "X-Subumbra-Token: definitely-wrong-token" \
-  -d '{"ciphertext":"abc","provider":"anthropic","target_url":"https://api.anthropic.com/v1/messages"}')
-STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE_URL/proxy" \
-  -H "Content-Type: application/json" \
-  -H "X-Subumbra-Token: definitely-wrong-token" \
-  -d '{"ciphertext":"abc","provider":"anthropic","target_url":"https://api.anthropic.com/v1/messages"}')
+  echo ""
+  echo "── Test 3: Valid token on /auth-ping ─────────────────────────────────────"
+  echo "   Expect: HTTP 200 (adapter token accepted on the current auth surface)"
 
-check "Wrong X-Subumbra-Token → 401" "401" "$STATUS" "$BODY"
+  BODY=$(curl -s -X GET "$BASE_URL/auth-ping" \
+    -H "X-Subumbra-Token: $VALID_TOKEN")
+  STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X GET "$BASE_URL/auth-ping" \
+    -H "X-Subumbra-Token: $VALID_TOKEN")
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Test 3 — Valid token, /auth-ping → 200
-# ─────────────────────────────────────────────────────────────────────────────
+  check "Valid token on /auth-ping → 200" "200" "$STATUS" "$BODY"
 
-echo ""
-echo "── Test 3: Valid token on /auth-ping ─────────────────────────────────────"
-echo "   Expect: HTTP 200 (adapter token accepted on the current auth surface)"
+  echo ""
+  echo "── Test 4: Missing setup bearer on /setup/keygen ────────────────────────"
+  echo "   Expect: HTTP 401 (setup endpoint must fail closed without bearer auth)"
 
-BODY=$(curl -s -X GET "$BASE_URL/auth-ping" \
-  -H "X-Subumbra-Token: $VALID_TOKEN")
-STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X GET "$BASE_URL/auth-ping" \
-  -H "X-Subumbra-Token: $VALID_TOKEN")
+  BODY=$(curl -s -X POST "$BASE_URL/setup/keygen")
+  STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE_URL/setup/keygen")
 
-check "Valid token on /auth-ping → 200" "200" "$STATUS" "$BODY"
+  check "Missing setup bearer → 401" "401" "$STATUS" "$BODY"
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Test 4 — Missing setup bearer on /setup/keygen → 401
-# ─────────────────────────────────────────────────────────────────────────────
+  echo ""
+  echo "── Test 5: Valid setup bearer on /setup/keygen ──────────────────────────"
+  echo "   Expect: HTTP 200 on first initialization, or HTTP 409 if already initialized"
 
-echo ""
-echo "── Test 4: Missing setup bearer on /setup/keygen ────────────────────────"
-echo "   Expect: HTTP 401 (setup endpoint must fail closed without bearer auth)"
+  BODY=$(curl -s -X POST "$BASE_URL/setup/keygen" \
+    -H "Authorization: Bearer $SETUP_TOKEN")
+  STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE_URL/setup/keygen" \
+    -H "Authorization: Bearer $SETUP_TOKEN")
 
-BODY=$(curl -s -X POST "$BASE_URL/setup/keygen")
-STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE_URL/setup/keygen")
+  if [[ "$STATUS" == "200" || "$STATUS" == "409" ]]; then
+    echo "  PASS  Valid setup bearer → HTTP $STATUS"
+    echo "        body: $BODY"
+    PASS=$((PASS + 1))
+  else
+    echo "  FAIL  Valid setup bearer — expected HTTP 200 or 409, got HTTP $STATUS"
+    echo "        body: $BODY"
+    FAIL=$((FAIL + 1))
+  fi
 
-check "Missing setup bearer → 401" "401" "$STATUS" "$BODY"
+  echo ""
+  echo "── Test 6: Second valid setup bearer on /setup/keygen ───────────────────"
+  echo "   Expect: HTTP 409 (already initialized path must remain unchanged)"
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Test 5 — Valid setup bearer, one-shot setup behavior
-# ─────────────────────────────────────────────────────────────────────────────
+  BODY=$(curl -s -X POST "$BASE_URL/setup/keygen" \
+    -H "Authorization: Bearer $SETUP_TOKEN")
+  STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE_URL/setup/keygen" \
+    -H "Authorization: Bearer $SETUP_TOKEN")
 
-echo ""
-echo "── Test 5: Valid setup bearer on /setup/keygen ──────────────────────────"
-echo "   Expect: HTTP 200 on first initialization, or HTTP 409 if already initialized"
+  check "Second valid setup bearer → 409" "409" "$STATUS" "$BODY"
+elif [[ "$TEST_MODE" == "no-vault" ]]; then
+  echo ""
+  echo "── Test 1: Valid setup bearer on /setup/keygen without vault binding ────"
+  echo "   Expect: HTTP 503 with exact structured JSON body"
 
-BODY=$(curl -s -X POST "$BASE_URL/setup/keygen" \
-  -H "Authorization: Bearer $SETUP_TOKEN")
-STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE_URL/setup/keygen" \
-  -H "Authorization: Bearer $SETUP_TOKEN")
+  BODY=$(curl -s -X POST "$BASE_URL/setup/keygen" \
+    -H "Authorization: Bearer $SETUP_TOKEN")
+  STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE_URL/setup/keygen" \
+    -H "Authorization: Bearer $SETUP_TOKEN")
 
-if [[ "$STATUS" == "200" || "$STATUS" == "409" ]]; then
-  echo "  PASS  Valid setup bearer → HTTP $STATUS"
-  echo "        body: $BODY"
-  PASS=$((PASS + 1))
+  check "No-vault setup bearer → 503" "503" "$STATUS" "$BODY"
+  check_exact_body "No-vault setup bearer body is exact" '{"error":"vault unavailable"}' "$BODY"
+
+  for fragment in "TypeError" "Error:" "stack" "cf-ray" "pub_key_fp" "private_key" "Authorization"; do
+    check_absent_fragment "No-vault body omits $fragment" "$fragment" "$BODY"
+  done
 else
-  echo "  FAIL  Valid setup bearer — expected HTTP 200 or 409, got HTTP $STATUS"
-  echo "        body: $BODY"
-  FAIL=$((FAIL + 1))
+  echo "ERROR: unsupported TEST_MODE=$TEST_MODE"
+  exit 1
 fi
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Summary
-# ─────────────────────────────────────────────────────────────────────────────
 
 echo ""
 echo "─────────────────────────────────────────────────────────────────────────"
