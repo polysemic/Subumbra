@@ -153,9 +153,30 @@ docker compose up -d --force-recreate
 During a full bootstrap, re-enter every key you want to keep. Any omitted key is
 removed from the retained set.
 
+For policy-backed bootstrap ingestion, you may also define
+`SUBUMBRA_POLICY_PATH=/opt/subumbra/policies.json` in `.env.bootstrap`.
+`./bootstrap.sh` mounts that host JSON file read-only into the bootstrap
+container and passes the in-container path automatically. Built-in direct
+provider secrets can still use the current in-memory auto-compat path when no
+external policy entry is supplied, but imported secrets now require a matching
+policy document.
+
 For automation-mode imports from app-owned `.env` files, define
 `IMPORT_PATH_<n>` together with the required `IMPORT_APP_LABEL_<n>` entries in
 `.env.bootstrap`, then run `./bootstrap.sh`.
+
+Full bootstrap now also writes deploy-integrity state to
+`/app/data/system-integrity.json`. That artifact records the deployed Worker
+name, URL, bundle hash, hash algorithm, and capture timestamp.
+
+Verify the currently deployed Worker against that integrity artifact with:
+
+```bash
+./scripts/subumbra-verify-deploy
+```
+
+Use `--integrity-file <path>` to test a copied or staged integrity file
+without mutating the live artifact.
 
 ### Custom Adapters (Round 35)
 

@@ -60,6 +60,9 @@ them.
 - Bootstrap now self-heals a stale saved Cloudflare KV namespace ID through the
   existing account list/title-scan path instead of requiring manual
   `kv-config.json` deletion as the normal recovery step.
+- Bootstrap now accepts optional `SUBUMBRA_POLICY_PATH` input for policy-backed
+  bootstrap ingestion, while built-in direct-provider secrets retain a narrow
+  in-memory auto-compat fallback when no explicit policy entry is supplied.
 - The interactive bootstrap wizard is now manual RAM-only entry; machine-readable
   env-driven input belongs to automation mode rather than an in-wizard import prompt.
 - `subumbra-probe` is an optional diagnostic profile now; baseline bootstrap and
@@ -71,6 +74,9 @@ them.
   is still deleted before bootstrap completes.
 - Automation-mode app imports use `IMPORT_PATH_<n>` plus required
   `IMPORT_APP_LABEL_<n>` entries in `.env.bootstrap`.
+- Full bootstrap now writes `/app/data/system-integrity.json`, and
+  `scripts/subumbra-verify-deploy` compares that recorded deploy hash against
+  the current live Cloudflare Worker content.
 - The project expects a **project-local `.env` in the repo root**.
 - Fresh installs should use a dedicated checkout path such as `/opt/subumbra`
   rather than sharing a directory with unrelated services.
