@@ -33,6 +33,9 @@ and fresh sessions tend to miss.
   operator baseline under test, `CORRECTIONS.md` records in-round fixes, and
   promotion into tracked `docs/apps/` happens only after verification confirms
   the staged docs match the proven flow.
+- Round-local `council/{round}/verify-round.sh` hooks stay local-only under the
+  ignored `council/` tree; when VPS proof needs them, copy them into the VPS
+  checkout or staging path and record that transfer in the report.
 - Closeout should capture minor non-blocking cleanup in `council/cleanup.md`
   rather than reopening finished rounds.
 
