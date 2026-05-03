@@ -140,6 +140,7 @@ This arc focuses on evolving Subumbra from a static, bundled configuration into 
 - **Round 44-5-5 — Pre-R45 Operational Hardening** (Closed 2026-05-03): bootstrap now re-validates saved `kv-config.json` namespace IDs against the active Cloudflare account before falling back to the existing title-scan/create path, repo-local `.env` persists `SUBUMBRA_SETUP_TOKEN` for operator reference after bootstrap, and independent live-Cloudflare verification passed all four proof scenarios.
 - **Round 44-5-6 — Final Doc Compaction Pass** (Closed 2026-05-03): live council/status docs were compacted by moving six resolved cleanup sections into `council/archive/cleanup.md`, removing consumed Round 44.5/44.6 synthesis-marker ballast from `council/cleanup.md` and `PROJECT_STATUS.md`, and sanitizing `council/COUNCIL.md` for the post-44.5 archival state.
 - **Round 44-6 — Doc Cleanup** (Closed 2026-05-03): release-facing docs now reflect the adapter-token + `SubumbraVault` contract across the website, `CLAUDE.md`, install/operator guides, and harness docs; the misleading testbed shredding claim and the Cerebras example mismatch were also corrected.
+- **Round 45 — Structure Upgrade Planning** (Closed 2026-05-03): the council locked a five-round universal REST foundation arc, staged `council/r45-1-policy-schema/` through `council/r45-5-rest-auth-proofs/`, and created `council/rTBD-structure-upgrade/` as the deferred post-R45 scoping folder.
 
 ## Path Forward
 
@@ -156,7 +157,14 @@ Immediate follow-up sequence — targeting 0.0.1 Alpha:
    - Future high-priority follow-up: define backup/export/recovery policy for CF-generated vault keys before broader production-facing deployment claims
 3. **Round 44.5 cleanup arc** — Complete. Rounds 44-5-1 through 44-5-6 all
    closed; see Recent Round Status above for per-round summaries.
-4. **Round 45 (Planned)** — Secure UI round. UI-based env ingestion, encrypted paste/input for browser security. See `council/round-45-secure-ui/`.
+4. **Round 45 Structure Upgrade Arc (Approved sequence)**
+   The council planning round in `council/closed/r45-structure-upgrade/` converged on a five-round implementation arc:
+   - `council/r45-1-policy-schema/` — policy schema, threat model, structured KV decision, and status correction
+   - `council/r45-2-bootstrap-policy-ingestion/` — policy-aware bootstrap ingestion, policy-less refusal, Worker code pinning, and URL logging normalization
+   - `council/r45-3-v3-binding-kv-publication/` — V3 `policy_hash` binding, structured KV publication, DO-mediated `--rotate-policy`, and one-round V2 grace bridge
+   - `council/r45-4-worker-rest-enforcement/` — Worker-side adapter/host/method/path/content-type/body-size enforcement, plus structural `intent` logging only
+   - `council/r45-5-rest-auth-proofs/` — generic auth schemes, GitHub REST + Stripe test-mode + custom header-auth proof, and V2 removal
+   - Deferred follow-on staging: `council/rTBD-structure-upgrade/` for post-R45 topics such as intent/response enforcement, rate limiting, management API, UI follow-ons, webhook verification, raw-body expansion, `git_https`, and D1 re-evaluation if needed
 
 Guiding note:
 - Language transitions from **POC** to **0.0.1 Alpha** as the Round 43 arc closes.
