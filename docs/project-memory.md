@@ -57,12 +57,18 @@ them.
   and performs Cloudflare-side provisioning work.
 - Full bootstrap now uses a one-shot Cloudflare `/setup/keygen` flow so the RSA
   private key is generated and retained in the vault DO rather than on the VPS.
+- Bootstrap now self-heals a stale saved Cloudflare KV namespace ID through the
+  existing account list/title-scan path instead of requiring manual
+  `kv-config.json` deletion as the normal recovery step.
 - The interactive bootstrap wizard is now manual RAM-only entry; machine-readable
   env-driven input belongs to automation mode rather than an in-wizard import prompt.
 - `subumbra-probe` is an optional diagnostic profile now; baseline bootstrap and
   runtime bring-up do not require probe provisioning.
 - `bootstrap.sh` now runs on the host, mounts repo-local `.env` into the
   bootstrap container, and shreds `.env.bootstrap` after a successful run.
+- The repo-local `.env` now retains `SUBUMBRA_SETUP_TOKEN` as an operator
+  reference after bootstrap, even though the transient Cloudflare Worker secret
+  is still deleted before bootstrap completes.
 - Automation-mode app imports use `IMPORT_PATH_<n>` plus required
   `IMPORT_APP_LABEL_<n>` entries in `.env.bootstrap`.
 - The project expects a **project-local `.env` in the repo root**.

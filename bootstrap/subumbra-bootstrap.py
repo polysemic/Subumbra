@@ -1283,9 +1283,6 @@ def _run(cmd: list[str], *, cwd: Path, env: dict, input_text: str | None = None)
 
 
 def _create_or_reuse_kv_namespace(cf_creds: dict[str, str]) -> str:
-    if KV_CONFIG_FILE.exists():
-        return _load_kv_namespace_id()
-
     title = f"{cf_creds['CF_WORKER_NAME']}-PROVIDER_REGISTRY_KV"
     base_url = (
         "https://api.cloudflare.com/client/v4/accounts/"
@@ -1305,11 +1302,28 @@ def _create_or_reuse_kv_namespace(cf_creds: dict[str, str]) -> str:
         die(f"Failed to list KV namespaces: {exc}")
 
     existing = list_result.get("result") or []
+    saved_namespace_id = None
+    if KV_CONFIG_FILE.exists():
+        saved_namespace_id = _load_kv_namespace_id()
     if len(existing) >= 100:
         warn(
             "KV namespace list returned 100 results; the account may have more "
             "namespaces than the page limit. If a matching namespace exists on "
             "a later page it will not be found and a new one will be created."
+        )
+    if saved_namespace_id is not None:
+        for entry in existing:
+            if entry.get("id") == saved_namespace_id:
+                with KV_CONFIG_FILE.open("w") as fh:
+                    json.dump(
+                        {"namespace_id": saved_namespace_id, "title": entry.get("title", title)},
+                        fh,
+                        indent=2,
+                    )
+                    fh.write("\n")
+                return saved_namespace_id
+        warn(
+            "Saved KV namespace ID missing from active Cloudflare account; falling back to title scan."
         )
     for entry in existing:
         if entry.get("title") == title:
@@ -2064,6 +2078,9 @@ def main() -> None:
         "SUBUMBRA_TOKEN_UI": adapter_tokens["subumbra-ui"],
         "SUBUMBRA_HMAC_KEY": subumbra_hmac_key,
         "CF_WORKER_URL": worker_url,
+        # Persist locally for operator/verification reference after the transient
+        # Cloudflare secret has already been used and deleted.
+        "SUBUMBRA_SETUP_TOKEN": setup_token,
     }
     if "subumbra-probe" in allowed_keys_by_adapter:
         host_env_updates["PROBE_ALLOWED_KEYS"] = ",".join(allowed_keys_by_adapter["subumbra-probe"])
