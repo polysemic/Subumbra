@@ -10,15 +10,15 @@
 const SESSION_WARN_SECS = 60;
 const PROVIDER_CLASS = {
   anthropic: "provider-anthropic",
-  openai:    "provider-openai",
-  groq:      "provider-groq",
-  deepseek:  "provider-deepseek",
+  openai: "provider-openai",
+  groq: "provider-groq",
+  deepseek: "provider-deepseek",
 };
 
 /* ── Dashboard state ─────────────────────────────────────────── */
 
 let _status = null;
-let _es     = null;   // EventSource instance
+let _es = null;   // EventSource instance
 
 /* ── DOM helper ──────────────────────────────────────────────── */
 
@@ -47,15 +47,15 @@ function fmtTimestamp(iso) {
 function fmtRelative(iso) {
   if (!iso) return null;
   const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
-  if (diff < 60)    return `${diff}s ago`;
-  if (diff < 3600)  return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
 function verdictClass(v) {
   if (v === "allow") return "status-ok";
-  if (v === "deny")  return "status-deny";
+  if (v === "deny") return "status-deny";
   return "status-unknown";
 }
 
@@ -72,9 +72,9 @@ function setAlert(el, visible) {
 ═══════════════════════════════════════════════════════════════ */
 
 function renderHealth(data) {
-  const sDot  = $("subumbra-health-dot");
+  const sDot = $("subumbra-health-dot");
   const sText = $("subumbra-health-text");
-  const wDot  = $("worker-health-dot");
+  const wDot = $("worker-health-dot");
   const wText = $("worker-health-text");
 
   sDot.className = "health-dot " + (data.subumbra_keys_healthy ? "ok" : "err");
@@ -97,12 +97,12 @@ function renderErrorBanner(data) {
 }
 
 function renderSummary(data) {
-  const totalReqs  = data.keys.reduce((s, k) => s + (k.request_count || 0), 0);
+  const totalReqs = data.keys.reduce((s, k) => s + (k.request_count || 0), 0);
   const activeKeys = data.keys.filter(k => k.request_count > 0).length;
-  const lastReq    = data.keys.map(k => k.last_access).filter(Boolean).sort().at(-1);
+  const lastReq = data.keys.map(k => k.last_access).filter(Boolean).sort().at(-1);
 
-  $("stat-keys").textContent       = data.keys_loaded;
-  $("stat-total-reqs").textContent  = totalReqs;
+  $("stat-keys").textContent = data.keys_loaded;
+  $("stat-total-reqs").textContent = totalReqs;
   $("stat-active-keys").textContent = activeKeys;
 
   const node = $("stat-last-req");
@@ -127,9 +127,9 @@ function renderKeys(keys) {
   }
 
   grid.innerHTML = keys.map(k => {
-    const pClass  = providerClass(k.provider);
+    const pClass = providerClass(k.provider);
     const relTime = k.last_access ? fmtRelative(k.last_access) : null;
-    const created = k.created_at  ? fmtTimestamp(k.created_at) : "—";
+    const created = k.created_at ? fmtTimestamp(k.created_at) : "—";
 
     return `
 <article class="key-card">
@@ -170,7 +170,7 @@ function renderLog(log, auditAvailable) {
   if (_status) for (const k of _status.keys) provMap[k.key_id] = k.provider;
 
   tbody.innerHTML = log.map(entry => {
-    const prov   = provMap[entry.key_id] ?? "—";
+    const prov = provMap[entry.key_id] ?? "—";
     const pClass = providerClass(prov);
     const vClass = verdictClass(entry.verdict);
     return `
@@ -246,16 +246,16 @@ function initEventSource() {
 
 /* Update the live connection badge in the topbar */
 function setLiveIndicator(state, msg) {
-  const dot  = $("live-dot");
+  const dot = $("live-dot");
   const text = $("live-text");
   if (!dot || !text) return;
   const map = {
-    live:         { cls: "ok",  label: "live" },
+    live: { cls: "ok", label: "live" },
     reconnecting: { cls: "err", label: "reconnecting…" },
-    error:        { cls: "err", label: msg ?? "error" },
+    error: { cls: "err", label: msg ?? "error" },
   };
   const s = map[state] ?? map.error;
-  dot.className  = `health-dot ${s.cls}`;
+  dot.className = `health-dot ${s.cls}`;
   text.textContent = s.label;
 }
 
@@ -339,8 +339,8 @@ function makeSessionTtl(sessionRef, ttlElId, dotElId, onExpire) {
     timer = setInterval(() => {
       if (!sessionRef.current) return stop();
       const secsLeft = Math.floor((sessionRef.current.expiresAt - Date.now()) / 1000);
-      const ttlEl    = $(ttlElId);
-      const dotEl    = $(dotElId);
+      const ttlEl = $(ttlElId);
+      const dotEl = $(dotElId);
       if (secsLeft <= 0) {
         stop();
         if (ttlEl) { ttlEl.textContent = "expired"; ttlEl.classList.add("warn"); }
@@ -363,19 +363,62 @@ function makeSessionTtl(sessionRef, ttlElId, dotElId, onExpire) {
 /* ── Shared: paste + keyboard interception factory ───────────── */
 
 /**
- * Attaches paste interception to an input element.
+ * Attach security detectors to a secure input.
+ * Returns a detach function. Call before attachSecureInput().
+ */
+function attachSecurityDetectors(input, warnEl, proceedBtn) {
+  const detectors = [];
+
+  function showWarning(msg) {
+    if (!warnEl) return;
+    warnEl.querySelector('.secure-warning-msg').textContent = msg;
+    warnEl.classList.add('visible');
+    if (proceedBtn) proceedBtn.disabled = true;
+  }
+
+  // 1. DOM mutation — extension injecting attributes
+  const mo = new MutationObserver(() => {
+    showWarning('A browser extension modified this field. Proceed only if you trust all installed extensions.');
+  });
+  mo.observe(input, { attributes: true, childList: true, characterData: true });
+  detectors.push(() => mo.disconnect());
+
+  // 2. Value-read trap — anything reading .value
+  const nativeDesc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+  Object.defineProperty(input, 'value', {
+    get() {
+      const v = nativeDesc.get.call(this);
+      if (v !== '') showWarning('Something read the key field value — a script or extension may have captured it.');
+      return v;
+    },
+    set(v) { nativeDesc.set.call(this, v); },
+    configurable: true,
+  });
+  detectors.push(() => {
+    try { delete input.value; } catch (_) { }
+  });
+
+  // 3. isTrusted check — handled inside paste handler (see attachSecureInput)
+
+  return () => detectors.forEach(fn => fn());
+}
+
+/**
  * Returns a detach() function for cleanup.
  */
 function attachSecureInput(input, sessionRef, pendingRef, onCaptured, onError) {
   const keydownHandler = (e) => {
     const isPaste = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v";
-    const isNav   = ["Tab", "Escape", "Enter"].includes(e.key);
+    const isNav = ["Tab", "Escape", "Enter"].includes(e.key);
     if (!isPaste && !isNav) e.preventDefault();
   };
 
   const pasteHandler = async (e) => {
     e.preventDefault();
-    const plain = e.clipboardData?.getData("text/plain") ?? "";
+    if (!e.isTrusted) {
+      onError("Synthetic paste detected — event was not triggered by a real user action. Paste intercepted for security.");
+      return;
+    }
     if (!plain.trim()) return;
 
     if (!sessionRef.current || Date.now() >= sessionRef.current.expiresAt) {
@@ -394,11 +437,11 @@ function attachSecureInput(input, sessionRef, pendingRef, onCaptured, onError) {
   };
 
   input.addEventListener("keydown", keydownHandler);
-  input.addEventListener("paste",   pasteHandler);
+  input.addEventListener("paste", pasteHandler);
 
   return function detach() {
     input.removeEventListener("keydown", keydownHandler);
-    input.removeEventListener("paste",   pasteHandler);
+    input.removeEventListener("paste", pasteHandler);
   };
 }
 
@@ -407,10 +450,10 @@ function attachSecureInput(input, sessionRef, pendingRef, onCaptured, onError) {
 ═══════════════════════════════════════════════════════════════ */
 
 const _akm = {
-  session:  { current: null },   // { sessionId, publicKey, expiresAt }
-  pending:  { current: null },   // ArrayBuffer ciphertext
-  detach:   null,                // cleanup fn from attachSecureInput
-  ttl:      null,                // { start, stop }
+  session: { current: null },   // { sessionId, publicKey, expiresAt }
+  pending: { current: null },   // ArrayBuffer ciphertext
+  detach: null,                // cleanup fn from attachSecureInput
+  ttl: null,                // { start, stop }
 };
 
 _akm.ttl = makeSessionTtl(
@@ -431,7 +474,7 @@ function akmSetState(id) {
 }
 
 function akmSetSecureState(state) {
-  const wrap  = $("akm-secure-wrap");
+  const wrap = $("akm-secure-wrap");
   const input = $("akm-key-input");
   if (!wrap || !input) return;
   wrap.dataset.state = state;
@@ -446,7 +489,7 @@ function setAkmError(msg) {
   setAlert(el, !!msg);
 }
 
-function akmEnableSubmit()  { const b = $("akm-submit"); if (b) b.disabled = false; }
+function akmEnableSubmit() { const b = $("akm-submit"); if (b) b.disabled = false; }
 function akmDisableSubmit() { const b = $("akm-submit"); if (b) b.disabled = true; }
 
 function akmReset() {
@@ -459,8 +502,8 @@ function akmReset() {
   if (ttl) { ttl.textContent = ""; ttl.classList.remove("warn"); }
   const dot = $("akm-session-dot");
   if (dot) dot.className = "session-dot loading";
-  $("akm-key-name")    && ($("akm-key-name").value    = "");
-  $("akm-provider")    && ($("akm-provider").value     = "anthropic");
+  $("akm-key-name") && ($("akm-key-name").value = "");
+  $("akm-provider") && ($("akm-provider").value = "anthropic");
 }
 
 async function openAddKeyModal() {
@@ -473,7 +516,7 @@ async function openAddKeyModal() {
   $("add-key-modal").classList.add("open");
 
   try {
-    const data      = await fetchSession();
+    const data = await fetchSession();
     const publicKey = await importPublicKey(data.publicKeyJwk);
     _akm.session.current = {
       sessionId: data.sessionId,
@@ -486,7 +529,8 @@ async function openAddKeyModal() {
 
     const input = $("akm-key-input");
     if (input) {
-      _akm.detach = attachSecureInput(
+      const _dDet = attachSecurityDetectors(input, $("akm-sec-warning"), $("akm-submit"));
+      const _dPaste = attachSecureInput(
         input,
         _akm.session,
         _akm.pending,
@@ -497,11 +541,12 @@ async function openAddKeyModal() {
         },
         (msg) => { setAkmError(msg); akmSetSecureState("error"); akmDisableSubmit(); }
       );
+      _akm.detach = () => { _dDet(); _dPaste(); };
     }
 
-    const dot  = $("akm-session-dot");
+    const dot = $("akm-session-dot");
     const info = $("akm-session-info");
-    if (dot)  dot.className = "session-dot active";
+    if (dot) dot.className = "session-dot active";
     if (info) info.textContent = "Session active · keypair generated server-side";
 
   } catch (err) {
@@ -529,7 +574,7 @@ async function submitAddKey() {
   if (!_akm.session.current) { setAkmError("Session expired — please close and reopen."); return; }
 
   const provider = $("akm-provider")?.value?.trim();
-  const keyId    = $("akm-key-name")?.value?.trim();
+  const keyId = $("akm-key-name")?.value?.trim();
   if (!keyId) { setAkmError("Please enter a Key ID / label before submitting."); return; }
 
   setAkmError("");
@@ -538,7 +583,7 @@ async function submitAddKey() {
 
   try {
     const body = JSON.stringify({
-      sessionId:  _akm.session.current.sessionId,
+      sessionId: _akm.session.current.sessionId,
       provider,
       keyId,
       ciphertext: bufferToBase64(_akm.pending.current),
@@ -570,11 +615,11 @@ async function submitAddKey() {
 ═══════════════════════════════════════════════════════════════ */
 
 const _rkm = {
-  session:  { current: null },
-  pending:  { current: null },
-  detach:   null,
-  ttl:      null,
-  keyId:    null,
+  session: { current: null },
+  pending: { current: null },
+  detach: null,
+  ttl: null,
+  keyId: null,
   provider: null,
 };
 
@@ -596,7 +641,7 @@ function rkmSetState(id) {
 }
 
 function rkmSetSecureState(state) {
-  const wrap  = $("rkm-secure-wrap");
+  const wrap = $("rkm-secure-wrap");
   const input = $("rkm-key-input");
   if (!wrap || !input) return;
   wrap.dataset.state = state;
@@ -611,7 +656,7 @@ function setRkmError(msg) {
   setAlert(el, !!msg);
 }
 
-function rkmEnableSubmit()  { const b = $("rkm-submit"); if (b) b.disabled = false; }
+function rkmEnableSubmit() { const b = $("rkm-submit"); if (b) b.disabled = false; }
 function rkmDisableSubmit() { const b = $("rkm-submit"); if (b) b.disabled = true; }
 
 function rkmReset() {
@@ -633,18 +678,18 @@ async function openRotateModal(keyId, provider) {
     _rkm.session.current = null;
   }
 
-  _rkm.keyId    = keyId;
+  _rkm.keyId = keyId;
   _rkm.provider = provider;
 
   // Populate static fields
-  const keyIdEl   = $("rkm-key-id");
+  const keyIdEl = $("rkm-key-id");
   const provBadge = $("rkm-provider-badge");
-  const cmdEl     = $("rkm-cmd");
+  const cmdEl = $("rkm-cmd");
 
-  if (keyIdEl)   keyIdEl.textContent   = keyId;
+  if (keyIdEl) keyIdEl.textContent = keyId;
   if (provBadge) {
-    provBadge.textContent  = provider;
-    provBadge.className    = `provider-badge ${providerClass(provider)}`;
+    provBadge.textContent = provider;
+    provBadge.className = `provider-badge ${providerClass(provider)}`;
   }
   if (cmdEl) cmdEl.textContent = `docker compose --profile bootstrap run --rm -it bootstrap --rotate`;
 
@@ -653,7 +698,7 @@ async function openRotateModal(keyId, provider) {
   $("rotate-modal").classList.add("open");
 
   try {
-    const data      = await fetchSession();
+    const data = await fetchSession();
     const publicKey = await importPublicKey(data.publicKeyJwk);
     _rkm.session.current = {
       sessionId: data.sessionId,
@@ -666,7 +711,8 @@ async function openRotateModal(keyId, provider) {
 
     const input = $("rkm-key-input");
     if (input) {
-      _rkm.detach = attachSecureInput(
+      const _rDet = attachSecurityDetectors(input, $("rkm-sec-warning"), $("rkm-submit"));
+      const _rPaste = attachSecureInput(
         input,
         _rkm.session,
         _rkm.pending,
@@ -677,11 +723,12 @@ async function openRotateModal(keyId, provider) {
         },
         (msg) => { setRkmError(msg); rkmSetSecureState("error"); rkmDisableSubmit(); }
       );
+      _rkm.detach = () => { _rDet(); _rPaste(); };
     }
 
-    const dot  = $("rkm-session-dot");
+    const dot = $("rkm-session-dot");
     const info = $("rkm-session-info");
-    if (dot)  dot.className = "session-dot active";
+    if (dot) dot.className = "session-dot active";
     if (info) info.textContent = "Session active · keypair generated server-side";
 
   } catch (err) {
@@ -714,9 +761,9 @@ async function submitRotateKey() {
 
   try {
     const body = JSON.stringify({
-      sessionId:  _rkm.session.current.sessionId,
-      keyId:      _rkm.keyId,
-      provider:   _rkm.provider,
+      sessionId: _rkm.session.current.sessionId,
+      keyId: _rkm.keyId,
+      provider: _rkm.provider,
       ciphertext: bufferToBase64(_rkm.pending.current),
     });
     _rkm.pending.current = null;

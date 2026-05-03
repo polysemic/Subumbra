@@ -42,7 +42,15 @@ if [[ -f "$bootstrap_file" ]]; then
             fi
         fi
 
-        if [[ "$key" =~ ^IMPORT_PATH_([0-9]+)$ ]]; then
+        if [[ "$key" == "SUBUMBRA_POLICY_PATH" ]]; then
+            if [[ ! -f "$value" ]]; then
+                echo "ERROR: SUBUMBRA_POLICY_PATH is missing or not a regular file: $value" >&2
+                exit 1
+            fi
+            mount_path="/app/bootstrap-policy/$(basename "$value")"
+            volume_args+=(-v "$value:$mount_path:ro")
+            env_args+=(-e "SUBUMBRA_POLICY_PATH=$mount_path")
+        elif [[ "$key" =~ ^IMPORT_PATH_([0-9]+)$ ]]; then
             idx="${BASH_REMATCH[1]}"
             label_key="IMPORT_APP_LABEL_${idx}"
             label="$(sed -n "s/^${label_key}=//p" "$bootstrap_file" | tail -n 1)"
