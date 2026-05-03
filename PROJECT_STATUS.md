@@ -1,5 +1,5 @@
 # PROJECT_STATUS
-*Current state — updated 2026-05-02*
+*Current state — updated 2026-05-03*
 *Rounds 1–43.6, 43-6-3, 43-6-4-1, 43-6-4-2, and 43-6-4-bootstrap-ux closed. See `council/COUNCIL.md` for round history and current status.*
 
 ---
@@ -139,6 +139,7 @@ This arc focuses on evolving Subumbra from a static, bundled configuration into 
 - **Round 44-5-1 — Code Cleanup Alpha Blockers** (Closed 2026-05-01): retired `post-bootstrap.sh` references are removed from the scoped runtime/docs surfaces, public adapter-token and vault-custody docs/config now match the live contract, provider-registry publish/read naming is aligned on `subumbra_registry_v1`, `/stats` and `/audit` deny-paths now audit symmetrically, proxy fetch errors stay generic, probe headers honor optional CF Access env, and the historical nonce-store issue was not reproduced on the current WAL + `busy_timeout` stack.
 - **Round 44-5-3 — Code Cleanup Scope-Lock Follow-Up** (Closed 2026-05-02): `handleSetupKeygen` now fails closed with a structured `503` when the setup vault binding is unavailable, Worker-local no-vault proof coverage exists, and the round-local verification hook proves unchanged auth/initialized behavior plus bootstrap-helper visibility of the terse JSON failure.
 - **Round 44-5-4 — Code Cleanup Final Prune/Archive Pass** (Closed 2026-05-02): `SubumbraVault` constructor degradation is now caught and surfaced as a structured `503`, Worker `/health` now reports stateless `vault_configured` readiness, and setup-keygen internal failures log fixed strings only. Live Cloudflare verification passed against the deployed Worker.
+- **Round 44-5-5 — Pre-R45 Operational Hardening** (Implemented 2026-05-03, pending council verification): bootstrap now re-validates saved `kv-config.json` namespace IDs against the active Cloudflare account before falling back to the existing title-scan/create path, repo-local `.env` persists `SUBUMBRA_SETUP_TOKEN` for operator reference after bootstrap, and the round-local live Cloudflare verifier passed all four proof scenarios in a staging checkout.
 
 ## Path Forward
 
