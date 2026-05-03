@@ -1786,7 +1786,6 @@ def _delete_worker_secret(cf_creds: dict[str, str], secret_name: str, *, quiet_m
         work_dir = tmp_dir / "worker"
         namespace_id = _create_or_reuse_kv_namespace(cf_creds)
         _append_provider_registry_kv_binding(work_dir / "wrangler.toml", namespace_id)
-        bundle_sha256 = _hash_worker_bundle(work_dir)
 
         result = subprocess.run(
             ["wrangler", "secret", "delete", secret_name, "--name", worker_name],
@@ -1896,6 +1895,7 @@ def deploy_worker(
         work_dir = tmp_dir / "worker"
         namespace_id = _create_or_reuse_kv_namespace(cf_creds)
         _append_provider_registry_kv_binding(work_dir / "wrangler.toml", namespace_id)
+        bundle_sha256 = _hash_worker_bundle(work_dir)
 
         # ── deploy ────────────────────────────────────────────────────────────
         step(f"Deploying CF Worker '{worker_name}'")
