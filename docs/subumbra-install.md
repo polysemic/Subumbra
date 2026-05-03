@@ -66,7 +66,9 @@ You need:
 - a Worker name, e.g. `subumbra-proxy`
 - Workers Paid Plan enabled
 
-The interactive bootstrap wizard prompts for these values.
+The interactive bootstrap wizard prompts for these values. Treat
+`CF_API_TOKEN` as bootstrap/deploy authority for Worker, KV, and secret
+changes; keep it separate from any persistent runtime secrets you enable later.
 
 ## 5. Run Bootstrap
 

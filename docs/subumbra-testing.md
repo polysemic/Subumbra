@@ -131,9 +131,16 @@ Preferred fresh-state proof:
 ./scripts/council/clean-run.sh --round <round-dir-name> --agent <llm>
 ```
 
+If the round changed an image-built service, pass `--build <service>` so the
+proof run uses images rebuilt from current source.
+
 Fallback:
 
 ```bash
 ./scripts/council/reset.sh
 AGENT=<llm> ./scripts/council/verify.sh <round-dir-name>
 ```
+
+Round-local `council/<round>/verify-round.sh` hooks remain local-only files.
+Copy them into the VPS checkout or staging path before proof capture when the
+remote checkout does not already have the round folder contents you need.
