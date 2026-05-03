@@ -327,8 +327,12 @@ Then bootstrap fresh (section 4 above).
 >   Worker anyway.
 >
 > **Edge case:** if you delete the KV namespace in the CF dashboard without
-> wiping the volume, the local `kv-config.json` holds a dead namespace ID.
-> Fix:
+> wiping the volume, bootstrap now re-checks the saved `kv-config.json`
+> namespace ID against the active Cloudflare account and falls back to the
+> existing title-scan/create path automatically.
+>
+> Manual `kv-config.json` removal is no longer the normal fix path. Keep it as
+> a last-resort cleanup step only if the file itself is malformed:
 > ```bash
 > docker run --rm -v subumbra_keys_data:/data alpine rm /data/kv-config.json
 > ```
@@ -417,6 +421,10 @@ docker compose up -d --force-recreate
 ```
 
 Re-enter every key you want to keep. Omitted keys are removed from the registry.
+After bootstrap completes, the repo-local `.env` retains the generated
+`SUBUMBRA_SETUP_TOKEN` for operator reference. The transient Cloudflare Worker
+secret is still deleted during bootstrap, so a direct post-bootstrap
+`POST /setup/keygen` with that saved token should return `403`.
 
 ### Token drift recovery
 
