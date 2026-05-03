@@ -81,37 +81,35 @@ Current pin: `main-latest@sha256:7c311546c25e7bb6e8cafede9fcd3d0d622ac636b5c9418
 
 This arc focuses on evolving Subumbra from a static, bundled configuration into a flexible, operator-managed system. Approved 2026-04-09 in [provider-adapter-flexibility-roadmap.md](/home/eric/git/Subumbra/council/approved/provider-adapter-flexibility-roadmap.md).
 
-### Round 34: Provider Flexibility (Closed 2026-04-10)
-- **Focus**: Built-in provider catalog expansion on the current architecture.
-- **Goal**: Add Cerebras, Gemini, Mistral, OpenRouter, Together, and xAI as bootstrapable LiteLLM providers.
-- **Outcome**: Closed with official proof plus six-provider end-to-end verification; the built-in AI provider set now covers 10 providers on the current architecture.
+- **Round 34: Provider Flexibility (Closed 2026-04-10)**  
+  **Focus**: Built-in provider catalog expansion on the current architecture.  
+  **Goal**: Add Cerebras, Gemini, Mistral, OpenRouter, Together, and xAI as bootstrapable LiteLLM providers.  
+  **Outcome**: Closed with official proof plus six-provider end-to-end verification; the built-in AI provider set now covers 10 providers on the current architecture.
 
-### Round 35: Adapter Flexibility (Closed 2026-04-10)
-- **Focus**: Identity/Token generalization across bootstrap and runtime.
-- **Goal**: Move from 4 hardcoded apps to arbitrary named adapters.
-- **Outcome**: Closed with official multi-verifier PASS; bootstrap, post-bootstrap, and proof capture now support additive custom adapters such as Open WebUI or Portkey without changing the core runtime architecture.
+- **Round 35: Adapter Flexibility (Closed 2026-04-10)**  
+  **Focus**: Identity/Token generalization across bootstrap and runtime.  
+  **Goal**: Move from 4 hardcoded apps to arbitrary named adapters.  
+  **Outcome**: Closed with official multi-verifier PASS; bootstrap, post-bootstrap, and proof capture now support additive custom adapters such as Open WebUI or Portkey without changing the core runtime architecture.
 
-### Round 36: Live Provider Registry (Closed 2026-04-11)
-- **Focus**: KV-backed Worker registry.
-- **Goal**: Move allowlist to Cloudflare KV.
-- **Outcome**: Closed with verification PASS. Provider validation now comes from a live Cloudflare KV registry, `--push-registry` republishes without a Worker redeploy, custom provider metadata persists in `/app/data/custom-providers.json`, and Worker-side hostname/provider validation remains fail-closed.
-
----
+- **Round 36: Live Provider Registry (Closed 2026-04-11)**  
+  **Focus**: KV-backed Worker registry.  
+  **Goal**: Move allowlist to Cloudflare KV.  
+  **Outcome**: Closed with verification PASS. Provider validation now comes from a live Cloudflare KV registry, `--push-registry` republishes without a Worker redeploy, custom provider metadata persists in `/app/data/custom-providers.json`, and Worker-side hostname/provider validation remains fail-closed.
 
 **Cross-round invariants**:
 - Split-decrypt boundary remains intact.
 - No durable decrypt power on operator-controlled hosts.
 - Worker-side hostname/provider validation must remain fail-closed.
 
-### Round 38: System Review (Closed 2026-04-11)
-- **Focus**: Documentation truth-alignment and bootstrap reliability.
-- **Goal**: Sync README.md, CLAUDE.md, and docker-compose.yml with current post-Round 36 architecture; triage wrangler secret race conditions.
-- **Outcome**: Closed with verification PASS. Public and operator docs now correctly describe the 13+ supported providers, the live KV registry model, and the subumbra-proxy sidecar. Bootstrap race condition identified as transient/environmental.
+- **Round 38: System Review (Closed 2026-04-11)**  
+  **Focus**: Documentation truth-alignment and bootstrap reliability.  
+  **Goal**: Sync README.md, CLAUDE.md, and docker-compose.yml with current post-Round 36 architecture; triage wrangler secret race conditions.  
+  **Outcome**: Closed with verification PASS. Public and operator docs now correctly describe the 13+ supported providers, the live KV registry model, and the subumbra-proxy sidecar. Bootstrap race condition identified as transient/environmental.
 
-### Round 39: POC Deployment Hardening (Closed 2026-04-11)
-- **Focus**: Deployment readiness for the current POC.
-- **Goal**: Add end-to-end Worker health visibility, clarify recovery/runbook paths, optionally tighten the localhost UI surface, and clean up the duplicate Round 38 entry.
-- **Outcome**: Closed with verification PASS. The dashboard now surfaces independent Worker reachability, README points operators to the authority-recovery runbook, optional minimal Basic Auth can protect the localhost UI, and the duplicate Round 38 status entry was removed.
+- **Round 39: POC Deployment Hardening (Closed 2026-04-11)**  
+  **Focus**: Deployment readiness for the current POC.  
+  **Goal**: Add end-to-end Worker health visibility, clarify recovery/runbook paths, optionally tighten the localhost UI surface, and clean up the duplicate Round 38 entry.  
+  **Outcome**: Closed with verification PASS. The dashboard now surfaces independent Worker reachability, README points operators to the authority-recovery runbook, optional minimal Basic Auth can protect the localhost UI, and the duplicate Round 38 status entry was removed.
 
 ## Recent Round Status
 
@@ -140,6 +138,7 @@ This arc focuses on evolving Subumbra from a static, bundled configuration into 
 - **Round 44-5-3 — Code Cleanup Scope-Lock Follow-Up** (Closed 2026-05-02): `handleSetupKeygen` now fails closed with a structured `503` when the setup vault binding is unavailable, Worker-local no-vault proof coverage exists, and the round-local verification hook proves unchanged auth/initialized behavior plus bootstrap-helper visibility of the terse JSON failure.
 - **Round 44-5-4 — Code Cleanup Final Prune/Archive Pass** (Closed 2026-05-02): `SubumbraVault` constructor degradation is now caught and surfaced as a structured `503`, Worker `/health` now reports stateless `vault_configured` readiness, and setup-keygen internal failures log fixed strings only. Live Cloudflare verification passed against the deployed Worker.
 - **Round 44-5-5 — Pre-R45 Operational Hardening** (Closed 2026-05-03): bootstrap now re-validates saved `kv-config.json` namespace IDs against the active Cloudflare account before falling back to the existing title-scan/create path, repo-local `.env` persists `SUBUMBRA_SETUP_TOKEN` for operator reference after bootstrap, and independent live-Cloudflare verification passed all four proof scenarios.
+- **Round 44-5-6 — Final Doc Compaction Pass** (Closed 2026-05-03): live council/status docs were compacted by moving six resolved cleanup sections into `council/archive/cleanup.md`, removing consumed Round 44.5/44.6 synthesis-marker ballast from `council/cleanup.md` and `PROJECT_STATUS.md`, and sanitizing `council/COUNCIL.md` for the post-44.5 archival state.
 
 ## Path Forward
 
@@ -154,50 +153,11 @@ Immediate follow-up sequence — targeting 0.0.1 Alpha:
    - `council/closed/round-44-3-cf-keygen-custody/` — closed 2026-05-01; CF-side key generation and custody landed in the SQLite-backed `SubumbraVault` DO while preserving offline no-restart rotation
    - `council/closed/round-44-4-bootstrap-docker-finalization/` — closed 2026-05-01; bootstrap is now host-wrapper driven, `post-bootstrap.sh` is retired, and Docker-only env finalization is the documented flow
    - Future high-priority follow-up: define backup/export/recovery policy for CF-generated vault keys before broader production-facing deployment claims
-3. **Round 44.5 cleanup continuation**
-   - `round-44-5-2` — follow-up code cleanup for the agreed non-blocking items from the Round 44.5 synthesis split
-   - `round-44-5-3` — investigation/disagreement cleanup round for the residual disputed items before the final prune/archive pass
-   - High-priority follow-up from `round-44-5-3`: restore the closed `round-44-5-2` clean-run Worker-deletion behavior on the current branch line before relying on fresh-proof cleanup semantics again
-   - High-priority follow-up from `round-44-5-4`: tighten env-authoritative Worker runtime state so `/opt/subumbra/.env` cannot silently drift to a stale `CF_WORKER_URL` or lose the setup-token value needed for live verification and recovery workflows
+3. **Round 44.5 cleanup arc** — Complete. Rounds 44-5-1 through 44-5-6 all
+   closed; see Recent Round Status above for per-round summaries.
 4. **Round 45 (Planned)** — Secure UI round. UI-based env ingestion, encrypted paste/input for browser security. See `council/round-45-secure-ui/`.
 
 Guiding note:
 - Language transitions from **POC** to **0.0.1 Alpha** as the Round 43 arc closes.
 - Prioritize deployment/testing readiness first, then the hardening needed for credible live testing, then real-app validation.
 - Treat broader universality as part of the hardening path, not as a post-validation cleanup step.
-
-## Round 44.5 Synthesis Markers
-
-> Round 44.5 synthesis: status anchors from this file were consumed by `council/round-44-5-code-cleanup/initial-synthesis.md`.
-
-- `PROJECT_STATUS.md:15-16` -> `R44.5-A3` as the source of truth for adapter-token credential plus `/t/<key_id>/...` contract cleanup.
-- `PROJECT_STATUS.md:64` and `PROJECT_STATUS.md:144-145` -> `R44.5-A6` for nonce-store hardening.
-- `PROJECT_STATUS.md:135-138` -> baseline used to mark older security-review and Cloudflare-private-key findings as superseded.
-- `PROJECT_STATUS.md:152` -> explicitly deferred from Round 44.5; backup/export/recovery policy for CF-generated vault keys needs a dedicated design round.
-
-## Round 44.5 Codex Synthesis Markers
-
-> Round 44.5 codex synthesis: status anchors from this file were re-used by `council/round-44-5-code-cleanup/codex-synthesis.md`.
-
-- `PROJECT_STATUS.md:15-16` -> `C2`.
-- `PROJECT_STATUS.md:64` and `PROJECT_STATUS.md:144-145` -> `C5`.
-- `PROJECT_STATUS.md:135-139` -> supersession baseline for `C3` and the excluded historical security/Cloudflare findings.
-- `PROJECT_STATUS.md:152` stays an explicit deferral outside the code-only cleanup synthesis.
-
-
-## Round 44.5 Claude Synthesis Markers
-
-> Round 44.5 claude synthesis: status anchors from this file were confirmed in `council/round-44-5-code-cleanup/claude-synthesis.md`.
-
-- `PROJECT_STATUS.md:15-16` -> `C2` (confirmed — adapter-token credential plus `/t/<key_id>/...` contract is the source of truth for C2 doc cleanup).
-- `PROJECT_STATUS.md:64` and `PROJECT_STATUS.md:144-145` -> `C5` (confirmed — nonce-store known limitation and hardening priority).
-- `PROJECT_STATUS.md:135-139` -> supersession baseline for `C3` and excluded historical security/Cloudflare findings.
-- `PROJECT_STATUS.md:152` -> explicitly deferred outside cleanup synthesis (backup/export/recovery policy for CF vault keys needs dedicated design round).
-
-## Round 44.6 Synthesis Markers
-
-> Round 44.6 documentation cleanup synthesis: status anchors from this file were consumed by `council/round-44-6-doc-cleanup/initial-synthesis.md`.
-
-- `PROJECT_STATUS.md:135-139` -> current vault-custody, adapter-token, and registry-name baseline for `R44.6-A1`, `R44.6-A2`, and `R44.6-B1` at `initial-synthesis.md:34`, `initial-synthesis.md:66`, and `initial-synthesis.md:174`.
-- `PROJECT_STATUS.md:139-159` -> `R44.6-B3` at `initial-synthesis.md:240` for reconciling Path Forward with already closed 44.5.x rounds.
-- `PROJECT_STATUS.md:155-159` -> `R44.6-B1` at `initial-synthesis.md:174` for developer/harness documentation follow-up.
