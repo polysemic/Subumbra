@@ -7,7 +7,7 @@
   <meta http-equiv="X-Content-Type-Options" content="nosniff">
   <title>Subumbra Dashboard</title>
   <link rel="stylesheet" href="template.css?v=3">
-  <link rel="stylesheet" href="main.css?v=3">
+  <link rel="stylesheet" href="main.css?v=4">
 </head>
 <body>
 
@@ -170,9 +170,20 @@
                      aria-describedby="akm-key-hint">
               <span class="secure-lock" aria-hidden="true">🔒</span>
             </div>
+            <div class="secure-warning" id="akm-sec-warning" role="alert">
+              <span class="secure-warning-icon">&#9888;</span>
+              <div>
+                <span class="secure-warning-msg"></span>
+                <div class="secure-warning-actions">
+                  <button class="secure-warning-dismiss" type="button"
+                    onclick="document.getElementById('akm-sec-warning').classList.remove('visible');document.getElementById('akm-submit').disabled=false;">I understand &mdash; proceed</button>
+                  <button class="secure-warning-dismiss" type="button"
+                    onclick="closeAddKeyModal()">Cancel</button>
+                </div>
+              </div>
+            </div>
             <p class="visually-hidden" id="akm-key-hint">
-              This field only accepts pasted values. Your key is encrypted by the browser
-              before it touches this page's DOM. The plaintext is never stored.
+              Paste only. Key encrypted before DOM write. Plaintext never stored.
             </p>
           </div>
 
@@ -267,6 +278,18 @@
                      autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
                      aria-describedby="rkm-key-hint">
               <span class="secure-lock" aria-hidden="true">🔒</span>
+            </div>
+            <div class="secure-warning" id="rkm-sec-warning" role="alert">
+              <span class="secure-warning-icon">&#9888;</span>
+              <div>
+                <span class="secure-warning-msg"></span>
+                <div class="secure-warning-actions">
+                  <button class="secure-warning-dismiss" type="button"
+                    onclick="document.getElementById('rkm-sec-warning').classList.remove('visible');document.getElementById('rkm-submit').disabled=false;">I understand &mdash; proceed</button>
+                  <button class="secure-warning-dismiss" type="button"
+                    onclick="closeRotateModal()">Cancel</button>
+                </div>
+              </div>
             </div>
             <p class="visually-hidden" id="rkm-key-hint">
               Paste only. The key is encrypted client-side before it touches the DOM.
