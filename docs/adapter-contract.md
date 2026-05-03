@@ -224,3 +224,240 @@ external apps.
 `litellm/custom_callbacks.py` remains in the repo as a legacy callback-era
 implementation reference, but it is no longer the current primary integration
 contract.
+
+---
+
+## R45 Policy Schema
+
+Starting in Round 45, each secret record is backed by a declarative policy
+document. The policy schema governs what the holder of a token is permitted to
+do with the record it unlocks. Bootstrap ingestion (R45-2) validates incoming
+policy documents; the Worker (R45-3 onward) enforces the allow block.
+
+### Protocols
+
+Two protocol values are supported:
+
+- `openai_compatible` — upstream implements the OpenAI chat/completions API shape
+- `http_rest` — upstream is a generic REST endpoint (not OpenAI-compatible)
+
+### Required Fields
+
+```json
+{
+  "key_id": "<string> — matches the subumbra-keys record key_id",
+  "policy_id": "<string> — stable identifier for this policy document",
+  "protocol": "openai_compatible | http_rest",
+  "capability_class": "<enum> — see Capability Class below",
+  "source": "env | import_path",
+  "target": {
+    "host": "<string> — exact FQDN, no wildcard, no scheme, no path",
+    "base_path": "<string, optional> — common prefix for all allowed paths"
+  },
+  "auth": {
+    "scheme": "bearer | basic | header | query"
+  },
+  "allow": {
+    "adapters": ["<adapter_id>", ...],
+    "methods": ["GET" | "POST" | "PUT" | "PATCH" | "DELETE", ...],
+    "path_prefixes": ["/<prefix>", ...],
+    "content_types": ["application/json", ...],
+    "max_body_bytes": <integer>
+  }
+}
+```
+
+Optional fields:
+
+```json
+{
+  "target": {
+    "base_path": "/v1"
+  },
+  "deny": {
+    "path_prefixes": ["/<prefix>", ...]
+  },
+  "intent": {},
+  "response": {},
+  "velocity": {}
+}
+```
+
+### Capability Class
+
+Required enum. Every policy must declare exactly one capability class.
+
+| Value | Intended use |
+|-------|-------------|
+| `llm` | Large language model inference |
+| `payments_read` | Payment platform read-only calls |
+| `payments_write` | Payment platform write calls (charges, refunds) |
+| `source_control_read` | Source control read (repos, issues, PRs) |
+| `source_control_write` | Source control write (commits, PRs, webhooks) |
+| `email_send` | Outbound email delivery |
+| `webhook_verify` | Inbound webhook signature verification |
+| `custom_rest` | Generic REST endpoint not covered by the above |
+
+`capability_class` is used as a vocabulary for audit output and future
+`intent.policy_match` enforcement. It must appear in the policy document even
+if not yet enforced at runtime.
+
+### Auth Schemes
+
+| Scheme | Behavior |
+|--------|----------|
+| `bearer` | `Authorization: Bearer <key>` |
+| `basic` | `Authorization: Basic base64(<key>:)` |
+| `header` | Custom header; header name specified as `auth.header_name` in the policy |
+| `query` | Query parameter; requires `auth.query_param` and `auth.allow_query: true` in the policy; see Query Auth Acknowledgement below |
+
+### Query Auth Acknowledgement
+
+`query` auth passes the decrypted key as a URL query parameter. This has
+elevated exposure risk (logs, referrer headers, browser history). A policy that
+uses `auth.scheme: "query"` must also include:
+
+```json
+"auth": {
+  "scheme": "query",
+  "query_param": "<param_name>",
+  "allow_query": true
+}
+```
+
+A policy with `auth.scheme: "query"` that omits `allow_query: true` is rejected
+at bootstrap ingestion.
+
+### Rejection Rules
+
+Bootstrap ingestion must reject any policy document that fails these rules.
+None of these can be overridden by any per-record configuration.
+
+| Rule | Reason |
+|------|--------|
+| `target.host` is `"*"` or contains `*` | Wildcard host defeats SSRF protection |
+| `allow.adapters` is empty or absent | No adapter can use the record |
+| `allow.methods` is empty or absent | No call can succeed |
+| `allow.path_prefixes` is empty or absent | No path can be called |
+| `allow.path_prefixes` contains `"/"` alone | Equivalent to allow all — rejected |
+| `allow.path_prefixes` contains `"*"` or `""` | Wildcard or empty prefix — rejected |
+| `auth.scheme: "query"` without `allow_query: true` | Query auth requires explicit opt-in |
+
+### Reserved Blocks (Not Yet Enforced)
+
+The `intent`, `response`, and `velocity` blocks are reserved in the schema. They
+must parse without error if present, but they are not acted upon until later
+rounds (R46-1 for intent and response enforcement).
+
+```json
+"intent": {
+  "policy_match": "<pattern or null>",
+  "trust": {
+    "allowed_initiators": ["user", "agent", "schedule"],
+    "allowed_content_sources": ["direct", "retrieved", "injected"]
+  }
+},
+"response": {
+  "deny_patterns": ["<pattern>", ...]
+},
+"velocity": {}
+```
+
+#### Safe Pattern Vocabulary
+
+`intent.policy_match` and `response.deny_patterns` accept string patterns.
+These patterns are validated at bootstrap ingestion. Patterns outside the safe
+vocabulary are rejected before the record is written.
+
+**Allowed:**
+- Anchored literal equality: `^exact-string$`
+- Anchored bounded alternation: `^(value1|value2|value3)$` — the alternation
+  must be the entire pattern (anchored both ends); each alternative must be a
+  literal string with no metacharacters
+
+**Forbidden (rejected at ingestion):**
+- Unbounded quantifiers: `.*`, `.+`, `\w+`, `\d+`, `[^...]+` — ReDoS risk
+- Unanchored patterns (no leading `^` or trailing `$`)
+- Lookaheads or lookbehinds
+- Backreferences
+- Nested groups
+- Any character class with unbounded repetition
+
+### V3 Record and AAD Construction
+
+Starting in R45-3, new records use V3 format. The V3 AAD binds the ciphertext
+to both the record identity and the policy in effect at encryption time:
+
+```
+AAD = "subumbra:v3:<key_id>:<policy_hash>"
+```
+
+Where:
+- `key_id` is the record's `key_id` string
+- `policy_hash` is the lowercase hex SHA-256 digest of the canonical JSON policy
+  bytes: UTF-8 encoded, object keys sorted lexicographically, no trailing
+  newline
+
+V3 record fields (additions to V2):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `enc_version` | number | `3` for V3 records |
+| `policy_id` | string | The `policy_id` from the backing policy document |
+| `policy_hash` | string | `sha256:<hex>` — SHA-256 of the canonical policy bytes |
+
+V2 records (`enc_version: 2`) continue to be accepted through R45-4 with no
+policy enforcement. They are rejected with a structured deprecation error starting
+in R45-5.
+
+### Policy Starter Templates
+
+#### Minimal `openai_compatible` template
+
+```json
+{
+  "key_id": "REPLACE_WITH_KEY_ID",
+  "policy_id": "REPLACE_WITH_POLICY_ID",
+  "protocol": "openai_compatible",
+  "capability_class": "llm",
+  "source": "env",
+  "target": {
+    "host": "REPLACE_WITH_PROVIDER_HOST"
+  },
+  "auth": {
+    "scheme": "bearer"
+  },
+  "allow": {
+    "adapters": ["subumbra-proxy"],
+    "methods": ["POST"],
+    "path_prefixes": ["/v1/chat/completions"],
+    "content_types": ["application/json"],
+    "max_body_bytes": 1048576
+  }
+}
+```
+
+#### Minimal `http_rest` template
+
+```json
+{
+  "key_id": "REPLACE_WITH_KEY_ID",
+  "policy_id": "REPLACE_WITH_POLICY_ID",
+  "protocol": "http_rest",
+  "capability_class": "custom_rest",
+  "source": "env",
+  "target": {
+    "host": "REPLACE_WITH_HOST"
+  },
+  "auth": {
+    "scheme": "bearer"
+  },
+  "allow": {
+    "adapters": ["subumbra-proxy"],
+    "methods": ["GET", "POST"],
+    "path_prefixes": ["/REPLACE_WITH_BASE_PATH"],
+    "content_types": ["application/json"],
+    "max_body_bytes": 524288
+  }
+}
+```

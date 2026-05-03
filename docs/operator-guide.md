@@ -321,3 +321,33 @@ Notes:
 - JSON-only request bodies currently supported
 - AI provider keys are not available on the transparent route unless scoped into
   `subumbra-proxy` during bootstrap
+
+---
+
+## R45 Structured KV Key Shape
+
+Starting in R45-3, the Cloudflare KV namespace uses structured keys in place of
+the single `subumbra_registry_v1` blob.
+
+### Key Shape
+
+| Key pattern | Value | Description |
+|-------------|-------|-------------|
+| `policy:<policy_id>` | JSON policy object | Declarative policy for one record |
+| `key:<key_id>` | JSON key record (V3 format) | Encrypted record metadata |
+| `template:<name>` | JSON policy template | Reusable policy template |
+| `registry_version` | String | Current schema version; read by the Worker on startup |
+
+### Migration Path
+
+The current `subumbra_registry_v1` blob (a host-indexed JSON array) is the
+pre-R45 storage shape. It remains the live runtime format until R45-3 migrates
+bootstrap and the Worker to structured keys. During the R45 arc:
+
+- R45-1 (this round): defines and locks the structured key shape above
+- R45-2: bootstrap reads/validates against the new policy shape but does not
+  yet write structured keys
+- R45-3: bootstrap publishes to structured KV; Worker reads structured keys;
+  `subumbra_registry_v1` is retired
+
+Do not create or depend on the new structured keys until R45-3 is complete.
