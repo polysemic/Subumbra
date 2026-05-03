@@ -72,7 +72,7 @@ subumbra/
 │   ├── app.py                   ← FastAPI; secure transparent /t route; /health worker_auth
 │   └── requirements.txt
 │
-├── subumbra-probe/              ← dedicated second-adapter proof container
+├── subumbra-probe/              ← optional diagnostic proof container
 │   ├── Dockerfile
 │   ├── probe.py
 │   └── requirements.txt
@@ -119,7 +119,7 @@ subumbra/
    `./bootstrap.sh`
    For CI/automation: create `.env.bootstrap` first, then run the same wrapper.
    App-owned imports use `IMPORT_PATH_<n>` plus required `IMPORT_APP_LABEL_<n>`.
-3. Bootstrap container:
+2. Bootstrap container:
    - Reads keys from env (RAM only)
    - Loads built-in provider `target_host` mappings and derives built-in `KNOWN_PROVIDERS` from `worker/src/providers.json`
    - Creates or reuses the provider-registry KV namespace and persists its namespace ID in `/app/data/kv-config.json`
@@ -131,11 +131,11 @@ subumbra/
    - For each key: generates random 32-byte DEK, wraps DEK with the returned RSA public key, encrypts API key with AES-256-GCM using AAD `subumbra:v2:<key_id>`
    - Writes V2 records (ciphertext + wrapped_dek + pub_key_fp + enc_version) to subumbra-keys volume
    - Writes `public_key.pem` to data volume (for offline rotation)
-   - Publishes the initial `provider_registry_v1` entry to Cloudflare KV
+   - Publishes the initial `subumbra_registry_v1` entry to Cloudflare KV
    - Deletes transient `SUBUMBRA_SETUP_TOKEN` and legacy `MASTER_DECRYPTION_KEY` / `WORKER_PRIVATE_KEY` / `WORKER_KEY_FINGERPRINT` secrets
    - Exits
-4. `bootstrap.sh` writes runtime env values directly into repo-local `.env` and shreds `.env.bootstrap` after success
-5. Real keys existed only in RAM, never written to disk
+3. `bootstrap.sh` writes runtime env values directly into repo-local `.env` and shreds `.env.bootstrap` after success
+4. Real keys existed only in RAM, never written to disk
 
 ### Per-Key Rotation (offline)
 - Run: `docker compose --profile bootstrap run --rm bootstrap --rotate`

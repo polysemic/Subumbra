@@ -139,6 +139,7 @@ This arc focuses on evolving Subumbra from a static, bundled configuration into 
 - **Round 44-5-4 — Code Cleanup Final Prune/Archive Pass** (Closed 2026-05-02): `SubumbraVault` constructor degradation is now caught and surfaced as a structured `503`, Worker `/health` now reports stateless `vault_configured` readiness, and setup-keygen internal failures log fixed strings only. Live Cloudflare verification passed against the deployed Worker.
 - **Round 44-5-5 — Pre-R45 Operational Hardening** (Closed 2026-05-03): bootstrap now re-validates saved `kv-config.json` namespace IDs against the active Cloudflare account before falling back to the existing title-scan/create path, repo-local `.env` persists `SUBUMBRA_SETUP_TOKEN` for operator reference after bootstrap, and independent live-Cloudflare verification passed all four proof scenarios.
 - **Round 44-5-6 — Final Doc Compaction Pass** (Closed 2026-05-03): live council/status docs were compacted by moving six resolved cleanup sections into `council/archive/cleanup.md`, removing consumed Round 44.5/44.6 synthesis-marker ballast from `council/cleanup.md` and `PROJECT_STATUS.md`, and sanitizing `council/COUNCIL.md` for the post-44.5 archival state.
+- **Round 44-6 — Doc Cleanup** (Closed 2026-05-03): release-facing docs now reflect the adapter-token + `SubumbraVault` contract across the website, `CLAUDE.md`, install/operator guides, and harness docs; the misleading testbed shredding claim and the Cerebras example mismatch were also corrected.
 
 ## Path Forward
 
