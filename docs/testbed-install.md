@@ -555,7 +555,8 @@ When you run Subumbra bootstrap, it will:
 
 1. Read `/opt/litellm/.env` (or you paste keys into the wizard)
 2. Encrypt each key into a Subumbra record
-3. Shred the raw values from the source `.env`
+3. Shred only the temporary `.env.bootstrap` input file after bootstrap; the
+   source app `.env` is read for import but not modified or shredded by Subumbra
 4. Write runtime tokens to `/opt/subumbra/.env`
 
 Then the apps are re-pointed:
@@ -566,7 +567,8 @@ Then the apps are re-pointed:
 | OpenWebUI | `OPENAI_API_BASE_URL=https://api.openai.com/v1` | `OPENAI_API_BASE_URL=http://subumbra-proxy:8090/t/openai_prod/v1` |
 | N8N | Credentials stored in N8N DB | HTTP/node base URL carries `<key_id>` in the path and uses the n8n adapter token |
 
-The apps continue working identically. The keys are gone.
+The apps continue working identically. The plaintext provider keys are no longer
+needed in the app-owned path after the Subumbra cutover.
 
 ---
 

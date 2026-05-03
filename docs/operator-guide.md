@@ -29,7 +29,7 @@ Expected visibility window:
 Run the interactive bootstrap wizard:
 
 ```bash
-docker compose --profile bootstrap run --rm -it bootstrap
+./bootstrap.sh
 ```
 
 For a custom provider, the wizard now collects:
@@ -261,7 +261,7 @@ Important routing note:
 ### Cloudflare Decisions For Now
 
 - keep the current single KV namespace design
-- keep the single `provider_registry_v1` object
+- keep the single `subumbra_registry_v1` object
 - do **not** split provider registry KV by provider
 - do **not** enable tracing by default
 - do **not** enable verbose invocation logs by default
