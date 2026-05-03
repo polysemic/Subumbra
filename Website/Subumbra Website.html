@@ -1219,7 +1219,7 @@
           <div class="arch-box">
             <div class="arch-box-label">Your application</div>
             <div class="arch-box-name">LiteLLM · OpenWebUI · AnythingLLM · LibreChat · any app</div>
-            <div class="arch-box-sub">Uses a plain key_id · proxy enforces per-adapter key scoping</div>
+            <div class="arch-box-sub">Uses an adapter token · carries key_id in the /t/... path</div>
           </div>
 
           <!-- Arrow: App → proxy → encrypted record fetch -->
@@ -1252,7 +1252,7 @@
                 <div class="arch-box-name">Policy gate &amp; verifier</div>
                 <div class="arch-box-sub">Validates adapter scope · provider host · key fingerprint</div>
                 <div class="arch-tags">
-                  <span class="arch-tag tag-cyan">private key in CF Secrets</span>
+                  <span class="arch-tag tag-cyan">private key in SubumbraVault DO</span>
                 </div>
                 <div class="arch-audit">✓ every call logged to audit</div>
               </div>
@@ -1328,44 +1328,6 @@
     <div class="wrap">
       <div class="section-head">
         <p class="section-label">How it works</p>
-        <h2 class="section-title">One bootstrap. Zero plaintext — ever.</h2>
-        <p class="section-body">
-          A one-shot setup encrypts your keys and deploys the decryption
-          authority to Cloudflare. After that, your servers only ever hold useless ciphertext.
-        </p>
-      </div>
-      <div class="how-grid">
-        <div class="how-step">
-          <div class="how-step-num">01 / Bootstrap</div>
-          <div class="how-step-title">Keys enter RAM only</div>
-          <div class="how-step-body">Run the interactive wizard. Your API keys exist only in process memory — never
-            written to disk at any point.</div>
-          <div class="how-step-code">docker compose --profile bootstrap<br>run --rm -it bootstrap</div>
-        </div>
-        <div class="how-step">
-          <div class="how-step-num">02 / Encrypt</div>
-          <div class="how-step-title">RSA-4096 + AES-256-GCM</div>
-          <div class="how-step-body">Each key gets a unique DEK wrapped by an RSA-4096 public key. AAD binding ties each
-            ciphertext to its key ID — transplant attacks fail.</div>
-          <div class="how-step-code">subumbra:v2:&lt;key_id&gt;<br>AES-256-GCM · OAEP-SHA256</div>
-        </div>
-        <div class="how-step">
-          <div class="how-step-num">03 / Split</div>
-          <div class="how-step-title">Vault custody lives in Cloudflare</div>
-          <div class="how-step-body">A Cloudflare Durable Object generates and stores the private key material. Your
-            VPS keeps ciphertext and the exported public key only.</div>
-          <div class="how-step-code">SubumbraVault → CF DO storage<br>public_key.pem → your volume</div>
-        </div>
-        <div class="how-step">
-          <div class="how-step-num">04 / Proxy</div>
-          <div class="how-step-title">Apps use adapter tokens</div>
-          <div class="how-step-body">Apps point at subumbra-proxy with the key_id in the path and an adapter token in
-            the auth slot. The vault decrypts inside Cloudflare, calls the provider, and the key is gone.</div>
-          <div class="how-step-code">api_base: http://subumbra-proxy/t/anthropic_prod<br>api_key: ${SUBUMBRA_TOKEN_APP}</div>
-        </div>
-      </div>
-      <div class="section-head">
-        <p class="section-label">How it works</p>
         <h2 class="section-title">One bootstrap. Encrypt All Your Secrets at Once</h2>
         <p class="section-body">
           A one-shot setup encrypts your keys and deploys the decryption
@@ -1376,9 +1338,9 @@
         <div class="how-step">
           <div class="how-step-num">01 / Bootstrap</div>
           <div class="how-step-title">Encrypt Your Current Secrets</div>
-          <div class="how-step-body">Run the interactive wizard. Your API keys are encrypted directly into Subumbra. All
-            your files, one easy process.</div>
-          <div class="how-step-code">docker compose --profile bootstrap<br>run --rm -it bootstrap</div>
+          <div class="how-step-body">Run the bootstrap wrapper. Your API keys are encrypted directly into Subumbra, and
+            the setup flow keeps the plaintext path in memory only.</div>
+          <div class="how-step-code">./bootstrap.sh</div>
         </div>
         <div class="how-step">
           <div class="how-step-num">02 / Encrypt</div>
@@ -1398,8 +1360,8 @@
           <div class="how-step-num">04 / Proxy</div>
           <div class="how-step-title">Apps use adapter tokens</div>
           <div class="how-step-body">Apps point at subumbra-proxy with the key_id in the path and an adapter token in
-            the auth slot. The vault decrypts inside Cloudflare, calls the provider, and the key is gone.</div>
-          <div class="how-step-code">api_base: http://subumbra-proxy/t/anthropic_prod<br>api_key: ${SUBUMBRA_TOKEN_APP}</div>
+            the auth slot. The vault decrypts inside Cloudflare, calls the provider, and releases the key from DO memory after the request.</div>
+          <div class="how-step-code">api_base: http://subumbra-proxy:8090/t/anthropic_prod<br>api_key: ${SUBUMBRA_TOKEN_APP}</div>
         </div>
       </div>
     </div>
@@ -1480,7 +1442,7 @@
           <li class="security-item">
             <div class="security-check">✓</div>
             <div>
-              <div class="security-item-title">Private key lives only in Cloudflare Secrets</div>
+              <div class="security-item-title">Private key stays in SubumbraVault DO custody</div>
               <div class="security-item-body">Your VPS holds encrypted blobs — useless without the private key. Neither
                 side alone is enough.</div>
             </div>
@@ -1490,7 +1452,7 @@
             <div>
               <div class="security-item-title">Durable Object: one-time decrypt, ~100ms</div>
               <div class="security-item-body">Decryption happens in an isolated CF Durable Object. The key is used to
-                call the provider and immediately destroyed. Every call is logged.</div>
+                call the provider and then released from DO memory. Every call is logged.</div>
             </div>
           </li>
           <li class="security-item">
@@ -1558,7 +1520,7 @@
           <a href="/docs" class="btn-secondary">Read the docs</a>
         </div>
         <div>
-          <span class="cta-mono">docker compose --profile bootstrap run --rm -it bootstrap</span>
+          <span class="cta-mono">./bootstrap.sh</span>
         </div>
       </div>
     </div>

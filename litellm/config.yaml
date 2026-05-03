@@ -82,7 +82,7 @@ model_list:
       api_key: ${SUBUMBRA_TOKEN_LITELLM}
 
   # ── Cerebras ───────────────────────────────────────────────────────────────
-  - model_name: cerebras-llama-3.3-70b
+  - model_name: cerebras-llama3.1-8b
     litellm_params:
       model: cerebras/llama3.1-8b
       api_base: http://subumbra-proxy:8090/t/cerebras_prod/v1

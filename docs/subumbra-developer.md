@@ -100,7 +100,9 @@ style directories across verifiers.
 ### If bootstrap files or harness files are missing on the VPS
 
 If a full smoke test requires live bootstrap inputs or the council harness is
-not present in the VPS checkout, use `scp` deliberately and document it:
+not present in the VPS checkout, use `scp` deliberately and document it. This
+is also the normal way to provide a round-local `council/<round>/verify-round.sh`
+hook on the VPS, because `council/` remains local-only and is not committed:
 
 ```bash
 scp .env.bootstrap_bak subumbra:/tmp/
@@ -233,7 +235,6 @@ This is the "do not waste the verifier's time" gate.
 Run a local clean run before push when the round changes any of:
 
 - `bootstrap/`
-- `post-bootstrap.sh`
 - `scripts/council/reset.sh`
 - `scripts/council/verify.sh`
 - `scripts/council/clean-run.sh`
@@ -318,13 +319,13 @@ Then bootstrap fresh (section 4 above).
 
 > **Cloudflare state is NOT wiped by this reset.**
 >
-> - The CF Worker, CF Secrets, and the KV namespace remain in your Cloudflare
+> - The CF Worker, the SubumbraVault custody state, and the KV namespace remain in your Cloudflare
 >   account.
-> - KV *content* (`provider_registry_v1`) is completely overwritten on every
+> - KV *content* (`subumbra_registry_v1`) is completely overwritten on every
 >   bootstrap run — no leftovers from a previous set of keys.
-> - Bootstrap always generates a fresh RSA key pair and pushes new CF Secrets,
->   so old ciphertext blobs from a wiped volume are unrecoverable by the new
->   Worker anyway.
+> - Bootstrap calls one-shot `/setup/keygen` so Cloudflare generates and retains
+>   the active RSA key pair inside `SubumbraVault`; old ciphertext blobs from a
+>   wiped volume are unrecoverable by a newly initialized vault state anyway.
 >
 > **Edge case:** if you delete the KV namespace in the CF dashboard without
 > wiping the volume, bootstrap now re-checks the saved `kv-config.json`
