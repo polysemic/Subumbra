@@ -7,6 +7,7 @@ import re
 import secrets
 import sys
 import time
+from urllib.parse import urlsplit
 from typing import Any, Optional
 
 import httpx
@@ -237,6 +238,14 @@ def build_transparent_target_url(target_host: str, path: str, query: str) -> str
     return target_url
 
 
+def derive_log_safe_target(target_url: str) -> tuple[str, str]:
+    parts = urlsplit(target_url)
+    target_path = parts.path or "/"
+    if not target_path.startswith("/"):
+        target_path = "/" + target_path
+    return parts.netloc, target_path
+
+
 def split_secure_path(path: str) -> tuple[str | None, str]:
     clean = path.lstrip("/")
     if not clean:
@@ -256,7 +265,15 @@ async def proxy_via_worker(
     adapter_id: str | None = None,
     record: dict | None = None,
 ) -> Response:
-    LOG.info("request adapter=%s key_id=%s method=%s target_url=%s", adapter_id, key_id, method, target_url)
+    target_host, target_path = derive_log_safe_target(target_url)
+    LOG.info(
+        "request adapter=%s key_id=%s method=%s target_host=%s target_path=%s",
+        adapter_id,
+        key_id,
+        method,
+        target_host,
+        target_path,
+    )
 
     if record is None:
         try:

@@ -59,11 +59,12 @@ import tempfile
 import textwrap
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from base64 import b64encode
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import NoReturn
+from typing import Any, NoReturn
 
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives import hashes, serialization
@@ -96,6 +97,7 @@ DATA_DIR        = Path(os.environ.get("DATA_DIR", "/app/data"))
 KEYS_FILE       = DATA_DIR / "keys.json"
 RUNTIME_ENV_OUT = DATA_DIR / "runtime.env"
 PUBLIC_KEY_FILE = DATA_DIR / "public_key.pem"
+SYSTEM_INTEGRITY_FILE = DATA_DIR / "system-integrity.json"
 HOST_ENV_FILE   = Path("/app/host-env")
 WORKER_SRC      = Path("/app/worker")
 CUSTOM_PROVIDER_REGISTRY_FILE = DATA_DIR / "custom-providers.json"
@@ -249,6 +251,317 @@ IMPORT_EXCLUSION_LIST: frozenset[str] = frozenset({
     "SECRET_KEY",
     "JWT_SECRET",
 })
+
+POLICY_PROTOCOLS = {"openai_compatible", "http_rest"}
+POLICY_CAPABILITY_CLASSES = {
+    "llm",
+    "payments_read",
+    "payments_write",
+    "source_control_read",
+    "source_control_write",
+    "email_send",
+    "webhook_verify",
+    "custom_rest",
+}
+POLICY_SOURCES = {"env", "import_path"}
+POLICY_AUTH_SCHEMES = {"bearer", "basic", "header", "query"}
+POLICY_ALLOWED_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE"}
+NON_LLM_BUILTIN_PROVIDERS = {"slack", "sendgrid"}
+OPENAI_COMPATIBLE_BUILTIN_PROVIDERS = {
+    "openai",
+    "groq",
+    "deepseek",
+    "cerebras",
+    "gemini",
+    "mistral",
+    "openrouter",
+    "together",
+    "xai",
+    "github",
+}
+
+
+def _load_policy_path_from_env() -> str:
+    return os.environ.get("SUBUMBRA_POLICY_PATH", "").strip()
+
+
+def _policy_die(source: str, message: str) -> NoReturn:
+    die(f"{source}: {message}")
+
+
+def _policy_require_string(
+    value: Any,
+    source: str,
+    field_name: str,
+    *,
+    allow_empty: bool = False,
+) -> str:
+    if not isinstance(value, str):
+        _policy_die(source, f"{field_name} must be a string")
+    if not allow_empty and not value:
+        _policy_die(source, f"{field_name} must be a non-empty string")
+    return value
+
+
+def _is_safe_literal_pattern(body: str) -> bool:
+    if not body:
+        return False
+    return re.fullmatch(r"[A-Za-z0-9_./:@%+=, -]+", body) is not None
+
+
+def _validate_safe_pattern(value: Any, source: str, field_name: str) -> None:
+    if not isinstance(value, str):
+        _policy_die(source, f"{field_name} must be a string")
+    if not (value.startswith("^") and value.endswith("$")):
+        _policy_die(source, f"{field_name} must be anchored with ^...$")
+    body = value[1:-1]
+    if _is_safe_literal_pattern(body):
+        return
+    if body.startswith("(") and body.endswith(")") and body.count("(") == 1 and body.count(")") == 1:
+        alternatives = body[1:-1].split("|")
+        if len(alternatives) >= 2 and all(_is_safe_literal_pattern(item) for item in alternatives):
+            return
+    _policy_die(source, f"{field_name} uses a pattern outside the safe vocabulary")
+
+
+def _normalize_policy_doc(doc: dict[str, Any], source: str) -> dict[str, Any]:
+    required_top = {"key_id", "policy_id", "protocol", "capability_class", "source", "target", "auth", "allow"}
+    missing = sorted(required_top - doc.keys())
+    if missing:
+        _policy_die(source, f"missing required field(s): {', '.join(missing)}")
+
+    key_id = _policy_require_string(doc.get("key_id"), source, "key_id")
+    if not KEY_ID_RE.fullmatch(key_id):
+        _policy_die(source, f"key_id {key_id!r} is invalid")
+
+    policy_id = _policy_require_string(doc.get("policy_id"), source, "policy_id")
+    protocol = _policy_require_string(doc.get("protocol"), source, "protocol")
+    if protocol not in POLICY_PROTOCOLS:
+        _policy_die(source, f"protocol {protocol!r} is invalid")
+
+    capability_class = _policy_require_string(doc.get("capability_class"), source, "capability_class")
+    if capability_class not in POLICY_CAPABILITY_CLASSES:
+        _policy_die(source, f"capability_class {capability_class!r} is invalid")
+
+    policy_source = _policy_require_string(doc.get("source"), source, "source")
+    if policy_source not in POLICY_SOURCES:
+        _policy_die(source, f"source {policy_source!r} is invalid")
+
+    target = doc.get("target")
+    if not isinstance(target, dict):
+        _policy_die(source, "target must be an object")
+    target_host = _policy_require_string(target.get("host"), source, "target.host")
+    if target_host == "*" or "*" in target_host:
+        _policy_die(source, "target.host cannot contain wildcard '*'")
+    parsed_host = urllib.parse.urlsplit(target_host)
+    if parsed_host.scheme or parsed_host.netloc or "/" in target_host or "?" in target_host or "#" in target_host:
+        _policy_die(source, "target.host must be an exact host with no scheme, path, query, or fragment")
+    if not re.fullmatch(r"[A-Za-z0-9.-]+", target_host):
+        _policy_die(source, f"target.host {target_host!r} is invalid")
+
+    base_path = target.get("base_path")
+    if base_path is not None:
+        base_path = _policy_require_string(base_path, source, "target.base_path")
+        if not base_path.startswith("/"):
+            _policy_die(source, "target.base_path must start with '/'")
+
+    auth = doc.get("auth")
+    if not isinstance(auth, dict):
+        _policy_die(source, "auth must be an object")
+    auth_scheme = _policy_require_string(auth.get("scheme"), source, "auth.scheme")
+    if auth_scheme not in POLICY_AUTH_SCHEMES:
+        _policy_die(source, f"auth.scheme {auth_scheme!r} is invalid")
+    if auth_scheme == "header":
+        _policy_require_string(auth.get("header_name"), source, "auth.header_name")
+    if auth_scheme == "query":
+        _policy_require_string(auth.get("query_param"), source, "auth.query_param")
+        if auth.get("allow_query") is not True:
+            _policy_die(source, "auth.scheme 'query' requires auth.allow_query: true")
+
+    allow = doc.get("allow")
+    if not isinstance(allow, dict):
+        _policy_die(source, "allow must be an object")
+    adapters = allow.get("adapters")
+    if not isinstance(adapters, list) or not adapters:
+        _policy_die(source, "allow.adapters must be a non-empty array")
+    for idx, adapter in enumerate(adapters):
+        adapter = _policy_require_string(adapter, source, f"allow.adapters[{idx}]")
+        if not ADAPTER_ID_RE.fullmatch(adapter):
+            _policy_die(source, f"allow.adapters[{idx}] {adapter!r} is invalid")
+    methods = allow.get("methods")
+    if not isinstance(methods, list) or not methods:
+        _policy_die(source, "allow.methods must be a non-empty array")
+    for idx, method in enumerate(methods):
+        method = _policy_require_string(method, source, f"allow.methods[{idx}]")
+        if method not in POLICY_ALLOWED_METHODS:
+            _policy_die(source, f"allow.methods[{idx}] {method!r} is invalid")
+    path_prefixes = allow.get("path_prefixes")
+    if not isinstance(path_prefixes, list) or not path_prefixes:
+        _policy_die(source, "allow.path_prefixes must be a non-empty array")
+    for idx, path_prefix in enumerate(path_prefixes):
+        path_prefix = _policy_require_string(path_prefix, source, f"allow.path_prefixes[{idx}]")
+        if path_prefix in {"", "*", "/"}:
+            _policy_die(source, f"allow.path_prefixes[{idx}] {path_prefix!r} is rejected")
+        if "*" in path_prefix:
+            _policy_die(source, f"allow.path_prefixes[{idx}] cannot contain '*'")
+        if not path_prefix.startswith("/"):
+            _policy_die(source, f"allow.path_prefixes[{idx}] must start with '/'")
+    content_types = allow.get("content_types")
+    if not isinstance(content_types, list) or not content_types:
+        _policy_die(source, "allow.content_types must be a non-empty array")
+    for idx, content_type in enumerate(content_types):
+        _policy_require_string(content_type, source, f"allow.content_types[{idx}]")
+    max_body_bytes = allow.get("max_body_bytes")
+    if not isinstance(max_body_bytes, int) or isinstance(max_body_bytes, bool) or max_body_bytes <= 0:
+        _policy_die(source, "allow.max_body_bytes must be a positive integer")
+
+    deny = doc.get("deny")
+    if deny is not None:
+        if not isinstance(deny, dict):
+            _policy_die(source, "deny must be an object")
+        deny_prefixes = deny.get("path_prefixes")
+        if deny_prefixes is not None:
+            if not isinstance(deny_prefixes, list):
+                _policy_die(source, "deny.path_prefixes must be an array")
+            for idx, path_prefix in enumerate(deny_prefixes):
+                path_prefix = _policy_require_string(path_prefix, source, f"deny.path_prefixes[{idx}]")
+                if not path_prefix.startswith("/"):
+                    _policy_die(source, f"deny.path_prefixes[{idx}] must start with '/'")
+
+    intent = doc.get("intent")
+    if intent is not None:
+        if not isinstance(intent, dict):
+            _policy_die(source, "intent must be an object")
+        policy_match = intent.get("policy_match")
+        if policy_match is not None:
+            _validate_safe_pattern(policy_match, source, "intent.policy_match")
+        trust = intent.get("trust")
+        if trust is not None and not isinstance(trust, dict):
+            _policy_die(source, "intent.trust must be an object")
+
+    response = doc.get("response")
+    if response is not None:
+        if not isinstance(response, dict):
+            _policy_die(source, "response must be an object")
+        deny_patterns = response.get("deny_patterns")
+        if deny_patterns is not None:
+            if not isinstance(deny_patterns, list):
+                _policy_die(source, "response.deny_patterns must be an array")
+            for idx, pattern in enumerate(deny_patterns):
+                _validate_safe_pattern(pattern, source, f"response.deny_patterns[{idx}]")
+
+    velocity = doc.get("velocity")
+    if velocity is not None and not isinstance(velocity, dict):
+        _policy_die(source, "velocity must be an object")
+
+    return doc
+
+
+def _load_policy_index() -> dict[str, dict[str, Any]]:
+    policy_path = _load_policy_path_from_env()
+    if not policy_path:
+        return {}
+    try:
+        with open(policy_path, "r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+    except OSError as exc:
+        die(f"SUBUMBRA_POLICY_PATH unreadable: {exc}")
+    except json.JSONDecodeError as exc:
+        die(f"SUBUMBRA_POLICY_PATH invalid JSON: {exc}")
+    if not isinstance(payload, list):
+        die("SUBUMBRA_POLICY_PATH must contain a top-level JSON array")
+    index: dict[str, dict[str, Any]] = {}
+    for idx, item in enumerate(payload):
+        source = f"SUBUMBRA_POLICY_PATH[{idx}]"
+        if not isinstance(item, dict):
+            _policy_die(source, "policy document must be an object")
+        normalized = _normalize_policy_doc(item, source)
+        key_id = normalized["key_id"]
+        if key_id in index:
+            die(f"SUBUMBRA_POLICY_PATH duplicate key_id {key_id!r}")
+        index[key_id] = normalized
+    return index
+
+
+def _auth_scheme_from_provider_entry(provider_entry: dict[str, str]) -> str:
+    auth_header = provider_entry["auth_header"].lower()
+    auth_prefix = provider_entry["auth_prefix"]
+    if auth_header == "authorization" and auth_prefix == "Bearer ":
+        return "bearer"
+    if auth_header == "authorization" and auth_prefix == "Basic ":
+        return "basic"
+    return "header"
+
+
+def _synthesize_builtin_policy(key_id: str, provider: str) -> dict[str, Any] | None:
+    if provider not in BUILTIN_PROVIDER_BY_ID:
+        return None
+    provider_entry = BUILTIN_PROVIDER_BY_ID[provider]
+    capability_class = "custom_rest" if provider in NON_LLM_BUILTIN_PROVIDERS else "llm"
+    protocol = "openai_compatible" if provider in OPENAI_COMPATIBLE_BUILTIN_PROVIDERS else "http_rest"
+    auth: dict[str, Any] = {"scheme": _auth_scheme_from_provider_entry(provider_entry)}
+    if auth["scheme"] == "header":
+        auth["header_name"] = provider_entry["auth_header"]
+    return {
+        "key_id": key_id,
+        "policy_id": f"auto-compat-{key_id}",
+        "protocol": protocol,
+        "capability_class": capability_class,
+        "source": "env",
+        "target": {"host": provider_entry["target_host"]},
+        "auth": auth,
+        "allow": {
+            "adapters": ["subumbra-proxy"],
+            "methods": ["POST"],
+            "path_prefixes": [provider_entry.get("api_base_path") or "/v1/chat/completions"],
+            "content_types": ["application/json"],
+            "max_body_bytes": 1048576,
+        },
+    }
+
+
+def _resolve_policy_for_direct_secret(key_id: str, provider: str, policy_index: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    policy = policy_index.get(key_id)
+    if policy is not None:
+        if policy.get("source") != "env":
+            _automation_fail(
+                f"Automation mode: key_id {key_id} policy source must be 'env' for direct secret ingestion"
+            )
+        return policy
+    synthesized = _synthesize_builtin_policy(key_id, provider)
+    if synthesized is not None:
+        return synthesized
+    _automation_fail(
+        f"Automation mode: refusing policy-less secret for key_id {key_id} provider {provider}"
+    )
+
+
+def _require_import_policy(key_id: str, policy_index: dict[str, dict[str, Any]], import_path: str) -> dict[str, Any]:
+    policy = policy_index.get(key_id)
+    if policy is None or policy.get("source") != "import_path":
+        _automation_fail(
+            f"Automation mode: import path {import_path} requires matching policy with source 'import_path' for key_id {key_id}"
+        )
+    return policy
+
+
+def _write_system_integrity(worker_name: str, worker_url: str, bundle_sha256: str) -> None:
+    # scripts/subumbra-verify-deploy reports integrity drift detected on mismatch.
+    payload = {
+        "worker_name": worker_name,
+        "worker_url": worker_url,
+        "bundle_sha256": bundle_sha256,
+        "hash_algorithm": "sha256",
+        "recorded_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+    SYSTEM_INTEGRITY_FILE.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def _hash_worker_bundle(work_dir: Path) -> str:
+    entrypoint = work_dir / "src" / "worker.js"
+    if not entrypoint.exists():
+        die(f"worker entrypoint missing from deploy bundle: {entrypoint}")
+    return hashlib.sha256(entrypoint.read_bytes()).hexdigest()
 
 
 def _validate_live_provider_registry(entries: list[dict], source: str) -> list[dict]:
@@ -530,6 +843,7 @@ def _run_import_screen(
     Returns updated api_keys plus shred_paths.
     """
     shred_paths: list[str] = []
+    policy_index = _load_policy_index()
 
     while True:
         print("\n" + "─" * 70)
@@ -577,21 +891,30 @@ def _run_import_screen(
                     continue
 
             key_id = _next_generated_key_id(provider_id, app_label, api_keys, existing_keys)
+            try:
+                _require_import_policy(key_id, policy_index, path)
+            except AutomationInputError as exc:
+                print(f"  ✗  {exc}")
+                print("     File will NOT be shredded and no record will be created.")
+                another = input("\n  Import from another file? [y/N]: ").strip().lower()
+                if another != "y":
+                    return api_keys, shred_paths
+                break
             api_keys[key_id] = (provider_id, target_host, auth_header, auth_prefix, raw_value)
             ok(f"{provider_id:12s}  →  {key_id}  (from {env_var}, key hidden)")
-
-        shred_confirm = input(
-            f"\n  Shred source file {path} after bootstrap completes? [y/N]: "
-        ).strip().lower()
-        if shred_confirm == "y":
-            shred_paths.append(path)
-            print(f"  ✓ {path} queued for shredding after successful bootstrap.")
         else:
-            print(f"  Skipped shredding. Raw keys remain in {path}.")
+            shred_confirm = input(
+                f"\n  Shred source file {path} after bootstrap completes? [y/N]: "
+            ).strip().lower()
+            if shred_confirm == "y":
+                shred_paths.append(path)
+                print(f"  ✓ {path} queued for shredding after successful bootstrap.")
+            else:
+                print(f"  Skipped shredding. Raw keys remain in {path}.")
 
-        another = input("\n  Import from another file? [y/N]: ").strip().lower()
-        if another != "y":
-            break
+            another = input("\n  Import from another file? [y/N]: ").strip().lower()
+            if another != "y":
+                break
 
     return api_keys, shred_paths
 
@@ -951,6 +1274,7 @@ def _load_env_fallback(
     cf_creds["CF_WORKER_NAME"] = (
         os.environ.get("CF_WORKER_NAME", "").strip() or "subumbra-proxy"
     )
+    policy_index = _load_policy_index()
 
     api_keys: dict[str, tuple[str, str, str, str, str]] = {}
     missing_key_ids: list[tuple[str, str]] = []
@@ -981,6 +1305,7 @@ def _load_env_fallback(
                     f"  collides with provider {existing_provider}\n"
                     f"  env var     : {slot_key_id_var}"
                 )
+            _resolve_policy_for_direct_secret(key_id, provider, policy_index)
             api_keys[key_id] = (
                 provider,
                 provider_entry["target_host"],
@@ -1013,6 +1338,7 @@ def _load_env_fallback(
             auth_header = provider_entry["auth_header"]
             auth_prefix = provider_entry["auth_prefix"]
             key_id = _next_generated_key_id(provider_id, app_label, api_keys, existing_keys)
+            _require_import_policy(key_id, policy_index, import_path)
             api_keys[key_id] = (provider_id, target_host, auth_header, auth_prefix, raw_value)
 
     if not api_keys:
@@ -1058,6 +1384,7 @@ def run_interactive_wizard(
       api_keys: {key_id: (provider, target_host, auth_header, auth_prefix, raw_secret)}
       cf_creds: {"CF_API_TOKEN": ..., "CF_ACCOUNT_ID": ..., "CF_WORKER_NAME": ...}
     """
+    policy_index = _load_policy_index()
 
     # ── Screen 1: Cloudflare Credentials ─────────────────────────────────────
     print("\n" + "═" * 70)
@@ -1095,6 +1422,44 @@ def run_interactive_wizard(
     api_keys: dict[str, tuple[str, str, str, str, str]] = {}
     shred_paths: list[str] = []
     n_known = len(KNOWN_PROVIDERS)
+    prompted_policy_key_ids: set[str] = set()
+
+    for key_id, policy in sorted(policy_index.items()):
+        if policy.get("source") != "env":
+            continue
+        target_host = policy.get("target", {}).get("host", "")
+        provider = next(
+            (provider_id for provider_id, host in PROVIDER_HOSTS.items() if host == target_host),
+            None,
+        )
+        if provider is None:
+            die(
+                f"Policy-backed interactive env prompt requires a built-in target.host; "
+                f"no built-in provider matches {target_host!r} for key_id {key_id}"
+            )
+        provider_entry = BUILTIN_PROVIDER_BY_ID[provider]
+        print("\n" + "─" * 70)
+        print(f"  Policy-backed secret required for {key_id}")
+        print("  This key is declared in SUBUMBRA_POLICY_PATH with source=env.")
+        print("─" * 70)
+        while True:
+            api_key_1 = getpass.getpass(f"  API Key for {key_id} (hidden, Enter to skip for now): ").strip()
+            if not api_key_1:
+                break
+            api_key_2 = getpass.getpass("  Confirm API Key (hidden): ").strip()
+            if api_key_1 != api_key_2:
+                print("  ✗  Keys do not match. Please try again.\n")
+                continue
+            api_keys[key_id] = (
+                provider,
+                provider_entry["target_host"],
+                provider_entry["auth_header"],
+                provider_entry["auth_prefix"],
+                api_key_1,
+            )
+            prompted_policy_key_ids.add(key_id)
+            ok(f"{provider:12s}  →  {key_id}  (key hidden)")
+            break
 
     while True:
         print("\n" + "═" * 70)
@@ -1185,6 +1550,7 @@ def run_interactive_wizard(
                     continue
             key_id = _next_generated_key_id(provider, app_label, api_keys, existing_keys)
             info(f"Generated key_id: {key_id}")
+            _resolve_policy_for_direct_secret(key_id, provider, policy_index)
         else:
             default_key_id = _default_key_id(provider)
             while True:
@@ -1207,9 +1573,24 @@ def run_interactive_wizard(
                             print("  Cancelled. Choose a different key_id.\n")
                             continue
                 break
+            explicit_policy = policy_index.get(key_id)
+            if explicit_policy is not None and explicit_policy.get("source") != "env":
+                die(f"Policy for key_id {key_id} must use source='env' for direct secret entry")
+            if explicit_policy is None:
+                die(f"Refusing policy-less custom secret for key_id {key_id}")
 
         api_keys[key_id] = (provider, target_host, auth_header, auth_prefix, api_key_1)
         ok(f"{provider:12s}  →  {key_id}  (key hidden)")
+
+    missing_policy_key_ids = sorted(
+        key_id
+        for key_id, policy in policy_index.items()
+        if policy.get("source") == "env" and key_id not in api_keys and key_id not in prompted_policy_key_ids
+    )
+    if missing_policy_key_ids:
+        die(
+            "Missing required policy-backed env secret(s): " + ", ".join(missing_policy_key_ids)
+        )
 
     print("\n" + "═" * 70)
     print("  Subumbra Bootstrap — Step 3 of 4: Adapter Key Scopes")
@@ -1405,6 +1786,7 @@ def _delete_worker_secret(cf_creds: dict[str, str], secret_name: str, *, quiet_m
         work_dir = tmp_dir / "worker"
         namespace_id = _create_or_reuse_kv_namespace(cf_creds)
         _append_provider_registry_kv_binding(work_dir / "wrangler.toml", namespace_id)
+        bundle_sha256 = _hash_worker_bundle(work_dir)
 
         result = subprocess.run(
             ["wrangler", "secret", "delete", secret_name, "--name", worker_name],
@@ -1606,7 +1988,10 @@ def deploy_worker(
         ok("SUBUMBRA_SETUP_TOKEN pushed")
 
 
-    return _build_worker_url(worker_name, deploy_out)
+        worker_url = _build_worker_url(worker_name, deploy_out)
+        _write_system_integrity(worker_name, worker_url, bundle_sha256)
+
+    return worker_url
 
 
 def run_push_registry() -> None:
