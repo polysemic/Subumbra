@@ -142,6 +142,7 @@ This arc focuses on evolving Subumbra from a static, bundled configuration into 
 - **Round 44-6 — Doc Cleanup** (Closed 2026-05-03): release-facing docs now reflect the adapter-token + `SubumbraVault` contract across the website, `CLAUDE.md`, install/operator guides, and harness docs; the misleading testbed shredding claim and the Cerebras example mismatch were also corrected.
 - **Round 45 — Structure Upgrade Planning** (Closed 2026-05-03): the council locked a five-round universal REST foundation arc, staged `council/r45-1-policy-schema/` through `council/r45-5-rest-auth-proofs/`, and created `council/rTBD-structure-upgrade/` as the deferred post-R45 scoping folder.
 - **Round 45-1 — Policy Schema, Threat Model, And Storage Decision** (Closed 2026-05-03): the R45 policy schema, rejection rules, reserved `intent`/`response`/`velocity` blocks, safe pattern vocabulary, V3 `policy_hash` binding rule, structured KV key-shape contract, and R45 threat model are now documented; the round-local verifier passed independently for both Claude and Gemini.
+- **Round 45-2 — Bootstrap Policy Ingestion And Worker Code Pinning** (In progress): bootstrap now accepts optional `SUBUMBRA_POLICY_PATH`, imported secrets require matching policy documents, built-in direct secrets retain a narrow in-memory auto-compat path for continuity, bootstrap writes `system-integrity.json`, `scripts/subumbra-verify-deploy` checks live Worker drift, and proxy request logs now emit `target_host` / `target_path` instead of raw `target_url`.
 
 ## Path Forward
 
