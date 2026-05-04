@@ -356,14 +356,13 @@ the single `subumbra_registry_v1` blob.
 |-------------|-------|-------------|
 | `policy:<policy_id>` | JSON policy object | Declarative policy for one record |
 | `key:<key_id>` | JSON key record (V3 format) | Encrypted record metadata |
-| `template:<name>` | JSON policy template | Reusable policy template |
-| `registry_version` | String | Current schema version; read by the Worker on startup |
+| `template:<name>` | JSON routing template | Reusable routing defaults (`provider_id`, `target_host`, `auth_header`, `auth_prefix`, `api_base_path`) |
+| `registry_version` | String | Fixed schema marker `"1"`; written last and read by the Worker on startup |
 
 ### Migration Path
 
 The current `subumbra_registry_v1` blob (a host-indexed JSON array) is the
-pre-R45 storage shape. It remains the live runtime format until R45-3 migrates
-bootstrap and the Worker to structured keys. During the R45 arc:
+pre-R45 storage shape. During the R45 arc:
 
 - R45-1 (this round): defines and locks the structured key shape above
 - R45-2: bootstrap reads/validates against the new policy shape but does not
@@ -371,4 +370,21 @@ bootstrap and the Worker to structured keys. During the R45 arc:
 - R45-3: bootstrap publishes to structured KV; Worker reads structured keys;
   `subumbra_registry_v1` is retired
 
-Do not create or depend on the new structured keys until R45-3 is complete.
+### Publish Rule
+
+R45-3 publication is two-phase:
+
+1. compile all `key:*`, `policy:*`, and `template:*` entries
+2. write them with `wrangler kv bulk put`
+3. verify readback
+4. write `registry_version = "1"` last
+
+If publication fails before the `registry_version` write, the Worker treats the
+namespace as misconfigured and fails closed.
+
+### Policy Rotation
+
+`--rotate-policy` recomputes the baseline-bound `policy_hash` for each targeted
+record, asks the Worker to decrypt with the old binding and re-encrypt with the
+new V3 binding, then writes the updated ciphertext back to `keys.json`. The
+host never receives plaintext API keys during this flow.

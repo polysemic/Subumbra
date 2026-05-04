@@ -72,6 +72,15 @@ them.
 - The repo-local `.env` now retains `SUBUMBRA_SETUP_TOKEN` as an operator
   reference after bootstrap, even though the transient Cloudflare Worker secret
   is still deleted before bootstrap completes.
+- R45-3 moves runtime registry state off the monolithic
+  `subumbra_registry_v1` blob and onto structured KV keys
+  (`policy:<id>`, `key:<id>`, `template:<name>`, `registry_version`).
+- R45-3 V3 records bind ciphertext with
+  `subumbra:v3:<key_id>:<policy_hash>`, where `policy_hash` is computed from
+  the baseline-bound policy object rather than the full policy document.
+- Worker-side V2 records remain readable only through the R45-4 grace window;
+  `--rotate-policy` performs Worker-mediated re-encryption without host
+  plaintext recovery.
 - Automation-mode app imports use `IMPORT_PATH_<n>` plus required
   `IMPORT_APP_LABEL_<n>` entries in `.env.bootstrap`.
 - Full bootstrap now writes `/app/data/system-integrity.json`, and
