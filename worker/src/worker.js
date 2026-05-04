@@ -1,10 +1,10 @@
 /**
  * Subumbra Proxy — Cloudflare Worker + Durable Object
  * ─────────────────────────────────────────────────────────────────────────────
- * V2 Asymmetric Envelope Encryption:
+ * V2/V3 Asymmetric Envelope Encryption:
  *   - Each API key record has its own DEK wrapped by the RSA public key
  *   - A SQLite-backed vault Durable Object generates and stores the key pair
- *   - The vault decrypts the V2 envelope and proxies the upstream request
+ *   - The vault decrypts the envelope and proxies the upstream request
  *   - Offline rotation still uses the public_key.pem artifact from bootstrap
  *   - Nothing sensitive is logged, stored outside the vault, or returned
  *
@@ -60,43 +60,99 @@ function validateProviderRegistry(registry) {
   }
 }
 
-async function getRegistryEntry(env, hostname) {
-  const raw = await env.PROVIDER_REGISTRY_KV.get("subumbra_registry_v1", {
-    cacheTtl: 30,
-  });
-
-  if (!raw) {
-    const err = new Error("provider registry not found in KV");
-    err.code = "registry_missing";
-    throw err;
-  }
-
-  let registry;
+function parseStructuredRegistryJson(raw, keyName) {
+  let parsed;
   try {
-    registry = JSON.parse(raw);
+    parsed = JSON.parse(raw);
   } catch {
-    const err = new Error("provider registry invalid JSON");
+    const err = new Error(`${keyName} invalid JSON`);
     err.code = "registry_invalid_json";
     throw err;
   }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    const err = new Error(`${keyName} invalid schema`);
+    err.code = "registry_invalid_schema";
+    throw err;
+  }
+  return parsed;
+}
 
-  try {
-    validateProviderRegistry(registry);
-  } catch (cause) {
-    const err = new Error(cause.message);
+async function getRegistryEntry(env, keyId) {
+  const registryVersion = await env.PROVIDER_REGISTRY_KV.get("registry_version", {
+    cacheTtl: 30,
+  });
+  if (!registryVersion) {
+    const err = new Error("registry_version missing");
+    err.code = "registry_missing";
+    throw err;
+  }
+  if (registryVersion !== "1") {
+    const err = new Error(`unsupported registry_version '${registryVersion}'`);
     err.code = "registry_invalid_schema";
     throw err;
   }
 
-  const entry = registry.find((candidate) => candidate.target_host === hostname);
-  return entry
-    ? {
-      hostname: entry.target_host,
-      provider_id: entry.provider_id,
-      auth_header: entry.auth_header,
-      auth_prefix: entry.auth_prefix,
+  const keyRaw = await env.PROVIDER_REGISTRY_KV.get(`key:${keyId}`, {
+    cacheTtl: 30,
+  });
+  if (!keyRaw) {
+    const err = new Error(`key:${keyId} missing`);
+    err.code = "registry_missing";
+    throw err;
+  }
+  const keyEntry = parseStructuredRegistryJson(keyRaw, `key:${keyId}`);
+  const policyId = keyEntry.policy_id;
+  if (typeof policyId !== "string" || !policyId) {
+    const err = new Error(`key:${keyId} missing policy_id`);
+    err.code = "registry_invalid_schema";
+    throw err;
+  }
+
+  const policyRaw = await env.PROVIDER_REGISTRY_KV.get(`policy:${policyId}`, {
+    cacheTtl: 30,
+  });
+  if (!policyRaw) {
+    const err = new Error(`policy:${policyId} missing`);
+    err.code = "registry_missing";
+    throw err;
+  }
+  const policy = parseStructuredRegistryJson(policyRaw, `policy:${policyId}`);
+  const policyTarget = policy.target;
+  if (!policyTarget || typeof policyTarget !== "object" || typeof policyTarget.host !== "string") {
+    const err = new Error(`policy:${policyId} missing target.host`);
+    err.code = "registry_invalid_schema";
+    throw err;
+  }
+
+  let template = null;
+  const templateName = keyEntry.template_name;
+  if (typeof templateName === "string" && templateName) {
+    const templateRaw = await env.PROVIDER_REGISTRY_KV.get(`template:${templateName}`, {
+      cacheTtl: 30,
+    });
+    if (!templateRaw) {
+      const err = new Error(`template:${templateName} missing`);
+      err.code = "registry_missing";
+      throw err;
     }
-    : null;
+    template = parseStructuredRegistryJson(templateRaw, `template:${templateName}`);
+  }
+
+  if (keyEntry.target_host !== policyTarget.host) {
+    const err = new Error(`key:${keyId} target_host does not match policy target.host`);
+    err.code = "registry_invalid_schema";
+    throw err;
+  }
+
+  return {
+    key_id: keyEntry.key_id,
+    policy_id: policyId,
+    policy_hash: keyEntry.policy_hash,
+    target_host: keyEntry.target_host,
+    provider_id: keyEntry.provider,
+    auth_header: template?.auth_header ?? keyEntry.auth_header,
+    auth_prefix: template?.auth_prefix ?? keyEntry.auth_prefix,
+  };
 }
 
 // Headers that must not be forwarded to the upstream provider
@@ -123,6 +179,7 @@ const HOP_BY_HOP_HEADERS = new Set([
 const VAULT_INSTANCE_NAME = "vault";
 const VAULT_SETUP_PATH = "/setup-keygen";
 const VAULT_EXECUTE_PATH = "/execute";
+const VAULT_ROTATE_PATH = "/rotate";
 const VAULT_SCHEMA = `
   CREATE TABLE IF NOT EXISTS custody (
     id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -203,6 +260,38 @@ async function decryptV2(privateKey, expectedPubKeyFp, ciphertextB64, wrappedDek
 
   // 4. Decrypt API key with AAD = "subumbra:v2:<key_id>"
   const aad = new TextEncoder().encode(`subumbra:v2:${keyId}`);
+  const ctBlob = base64ToBytes(ciphertextB64);
+  const plaintext = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv: ctBlob.slice(0, 12), additionalData: aad },
+    dekKey,
+    ctBlob.slice(12),
+  );
+
+  return new TextDecoder().decode(plaintext);
+}
+
+async function decryptV3(privateKey, expectedPubKeyFp, ciphertextB64, wrappedDekB64, pubKeyFp, keyId, policyHash) {
+  if (!policyHash) {
+    throw new Error("missing required V3 policy_hash");
+  }
+  if (pubKeyFp !== expectedPubKeyFp) {
+    throw new Error(
+      `record wrapped with unknown key pair (record: ${pubKeyFp}, ` +
+      `loaded: ${expectedPubKeyFp}) — re-bootstrap required`
+    );
+  }
+
+  const dekBytes = await crypto.subtle.decrypt(
+    { name: "RSA-OAEP" },
+    privateKey,
+    base64ToBytes(wrappedDekB64),
+  );
+
+  const dekKey = await crypto.subtle.importKey(
+    "raw", dekBytes, { name: "AES-GCM" }, false, ["decrypt"],
+  );
+
+  const aad = new TextEncoder().encode(`subumbra:v3:${keyId}:${policyHash}`);
   const ctBlob = base64ToBytes(ciphertextB64);
   const plaintext = await crypto.subtle.decrypt(
     { name: "AES-GCM", iv: ctBlob.slice(0, 12), additionalData: aad },
@@ -476,6 +565,10 @@ export class SubumbraVault {
       return this._handleExecute(request);
     }
 
+    if (url.pathname === VAULT_ROTATE_PATH) {
+      return this._handleRotate(request);
+    }
+
     return jsonError("not found", 404);
   }
 
@@ -602,6 +695,8 @@ export class SubumbraVault {
       wrappedDek,
       pubKeyFp,
       keyId,
+      encVersion,
+      policyHash,
       targetUrl,
       method,
       headers: reqHeaders,
@@ -615,6 +710,7 @@ export class SubumbraVault {
       !wrappedDek ||
       !pubKeyFp ||
       !keyId ||
+      !encVersion ||
       !targetUrl ||
       !authHeader ||
       typeof authPrefix !== "string"
@@ -631,16 +727,34 @@ export class SubumbraVault {
     let apiKey;
     try {
       const privateKey = await this._primeCachedPrivateKey();
-      apiKey = await decryptV2(
-        privateKey,
-        custodyRow.pub_key_fp,
-        ciphertext,
-        wrappedDek,
-        pubKeyFp,
-        keyId,
-      );
+      if (encVersion === 3) {
+        apiKey = await decryptV3(
+          privateKey,
+          custodyRow.pub_key_fp,
+          ciphertext,
+          wrappedDek,
+          pubKeyFp,
+          keyId,
+          policyHash,
+        );
+      } else if (encVersion === 2) {
+        apiKey = await decryptV2(
+          privateKey,
+          custodyRow.pub_key_fp,
+          ciphertext,
+          wrappedDek,
+          pubKeyFp,
+          keyId,
+        );
+      } else {
+        return jsonError("unsupported enc_version", 400);
+      }
     } catch (err) {
-      console.error("subumbra: decryption failed:", err.message);
+      if (encVersion === 3) {
+        console.error("subumbra: decryption failed (policy_hash binding mismatch):", err.message);
+      } else {
+        console.error("subumbra: decryption failed:", err.message);
+      }
       return jsonError("decryption failed", 500);
     }
 
@@ -683,6 +797,112 @@ export class SubumbraVault {
       headers: responseHeaders,
     });
   }
+
+  async _handleRotate(request) {
+    const bearerToken = parseBearerToken(request);
+    if (!bearerToken) {
+      console.warn("subumbra: internal rotate rejected (missing bearer token)");
+      return jsonError("unauthorized", 401);
+    }
+
+    const expectedToken = this.env.SUBUMBRA_SETUP_TOKEN ?? "";
+    const tokenOk = await timingSafeEqual(bearerToken, expectedToken);
+    if (!tokenOk) {
+      console.warn("subumbra: internal rotate rejected (invalid bearer token)");
+      return jsonError("forbidden", 403);
+    }
+
+    let payload;
+    try {
+      payload = await request.json();
+    } catch {
+      return jsonError("invalid JSON body", 400);
+    }
+
+    const {
+      key_id: keyId,
+      enc_version: encVersion,
+      ciphertext,
+      wrapped_dek: wrappedDek,
+      pub_key_fp: pubKeyFp,
+      policy_hash: policyHash,
+      new_policy_hash: newPolicyHash,
+    } = payload;
+
+    if (!keyId || !ciphertext || !wrappedDek || !pubKeyFp || !newPolicyHash) {
+      return jsonError("missing required fields", 400);
+    }
+
+    const custodyRow = this._loadCustodyRow();
+    if (!custodyRow) {
+      console.error("subumbra: vault not initialized");
+      return jsonError("worker not configured", 503);
+    }
+
+    let apiKey;
+    try {
+      const privateKey = await this._primeCachedPrivateKey();
+      if (encVersion === 3) {
+        apiKey = await decryptV3(
+          privateKey,
+          custodyRow.pub_key_fp,
+          ciphertext,
+          wrappedDek,
+          pubKeyFp,
+          keyId,
+          policyHash,
+        );
+      } else if (encVersion === 2) {
+        apiKey = await decryptV2(
+          privateKey,
+          custodyRow.pub_key_fp,
+          ciphertext,
+          wrappedDek,
+          pubKeyFp,
+          keyId,
+        );
+      } else {
+        return jsonError("unsupported enc_version", 400);
+      }
+    } catch (err) {
+      console.error("subumbra: rotate decryption failed:", err.message);
+      return jsonError("decryption failed", 500);
+    }
+
+    const dekBytes = new Uint8Array(
+      await crypto.subtle.decrypt(
+        { name: "RSA-OAEP" },
+        await this._primeCachedPrivateKey(),
+        base64ToBytes(wrappedDek),
+      )
+    );
+    const dekKey = await crypto.subtle.importKey(
+      "raw", dekBytes, { name: "AES-GCM" }, false, ["encrypt"],
+    );
+    const nonce = crypto.getRandomValues(new Uint8Array(12));
+    const aad = new TextEncoder().encode(`subumbra:v3:${keyId}:${newPolicyHash}`);
+    const plaintextBytes = new TextEncoder().encode(apiKey);
+    const encrypted = new Uint8Array(
+      await crypto.subtle.encrypt(
+        { name: "AES-GCM", iv: nonce, additionalData: aad },
+        dekKey,
+        plaintextBytes,
+      )
+    );
+    const combined = new Uint8Array(nonce.length + encrypted.length);
+    combined.set(nonce, 0);
+    combined.set(encrypted, nonce.length);
+    const ciphertextOut = btoa(String.fromCharCode(...combined));
+    console.info("subumbra: internal rotate complete key_id=%s", keyId);
+
+    return new Response(JSON.stringify({
+      ciphertext: ciphertextOut,
+      enc_version: 3,
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -717,6 +937,10 @@ export default {
       return handleSetupKeygen(request, env);
     }
 
+    if (request.method === "POST" && url.pathname === "/internal/rotate") {
+      return handleInternalRotate(request, env);
+    }
+
     // ── POST /proxy ─────────────────────────────────────────────────────────
     // Direct mode: caller wraps the full request in our custom JSON format.
     if (request.method === "POST" && url.pathname === "/proxy") {
@@ -739,6 +963,23 @@ async function handleSetupKeygen(request, env) {
     });
   } catch {
     console.error("subumbra: setup keygen vault unavailable");
+    return jsonError("vault unavailable", 503);
+  }
+}
+
+async function handleInternalRotate(request, env) {
+  try {
+    if (!env.SUBUMBRA_VAULT) {
+      throw new Error("vault binding missing");
+    }
+    const vault = getVaultStub(env);
+    return await vault.fetch(`https://do-internal${VAULT_ROTATE_PATH}`, {
+      method: "POST",
+      headers: request.headers,
+      body: await request.text(),
+    });
+  } catch {
+    console.error("subumbra: internal rotate vault unavailable");
     return jsonError("vault unavailable", 503);
   }
 }
@@ -803,7 +1044,7 @@ async function handleProxy(request, env) {
   }
 
   const { ciphertext, provider, target_url, method, headers: fwdHeaders, body: reqBody,
-    wrapped_dek, pub_key_fp, key_id, enc_version } = body;
+    wrapped_dek, pub_key_fp, key_id, enc_version, policy_id, policy_hash } = body;
 
   if (!ciphertext || typeof ciphertext !== "string") {
     return jsonError("missing or invalid field: ciphertext", 400);
@@ -817,12 +1058,19 @@ async function handleProxy(request, env) {
   if (!pub_key_fp || typeof pub_key_fp !== "string") {
     return jsonError("missing or invalid field: pub_key_fp", 400);
   }
+  if (!key_id || typeof key_id !== "string") {
+    return jsonError("missing or invalid field: key_id", 400);
+  }
 
-  // ── Hard reject non-V2 records ────────────────────────────────────────────
   const version = enc_version ?? 1;
-  if (version !== 2 || !wrapped_dek) {
-    console.error("subumbra: unsupported enc_version", version,
-      "— re-run bootstrap to migrate to V2 format");
+  if (!wrapped_dek || typeof wrapped_dek !== "string") {
+    return jsonError("missing or invalid field: wrapped_dek", 400);
+  }
+  if (version === 3 && (!policy_hash || typeof policy_hash !== "string")) {
+    return jsonError("missing or invalid field: policy_hash", 400);
+  }
+  if (version !== 2 && version !== 3) {
+    console.error("subumbra: unsupported enc_version", version);
     return jsonError("key format not supported — re-bootstrap required", 400);
   }
 
@@ -838,29 +1086,32 @@ async function handleProxy(request, env) {
   }
   let registryEntry;
   try {
-    registryEntry = await getRegistryEntry(env, parsedTarget.hostname);
+    registryEntry = await getRegistryEntry(env, key_id);
   } catch (err) {
     if (err.code === "registry_missing") {
-      console.error("subumbra: provider registry not found in KV");
+      console.error("subumbra: structured registry entry missing:", err.message);
     } else if (err.code === "registry_invalid_json") {
-      console.error("subumbra: provider registry invalid JSON");
+      console.error("subumbra: structured registry invalid JSON");
     } else {
-      console.error("subumbra: provider registry validation failed:", err.message);
+      console.error("subumbra: structured registry validation failed:", err.message);
     }
     return jsonError("worker not configured", 503);
   }
-  if (!registryEntry) {
-    console.warn("subumbra: SSRF attempt — rejected target_url", parsedTarget.hostname);
-    return jsonError("target_url not allowed", 403);
-  }
-  // Verify provider/target_url consistency: prevents decrypting one provider's
-  // key and sending it to a different provider's endpoint.
   if (provider !== registryEntry.provider_id) {
     console.warn(
       "subumbra: provider/target_url mismatch — provider=%s target=%s",
       provider, parsedTarget.hostname,
     );
     return jsonError("target_url host does not match declared provider", 400);
+  }
+  if (parsedTarget.hostname !== registryEntry.target_host) {
+    console.warn("subumbra: SSRF attempt — rejected target_url %s for key_id=%s", parsedTarget.hostname, key_id);
+    return jsonError("target_url not allowed", 403);
+  }
+  if (version === 3) {
+    console.info("subumbra: enc_version=3 key_id=%s", key_id);
+  } else {
+    console.warn("subumbra: v2 grace path key_id=%s", key_id);
   }
 
   // ── 4. Strip hop-by-hop and internal headers from forwarded headers ────────
@@ -879,6 +1130,9 @@ async function handleProxy(request, env) {
     wrappedDek: wrapped_dek,
     pubKeyFp: pub_key_fp,
     keyId: key_id,
+    encVersion: version,
+    policyId: policy_id ?? registryEntry.policy_id,
+    policyHash: policy_hash ?? registryEntry.policy_hash,
     targetUrl: target_url,
     method: method ?? "POST",
     headers: cleanHeaders,

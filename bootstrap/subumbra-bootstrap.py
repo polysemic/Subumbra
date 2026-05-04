@@ -102,7 +102,7 @@ HOST_ENV_FILE   = Path("/app/host-env")
 WORKER_SRC      = Path("/app/worker")
 CUSTOM_PROVIDER_REGISTRY_FILE = DATA_DIR / "custom-providers.json"
 KV_CONFIG_FILE = DATA_DIR / "kv-config.json"
-PROVIDER_REGISTRY_KV_KEY = "subumbra_registry_v1"
+STRUCTURED_KV_SCHEMA_VERSION = "1"
 
 ADAPTER_SCOPE_VARS: dict[str, str] = {
     "subumbra-proxy": "PROXY_ALLOWED_KEYS",
@@ -632,6 +632,107 @@ def _build_live_provider_registry_json(
     return json.dumps(merged, separators=(",", ":"))
 
 
+def _load_template_registry() -> dict[str, dict[str, str]]:
+    templates: dict[str, dict[str, str]] = {}
+    for entry in _load_provider_registry():
+        templates[entry["provider_id"]] = {
+            "provider_id": entry["provider_id"],
+            "target_host": entry["target_host"],
+            "auth_header": entry["auth_header"],
+            "auth_prefix": entry["auth_prefix"],
+            "api_base_path": entry.get("api_base_path", ""),
+        }
+    for entry in _load_custom_provider_registry():
+        templates.setdefault(
+            entry["provider_id"],
+            {
+                "provider_id": entry["provider_id"],
+                "target_host": entry["target_host"],
+                "auth_header": entry["auth_header"],
+                "auth_prefix": entry["auth_prefix"],
+                "api_base_path": "",
+            },
+        )
+    return templates
+
+
+def _resolve_policy_for_key(
+    key_id: str,
+    provider: str,
+    target_host: str,
+    policy_index: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    policy = policy_index.get(key_id)
+    if policy is None:
+        policy = _synthesize_builtin_policy(key_id, provider)
+    if policy is None:
+        die(f"No policy found for key_id {key_id!r}")
+    if policy["target"]["host"] != target_host:
+        die(
+            f"Policy host conflict for key_id {key_id!r}: "
+            f"policy target.host={policy['target']['host']!r} "
+            f"does not match bootstrap target_host={target_host!r}"
+        )
+    return policy
+
+
+def _build_structured_kv_entries(
+    keys_payload: dict[str, dict[str, Any]],
+    policy_by_key_id: dict[str, dict[str, Any]],
+) -> list[dict[str, str]]:
+    template_registry = _load_template_registry()
+    entries: list[dict[str, str]] = []
+    published_policy_ids: set[str] = set()
+    published_templates: set[str] = set()
+
+    for key_id, record in sorted(keys_payload.items()):
+        policy = policy_by_key_id[key_id]
+        provider_id = record["provider"]
+        template = template_registry.get(provider_id)
+        if template is None:
+            die(f"No template routing defaults found for provider {provider_id!r}")
+
+        key_entry = {
+            "key_id": key_id,
+            "enc_version": record["enc_version"],
+            "pub_key_fp": record["pub_key_fp"],
+            "wrapped_dek": record["wrapped_dek"],
+            "ciphertext": record["ciphertext"],
+            "provider": provider_id,
+            "target_host": record["target_host"],
+            "policy_id": record["policy_id"],
+            "policy_hash": record["policy_hash"],
+            "created_at": record["created_at"],
+            "label": record["label"],
+            "auth_header": template["auth_header"],
+            "auth_prefix": template["auth_prefix"],
+            "template_name": template["provider_id"],
+        }
+        entries.append({"key": f"key:{key_id}", "value": json.dumps(key_entry, separators=(",", ":"))})
+
+        policy_id = policy["policy_id"]
+        if policy_id not in published_policy_ids:
+            entries.append(
+                {
+                    "key": f"policy:{policy_id}",
+                    "value": json.dumps(policy, separators=(",", ":")),
+                }
+            )
+            published_policy_ids.add(policy_id)
+
+        template_name = template["provider_id"]
+        if template_name not in published_templates:
+            entries.append(
+                {
+                    "key": f"template:{template_name}",
+                    "value": json.dumps(template, separators=(",", ":")),
+                }
+            )
+            published_templates.add(template_name)
+
+    return entries
+
+
 def _upsert_custom_provider_registry_entry(
     provider_id: str,
     target_host: str,
@@ -1107,6 +1208,45 @@ def encrypt_api_key_v2(dek_bytes: bytes, plaintext: str, key_id: str) -> str:
     aad = f"subumbra:v2:{key_id}".encode("utf-8")
     ct = aesgcm.encrypt(nonce, plaintext.encode("utf-8"), aad)
     return b64encode(nonce + ct).decode("ascii")
+
+
+def encrypt_api_key_v3(dek_bytes: bytes, plaintext: str, key_id: str, policy_hash: str) -> str:
+    """Encrypt a plaintext API key with V3 AAD bound to key_id + policy_hash."""
+    nonce = os.urandom(12)
+    aesgcm = AESGCM(dek_bytes)
+    aad = f"subumbra:v3:{key_id}:{policy_hash}".encode("utf-8")
+    ct = aesgcm.encrypt(nonce, plaintext.encode("utf-8"), aad)
+    return b64encode(nonce + ct).decode("ascii")
+
+
+def compute_policy_hash(policy_doc: dict[str, Any]) -> str:
+    """Return the lowercase hex SHA-256 of the baseline-bound policy object."""
+    auth = policy_doc["auth"]
+    allow = policy_doc["allow"]
+    baseline_obj: dict[str, Any] = {
+        "key_id": policy_doc["key_id"],
+        "target": {
+            "host": policy_doc["target"]["host"],
+        },
+        "auth": {
+            "scheme": auth["scheme"],
+        },
+        "allow": {
+            "adapters": sorted(allow["adapters"]),
+            "methods": sorted(allow["methods"]),
+            "path_prefixes": sorted(allow["path_prefixes"]),
+            "content_types": sorted(allow["content_types"]),
+            "max_body_bytes": allow["max_body_bytes"],
+        },
+    }
+    if "header_name" in auth:
+        baseline_obj["auth"]["header_name"] = auth["header_name"]
+    if "query_param" in auth:
+        baseline_obj["auth"]["query_param"] = auth["query_param"]
+    if "allow_query" in auth:
+        baseline_obj["auth"]["allow_query"] = auth["allow_query"]
+    canonical = json.dumps(baseline_obj, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1807,6 +1947,33 @@ def _delete_worker_secret(cf_creds: dict[str, str], secret_name: str, *, quiet_m
         )
 
 
+def _put_worker_secret(cf_creds: dict[str, str], secret_name: str, secret_value: str) -> None:
+    if not WORKER_SRC.exists():
+        die(
+            f"Worker source not found at {WORKER_SRC}.\n"
+            "  Ensure ./worker is mounted into the bootstrap container\n"
+            "  (check volumes in docker-compose.yml)."
+        )
+
+    worker_name = cf_creds["CF_WORKER_NAME"]
+    env = _wrangler_env(cf_creds)
+
+    with tempfile.TemporaryDirectory(prefix="subumbra-worker-") as tmp:
+        tmp_dir = Path(tmp)
+        shutil.copytree(WORKER_SRC, tmp_dir / "worker")
+        work_dir = tmp_dir / "worker"
+        namespace_id = _create_or_reuse_kv_namespace(cf_creds)
+        _append_provider_registry_kv_binding(work_dir / "wrangler.toml", namespace_id)
+
+        _run(
+            ["wrangler", "secret", "put", secret_name, "--name", worker_name],
+            cwd=work_dir,
+            env=env,
+            input_text=secret_value + "\n",
+        )
+    ok(f"{secret_name} pushed")
+
+
 def call_setup_keygen(worker_url: str, setup_token: str) -> tuple[str, str, str]:
     last_http_error: urllib.error.HTTPError | None = None
     for attempt in range(1, 13):
@@ -1855,6 +2022,117 @@ def call_setup_keygen(worker_url: str, setup_token: str) -> tuple[str, str, str]
     if not all(isinstance(value, str) and value for value in (public_key_pem, pub_key_fp, created_at)):
         die("Cloudflare setup keygen returned an invalid response payload")
     return public_key_pem, pub_key_fp, created_at
+
+
+def call_internal_rotate(worker_url: str, setup_token: str, rotate_payload: dict[str, Any]) -> dict[str, Any]:
+    last_http_error: urllib.error.HTTPError | None = None
+    body = json.dumps(rotate_payload, separators=(",", ":")).encode("utf-8")
+    for attempt in range(1, 13):
+        req = urllib.request.Request(
+            f"{worker_url.rstrip('/')}/internal/rotate",
+            data=body,
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {setup_token}",
+                "Content-Type": "application/json",
+                "User-Agent": "curl/8.5.0",
+            },
+        )
+        try:
+            with urllib.request.urlopen(req) as resp:
+                payload = json.loads(resp.read())
+            break
+        except urllib.error.HTTPError as exc:
+            last_http_error = exc
+            if exc.code in (401, 403) and attempt < 12:
+                info(
+                    "Cloudflare rotate token not visible yet; "
+                    f"retrying /internal/rotate ({attempt}/12)"
+                )
+                time.sleep(5)
+                continue
+            body_text = exc.read().decode("utf-8", errors="replace")
+            die(
+                f"Cloudflare internal rotate failed: HTTP {exc.code}\n"
+                f"--- response body ---\n{body_text}"
+            )
+        except Exception as exc:
+            die(f"Cloudflare internal rotate failed: {exc}")
+    else:
+        if last_http_error is not None:
+            body_text = last_http_error.read().decode("utf-8", errors="replace")
+            die(
+                f"Cloudflare internal rotate failed after retry window: HTTP {last_http_error.code}\n"
+                f"--- response body ---\n{body_text}"
+            )
+        die("Cloudflare internal rotate failed after retry window")
+
+    ciphertext = payload.get("ciphertext")
+    enc_version = payload.get("enc_version")
+    if not isinstance(ciphertext, str) or not ciphertext:
+        die("Cloudflare internal rotate returned invalid ciphertext")
+    if enc_version != 3:
+        die("Cloudflare internal rotate returned invalid enc_version")
+    return payload
+
+
+def _publish_structured_kv(
+    cf_creds: dict[str, str],
+    keys_payload: dict[str, dict[str, Any]],
+    policy_by_key_id: dict[str, dict[str, Any]],
+) -> None:
+    namespace_id = _create_or_reuse_kv_namespace(cf_creds)
+    env = _wrangler_env(cf_creds)
+    entries = _build_structured_kv_entries(keys_payload, policy_by_key_id)
+    if not entries:
+        die("No structured KV entries compiled for publication")
+
+    with tempfile.TemporaryDirectory(prefix="subumbra-structured-kv-") as tmp:
+        tmp_dir = Path(tmp)
+        shutil.copytree(WORKER_SRC, tmp_dir / "worker")
+        work_dir = tmp_dir / "worker"
+        _append_provider_registry_kv_binding(work_dir / "wrangler.toml", namespace_id)
+
+        payload_path = work_dir / "structured-kv.json"
+        payload_path.write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")
+
+        _run(
+            [
+                "wrangler", "kv", "bulk", "put",
+                str(payload_path),
+                "--namespace-id", namespace_id,
+                "--remote",
+            ],
+            cwd=work_dir,
+            env=env,
+        )
+
+        sample_key_entry = next(entry for entry in entries if entry["key"].startswith("key:"))
+        sample_policy_entry = next(entry for entry in entries if entry["key"].startswith("policy:"))
+
+        for sample in (sample_key_entry, sample_policy_entry):
+            _run(
+                [
+                    "wrangler", "kv", "key", "get",
+                    sample["key"],
+                    "--namespace-id", namespace_id,
+                    "--remote",
+                ],
+                cwd=work_dir,
+                env=env,
+            )
+
+        _run(
+            [
+                "wrangler", "kv", "key", "put",
+                "registry_version",
+                STRUCTURED_KV_SCHEMA_VERSION,
+                "--namespace-id", namespace_id,
+                "--remote",
+            ],
+            cwd=work_dir,
+            env=env,
+        )
 
 
 def deploy_worker(
@@ -1907,21 +2185,6 @@ def deploy_worker(
         ok("Deployed")
         for line in deploy_out.splitlines():
             info(line)
-
-        step("Pushing provider registry to Cloudflare KV")
-        registry_json = _build_live_provider_registry_json(provider_id_filter=provider_id_filter)
-        _run(
-            [
-                "wrangler", "kv", "key", "put",
-                PROVIDER_REGISTRY_KV_KEY,
-                registry_json,
-                "--namespace-id", namespace_id,
-                "--remote",
-            ],
-            cwd=work_dir,
-            env=env,
-        )
-        ok("Provider registry pushed")
 
         # ── delete stale V1 secret (best-effort) ─────────────────────────────
         step("Cleaning up stale MASTER_DECRYPTION_KEY (V1)")
@@ -1996,34 +2259,29 @@ def deploy_worker(
 
 def run_push_registry() -> None:
     cf_creds = _get_push_registry_cf_creds()
-    namespace_id = _load_kv_namespace_id()
-    registry_json = _build_live_provider_registry_json()
+    if not KEYS_FILE.exists():
+        die("keys.json not found — cannot publish structured KV")
 
-    env = {
-        **os.environ,
-        "CLOUDFLARE_API_TOKEN": cf_creds["CF_API_TOKEN"],
-        "CLOUDFLARE_ACCOUNT_ID": cf_creds["CF_ACCOUNT_ID"],
-        "CI": "true",
-    }
+    try:
+        keys_payload = json.loads(KEYS_FILE.read_text())
+    except (json.JSONDecodeError, OSError) as exc:
+        die(f"Cannot read keys.json: {exc}")
 
-    with tempfile.TemporaryDirectory(prefix="subumbra-push-registry-") as tmp:
-        tmp_dir = Path(tmp)
-        shutil.copytree(WORKER_SRC, tmp_dir / "worker")
-        work_dir = tmp_dir / "worker"
-        _append_provider_registry_kv_binding(work_dir / "wrangler.toml", namespace_id)
+    policy_index = _load_policy_index()
+    policy_by_key_id: dict[str, dict[str, Any]] = {}
+    for key_id, record in keys_payload.items():
+        provider = record.get("provider", "unknown")
+        target_host = record.get("target_host")
+        if not isinstance(target_host, str) or not target_host:
+            die(f"keys.json record {key_id!r} missing target_host")
+        policy_by_key_id[key_id] = _resolve_policy_for_key(key_id, provider, target_host, policy_index)
 
-        _run(
-            [
-                "wrangler", "kv", "key", "put",
-                PROVIDER_REGISTRY_KV_KEY,
-                registry_json,
-                "--namespace-id", namespace_id,
-                "--remote",
-            ],
-            cwd=work_dir,
-            env=env,
-        )
-    ok("Provider registry pushed to Cloudflare KV")
+    step("Publishing structured KV entries to Cloudflare KV")
+    try:
+        _publish_structured_kv(cf_creds, keys_payload, policy_by_key_id)
+    except SystemExit:
+        die("structured publish aborted before registry_version update")
+    ok("Structured KV publication complete")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2189,6 +2447,97 @@ def run_rotate_wizard() -> None:
     print()
 
 
+def run_rotate_policy() -> None:
+    print(BANNER, flush=True)
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+    if not KEYS_FILE.exists():
+        die("keys.json not found — run a full bootstrap first.")
+
+    try:
+        existing_keys = json.loads(KEYS_FILE.read_text())
+    except (json.JSONDecodeError, OSError) as exc:
+        die(f"Cannot read keys.json: {exc}")
+    if not existing_keys:
+        die("keys.json is empty — nothing to rotate.")
+
+    policy_index = _load_policy_index()
+    cf_creds = _get_push_registry_cf_creds()
+    worker_url = os.environ.get("CF_WORKER_URL", "").strip() or _build_worker_url(cf_creds["CF_WORKER_NAME"])
+
+    records_to_rotate: list[tuple[str, dict[str, Any], dict[str, Any], str]] = []
+    for key_id, record in existing_keys.items():
+        provider = record.get("provider", "unknown")
+        target_host = record.get("target_host")
+        if not isinstance(target_host, str) or not target_host:
+            die(f"keys.json record {key_id!r} missing target_host")
+        policy = _resolve_policy_for_key(key_id, provider, target_host, policy_index)
+        desired_policy_hash = compute_policy_hash(policy)
+        if (
+            record.get("enc_version") != 3
+            or record.get("policy_hash") != desired_policy_hash
+            or record.get("policy_id") != policy["policy_id"]
+        ):
+            records_to_rotate.append((key_id, record, policy, desired_policy_hash))
+
+    if not records_to_rotate:
+        ok("No policy-bound rotation required — all records already match current policy_hash")
+        return
+
+    step("Pushing transient SUBUMBRA_SETUP_TOKEN to CF Secrets for policy rotation")
+    rotate_setup_token = secrets.token_urlsafe(48)
+    _put_worker_secret(cf_creds, "SUBUMBRA_SETUP_TOKEN", rotate_setup_token)
+
+    try:
+        for key_id, record, policy, desired_policy_hash in records_to_rotate:
+            rotate_payload = {
+                "key_id": key_id,
+                "enc_version": record.get("enc_version", 1),
+                "ciphertext": record["ciphertext"],
+                "wrapped_dek": record["wrapped_dek"],
+                "pub_key_fp": record["pub_key_fp"],
+                "new_policy_hash": desired_policy_hash,
+            }
+            if record.get("enc_version") == 3 and isinstance(record.get("policy_hash"), str):
+                rotate_payload["policy_hash"] = record["policy_hash"]
+            rotated = call_internal_rotate(worker_url, rotate_setup_token, rotate_payload)
+            record["ciphertext"] = rotated["ciphertext"]
+            record["enc_version"] = 3
+            record["policy_id"] = policy["policy_id"]
+            record["policy_hash"] = desired_policy_hash
+            ok(f"rotate-policy complete for {key_id}")
+    finally:
+        step("Deleting transient SUBUMBRA_SETUP_TOKEN from CF Secrets")
+        _delete_worker_secret(cf_creds, "SUBUMBRA_SETUP_TOKEN")
+
+    tmp_keys = KEYS_FILE.with_suffix(".json.tmp")
+    try:
+        fd = os.open(str(tmp_keys), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+        with os.fdopen(fd, "w") as fh:
+            json.dump(existing_keys, fh, indent=2)
+            fh.write("\n")
+        os.replace(str(tmp_keys), str(KEYS_FILE))
+    except OSError as exc:
+        die(f"Failed to write keys.json: {exc}")
+    ok("Updated keys.json with rotated V3 ciphertext records")
+
+    policy_by_key_id = {
+        key_id: _resolve_policy_for_key(
+            key_id,
+            record.get("provider", "unknown"),
+            record["target_host"],
+            policy_index,
+        )
+        for key_id, record in existing_keys.items()
+    }
+    step("Publishing structured KV entries after policy rotation")
+    try:
+        _publish_structured_kv(cf_creds, existing_keys, policy_by_key_id)
+    except SystemExit:
+        die("structured publish aborted before registry_version update")
+    ok("Structured KV publication complete")
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Main — Full bootstrap
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2246,6 +2595,8 @@ def main() -> None:
 
     if is_rotation:
         step("Existing keys.json found — ROTATION MODE")
+        if any(record.get("enc_version", 1) == 2 for record in existing_keys.values()):
+            warn("V2 records detected in keys.json — run --rotate-policy to migrate them to V3.")
         if keys_to_remove:
             warn("=" * 62)
             warn("WARNING: The following keys are in keys.json but NOT")
@@ -2295,6 +2646,11 @@ def main() -> None:
         if confirm != "y":
             print("\nAborted. No changes written.")
             sys.exit(0)
+
+    policy_index = _load_policy_index()
+    policy_by_key_id: dict[str, dict[str, Any]] = {}
+    for key_id, (provider, target_host, _auth_header, _auth_prefix, _raw) in api_keys.items():
+        policy_by_key_id[key_id] = _resolve_policy_for_key(key_id, provider, target_host, policy_index)
 
     # ── Step 3: generate runtime auth tokens ─────────────────────────────
     # SECURITY: These are privileged bearer/HMAC secrets. Anyone who obtains
@@ -2372,22 +2728,26 @@ def main() -> None:
         )
     info(f"Fingerprint: {pub_key_fp}")
 
-    # ── Step 6: encrypt API keys (V2 envelope) ───────────────────────────
-    step("Encrypting API keys — V2 envelope (RSA-4096-OAEP + AES-256-GCM)")
+    # ── Step 6: encrypt API keys (V3 envelope) ───────────────────────────
+    step("Encrypting API keys — V3 envelope (RSA-4096-OAEP + AES-256-GCM)")
     keys_payload: dict[str, dict] = {}
 
     for key_id, (provider, target_host, _auth_header, _auth_prefix, raw) in api_keys.items():
+        policy = policy_by_key_id[key_id]
+        policy_hash = compute_policy_hash(policy)
         dek = os.urandom(32)
-        ciphertext = encrypt_api_key_v2(dek, raw, key_id)
+        ciphertext = encrypt_api_key_v3(dek, raw, key_id, policy_hash)
         wrapped_dek = wrap_dek(pub_key, dek)
         keys_payload[key_id] = {
             "key_id":      key_id,
-            "enc_version": 2,
+            "enc_version": 3,
             "pub_key_fp":  pub_key_fp,
             "wrapped_dek": wrapped_dek,
             "ciphertext":  ciphertext,
             "provider":    provider,
             "target_host": target_host,
+            "policy_id":   policy["policy_id"],
+            "policy_hash": policy_hash,
             "created_at":  now_iso,
             "label":       key_id,
         }
@@ -2413,7 +2773,15 @@ def main() -> None:
     ok(f"Wrote {len(keys_payload)} key blob(s) — atomic rename complete")
     info("Blobs are useless without the CF private key — safe to store")
 
-    # ── Step 8: write runtime env with restricted permissions ────────────
+    # ── Step 8: publish structured KV ────────────────────────────────────
+    step("Publishing structured KV entries to Cloudflare KV")
+    try:
+        _publish_structured_kv(cf_creds, keys_payload, policy_by_key_id)
+    except SystemExit:
+        die("structured publish aborted before registry_version update")
+    ok("structured publish complete")
+
+    # ── Step 9: write runtime env with restricted permissions ────────────
     # SECURITY: These tokens are privileged secrets.  Write with mode 0600
     # and do NOT print values to stdout (which may be captured in CI/CD logs).
     step(f"Writing runtime env → {RUNTIME_ENV_OUT}")
@@ -2484,7 +2852,7 @@ def main() -> None:
     else:
         info(f"Host env sync skipped — {HOST_ENV_FILE} is unavailable")
 
-    # ── Step 9: zero sensitive memory ────────────────────────────────────
+    # ── Step 10: zero sensitive memory ───────────────────────────────────
     step("Clearing sensitive values from memory")
     for adapter_id in list(adapter_tokens):
         adapter_tokens[adapter_id] = "\x00" * len(adapter_tokens[adapter_id])
@@ -2519,7 +2887,7 @@ def main() -> None:
             except FileNotFoundError:
                 warn(f"shred not found. Manual deletion required: rm -P {shred_path}")
 
-    # ── Step 12: print summary (NO token values) ─────────────────────────
+    # ── Step 13: print summary (NO token values) ─────────────────────────
     rule = "═" * 68
     print(f"\n{rule}")
     print("  Bootstrap complete!")
@@ -2541,18 +2909,22 @@ def main() -> None:
          api_key:  <SUBUMBRA_TOKEN_YOUR_APP>   (adapter token from .env, NOT the key_id)
        See docs/adapter-contract.md for the canonical integration reference.
 
-  V2 envelope encryption active:
+  V3 envelope encryption active:
     Public key:    {PUBLIC_KEY_FILE}
     Fingerprint:   {pub_key_fp}
     Per-key rotate: docker compose --profile bootstrap run --rm -it bootstrap --rotate
+    Policy rotate: docker compose --profile bootstrap run --rm -it bootstrap --rotate-policy
 """))
 
 
 if __name__ == "__main__":
-    if "--push-registry" in sys.argv and "--rotate" in sys.argv:
-        die("--push-registry and --rotate are mutually exclusive")
+    selected_modes = sum(flag in sys.argv for flag in ("--push-registry", "--rotate", "--rotate-policy"))
+    if selected_modes > 1:
+        die("--push-registry, --rotate, and --rotate-policy are mutually exclusive")
     if "--push-registry" in sys.argv:
         run_push_registry()
+    elif "--rotate-policy" in sys.argv:
+        run_rotate_policy()
     elif "--rotate" in sys.argv:
         run_rotate_wizard()
     else:
