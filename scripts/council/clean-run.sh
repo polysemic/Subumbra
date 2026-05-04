@@ -199,9 +199,9 @@ cleanup() {
         else
             (
                 cd "$workspace"
-                export COMPOSE_PROJECT_NAME="subumbra-clean-run"
-                export CF_WORKER_NAME="subumbra-clean-run"
-                docker compose -p subumbra-clean-run down -v >/dev/null 2>&1 || true
+                export COMPOSE_PROJECT_NAME="scr-${run_id//[^a-z0-9]/-}"
+                export CF_WORKER_NAME="scr-${run_id//[^a-z0-9]/-}"
+                docker compose -p "scr-${run_id//[^a-z0-9]/-}" down -v >/dev/null 2>&1 || true
             )
         fi
         if [[ "$keep_workspace" -eq 1 ]]; then
@@ -214,7 +214,7 @@ cleanup() {
         write_result_manifest
     fi
     log "cleanup end"
-    log "note: fixed clean-run worker subumbra-clean-run may persist and may require manual deletion"
+    log "note: fixed clean-run worker scr-${run_id//[^a-z0-9]/-} may persist and may require manual deletion"
     log "run id: ${run_id}"
     log "artifacts: ${artifact_dir}"
     exit "$status"
@@ -236,8 +236,8 @@ run_step() {
     } >"$step_log"
     if ! (
         cd "$workspace"
-        export COMPOSE_PROJECT_NAME="subumbra-clean-run"
-        export CF_WORKER_NAME="subumbra-clean-run"
+        export COMPOSE_PROJECT_NAME="scr-${run_id//[^a-z0-9]/-}"
+        export CF_WORKER_NAME="scr-${run_id//[^a-z0-9]/-}"
         "$@"
     ) >>"$step_log" 2>&1; then
         log "step log: ${step_log}"
@@ -347,9 +347,9 @@ fi
 
 cp "$credential_source" "${workspace}/.env.bootstrap"
 if grep -q "^CF_WORKER_NAME=" "${workspace}/.env.bootstrap"; then
-    sed -i "s|^CF_WORKER_NAME=.*|CF_WORKER_NAME=subumbra-clean-run|" "${workspace}/.env.bootstrap"
+    sed -i "s|^CF_WORKER_NAME=.*|CF_WORKER_NAME=scr-${run_id//[^a-z0-9]/-}|" "${workspace}/.env.bootstrap"
 else
-    printf "\nCF_WORKER_NAME=subumbra-clean-run\n" >> "${workspace}/.env.bootstrap"
+    printf "\nCF_WORKER_NAME=scr-${run_id//[^a-z0-9]/-}\n" >> "${workspace}/.env.bootstrap"
 fi
 
 if [[ -n "$bootstrap_overlay" ]]; then
