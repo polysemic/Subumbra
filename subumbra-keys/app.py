@@ -592,6 +592,8 @@ def get_key(key_id: str) -> tuple[Response, int]:
         "wrapped_dek": entry.get("wrapped_dek"),
         "pub_key_fp": entry.get("pub_key_fp"),
         "enc_version": entry.get("enc_version", 1),
+        "policy_id": entry.get("policy_id"),
+        "policy_hash": entry.get("policy_hash"),
     }), 200
 
 
