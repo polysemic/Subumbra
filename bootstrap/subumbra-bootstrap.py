@@ -1993,7 +1993,7 @@ def call_setup_keygen(worker_url: str, setup_token: str) -> tuple[str, str, str]
             break
         except urllib.error.HTTPError as exc:
             last_http_error = exc
-            if exc.code in (401, 403) and attempt < 12:
+            if exc.code in (401, 403, 503) and attempt < 12:
                 info(
                     "Cloudflare setup token not visible yet; "
                     f"retrying /setup/keygen ({attempt}/12)"
@@ -2218,7 +2218,10 @@ def deploy_worker(
 
         # ── push SUBUMBRA_ADAPTER_TOKENS ─────────────────────────────────────
         step("Pushing SUBUMBRA_ADAPTER_TOKENS to CF Secrets")
-        adapter_tokens_json = json.dumps(list(adapter_tokens.values()), separators=(",", ":"))
+        adapter_tokens_json = json.dumps(
+            [{"id": k, "token": v} for k, v in adapter_tokens.items()],
+            separators=(",", ":"),
+        )
         _run(
             ["wrangler", "secret", "put", "SUBUMBRA_ADAPTER_TOKENS",
              "--name", worker_name],
