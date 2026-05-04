@@ -2218,7 +2218,10 @@ def deploy_worker(
 
         # ── push SUBUMBRA_ADAPTER_TOKENS ─────────────────────────────────────
         step("Pushing SUBUMBRA_ADAPTER_TOKENS to CF Secrets")
-        adapter_tokens_json = json.dumps(list(adapter_tokens.values()), separators=(",", ":"))
+        adapter_tokens_json = json.dumps(
+            [{"id": k, "token": v} for k, v in adapter_tokens.items()],
+            separators=(",", ":"),
+        )
         _run(
             ["wrangler", "secret", "put", "SUBUMBRA_ADAPTER_TOKENS",
              "--name", worker_name],
