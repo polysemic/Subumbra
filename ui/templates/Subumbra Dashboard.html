@@ -7,7 +7,7 @@
   <meta http-equiv="X-Content-Type-Options" content="nosniff">
   <title>Subumbra Dashboard</title>
   <link rel="stylesheet" href="template.css?v=3">
-  <link rel="stylesheet" href="main.css?v=4">
+  <link rel="stylesheet" href="main.css?v=5">
 </head>
 <body>
 
@@ -75,6 +75,16 @@
         <h2 class="panel-title">Encryption Keys</h2>
         <div style="display:flex;align-items:center;gap:var(--space-3);">
           <span class="panel-meta">ciphertext only — real keys never stored</span>
+          <div class="view-toggle" role="group" aria-label="View style">
+            <button class="view-toggle-btn active" id="btn-view-card" type="button"
+                    onclick="setKeysView('card')" aria-label="Card view" title="Card view">
+              &#9726;&#9726;
+            </button>
+            <button class="view-toggle-btn" id="btn-view-list" type="button"
+                    onclick="setKeysView('list')" aria-label="List view" title="List view">
+              &#9776;
+            </button>
+          </div>
           <button class="btn btn-add-key" type="button" onclick="openAddKeyModal()"
                   aria-haspopup="dialog">+ Add Key</button>
         </div>
@@ -326,6 +336,180 @@
     </div>
   </div>
 
-  <script src="dashboard.js"></script>
+  <!-- ══════════════════════════════════════════════════════════
+       KEY DETAIL / EDIT MODAL
+       Opens from both card and list view via openKeyDetail(keyId).
+       Tabbed: Overview | Policy | Bind | Schema Preview
+       Policy/Bind tabs are stubs — pending schema implementation.
+  ══════════════════════════════════════════════════════════════ -->
+  <div class="modal-overlay" id="key-detail-modal"
+       role="dialog" aria-modal="true" aria-labelledby="kdm-title">
+    <div class="modal-dialog wide">
+
+      <div class="modal-header">
+        <div class="modal-title">
+          <span id="kdm-provider-badge" class="provider-badge provider-unknown"></span>
+          <span id="kdm-title" style="margin-left:var(--space-2);"></span>
+        </div>
+        <button class="modal-close" type="button"
+                onclick="closeKeyDetail()" aria-label="Close">&#x2715;</button>
+      </div>
+
+      <!-- Tabs -->
+      <div class="kdm-tabs" role="tablist">
+        <button class="kdm-tab active" role="tab" id="tab-overview"
+                onclick="kdmShowTab('overview')">Overview</button>
+        <button class="kdm-tab" role="tab" id="tab-policy"
+                onclick="kdmShowTab('policy')">Policy</button>
+        <button class="kdm-tab" role="tab" id="tab-allow"
+                onclick="kdmShowTab('allow')">Allow</button>
+        <button class="kdm-tab" role="tab" id="tab-bind"
+                onclick="kdmShowTab('bind')">Bind</button>
+        <button class="kdm-tab" role="tab" id="tab-schema"
+                onclick="kdmShowTab('schema')">Schema</button>
+      </div>
+
+      <!-- Tab: Overview -->
+      <div class="kdm-panel active" id="kdm-panel-overview" role="tabpanel">
+        <div class="kdm-section-title">Identity</div>
+        <div class="kdm-field-row">
+          <span class="kdm-field-label">Key ID<span class="kdm-required">*</span></span>
+          <span class="kdm-field-value mono" id="kdm-key-id">—</span>
+        </div>
+        <div class="kdm-field-row">
+          <span class="kdm-field-label">Provider<span class="kdm-required">*</span></span>
+          <span class="kdm-field-value" id="kdm-provider">—</span>
+        </div>
+        <div class="kdm-field-row">
+          <span class="kdm-field-label">Label</span>
+          <span class="kdm-field-value" id="kdm-label">—</span>
+        </div>
+        <div class="kdm-field-row">
+          <span class="kdm-field-label">Created</span>
+          <span class="kdm-field-value mono" id="kdm-created">—</span>
+        </div>
+        <div class="kdm-field-row">
+          <span class="kdm-field-label">Last used</span>
+          <span class="kdm-field-value mono" id="kdm-last-used">—</span>
+        </div>
+        <div class="kdm-field-row">
+          <span class="kdm-field-label">Requests</span>
+          <span class="kdm-field-value" id="kdm-req-count">—</span>
+        </div>
+        <div class="kdm-section-title" style="margin-top:var(--space-4);">Target</div>
+        <div class="kdm-field-row">
+          <span class="kdm-field-label">Host<span class="kdm-required">*</span></span>
+          <span class="kdm-field-value mono" id="kdm-target-host">—</span>
+        </div>
+        <div class="kdm-field-row">
+          <span class="kdm-field-label">Base path</span>
+          <span class="kdm-field-value mono" id="kdm-base-path">/</span>
+        </div>
+      </div>
+
+      <!-- Tab: Policy (stub) -->
+      <div class="kdm-panel" id="kdm-panel-policy" role="tabpanel">
+        <div class="kdm-stub-notice">
+          &#x1F6A7; <strong>Policy tab — pending schema implementation.</strong>
+          Auth scheme (header/bearer/basic), header name, and prefix will be configurable here.
+          See claude-hardening-proposal-v1.md §Schema Direction.
+        </div>
+        <div class="kdm-section-title">Auth (read-only preview)</div>
+        <div class="kdm-field-row">
+          <span class="kdm-field-label">Scheme</span>
+          <span class="kdm-field-value mono" id="kdm-auth-scheme">header</span>
+        </div>
+        <div class="kdm-field-row">
+          <span class="kdm-field-label">Header</span>
+          <span class="kdm-field-value mono" id="kdm-auth-header">—</span>
+        </div>
+        <div class="kdm-field-row">
+          <span class="kdm-field-label">Prefix</span>
+          <span class="kdm-field-value mono" id="kdm-auth-prefix">—</span>
+        </div>
+        <div class="kdm-section-title" style="margin-top:var(--space-4);">Protocol</div>
+        <div class="kdm-field-row">
+          <span class="kdm-field-label">Protocol</span>
+          <span class="kdm-field-value mono" id="kdm-protocol">http_rest</span>
+        </div>
+        <div class="kdm-field-row">
+          <span class="kdm-field-label">Policy ID</span>
+          <span class="kdm-field-value mono" id="kdm-policy-id">—</span>
+        </div>
+      </div>
+
+      <!-- Tab: Allow (stub) -->
+      <div class="kdm-panel" id="kdm-panel-allow" role="tabpanel">
+        <div class="kdm-stub-notice">
+          &#x1F6A7; <strong>Allow tab — pending schema implementation.</strong>
+          Per-key adapter scoping, method restrictions, path prefixes, content types, and body size limits will be managed here.
+        </div>
+        <div class="kdm-section-title">Adapters</div>
+        <div class="kdm-tags" id="kdm-allow-adapters">
+          <span class="kdm-tag">subumbra-proxy</span>
+        </div>
+        <div class="kdm-section-title" style="margin-top:var(--space-4);">Methods</div>
+        <div class="kdm-tags" id="kdm-allow-methods">
+          <span class="kdm-tag">GET</span>
+          <span class="kdm-tag">POST</span>
+        </div>
+        <div class="kdm-section-title" style="margin-top:var(--space-4);">Path prefixes</div>
+        <div class="kdm-tags" id="kdm-allow-paths">
+          <span class="kdm-tag">—</span>
+        </div>
+        <div class="kdm-section-title" style="margin-top:var(--space-4);">Content types</div>
+        <div class="kdm-tags" id="kdm-allow-content-types">
+          <span class="kdm-tag">application/json</span>
+        </div>
+        <div class="kdm-section-title" style="margin-top:var(--space-4);">Max body</div>
+        <div class="kdm-field-row">
+          <span class="kdm-field-label">Bytes</span>
+          <span class="kdm-field-value mono" id="kdm-max-body">1048576</span>
+        </div>
+      </div>
+
+      <!-- Tab: Bind (stub) -->
+      <div class="kdm-panel" id="kdm-panel-bind" role="tabpanel">
+        <div class="kdm-stub-notice">
+          &#x1F6A7; <strong>Bind tab — pending schema implementation.</strong>
+          Bind mode controls which policy fields are hashed into the AAD envelope.
+          Operators may choose extra locked fields but cannot unlock the mandatory baseline.
+        </div>
+        <div class="kdm-section-title">Bind mode</div>
+        <div class="kdm-bind-modes">
+          <button class="kdm-bind-mode selected" onclick="kdmSelectBind(this,'strict')">
+            <span class="kdm-bind-mode-name">strict</span>
+            <span class="kdm-bind-mode-desc">Hash entire policy except non-security meta</span>
+          </button>
+          <button class="kdm-bind-mode" onclick="kdmSelectBind(this,'baseline')">
+            <span class="kdm-bind-mode-name">baseline</span>
+            <span class="kdm-bind-mode-desc">Hash mandatory security baseline only</span>
+          </button>
+          <button class="kdm-bind-mode" onclick="kdmSelectBind(this,'baseline_plus')">
+            <span class="kdm-bind-mode-name">baseline_plus</span>
+            <span class="kdm-bind-mode-desc">Baseline + operator-chosen extra fields</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Tab: Schema preview -->
+      <div class="kdm-panel" id="kdm-panel-schema" role="tabpanel">
+        <div class="kdm-stub-notice">
+          Schema shown is a forward-compatible template. Fields marked — are not yet stored
+          in the current V2 envelope. Full schema requires council approval and bootstrap migration.
+        </div>
+        <div class="kdm-schema-preview" id="kdm-schema-json"></div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-ghost" type="button" onclick="closeKeyDetail()">Close</button>
+        <button class="btn btn-subtle" type="button"
+                onclick="openRotateModal(_kdmCurrentKey, _kdmCurrentProvider)">↺ Rotate Key</button>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="dashboard.js?v=2"></script>
 </body>
 </html>

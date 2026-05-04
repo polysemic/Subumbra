@@ -144,6 +144,7 @@ async function getRegistryEntry(env, keyId) {
     throw err;
   }
 
+  const allow = policy.allow ?? {};
   return {
     key_id: keyEntry.key_id,
     policy_id: policyId,
@@ -152,6 +153,11 @@ async function getRegistryEntry(env, keyId) {
     provider_id: keyEntry.provider,
     auth_header: template?.auth_header ?? keyEntry.auth_header,
     auth_prefix: template?.auth_prefix ?? keyEntry.auth_prefix,
+    allow_adapters: Array.isArray(allow.adapters) ? allow.adapters : [],
+    allow_methods: Array.isArray(allow.methods) ? allow.methods : [],
+    allow_path_prefixes: Array.isArray(allow.path_prefixes) ? allow.path_prefixes : [],
+    allow_content_types: Array.isArray(allow.content_types) ? allow.content_types : [],
+    allow_max_body_bytes: typeof allow.max_body_bytes === "number" ? allow.max_body_bytes : null,
   };
 }
 
@@ -174,6 +180,9 @@ const HOP_BY_HOP_HEADERS = new Set([
   "cf-ray",
   "cf-visitor",
   "cf-ipcountry",
+  "authorization",
+  "x-api-key",
+  "x-api-key-id",
 ]);
 
 const VAULT_INSTANCE_NAME = "vault";
@@ -345,22 +354,31 @@ function parseAdapterTokens(raw) {
   if (!Array.isArray(parsed) || parsed.length === 0) {
     throw new Error("SUBUMBRA_ADAPTER_TOKENS must be a non-empty JSON array");
   }
-  for (const token of parsed) {
-    if (typeof token !== "string" || !token) {
-      throw new Error("SUBUMBRA_ADAPTER_TOKENS entries must be non-empty strings");
+  for (const entry of parsed) {
+    if (
+      !entry ||
+      typeof entry !== "object" ||
+      typeof entry.id !== "string" ||
+      !entry.id ||
+      typeof entry.token !== "string" ||
+      !entry.token
+    ) {
+      throw new Error(
+        "SUBUMBRA_ADAPTER_TOKENS entries must be {id, token} objects with non-empty string fields"
+      );
     }
   }
   return parsed;
 }
 
-async function tokenSetContains(incomingToken, validTokens) {
-  let matched = false;
-  for (const validToken of validTokens) {
-    if (await timingSafeEqual(incomingToken, validToken)) {
-      matched = true;
+async function resolveAdapterToken(incomingToken, validTokens) {
+  let matchedId = null;
+  for (const entry of validTokens) {
+    if (await timingSafeEqual(incomingToken, entry.token)) {
+      matchedId = entry.id;
     }
   }
-  return matched;
+  return matchedId;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -999,13 +1017,13 @@ async function authorizeRequest(request, env) {
   }
 
   const incomingToken = request.headers.get("X-Subumbra-Token") ?? "";
-  const tokenOk = await tokenSetContains(incomingToken, validTokens);
-  if (!tokenOk) {
+  const adapterId = await resolveAdapterToken(incomingToken, validTokens);
+  if (adapterId === null) {
     console.warn("subumbra: unauthorized request from", request.headers.get("CF-Connecting-IP"));
     return { ok: false, response: jsonError("unauthorized", 401) };
   }
 
-  return { ok: true };
+  return { ok: true, adapterId };
 }
 
 async function handleAuthPing(request, env) {
@@ -1074,6 +1092,25 @@ async function handleProxy(request, env) {
     return jsonError("key format not supported — re-bootstrap required", 400);
   }
 
+  // ── 2.5. Intent observer ─────────────────────────────────────────────────
+  const intentField = body.intent;
+  if (intentField && typeof intentField === "object") {
+    const intentSource = typeof intentField.source === "string" ? intentField.source : null;
+    const intentTrust =
+      intentField.trust && typeof intentField.trust === "object" ? intentField.trust : null;
+    console.info("subumbra: intent key_id=%s source=%s", key_id, intentSource);
+    if (intentTrust) {
+      console.info(
+        "subumbra: intent_trust key_id=%s initiators=%j content_sources=%j",
+        key_id,
+        Array.isArray(intentTrust.allowed_initiators) ? intentTrust.allowed_initiators : null,
+        Array.isArray(intentTrust.allowed_content_sources)
+          ? intentTrust.allowed_content_sources
+          : null,
+      );
+    }
+  }
+
   let parsedTarget;
   try {
     parsedTarget = new URL(target_url);
@@ -1112,6 +1149,74 @@ async function handleProxy(request, env) {
     console.info("subumbra: enc_version=3 key_id=%s", key_id);
   } else {
     console.warn("subumbra: v2 grace path key_id=%s", key_id);
+  }
+
+  // ── 3.5. Allow-block enforcement (V3 only; V2 grace skips) ───────────────
+  if (version !== 2) {
+    if (!registryEntry.allow_adapters.includes(auth.adapterId)) {
+      console.warn(
+        "subumbra: policy deny adapter=%s key_id=%s",
+        auth.adapterId,
+        key_id,
+      );
+      return jsonError("adapter not permitted", 403);
+    }
+
+    const reqMethod = method ?? "";
+    if (!registryEntry.allow_methods.includes(reqMethod)) {
+      console.warn("subumbra: policy deny method=%s key_id=%s", reqMethod, key_id);
+      return jsonError("method not allowed", 405);
+    }
+
+    const targetPath = parsedTarget.pathname;
+    const pathAllowed = registryEntry.allow_path_prefixes.some((prefix) =>
+      targetPath.startsWith(prefix),
+    );
+    if (!pathAllowed) {
+      console.warn("subumbra: policy deny path key_id=%s", key_id);
+      return jsonError("path not permitted", 403);
+    }
+
+    if (registryEntry.allow_content_types.length > 0) {
+      // Enforce content-type whenever fwdHeaders declares one, or when a body
+      // is present. Do NOT skip this check based on reqBody being null — a
+      // forwarded Content-Type header with an empty body still violates policy.
+      let rawCT = "";
+      for (const [k, v] of Object.entries(fwdHeaders || {})) {
+        if (k.toLowerCase() === "content-type") {
+          rawCT = v.toLowerCase().split(";")[0].trim();
+          break;
+        }
+      }
+      // Only enforce when a content-type is actually declared in the forwarded
+      // headers. If fwdHeaders has no content-type key at all, skip (no CT to
+      // check against). This preserves GET / HEAD without Content-Type.
+      if (rawCT !== "") {
+        const ctAllowed = registryEntry.allow_content_types.some(
+          (ct) => rawCT === ct.toLowerCase(),
+        );
+        if (!ctAllowed) {
+          console.warn("subumbra: policy deny content_type key_id=%s", key_id);
+          return jsonError("content-type not permitted", 415);
+        }
+      }
+    }
+
+    if (registryEntry.allow_max_body_bytes !== null && reqBody !== null) {
+      // JSON.stringify length is a UTF-16 code-unit count, not a raw byte count.
+      // Raw bytes are not recoverable after request.json() parsing (recon Q2).
+      // This is an approximation; max_body_bytes is enforced on this basis.
+      const bodySize = JSON.stringify(reqBody).length;
+      if (bodySize > registryEntry.allow_max_body_bytes) {
+        console.warn(
+          "subumbra: policy deny body_size=%d max=%d key_id=%s",
+          bodySize,
+          registryEntry.allow_max_body_bytes,
+          key_id,
+        );
+        return jsonError("request body too large", 413);
+      }
+    }
   }
 
   // ── 4. Strip hop-by-hop and internal headers from forwarded headers ────────

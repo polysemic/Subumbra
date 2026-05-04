@@ -232,7 +232,7 @@ contract.
 Starting in Round 45, each secret record is backed by a declarative policy
 document. The policy schema governs what the holder of a token is permitted to
 do with the record it unlocks. Bootstrap ingestion (R45-2) validates incoming
-policy documents; the Worker (R45-3 onward) enforces the allow block.
+policy documents; the Worker (R45-4 onward) enforces the allow block.
 
 ### Protocols
 

@@ -188,7 +188,7 @@ Use the standalone guide:
 That guide shows the supported app-owned contract:
 
 - `api_base: http://subumbra-proxy:8090/t/<key_id>/...`
-- `api_key: <SUBUMBRA_TOKEN_YOUR_APP>` — adapter token from `.env`, not a plain key_id
+- `api_key: <SUBUMBRA_TOKEN_PROXY>` — use the value of `SUBUMBRA_TOKEN_PROXY` from `.env`
 
 ## Next
 
