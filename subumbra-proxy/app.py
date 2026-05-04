@@ -74,6 +74,8 @@ EXPECTED_RECORD_FIELDS = {
     "pub_key_fp",
     "enc_version",
     "key_id",
+    "policy_id",
+    "policy_hash",
 }
 
 app = FastAPI()
@@ -166,6 +168,8 @@ def proxy_payload(record, key_id, *, target_url, method, headers, body):
         "pub_key_fp": record["pub_key_fp"],
         "key_id": record["key_id"],
         "enc_version": record["enc_version"],
+        "policy_id": record["policy_id"],
+        "policy_hash": record["policy_hash"],
     }
 
 

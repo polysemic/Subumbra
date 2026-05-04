@@ -394,9 +394,36 @@ AAD = "subumbra:v3:<key_id>:<policy_hash>"
 
 Where:
 - `key_id` is the record's `key_id` string
-- `policy_hash` is the lowercase hex SHA-256 digest of the canonical JSON policy
-  bytes: UTF-8 encoded, object keys sorted lexicographically, no trailing
-  newline
+- `policy_hash` is the lowercase hex SHA-256 digest of the canonical JSON
+  **baseline binding object** below: UTF-8 encoded, object keys sorted
+  lexicographically, no trailing newline
+
+Baseline binding object:
+
+```json
+{
+  "key_id": "<key_id>",
+  "target": {
+    "host": "<target.host>"
+  },
+  "auth": {
+    "scheme": "<auth.scheme>",
+    "header_name": "<auth.header_name when present>",
+    "query_param": "<auth.query_param when present>",
+    "allow_query": true
+  },
+  "allow": {
+    "adapters": ["<sorted adapter ids>"],
+    "methods": ["<sorted methods>"],
+    "path_prefixes": ["<sorted prefixes>"],
+    "content_types": ["<sorted content types>"],
+    "max_body_bytes": 1048576
+  }
+}
+```
+
+Only the fields shown above enter the R45-3 `policy_hash`. Future
+operator-selectable extra binding controls remain deferred beyond this round.
 
 V3 record fields (additions to V2):
 
@@ -404,7 +431,7 @@ V3 record fields (additions to V2):
 |-------|------|-------------|
 | `enc_version` | number | `3` for V3 records |
 | `policy_id` | string | The `policy_id` from the backing policy document |
-| `policy_hash` | string | `sha256:<hex>` — SHA-256 of the canonical policy bytes |
+| `policy_hash` | string | `<hex>` — SHA-256 of the canonical baseline binding object above |
 
 V2 records (`enc_version: 2`) continue to be accepted through R45-4 with no
 policy enforcement. They are rejected with a structured deprecation error starting
