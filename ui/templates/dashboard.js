@@ -10,15 +10,15 @@
 const SESSION_WARN_SECS = 60;
 const PROVIDER_CLASS = {
   anthropic: "provider-anthropic",
-  openai: "provider-openai",
-  groq: "provider-groq",
-  deepseek: "provider-deepseek",
+  openai:    "provider-openai",
+  groq:      "provider-groq",
+  deepseek:  "provider-deepseek",
 };
 
 /* ── Dashboard state ─────────────────────────────────────────── */
 
 let _status = null;
-let _es = null;   // EventSource instance
+let _es     = null;   // EventSource instance
 
 /* ── DOM helper ──────────────────────────────────────────────── */
 
@@ -47,15 +47,15 @@ function fmtTimestamp(iso) {
 function fmtRelative(iso) {
   if (!iso) return null;
   const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
-  if (diff < 60) return `${diff}s ago`;
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 60)    return `${diff}s ago`;
+  if (diff < 3600)  return `${Math.floor(diff / 60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
 function verdictClass(v) {
   if (v === "allow") return "status-ok";
-  if (v === "deny") return "status-deny";
+  if (v === "deny")  return "status-deny";
   return "status-unknown";
 }
 
@@ -72,9 +72,9 @@ function setAlert(el, visible) {
 ═══════════════════════════════════════════════════════════════ */
 
 function renderHealth(data) {
-  const sDot = $("subumbra-health-dot");
+  const sDot  = $("subumbra-health-dot");
   const sText = $("subumbra-health-text");
-  const wDot = $("worker-health-dot");
+  const wDot  = $("worker-health-dot");
   const wText = $("worker-health-text");
 
   sDot.className = "health-dot " + (data.subumbra_keys_healthy ? "ok" : "err");
@@ -97,12 +97,12 @@ function renderErrorBanner(data) {
 }
 
 function renderSummary(data) {
-  const totalReqs = data.keys.reduce((s, k) => s + (k.request_count || 0), 0);
+  const totalReqs  = data.keys.reduce((s, k) => s + (k.request_count || 0), 0);
   const activeKeys = data.keys.filter(k => k.request_count > 0).length;
-  const lastReq = data.keys.map(k => k.last_access).filter(Boolean).sort().at(-1);
+  const lastReq    = data.keys.map(k => k.last_access).filter(Boolean).sort().at(-1);
 
-  $("stat-keys").textContent = data.keys_loaded;
-  $("stat-total-reqs").textContent = totalReqs;
+  $("stat-keys").textContent       = data.keys_loaded;
+  $("stat-total-reqs").textContent  = totalReqs;
   $("stat-active-keys").textContent = activeKeys;
 
   const node = $("stat-last-req");
@@ -120,37 +120,14 @@ function renderSummary(data) {
 function renderKeys(keys) {
   const grid = $("keys-grid");
   if (!keys.length) {
+    grid.className = "keys-grid";
     grid.innerHTML =
       `<div class="empty-state">No keys loaded. Run bootstrap first:` +
       `<div class="empty-code">docker compose --profile bootstrap run --rm -it bootstrap</div></div>`;
     return;
   }
-
-  grid.innerHTML = keys.map(k => {
-    const pClass = providerClass(k.provider);
-    const relTime = k.last_access ? fmtRelative(k.last_access) : null;
-    const created = k.created_at ? fmtTimestamp(k.created_at) : "—";
-
-    return `
-<article class="key-card">
-  <span class="provider-badge ${esc(pClass)}">${esc(k.provider)}</span>
-  <div class="key-card-body">
-    <div class="key-card-info">
-      <div class="key-id">${esc(k.key_id)}</div>
-      <div class="key-meta">Created: ${esc(created)}</div>
-      <div class="key-meta${relTime ? "" : " never"}">${relTime ? `Last used: ${esc(relTime)}` : "Never used"}</div>
-    </div>
-    <div class="key-stats">
-      <div class="key-req-count">${(k.request_count || 0).toLocaleString()}</div>
-      <div class="key-req-label">requests</div>
-    </div>
-  </div>
-  <div class="key-card-footer">
-    <button class="btn btn-subtle" type="button"
-      onclick="openRotateModal('${esc(k.key_id)}', '${esc(k.provider)}')">↺ Rotate</button>
-  </div>
-</article>`;
-  }).join("");
+  if (_keysView === "list") renderKeysList(keys);
+  else renderKeysGrid(keys);
 }
 
 function renderLog(log, auditAvailable) {
@@ -170,7 +147,7 @@ function renderLog(log, auditAvailable) {
   if (_status) for (const k of _status.keys) provMap[k.key_id] = k.provider;
 
   tbody.innerHTML = log.map(entry => {
-    const prov = provMap[entry.key_id] ?? "—";
+    const prov   = provMap[entry.key_id] ?? "—";
     const pClass = providerClass(prov);
     const vClass = verdictClass(entry.verdict);
     return `
@@ -246,16 +223,16 @@ function initEventSource() {
 
 /* Update the live connection badge in the topbar */
 function setLiveIndicator(state, msg) {
-  const dot = $("live-dot");
+  const dot  = $("live-dot");
   const text = $("live-text");
   if (!dot || !text) return;
   const map = {
-    live: { cls: "ok", label: "live" },
+    live:         { cls: "ok",  label: "live" },
     reconnecting: { cls: "err", label: "reconnecting…" },
-    error: { cls: "err", label: msg ?? "error" },
+    error:        { cls: "err", label: msg ?? "error" },
   };
   const s = map[state] ?? map.error;
-  dot.className = `health-dot ${s.cls}`;
+  dot.className  = `health-dot ${s.cls}`;
   text.textContent = s.label;
 }
 
@@ -339,8 +316,8 @@ function makeSessionTtl(sessionRef, ttlElId, dotElId, onExpire) {
     timer = setInterval(() => {
       if (!sessionRef.current) return stop();
       const secsLeft = Math.floor((sessionRef.current.expiresAt - Date.now()) / 1000);
-      const ttlEl = $(ttlElId);
-      const dotEl = $(dotElId);
+      const ttlEl    = $(ttlElId);
+      const dotEl    = $(dotElId);
       if (secsLeft <= 0) {
         stop();
         if (ttlEl) { ttlEl.textContent = "expired"; ttlEl.classList.add("warn"); }
@@ -395,7 +372,7 @@ function attachSecurityDetectors(input, warnEl, proceedBtn) {
     configurable: true,
   });
   detectors.push(() => {
-    try { delete input.value; } catch (_) { }
+    try { delete input.value; } catch(_) {}
   });
 
   // 3. isTrusted check — handled inside paste handler (see attachSecureInput)
@@ -409,7 +386,7 @@ function attachSecurityDetectors(input, warnEl, proceedBtn) {
 function attachSecureInput(input, sessionRef, pendingRef, onCaptured, onError) {
   const keydownHandler = (e) => {
     const isPaste = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v";
-    const isNav = ["Tab", "Escape", "Enter"].includes(e.key);
+    const isNav   = ["Tab", "Escape", "Enter"].includes(e.key);
     if (!isPaste && !isNav) e.preventDefault();
   };
 
@@ -437,11 +414,11 @@ function attachSecureInput(input, sessionRef, pendingRef, onCaptured, onError) {
   };
 
   input.addEventListener("keydown", keydownHandler);
-  input.addEventListener("paste", pasteHandler);
+  input.addEventListener("paste",   pasteHandler);
 
   return function detach() {
     input.removeEventListener("keydown", keydownHandler);
-    input.removeEventListener("paste", pasteHandler);
+    input.removeEventListener("paste",   pasteHandler);
   };
 }
 
@@ -450,10 +427,10 @@ function attachSecureInput(input, sessionRef, pendingRef, onCaptured, onError) {
 ═══════════════════════════════════════════════════════════════ */
 
 const _akm = {
-  session: { current: null },   // { sessionId, publicKey, expiresAt }
-  pending: { current: null },   // ArrayBuffer ciphertext
-  detach: null,                // cleanup fn from attachSecureInput
-  ttl: null,                // { start, stop }
+  session:  { current: null },   // { sessionId, publicKey, expiresAt }
+  pending:  { current: null },   // ArrayBuffer ciphertext
+  detach:   null,                // cleanup fn from attachSecureInput
+  ttl:      null,                // { start, stop }
 };
 
 _akm.ttl = makeSessionTtl(
@@ -474,7 +451,7 @@ function akmSetState(id) {
 }
 
 function akmSetSecureState(state) {
-  const wrap = $("akm-secure-wrap");
+  const wrap  = $("akm-secure-wrap");
   const input = $("akm-key-input");
   if (!wrap || !input) return;
   wrap.dataset.state = state;
@@ -489,7 +466,7 @@ function setAkmError(msg) {
   setAlert(el, !!msg);
 }
 
-function akmEnableSubmit() { const b = $("akm-submit"); if (b) b.disabled = false; }
+function akmEnableSubmit()  { const b = $("akm-submit"); if (b) b.disabled = false; }
 function akmDisableSubmit() { const b = $("akm-submit"); if (b) b.disabled = true; }
 
 function akmReset() {
@@ -502,8 +479,8 @@ function akmReset() {
   if (ttl) { ttl.textContent = ""; ttl.classList.remove("warn"); }
   const dot = $("akm-session-dot");
   if (dot) dot.className = "session-dot loading";
-  $("akm-key-name") && ($("akm-key-name").value = "");
-  $("akm-provider") && ($("akm-provider").value = "anthropic");
+  $("akm-key-name")    && ($("akm-key-name").value    = "");
+  $("akm-provider")    && ($("akm-provider").value     = "anthropic");
 }
 
 async function openAddKeyModal() {
@@ -516,7 +493,7 @@ async function openAddKeyModal() {
   $("add-key-modal").classList.add("open");
 
   try {
-    const data = await fetchSession();
+    const data      = await fetchSession();
     const publicKey = await importPublicKey(data.publicKeyJwk);
     _akm.session.current = {
       sessionId: data.sessionId,
@@ -544,9 +521,9 @@ async function openAddKeyModal() {
       _akm.detach = () => { _dDet(); _dPaste(); };
     }
 
-    const dot = $("akm-session-dot");
+    const dot  = $("akm-session-dot");
     const info = $("akm-session-info");
-    if (dot) dot.className = "session-dot active";
+    if (dot)  dot.className = "session-dot active";
     if (info) info.textContent = "Session active · keypair generated server-side";
 
   } catch (err) {
@@ -574,7 +551,7 @@ async function submitAddKey() {
   if (!_akm.session.current) { setAkmError("Session expired — please close and reopen."); return; }
 
   const provider = $("akm-provider")?.value?.trim();
-  const keyId = $("akm-key-name")?.value?.trim();
+  const keyId    = $("akm-key-name")?.value?.trim();
   if (!keyId) { setAkmError("Please enter a Key ID / label before submitting."); return; }
 
   setAkmError("");
@@ -583,7 +560,7 @@ async function submitAddKey() {
 
   try {
     const body = JSON.stringify({
-      sessionId: _akm.session.current.sessionId,
+      sessionId:  _akm.session.current.sessionId,
       provider,
       keyId,
       ciphertext: bufferToBase64(_akm.pending.current),
@@ -615,11 +592,11 @@ async function submitAddKey() {
 ═══════════════════════════════════════════════════════════════ */
 
 const _rkm = {
-  session: { current: null },
-  pending: { current: null },
-  detach: null,
-  ttl: null,
-  keyId: null,
+  session:  { current: null },
+  pending:  { current: null },
+  detach:   null,
+  ttl:      null,
+  keyId:    null,
   provider: null,
 };
 
@@ -641,7 +618,7 @@ function rkmSetState(id) {
 }
 
 function rkmSetSecureState(state) {
-  const wrap = $("rkm-secure-wrap");
+  const wrap  = $("rkm-secure-wrap");
   const input = $("rkm-key-input");
   if (!wrap || !input) return;
   wrap.dataset.state = state;
@@ -656,7 +633,7 @@ function setRkmError(msg) {
   setAlert(el, !!msg);
 }
 
-function rkmEnableSubmit() { const b = $("rkm-submit"); if (b) b.disabled = false; }
+function rkmEnableSubmit()  { const b = $("rkm-submit"); if (b) b.disabled = false; }
 function rkmDisableSubmit() { const b = $("rkm-submit"); if (b) b.disabled = true; }
 
 function rkmReset() {
@@ -678,18 +655,18 @@ async function openRotateModal(keyId, provider) {
     _rkm.session.current = null;
   }
 
-  _rkm.keyId = keyId;
+  _rkm.keyId    = keyId;
   _rkm.provider = provider;
 
   // Populate static fields
-  const keyIdEl = $("rkm-key-id");
+  const keyIdEl   = $("rkm-key-id");
   const provBadge = $("rkm-provider-badge");
-  const cmdEl = $("rkm-cmd");
+  const cmdEl     = $("rkm-cmd");
 
-  if (keyIdEl) keyIdEl.textContent = keyId;
+  if (keyIdEl)   keyIdEl.textContent   = keyId;
   if (provBadge) {
-    provBadge.textContent = provider;
-    provBadge.className = `provider-badge ${providerClass(provider)}`;
+    provBadge.textContent  = provider;
+    provBadge.className    = `provider-badge ${providerClass(provider)}`;
   }
   if (cmdEl) cmdEl.textContent = `docker compose --profile bootstrap run --rm -it bootstrap --rotate`;
 
@@ -698,7 +675,7 @@ async function openRotateModal(keyId, provider) {
   $("rotate-modal").classList.add("open");
 
   try {
-    const data = await fetchSession();
+    const data      = await fetchSession();
     const publicKey = await importPublicKey(data.publicKeyJwk);
     _rkm.session.current = {
       sessionId: data.sessionId,
@@ -726,9 +703,9 @@ async function openRotateModal(keyId, provider) {
       _rkm.detach = () => { _rDet(); _rPaste(); };
     }
 
-    const dot = $("rkm-session-dot");
+    const dot  = $("rkm-session-dot");
     const info = $("rkm-session-info");
-    if (dot) dot.className = "session-dot active";
+    if (dot)  dot.className = "session-dot active";
     if (info) info.textContent = "Session active · keypair generated server-side";
 
   } catch (err) {
@@ -761,9 +738,9 @@ async function submitRotateKey() {
 
   try {
     const body = JSON.stringify({
-      sessionId: _rkm.session.current.sessionId,
-      keyId: _rkm.keyId,
-      provider: _rkm.provider,
+      sessionId:  _rkm.session.current.sessionId,
+      keyId:      _rkm.keyId,
+      provider:   _rkm.provider,
       ciphertext: bufferToBase64(_rkm.pending.current),
     });
     _rkm.pending.current = null;
@@ -793,6 +770,172 @@ window.addEventListener("pagehide", () => {
 });
 
 /* ── Init ────────────────────────────────────────────────────── */
+
+/* ═══════════════════════════════════════════════════════════════
+   VIEW TOGGLE + LIST RENDER
+═══════════════════════════════════════════════════════════════ */
+
+let _keysView = "card"; // "card" | "list"
+
+function setKeysView(mode) {
+  _keysView = mode;
+  $("btn-view-card").classList.toggle("active", mode === "card");
+  $("btn-view-list").classList.toggle("active", mode === "list");
+  if (_status) renderKeys(_status.keys);
+}
+
+function renderKeysGrid(keys) {
+  const grid = $("keys-grid");
+  grid.className = "keys-grid";
+  grid.innerHTML = keys.map(k => {
+    const pClass  = providerClass(k.provider);
+    const relTime = k.last_access ? fmtRelative(k.last_access) : null;
+    const created = k.created_at  ? fmtTimestamp(k.created_at) : "—";
+    return `
+<article class="key-card" onclick="openKeyDetail('${esc(k.key_id)}','${esc(k.provider)}')">
+  <span class="provider-badge ${esc(pClass)}">${esc(k.provider)}</span>
+  <div class="key-card-body">
+    <div class="key-card-info">
+      <div class="key-id">${esc(k.key_id)}</div>
+      <div class="key-meta">Created: ${esc(created)}</div>
+      <div class="key-meta${relTime ? "" : " never"}">${relTime ? `Last used: ${esc(relTime)}` : "Never used"}</div>
+    </div>
+    <div class="key-stats">
+      <div class="key-req-count">${(k.request_count || 0).toLocaleString()}</div>
+      <div class="key-req-label">requests</div>
+    </div>
+  </div>
+  <div class="key-card-footer" onclick="event.stopPropagation()">
+    <button class="btn btn-subtle" type="button"
+      onclick="openRotateModal('${esc(k.key_id)}','${esc(k.provider)}')">↺ Rotate</button>
+    <button class="btn btn-subtle" type="button"
+      onclick="openKeyDetail('${esc(k.key_id)}','${esc(k.provider)}')">&#9998; Edit</button>
+  </div>
+</article>`;
+  }).join("");
+}
+
+function renderKeysList(keys) {
+  const grid = $("keys-grid");
+  grid.className = "keys-list";
+  grid.innerHTML = keys.map(k => {
+    const pClass  = providerClass(k.provider);
+    const relTime = k.last_access ? fmtRelative(k.last_access) : null;
+    return `
+<div class="key-row" onclick="openKeyDetail('${esc(k.key_id)}','${esc(k.provider)}')">
+  <span class="provider-badge ${esc(pClass)}">${esc(k.provider)}</span>
+  <div>
+    <div class="key-row-id">${esc(k.key_id)}</div>
+    <div class="key-row-meta">${relTime ? `Last used: ${esc(relTime)}` : "Never used"}</div>
+  </div>
+  <div class="key-row-counts">
+    <div class="key-row-req-num">${(k.request_count || 0).toLocaleString()}</div>
+    <div class="key-row-req-label">reqs</div>
+  </div>
+  <div class="key-row-actions" onclick="event.stopPropagation()">
+    <button class="btn btn-subtle" type="button"
+      onclick="openRotateModal('${esc(k.key_id)}','${esc(k.provider)}')">↺</button>
+    <button class="btn btn-subtle" type="button"
+      onclick="openKeyDetail('${esc(k.key_id)}','${esc(k.provider)}')">&#9998;</button>
+  </div>
+</div>`;
+  }).join("");
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   KEY DETAIL MODAL
+═══════════════════════════════════════════════════════════════ */
+
+let _kdmCurrentKey = null;
+let _kdmCurrentProvider = null;
+
+function openKeyDetail(keyId, provider) {
+  _kdmCurrentKey = keyId;
+  _kdmCurrentProvider = provider;
+
+  // Find key data from last status
+  const k = (_status?.keys || []).find(k => k.key_id === keyId) || {};
+
+  // Provider badge
+  const badge = $("kdm-provider-badge");
+  badge.textContent = provider;
+  badge.className = `provider-badge ${providerClass(provider)}`;
+
+  // Title
+  $("kdm-title").textContent = keyId;
+
+  // Overview fields
+  $("kdm-key-id").textContent      = keyId;
+  $("kdm-provider").textContent    = provider;
+  $("kdm-label").textContent       = k.label || keyId;
+  $("kdm-created").textContent     = k.created_at   ? fmtTimestamp(k.created_at)  : "—";
+  $("kdm-last-used").textContent   = k.last_access  ? fmtTimestamp(k.last_access) : "Never";
+  $("kdm-req-count").textContent   = (k.request_count || 0).toLocaleString() + " requests";
+  $("kdm-target-host").textContent = k.target_host  || "—";
+  $("kdm-base-path").textContent   = k.base_path    || "/";
+
+  // Policy tab (read-only stubs from provider registry)
+  $("kdm-auth-scheme").textContent  = k.auth_scheme  || "header";
+  $("kdm-auth-header").textContent  = k.auth_header  || "—";
+  $("kdm-auth-prefix").textContent  = k.auth_prefix  || "—";
+  $("kdm-protocol").textContent     = k.protocol     || "http_rest";
+  $("kdm-policy-id").textContent    = k.policy_id    || "—";
+
+  // Schema preview — forward-compatible template
+  const schema = {
+    key_id:     keyId,
+    policy_id:  k.policy_id  || `${provider}-prod`,
+    protocol:   k.protocol   || "http_rest",
+    target: {
+      host:      k.target_host || "—",
+      base_path: k.base_path   || "/",
+    },
+    auth: {
+      scheme:      k.auth_scheme  || "header",
+      header_name: k.auth_header  || "Authorization",
+      prefix:      k.auth_prefix  || "Bearer ",
+    },
+    allow: {
+      adapters:      ["subumbra-proxy"],
+      methods:       ["GET", "POST"],
+      path_prefixes: [],
+      content_types: ["application/json"],
+      max_body_bytes: 1048576,
+    },
+    meta: {
+      label: k.label || keyId,
+      notes: "",
+    },
+    bind: {
+      mode:         "strict",
+      extra_fields: [],
+    },
+  };
+  $("kdm-schema-json").textContent = JSON.stringify(schema, null, 2);
+
+  // Reset to overview tab
+  kdmShowTab("overview");
+  $("key-detail-modal").classList.add("open");
+}
+
+function closeKeyDetail() {
+  $("key-detail-modal").classList.remove("open");
+  _kdmCurrentKey = null;
+  _kdmCurrentProvider = null;
+}
+
+function kdmShowTab(name) {
+  ["overview","policy","allow","bind","schema"].forEach(t => {
+    $(`tab-${t}`).classList.toggle("active", t === name);
+    $(`kdm-panel-${t}`).classList.toggle("active", t === name);
+  });
+}
+
+function kdmSelectBind(btn, mode) {
+  btn.closest(".kdm-bind-modes").querySelectorAll(".kdm-bind-mode")
+    .forEach(b => b.classList.remove("selected"));
+  btn.classList.add("selected");
+}
 
 document.addEventListener("DOMContentLoaded", () => {
   loadStatus();      // immediate snapshot on load
