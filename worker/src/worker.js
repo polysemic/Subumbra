@@ -1177,7 +1177,10 @@ async function handleProxy(request, env) {
       return jsonError("path not permitted", 403);
     }
 
-    if (registryEntry.allow_content_types.length > 0 && reqBody !== null) {
+    if (registryEntry.allow_content_types.length > 0) {
+      // Enforce content-type whenever fwdHeaders declares one, or when a body
+      // is present. Do NOT skip this check based on reqBody being null — a
+      // forwarded Content-Type header with an empty body still violates policy.
       let rawCT = "";
       for (const [k, v] of Object.entries(fwdHeaders || {})) {
         if (k.toLowerCase() === "content-type") {
@@ -1185,12 +1188,17 @@ async function handleProxy(request, env) {
           break;
         }
       }
-      const ctAllowed = registryEntry.allow_content_types.some(
-        (ct) => rawCT === ct.toLowerCase(),
-      );
-      if (!ctAllowed) {
-        console.warn("subumbra: policy deny content_type key_id=%s", key_id);
-        return jsonError("content-type not permitted", 415);
+      // Only enforce when a content-type is actually declared in the forwarded
+      // headers. If fwdHeaders has no content-type key at all, skip (no CT to
+      // check against). This preserves GET / HEAD without Content-Type.
+      if (rawCT !== "") {
+        const ctAllowed = registryEntry.allow_content_types.some(
+          (ct) => rawCT === ct.toLowerCase(),
+        );
+        if (!ctAllowed) {
+          console.warn("subumbra: policy deny content_type key_id=%s", key_id);
+          return jsonError("content-type not permitted", 415);
+        }
       }
     }
 
