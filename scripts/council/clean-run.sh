@@ -366,6 +366,11 @@ if [[ ${#build_targets[@]} -gt 0 ]]; then
     run_step "build" docker compose build "${build_targets[@]}"
 fi
 
+# Run round-local pre-bootstrap hook if present (creates fixture key files etc.)
+if [[ -n "$round_dir" && -f "council/${round_dir}/pre-bootstrap.sh" ]]; then
+    run_step "pre-bootstrap" bash "council/${round_dir}/pre-bootstrap.sh"
+fi
+
 if [[ -f ./bootstrap.sh ]]; then
     run_step "bootstrap" ./bootstrap.sh
 else
