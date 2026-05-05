@@ -8,7 +8,7 @@ fi
 
 round="$1"
 agent="${AGENT:-manual}"
-run_id="${agent}-$(date +%Y%m%dT%H%M%S)"
+run_id="${RUN_ID_OVERRIDE:-${agent}-$(date +%Y%m%dT%H%M%S)}"
 timestamp="$(date +%Y-%m-%dT%H:%M:%S%z)"
 artifact_dir="council/${round}/runs/${run_id}"
 round_hook_status="NOT-RUN"

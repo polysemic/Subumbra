@@ -277,9 +277,11 @@ precheck() {
     git checkout "$branch"
     git pull --ff-only origin "$branch"
     git rev-parse --short HEAD >"${artifact_dir}/git-sha.txt"
-    git status --short >"${artifact_dir}/git-status.txt"
+    # Ignore untracked files: live VPS deployments commonly have data/, temp/,
+    # and backup env files that must not block verify. Require a clean *tracked* tree.
+    git status --short -uno >"${artifact_dir}/git-status.txt"
     if [[ -s "${artifact_dir}/git-status.txt" ]]; then
-        echo "ERROR: VPS checkout dirty" >&2
+        echo "ERROR: VPS checkout has uncommitted tracked changes (see git-status.txt)" >&2
         return 1
     fi
 
