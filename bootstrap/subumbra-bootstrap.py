@@ -233,6 +233,8 @@ IMPORT_PROVIDER_WHITELIST: dict[str, str] = {
     "DEEPSEEK_API_KEY":     "deepseek",
     "TOGETHER_API_KEY":     "together",
     "GITHUB_TOKEN":         "github",
+    "GITHUB_REST_KEY":      "github_rest",
+    "STRIPE_TEST_KEY":      "stripe_test",
     "SLACK_BOT_TOKEN":      "slack",
     "SENDGRID_API_KEY":     "sendgrid",
 }
