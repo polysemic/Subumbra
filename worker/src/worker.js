@@ -145,14 +145,18 @@ async function getRegistryEntry(env, keyId) {
   }
 
   const allow = policy.allow ?? {};
+  const policyAuth = policy.auth ?? {};
   return {
     key_id: keyEntry.key_id,
     policy_id: policyId,
     policy_hash: keyEntry.policy_hash,
     target_host: keyEntry.target_host,
     provider_id: keyEntry.provider,
-    auth_header: template?.auth_header ?? keyEntry.auth_header,
-    auth_prefix: template?.auth_prefix ?? keyEntry.auth_prefix,
+    auth_scheme: typeof policyAuth.scheme === "string" ? policyAuth.scheme : "bearer",
+    auth_header_name:
+      typeof policyAuth.header_name === "string" ? policyAuth.header_name : null,
+    auth_query_param:
+      typeof policyAuth.query_param === "string" ? policyAuth.query_param : null,
     allow_adapters: Array.isArray(allow.adapters) ? allow.adapters : [],
     allow_methods: Array.isArray(allow.methods) ? allow.methods : [],
     allow_path_prefixes: Array.isArray(allow.path_prefixes) ? allow.path_prefixes : [],
@@ -450,8 +454,9 @@ export class SubumbraProxy {
       method,
       headers: reqHeaders,
       body,
-      authHeader,
-      authPrefix,
+      authScheme,
+      authHeaderName,
+      authQueryParam,
     } = payload;
 
     if (
@@ -719,8 +724,9 @@ export class SubumbraVault {
       method,
       headers: reqHeaders,
       body,
-      authHeader,
-      authPrefix,
+      authScheme,
+      authHeaderName,
+      authQueryParam,
     } = payload;
 
     if (
@@ -730,8 +736,7 @@ export class SubumbraVault {
       !keyId ||
       !encVersion ||
       !targetUrl ||
-      !authHeader ||
-      typeof authPrefix !== "string"
+      !authScheme
     ) {
       return jsonError("missing required fields", 400);
     }
@@ -755,24 +760,11 @@ export class SubumbraVault {
           keyId,
           policyHash,
         );
-      } else if (encVersion === 2) {
-        apiKey = await decryptV2(
-          privateKey,
-          custodyRow.pub_key_fp,
-          ciphertext,
-          wrappedDek,
-          pubKeyFp,
-          keyId,
-        );
       } else {
         return jsonError("unsupported enc_version", 400);
       }
     } catch (err) {
-      if (encVersion === 3) {
-        console.error("subumbra: decryption failed (policy_hash binding mismatch):", err.message);
-      } else {
-        console.error("subumbra: decryption failed:", err.message);
-      }
+      console.error("subumbra: decryption failed (policy_hash binding mismatch):", err.message);
       return jsonError("decryption failed", 500);
     }
 
@@ -781,16 +773,26 @@ export class SubumbraVault {
       upstreamHeaders.set(k, v);
     }
 
-    upstreamHeaders.set(authHeader, `${authPrefix}${apiKey}`);
-
-    if (authHeader.toLowerCase() !== "authorization") {
-      upstreamHeaders.delete("authorization");
-    }
-
     const cleanUrl = new URL(targetUrl);
     cleanUrl.searchParams.delete("key");
     cleanUrl.searchParams.delete("api_key");
     cleanUrl.searchParams.delete("apikey");
+
+    if (authScheme === "bearer") {
+      upstreamHeaders.set("authorization", `Bearer ${apiKey}`);
+    } else if (authScheme === "basic") {
+      upstreamHeaders.set("authorization", `Basic ${btoa(apiKey + ":")}`);
+    } else if (authScheme === "header" && authHeaderName) {
+      upstreamHeaders.delete(authHeaderName);
+      upstreamHeaders.set(authHeaderName, apiKey);
+      upstreamHeaders.delete("authorization");
+    } else if (authScheme === "query" && authQueryParam) {
+      cleanUrl.searchParams.delete(authQueryParam);
+      cleanUrl.searchParams.set(authQueryParam, apiKey);
+      upstreamHeaders.delete("authorization");
+    } else {
+      return jsonError("unsupported auth scheme", 400);
+    }
 
     let upstreamResponse;
     try {
@@ -871,14 +873,7 @@ export class SubumbraVault {
           policyHash,
         );
       } else if (encVersion === 2) {
-        apiKey = await decryptV2(
-          privateKey,
-          custodyRow.pub_key_fp,
-          ciphertext,
-          wrappedDek,
-          pubKeyFp,
-          keyId,
-        );
+        return jsonError("enc_version 2 not supported — run --rotate-policy to upgrade", 410);
       } else {
         return jsonError("unsupported enc_version", 400);
       }
@@ -1087,7 +1082,11 @@ async function handleProxy(request, env) {
   if (version === 3 && (!policy_hash || typeof policy_hash !== "string")) {
     return jsonError("missing or invalid field: policy_hash", 400);
   }
-  if (version !== 2 && version !== 3) {
+  if (version === 2) {
+    console.warn("subumbra: v2 deprecated key_id=%s", key_id);
+    return jsonError("enc_version 2 not supported — run --rotate-policy to upgrade", 410);
+  }
+  if (version !== 3) {
     console.error("subumbra: unsupported enc_version", version);
     return jsonError("key format not supported — re-bootstrap required", 400);
   }
@@ -1145,77 +1144,71 @@ async function handleProxy(request, env) {
     console.warn("subumbra: SSRF attempt — rejected target_url %s for key_id=%s", parsedTarget.hostname, key_id);
     return jsonError("target_url not allowed", 403);
   }
-  if (version === 3) {
-    console.info("subumbra: enc_version=3 key_id=%s", key_id);
-  } else {
-    console.warn("subumbra: v2 grace path key_id=%s", key_id);
+  console.info("subumbra: enc_version=3 key_id=%s", key_id);
+
+  // ── 3.5. Allow-block enforcement ─────────────────────────────────────────
+  if (!registryEntry.allow_adapters.includes(auth.adapterId)) {
+    console.warn(
+      "subumbra: policy deny adapter=%s key_id=%s",
+      auth.adapterId,
+      key_id,
+    );
+    return jsonError("adapter not permitted", 403);
   }
 
-  // ── 3.5. Allow-block enforcement (V3 only; V2 grace skips) ───────────────
-  if (version !== 2) {
-    if (!registryEntry.allow_adapters.includes(auth.adapterId)) {
+  const reqMethod = method ?? "";
+  if (!registryEntry.allow_methods.includes(reqMethod)) {
+    console.warn("subumbra: policy deny method=%s key_id=%s", reqMethod, key_id);
+    return jsonError("method not allowed", 405);
+  }
+
+  const targetPath = parsedTarget.pathname;
+  const pathAllowed = registryEntry.allow_path_prefixes.some((prefix) =>
+    targetPath.startsWith(prefix),
+  );
+  if (!pathAllowed) {
+    console.warn("subumbra: policy deny path key_id=%s", key_id);
+    return jsonError("path not permitted", 403);
+  }
+
+  if (registryEntry.allow_content_types.length > 0) {
+    // Enforce content-type whenever fwdHeaders declares one, or when a body
+    // is present. Do NOT skip this check based on reqBody being null — a
+    // forwarded Content-Type header with an empty body still violates policy.
+    let rawCT = "";
+    for (const [k, v] of Object.entries(fwdHeaders || {})) {
+      if (k.toLowerCase() === "content-type") {
+        rawCT = v.toLowerCase().split(";")[0].trim();
+        break;
+      }
+    }
+    // Only enforce when a content-type is actually declared in the forwarded
+    // headers. If fwdHeaders has no content-type key at all, skip (no CT to
+    // check against). This preserves GET / HEAD without Content-Type.
+    if (rawCT !== "") {
+      const ctAllowed = registryEntry.allow_content_types.some(
+        (ct) => rawCT === ct.toLowerCase(),
+      );
+      if (!ctAllowed) {
+        console.warn("subumbra: policy deny content_type key_id=%s", key_id);
+        return jsonError("content-type not permitted", 415);
+      }
+    }
+  }
+
+  if (registryEntry.allow_max_body_bytes !== null && reqBody !== null) {
+    // JSON.stringify length is a UTF-16 code-unit count, not a raw byte count.
+    // Raw bytes are not recoverable after request.json() parsing (recon Q2).
+    // This is an approximation; max_body_bytes is enforced on this basis.
+    const bodySize = JSON.stringify(reqBody).length;
+    if (bodySize > registryEntry.allow_max_body_bytes) {
       console.warn(
-        "subumbra: policy deny adapter=%s key_id=%s",
-        auth.adapterId,
+        "subumbra: policy deny body_size=%d max=%d key_id=%s",
+        bodySize,
+        registryEntry.allow_max_body_bytes,
         key_id,
       );
-      return jsonError("adapter not permitted", 403);
-    }
-
-    const reqMethod = method ?? "";
-    if (!registryEntry.allow_methods.includes(reqMethod)) {
-      console.warn("subumbra: policy deny method=%s key_id=%s", reqMethod, key_id);
-      return jsonError("method not allowed", 405);
-    }
-
-    const targetPath = parsedTarget.pathname;
-    const pathAllowed = registryEntry.allow_path_prefixes.some((prefix) =>
-      targetPath.startsWith(prefix),
-    );
-    if (!pathAllowed) {
-      console.warn("subumbra: policy deny path key_id=%s", key_id);
-      return jsonError("path not permitted", 403);
-    }
-
-    if (registryEntry.allow_content_types.length > 0) {
-      // Enforce content-type whenever fwdHeaders declares one, or when a body
-      // is present. Do NOT skip this check based on reqBody being null — a
-      // forwarded Content-Type header with an empty body still violates policy.
-      let rawCT = "";
-      for (const [k, v] of Object.entries(fwdHeaders || {})) {
-        if (k.toLowerCase() === "content-type") {
-          rawCT = v.toLowerCase().split(";")[0].trim();
-          break;
-        }
-      }
-      // Only enforce when a content-type is actually declared in the forwarded
-      // headers. If fwdHeaders has no content-type key at all, skip (no CT to
-      // check against). This preserves GET / HEAD without Content-Type.
-      if (rawCT !== "") {
-        const ctAllowed = registryEntry.allow_content_types.some(
-          (ct) => rawCT === ct.toLowerCase(),
-        );
-        if (!ctAllowed) {
-          console.warn("subumbra: policy deny content_type key_id=%s", key_id);
-          return jsonError("content-type not permitted", 415);
-        }
-      }
-    }
-
-    if (registryEntry.allow_max_body_bytes !== null && reqBody !== null) {
-      // JSON.stringify length is a UTF-16 code-unit count, not a raw byte count.
-      // Raw bytes are not recoverable after request.json() parsing (recon Q2).
-      // This is an approximation; max_body_bytes is enforced on this basis.
-      const bodySize = JSON.stringify(reqBody).length;
-      if (bodySize > registryEntry.allow_max_body_bytes) {
-        console.warn(
-          "subumbra: policy deny body_size=%d max=%d key_id=%s",
-          bodySize,
-          registryEntry.allow_max_body_bytes,
-          key_id,
-        );
-        return jsonError("request body too large", 413);
-      }
+      return jsonError("request body too large", 413);
     }
   }
 
@@ -1224,6 +1217,14 @@ async function handleProxy(request, env) {
   for (const [k, v] of Object.entries(fwdHeaders || {})) {
     if (!HOP_BY_HOP_HEADERS.has(k.toLowerCase())) {
       cleanHeaders[k] = v;
+    }
+  }
+  if (registryEntry.auth_scheme === "header" && registryEntry.auth_header_name) {
+    const stripLower = registryEntry.auth_header_name.toLowerCase();
+    for (const k of Object.keys(cleanHeaders)) {
+      if (k.toLowerCase() === stripLower) {
+        delete cleanHeaders[k];
+      }
     }
   }
 
@@ -1242,8 +1243,9 @@ async function handleProxy(request, env) {
     method: method ?? "POST",
     headers: cleanHeaders,
     body: reqBody ?? null,
-    authHeader: registryEntry.auth_header,
-    authPrefix: registryEntry.auth_prefix,
+    authScheme: registryEntry.auth_scheme,
+    authHeaderName: registryEntry.auth_header_name ?? null,
+    authQueryParam: registryEntry.auth_query_param ?? null,
   });
 
   const doResponse = await doStub.fetch(`https://do-internal${VAULT_EXECUTE_PATH}`, {
