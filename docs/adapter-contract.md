@@ -115,17 +115,23 @@ The Worker enforces these security invariants before any upstream request is mad
    Prevents decrypting one provider's key and sending it to a different
    provider's endpoint.
 
-4. **V2 enforcement** — `enc_version !== 2` or missing `wrapped_dek` is
-   hard-rejected with 400.
+4. **Encryption** — only V3 (`enc_version: 3`) records are accepted. V2
+   records are rejected with `410 Gone` and body
+   `{"error":"enc_version 2 not supported — run --rotate-policy to upgrade"}`.
 
 5. **Decryption** — the `SubumbraVault` Durable Object loads the custody row it
    generated during `/setup/keygen`, RSA-OAEP unwraps the per-record DEK, and
-   AES-256-GCM decrypts the ciphertext with AAD `subumbra:v2:<key_id>`. The
-   request `pub_key_fp` must match the vault-stored public-key fingerprint.
+   AES-256-GCM decrypts the ciphertext with V3 policy-binding AAD
+   `subumbra:v3:<key_id>:<policy_hash>`. The request `pub_key_fp` must match
+   the vault-stored public-key fingerprint.
 
-6. **Auth injection** — the Durable Object injects provider-specific auth
-   headers using auth policy from the live provider registry (`auth_header`,
-   `auth_prefix`). The adapter never receives or sees the decrypted API key.
+6. **Auth injection** — the Durable Object reads `auth.scheme` from the live
+   policy entry and dispatches upstream auth as follows:
+   `bearer` injects `Authorization: Bearer <key>`;
+   `basic` injects `Authorization: Basic <btoa(key + ':')>`;
+   `header` injects the custom header named by `auth.header_name`;
+   `query` injects the query parameter named by `auth.query_param`.
+   The adapter never receives or sees the decrypted API key.
 
 7. **Header stripping** — the Worker strips all hop-by-hop headers and all
    `X-Subumbra-*` / `CF-Access-*` headers before the upstream fetch.
@@ -159,7 +165,8 @@ All error responses use `Content-Type: application/json` with body
 | `target_url` not in the live provider registry | 403 |
 | Provider/host mismatch | 400 |
 | Missing or malformed required field | 400 |
-| Non-V2 `enc_version` or missing `wrapped_dek` | 400 |
+| V2 `enc_version` (deprecated) | 410 |
+| Non-V3 `enc_version` or missing `wrapped_dek` | 400 |
 | Invalid JSON body | 400 |
 | Decryption failure (generic) | 500 |
 | RSA fingerprint mismatch | 500 |
@@ -433,9 +440,8 @@ V3 record fields (additions to V2):
 | `policy_id` | string | The `policy_id` from the backing policy document |
 | `policy_hash` | string | `<hex>` — SHA-256 of the canonical baseline binding object above |
 
-V2 records (`enc_version: 2`) continue to be accepted through R45-4 with no
-policy enforcement. They are rejected with a structured deprecation error starting
-in R45-5.
+V2 records are rejected at `handleProxy` entry with HTTP 410 and body
+`{"error":"enc_version 2 not supported — run --rotate-policy to upgrade"}`.
 
 ### Policy Starter Templates
 

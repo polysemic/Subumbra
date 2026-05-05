@@ -48,7 +48,7 @@ if [[ -f "$bootstrap_file" ]]; then
                 exit 1
             fi
             mount_path="/app/bootstrap-policy/$(basename "$value")"
-            volume_args+=(-v "$value:$mount_path:ro")
+            volume_args+=(-v "$repo_root/$value:$mount_path:ro")
             env_args+=(-e "SUBUMBRA_POLICY_PATH=$mount_path")
         elif [[ "$key" =~ ^IMPORT_PATH_([0-9]+)$ ]]; then
             idx="${BASH_REMATCH[1]}"
@@ -63,14 +63,14 @@ if [[ -f "$bootstrap_file" ]]; then
                 exit 1
             fi
             mount_path="/app/bootstrap-imports/${idx}/$(basename "$value")"
-            volume_args+=(-v "$value:$mount_path:ro")
+            volume_args+=(-v "$repo_root/$value:$mount_path:ro")
             env_args+=(-e "${key}=${mount_path}")
             env_args+=(-e "${label_key}=${label}")
         fi
     done < "$bootstrap_file"
 fi
 
-docker compose --profile bootstrap run --rm \
+docker compose --profile bootstrap run -T --rm \
     "${volume_args[@]}" \
     "${env_args[@]}" \
     bootstrap "$@"
