@@ -17,7 +17,7 @@ fi
 
 # Only the canonical council harness/operator helpers belong in scripts/council.
 # Ad-hoc helpers must stay local-only under scripts/council/local/.
-allowed_scripts='^scripts/council/(clean-run\.sh|preflight\.sh|reset\.sh|verify\.sh|fetch-run-artifacts\.sh|vps-sweep\.sh)$'
+allowed_scripts='^scripts/council/(capture-probe\.sh|vps-proof-run\.sh|clean-run\.sh|preflight\.sh|reset\.sh|verify\.sh|fetch-run-artifacts\.sh|vps-sweep\.sh)$'
 blocked_scripts="$(
   printf '%s\n' "${staged_paths}" \
     | grep '^scripts/council/' \
