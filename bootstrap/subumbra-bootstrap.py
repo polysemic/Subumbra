@@ -514,7 +514,7 @@ def _synthesize_builtin_policy(key_id: str, provider: str) -> dict[str, Any] | N
         "auth": auth,
         "allow": {
             "adapters": ["subumbra-proxy"],
-            "methods": ["POST"],
+            "methods": ["GET", "POST"],
             "path_prefixes": [provider_entry.get("api_base_path") or "/v1/chat/completions"],
             "content_types": ["application/json"],
             "max_body_bytes": 1048576,
