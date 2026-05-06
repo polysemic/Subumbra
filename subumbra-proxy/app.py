@@ -308,7 +308,7 @@ async def proxy_via_worker(
     worker_req = CLIENT.build_request(
         "POST",
         f"{CF_WORKER_URL}/proxy",
-        headers=worker_headers(adapter_token=adapter_token),
+        headers=worker_headers(adapter_token=SUBUMBRA_ACCESS_TOKEN),
         json=payload,
         timeout=120.0,
     )
