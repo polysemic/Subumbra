@@ -12,7 +12,7 @@ Rebuild policy:
   Recreate-only is sufficient for bind-mounted changes:
     - litellm/custom_callbacks.py
     - litellm/config.yaml
-    - worker/src/providers.json
+    - providers.json
   Use --build for image-built services when their source changes:
     - bootstrap/ (rebuilds image only; reset.sh does not start the bootstrap container)
     - subumbra-keys/
