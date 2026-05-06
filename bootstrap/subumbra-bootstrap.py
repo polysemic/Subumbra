@@ -100,6 +100,7 @@ PUBLIC_KEY_FILE = DATA_DIR / "public_key.pem"
 SYSTEM_INTEGRITY_FILE = DATA_DIR / "system-integrity.json"
 HOST_ENV_FILE   = Path("/app/host-env")
 WORKER_SRC      = Path("/app/worker")
+PROVIDERS_FILE  = Path("/app/providers.json")
 CUSTOM_PROVIDER_REGISTRY_FILE = DATA_DIR / "custom-providers.json"
 KV_CONFIG_FILE = DATA_DIR / "kv-config.json"
 STRUCTURED_KV_SCHEMA_VERSION = "1"
@@ -145,7 +146,7 @@ def _automation_fail(msg: str) -> NoReturn:
 
 def _load_provider_registry() -> list[dict]:
     """Load and validate the shared built-in provider registry."""
-    reg_path = WORKER_SRC / "src" / "providers.json"
+    reg_path = PROVIDERS_FILE
     try:
         with reg_path.open() as fh:
             entries = json.load(fh)
@@ -494,8 +495,17 @@ def _auth_scheme_from_provider_entry(provider_entry: dict[str, str]) -> str:
         return "basic"
     return "header"
 
+def _binding_policy_id(key_id: str, allowed_adapters: list[str]) -> str:
+    if "subumbra-proxy" in allowed_adapters:
+        return f"auto-compat-{key_id}"
+    return f"auto-app-{key_id}"
 
-def _synthesize_builtin_policy(key_id: str, provider: str) -> dict[str, Any] | None:
+
+def _synthesize_builtin_policy(
+    key_id: str,
+    provider: str,
+    allowed_adapters: list[str],
+) -> dict[str, Any] | None:
     if provider not in BUILTIN_PROVIDER_BY_ID:
         return None
     provider_entry = BUILTIN_PROVIDER_BY_ID[provider]
@@ -506,14 +516,14 @@ def _synthesize_builtin_policy(key_id: str, provider: str) -> dict[str, Any] | N
         auth["header_name"] = provider_entry["auth_header"]
     return {
         "key_id": key_id,
-        "policy_id": f"auto-compat-{key_id}",
+        "policy_id": _binding_policy_id(key_id, allowed_adapters),
         "protocol": protocol,
         "capability_class": capability_class,
         "source": "env",
         "target": {"host": provider_entry["target_host"]},
         "auth": auth,
         "allow": {
-            "adapters": ["subumbra-proxy"],
+            "adapters": allowed_adapters,
             "methods": ["GET", "POST"],
             "path_prefixes": [provider_entry.get("api_base_path") or "/v1/chat/completions"],
             "content_types": ["application/json"],
@@ -522,15 +532,26 @@ def _synthesize_builtin_policy(key_id: str, provider: str) -> dict[str, Any] | N
     }
 
 
-def _resolve_policy_for_direct_secret(key_id: str, provider: str, policy_index: dict[str, dict[str, Any]]) -> dict[str, Any]:
+def _resolve_policy_for_direct_secret(
+    key_id: str,
+    provider: str,
+    policy_index: dict[str, dict[str, Any]],
+    allowed_adapters: list[str],
+) -> dict[str, Any]:
     policy = policy_index.get(key_id)
     if policy is not None:
         if policy.get("source") != "env":
             _automation_fail(
                 f"Automation mode: key_id {key_id} policy source must be 'env' for direct secret ingestion"
             )
+        if sorted(_policy_adapter_ids(policy)) != sorted(allowed_adapters):
+            _automation_fail(
+                f"Automation mode: adapter binding for {key_id} does not match SUBUMBRA_POLICY_PATH\n"
+                f"  requested: {', '.join(allowed_adapters)}\n"
+                f"  policy   : {', '.join(_policy_adapter_ids(policy))}"
+            )
         return policy
-    synthesized = _synthesize_builtin_policy(key_id, provider)
+    synthesized = _synthesize_builtin_policy(key_id, provider, allowed_adapters)
     if synthesized is not None:
         return synthesized
     _automation_fail(
@@ -663,10 +684,11 @@ def _resolve_policy_for_key(
     provider: str,
     target_host: str,
     policy_index: dict[str, dict[str, Any]],
+    allowed_adapters: list[str],
 ) -> dict[str, Any]:
     policy = policy_index.get(key_id)
     if policy is None:
-        policy = _synthesize_builtin_policy(key_id, provider)
+        policy = _synthesize_builtin_policy(key_id, provider, allowed_adapters)
     if policy is None:
         die(f"No policy found for key_id {key_id!r}")
     if policy["target"]["host"] != target_host:
@@ -838,6 +860,72 @@ def _parse_env_file(path: str) -> list[tuple[str, str, str]]:
     return list(results.values())
 
 
+def _load_simple_env_file(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        die(f"Cannot read env file {path}: {exc}")
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in line:
+            continue
+        key, _sep, value = line.partition("=")
+        values[key.strip()] = value.strip()
+    return values
+
+
+def _append_unique_adapter_binding(
+    key_adapters_by_key_id: dict[str, list[str]],
+    key_id: str,
+    adapter_id: str,
+) -> None:
+    bindings = key_adapters_by_key_id.setdefault(key_id, [])
+    if adapter_id not in bindings:
+        bindings.append(adapter_id)
+
+
+def _load_persisted_key_adapter_bindings() -> dict[str, list[str]]:
+    raw_registry = os.environ.get("SUBUMBRA_ADAPTER_REGISTRY", "").strip()
+    if not raw_registry and HOST_ENV_FILE.is_file():
+        env_values = _load_simple_env_file(HOST_ENV_FILE)
+        raw_registry = env_values.get("SUBUMBRA_ADAPTER_REGISTRY", "").strip()
+    if not raw_registry and not HOST_ENV_FILE.is_file():
+        die(
+            "Cannot reconstruct app bindings for existing keys because SUBUMBRA_ADAPTER_REGISTRY is not available "
+            "in the environment and /app/host-env is unavailable.\n"
+            "  Re-run full bootstrap from this repo checkout or provide explicit SUBUMBRA_POLICY_PATH entries."
+        )
+    if not raw_registry:
+        die(
+            "Cannot reconstruct app bindings for existing keys because SUBUMBRA_ADAPTER_REGISTRY is missing from "
+            "the available bootstrap inputs.\n  Re-run full bootstrap from this repo checkout or provide explicit SUBUMBRA_POLICY_PATH entries."
+        )
+    try:
+        registry = json.loads(raw_registry)
+    except json.JSONDecodeError as exc:
+        die(f"SUBUMBRA_ADAPTER_REGISTRY in {HOST_ENV_FILE} is invalid JSON: {exc}")
+    if not isinstance(registry, dict):
+        die(f"SUBUMBRA_ADAPTER_REGISTRY in {HOST_ENV_FILE} must be a JSON object")
+
+    key_adapters_by_key_id: dict[str, list[str]] = {}
+    for adapter_id, entry in registry.items():
+        if adapter_id in {"subumbra-ui", "subumbra-probe"}:
+            continue
+        if not isinstance(entry, dict):
+            die(f"SUBUMBRA_ADAPTER_REGISTRY[{adapter_id}] must be an object")
+        allowed_keys = entry.get("allowed_keys")
+        if not isinstance(allowed_keys, list):
+            die(f"SUBUMBRA_ADAPTER_REGISTRY[{adapter_id}].allowed_keys must be an array")
+        for raw_key_id in allowed_keys:
+            if not isinstance(raw_key_id, str) or not raw_key_id:
+                die(f"SUBUMBRA_ADAPTER_REGISTRY[{adapter_id}].allowed_keys entries must be non-empty strings")
+            if adapter_id == "subumbra-proxy" or adapter_id not in BUILTIN_ADAPTER_IDS:
+                _append_unique_adapter_binding(key_adapters_by_key_id, raw_key_id, adapter_id)
+    return key_adapters_by_key_id
+
+
 def _prompt_app_label(prompt: str = "  App/label for this key: ") -> str:
     while True:
         app_label = input(prompt).strip().lower()
@@ -845,6 +933,44 @@ def _prompt_app_label(prompt: str = "  App/label for this key: ") -> str:
             return app_label
         print("  ✗  App/label must be lowercase letters, numbers, hyphens, or underscores.")
         print("     It must start and end with a letter or number. Examples: litellm, open-webui, myapp1\n")
+
+
+def _prompt_declared_adapter_ids() -> list[str]:
+    print("\n" + "═" * 70)
+    print("  Subumbra Bootstrap — Step 2 of 4: App Adapters")
+    print("═" * 70)
+    print("  Declare the app adapter IDs that should receive per-app Subumbra tokens.")
+    print("  Example: litellm,openwebui")
+    print("  Leave blank only if you intentionally want compatibility/simple mode.\n")
+
+    while True:
+        raw = input("  Declared app adapter IDs (comma-separated, blank = none): ").strip()
+        try:
+            return _parse_adapter_ids(raw)
+        except SystemExit:
+            print("  ✗  Invalid adapter declaration. Please try again.\n")
+
+
+def _prompt_key_adapter_ids(key_id: str, declared_adapter_ids: list[str]) -> list[str]:
+    if not declared_adapter_ids:
+        info(f"{key_id} will use compatibility/simple mode because no app adapters were declared.")
+        return []
+
+    print(f"  Declared app adapters: {', '.join(declared_adapter_ids)}")
+    print("  Enter comma-separated adapter IDs, 'all' for every declared app, or blank for compatibility/simple mode.")
+
+    while True:
+        raw = input(f"  Adapters for {key_id}: ").strip()
+        if raw.lower() == "all":
+            return list(declared_adapter_ids)
+        try:
+            return _parse_key_adapter_ids(
+                raw,
+                source=f"Interactive binding for {key_id}",
+                declared_adapter_ids=set(declared_adapter_ids),
+            )
+        except SystemExit:
+            print("  ✗  Invalid adapter selection. Please try again.\n")
 
 
 def _collect_automation_imports() -> list[tuple[str, str]]:
@@ -1030,6 +1156,10 @@ def _key_id_env_var_name(secret_env_var: str) -> str:
     return f"{secret_env_var}_KEY_ID"
 
 
+def _adapter_binding_env_var_name(secret_env_var: str) -> str:
+    return f"{secret_env_var}_ADAPTERS"
+
+
 def _resolve_env_key_id(provider: str, secret_env_var: str) -> tuple[str, str]:
     key_id_var = _key_id_env_var_name(secret_env_var)
     key_id = os.environ.get(key_id_var, "").strip() or _default_key_id(provider)
@@ -1073,6 +1203,62 @@ def _build_custom_adapter_scope_vars(adapter_ids: list[str]) -> dict[str, str]:
         adapter_id: f"{_normalize_adapter_id(adapter_id)}_ALLOWED_KEYS"
         for adapter_id in adapter_ids
     }
+
+
+def _parse_key_adapter_ids(
+    raw: str,
+    *,
+    source: str,
+    declared_adapter_ids: set[str],
+) -> list[str]:
+    adapter_ids: list[str] = []
+    seen: set[str] = set()
+    for adapter_id in (item.strip() for item in raw.split(",")):
+        if not adapter_id:
+            continue
+        if not ADAPTER_ID_RE.fullmatch(adapter_id):
+            die(
+                f"{source}: invalid adapter_id {adapter_id!r}\n"
+                "  App adapters must match ^[a-z0-9][a-z0-9_-]{0,61}[a-z0-9]$"
+            )
+        if adapter_id in BUILTIN_ADAPTER_IDS:
+            die(f"{source}: built-in adapter_id {adapter_id!r} is reserved")
+        if adapter_id not in declared_adapter_ids:
+            die(
+                f"{source}: adapter_id {adapter_id!r} was not declared\n"
+                f"  Declared adapters: {', '.join(sorted(declared_adapter_ids)) or '(none)'}"
+            )
+        if adapter_id in seen:
+            continue
+        seen.add(adapter_id)
+        adapter_ids.append(adapter_id)
+    return adapter_ids
+
+
+def _binding_label(allowed_adapters: list[str]) -> str:
+    if allowed_adapters == ["subumbra-proxy"]:
+        return "compat/simple"
+    return ",".join(allowed_adapters)
+
+
+def _bind_key_to_adapters(
+    key_id: str,
+    selected_adapter_ids: list[str],
+    *,
+    key_adapters_by_key_id: dict[str, list[str]],
+    allowed_keys_by_adapter: dict[str, list[str]],
+) -> None:
+    effective_adapters = selected_adapter_ids or ["subumbra-proxy"]
+    key_adapters_by_key_id[key_id] = list(effective_adapters)
+    for adapter_id in effective_adapters:
+        allowed_keys_by_adapter.setdefault(adapter_id, []).append(key_id)
+
+
+def _policy_adapter_ids(policy: dict[str, Any]) -> list[str]:
+    adapters = policy.get("allow", {}).get("adapters")
+    if not isinstance(adapters, list) or not adapters:
+        die(f"Policy {policy.get('policy_id', '<unknown>')} missing allow.adapters")
+    return [str(adapter) for adapter in adapters]
 
 
 def _validate_allowed_keys(
@@ -1393,10 +1579,16 @@ def _parse_token_ttl_days(raw: str) -> int:
 
 def _load_env_fallback(
     existing_keys: dict,
-) -> tuple[dict[str, tuple[str, str, str, str, str]], dict[str, str], dict[str, list[str]], int]:
+) -> tuple[
+    dict[str, tuple[str, str, str, str, str]],
+    dict[str, str],
+    dict[str, list[str]],
+    dict[str, list[str]],
+    int,
+]:
     """
     Load credentials from environment variables.
-    Returns (api_keys, cf_creds, allowed_keys_by_adapter, token_ttl_days) in the same shape as
+    Returns (api_keys, cf_creds, allowed_keys_by_adapter, key_adapters_by_key_id, token_ttl_days) in the same shape as
     run_interactive_wizard().
 
     api_keys: {key_id: (provider, target_host, auth_header, auth_prefix, raw_secret)}
@@ -1419,13 +1611,23 @@ def _load_env_fallback(
     policy_index = _load_policy_index()
 
     api_keys: dict[str, tuple[str, str, str, str, str]] = {}
+    key_adapters_by_key_id: dict[str, list[str]] = {}
     missing_key_ids: list[tuple[str, str]] = []
+    custom_adapter_ids = _parse_adapter_ids(os.environ.get("ADAPTER_IDS", ""))
+    declared_adapter_ids: set[str] = set(custom_adapter_ids)
+    allowed_keys_by_adapter: dict[str, list[str]] = {
+        "subumbra-proxy": [],
+        "subumbra-ui": [],
+    }
+    for adapter_id in custom_adapter_ids:
+        allowed_keys_by_adapter[adapter_id] = []
     for provider, env_var in KNOWN_PROVIDERS:
         base_key_id_var = _key_id_env_var_name(env_var)
         provider_entry = BUILTIN_PROVIDER_BY_ID[provider]
         for slot_idx in range(1, 10):
             slot_env_var = env_var if slot_idx == 1 else f"{env_var}_{slot_idx}"
             slot_key_id_var = base_key_id_var if slot_idx == 1 else f"{base_key_id_var}_{slot_idx}"
+            slot_adapter_var = _adapter_binding_env_var_name(slot_env_var)
             val = os.environ.get(slot_env_var, "").strip()
             if not val:
                 continue
@@ -1433,6 +1635,11 @@ def _load_env_fallback(
             if not key_id:
                 missing_key_ids.append((slot_env_var, slot_key_id_var))
                 continue
+            if slot_adapter_var not in os.environ:
+                _automation_fail(
+                    f"Automation mode: missing required adapter binding variable {slot_adapter_var} for {slot_env_var}\n"
+                    "  Set it to a comma-separated adapter list or leave it blank for compatibility/simple mode."
+                )
             if not KEY_ID_RE.fullmatch(key_id):
                 _automation_fail(
                     f"Automation mode: invalid key_id {key_id!r} from {slot_key_id_var}\n"
@@ -1447,13 +1654,29 @@ def _load_env_fallback(
                     f"  collides with provider {existing_provider}\n"
                     f"  env var     : {slot_key_id_var}"
                 )
-            _resolve_policy_for_direct_secret(key_id, provider, policy_index)
+            selected_adapter_ids = _parse_key_adapter_ids(
+                os.environ.get(slot_adapter_var, ""),
+                source=f"Automation mode {slot_adapter_var}",
+                declared_adapter_ids=declared_adapter_ids,
+            )
+            _resolve_policy_for_direct_secret(
+                key_id,
+                provider,
+                policy_index,
+                selected_adapter_ids or ["subumbra-proxy"],
+            )
             api_keys[key_id] = (
                 provider,
                 provider_entry["target_host"],
                 provider_entry["auth_header"],
                 provider_entry["auth_prefix"],
                 val,
+            )
+            _bind_key_to_adapters(
+                key_id,
+                selected_adapter_ids,
+                key_adapters_by_key_id=key_adapters_by_key_id,
+                allowed_keys_by_adapter=allowed_keys_by_adapter,
             )
 
     if missing_key_ids:
@@ -1469,6 +1692,8 @@ def _load_env_fallback(
         )
 
     for import_path, app_label in _collect_automation_imports():
+        declared_adapter_ids.add(app_label)
+        allowed_keys_by_adapter.setdefault(app_label, [])
         detected = _parse_env_file(import_path)
         if not detected:
             _automation_fail(
@@ -1482,6 +1707,12 @@ def _load_env_fallback(
             key_id = _next_generated_key_id(provider_id, app_label, api_keys, existing_keys)
             _require_import_policy(key_id, policy_index, import_path)
             api_keys[key_id] = (provider_id, target_host, auth_header, auth_prefix, raw_value)
+            _bind_key_to_adapters(
+                key_id,
+                [app_label],
+                key_adapters_by_key_id=key_adapters_by_key_id,
+                allowed_keys_by_adapter=allowed_keys_by_adapter,
+            )
 
     if not api_keys:
         missing.append(f"at least one of: {', '.join(ev for _, ev in KNOWN_PROVIDERS)}")
@@ -1494,23 +1725,21 @@ def _load_env_fallback(
             + "    docker compose --profile bootstrap run --rm -it bootstrap"
         )
 
-    custom_adapter_ids = _parse_adapter_ids(os.environ.get("ADAPTER_IDS", ""))
-    custom_scope_vars = _build_custom_adapter_scope_vars(custom_adapter_ids)
-    allowed_keys_by_adapter = {
-        "subumbra-proxy": _parse_allowed_keys_csv(os.environ.get("PROXY_ALLOWED_KEYS", "")),
-        "subumbra-ui": _parse_allowed_keys_csv(os.environ.get("UI_ALLOWED_KEYS", "")),
-    }
+    if _parse_allowed_keys_csv(os.environ.get("PROXY_ALLOWED_KEYS", "")):
+        _automation_fail(
+            "Automation mode: PROXY_ALLOWED_KEYS is no longer an input contract.\n"
+            "  Use per-key *_ADAPTERS bindings instead."
+        )
+    allowed_keys_by_adapter["subumbra-ui"] = _parse_allowed_keys_csv(os.environ.get("UI_ALLOWED_KEYS", ""))
     probe_allowed_keys = _parse_allowed_keys_csv(os.environ.get("PROBE_ALLOWED_KEYS", ""))
     if probe_allowed_keys:
         allowed_keys_by_adapter["subumbra-probe"] = probe_allowed_keys
-    for adapter_id, scope_var in custom_scope_vars.items():
-        allowed_keys_by_adapter[adapter_id] = _parse_allowed_keys_csv(os.environ.get(scope_var, ""))
     if allowed_keys_by_adapter["subumbra-ui"]:
         die("UI_ALLOWED_KEYS must remain empty")
 
     token_ttl_days = _parse_token_ttl_days(os.environ.get("TOKEN_TTL_DAYS", "90"))
 
-    return api_keys, cf_creds, allowed_keys_by_adapter, token_ttl_days
+    return api_keys, cf_creds, allowed_keys_by_adapter, key_adapters_by_key_id, token_ttl_days
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1519,10 +1748,17 @@ def _load_env_fallback(
 
 def run_interactive_wizard(
     existing_keys: dict,
-) -> tuple[dict[str, tuple[str, str, str, str, str]], dict[str, str], dict[str, list[str]], int, list[str]]:
+) -> tuple[
+    dict[str, tuple[str, str, str, str, str]],
+    dict[str, str],
+    dict[str, list[str]],
+    dict[str, list[str]],
+    int,
+    list[str],
+]:
     """
     Interactive terminal wizard. Requires a real TTY (run with -it).
-    Returns (api_keys, cf_creds, allowed_keys_by_adapter, token_ttl_days, shred_paths):
+    Returns (api_keys, cf_creds, allowed_keys_by_adapter, key_adapters_by_key_id, token_ttl_days, shred_paths):
       api_keys: {key_id: (provider, target_host, auth_header, auth_prefix, raw_secret)}
       cf_creds: {"CF_API_TOKEN": ..., "CF_ACCOUNT_ID": ..., "CF_WORKER_NAME": ...}
     """
@@ -1560,6 +1796,15 @@ def run_interactive_wizard(
         "CF_WORKER_NAME": cf_worker_name,
     }
 
+    declared_adapter_ids = _prompt_declared_adapter_ids()
+    allowed_keys_by_adapter: dict[str, list[str]] = {
+        "subumbra-proxy": [],
+        "subumbra-ui": [],
+    }
+    key_adapters_by_key_id: dict[str, list[str]] = {}
+    for adapter_id in declared_adapter_ids:
+        allowed_keys_by_adapter.setdefault(adapter_id, [])
+
     # ── Screen 2: Provider API Keys ───────────────────────────────────────────
     api_keys: dict[str, tuple[str, str, str, str, str]] = {}
     shred_paths: list[str] = []
@@ -1579,6 +1824,13 @@ def run_interactive_wizard(
                 f"Policy-backed interactive env prompt requires a built-in target.host; "
                 f"no built-in provider matches {target_host!r} for key_id {key_id}"
             )
+        policy_adapters = _policy_adapter_ids(policy)
+        for adapter_id in policy_adapters:
+            if adapter_id not in BUILTIN_ADAPTER_IDS:
+                if adapter_id not in declared_adapter_ids:
+                    declared_adapter_ids.append(adapter_id)
+                    info(f"Registered adapter {adapter_id} from SUBUMBRA_POLICY_PATH for {key_id}")
+                allowed_keys_by_adapter.setdefault(adapter_id, [])
         provider_entry = BUILTIN_PROVIDER_BY_ID[provider]
         print("\n" + "─" * 70)
         print(f"  Policy-backed secret required for {key_id}")
@@ -1599,13 +1851,19 @@ def run_interactive_wizard(
                 provider_entry["auth_prefix"],
                 api_key_1,
             )
+            _bind_key_to_adapters(
+                key_id,
+                [] if policy_adapters == ["subumbra-proxy"] else policy_adapters,
+                key_adapters_by_key_id=key_adapters_by_key_id,
+                allowed_keys_by_adapter=allowed_keys_by_adapter,
+            )
             prompted_policy_key_ids.add(key_id)
-            ok(f"{provider:12s}  →  {key_id}  (key hidden)")
+            ok(f"{provider:12s}  →  {key_id}  →  {_binding_label(key_adapters_by_key_id[key_id])}  (key hidden)")
             break
 
     while True:
         print("\n" + "═" * 70)
-        print("  Subumbra Bootstrap — Step 2 of 4: Provider API Keys")
+        print("  Subumbra Bootstrap — Step 3 of 4: Provider API Keys")
         print("  Add provider API keys. Multiple keys per provider are supported.\n")
         print("  Press Enter with no selection to finish adding keys.\n")
         print("  Known providers:")
@@ -1668,7 +1926,7 @@ def run_interactive_wizard(
         app_label = None
         key_id = ""
         if choice_num <= n_known:
-            app_label = _prompt_app_label("  App label (which app uses this key, e.g. litellm): ")
+            app_label = _prompt_app_label("  Key label for key_id generation (e.g. litellm, shared): ")
 
         # Prompt for API key value (twice to confirm)
         key_prompt_label = provider if choice_num <= n_known else key_id
@@ -1692,7 +1950,6 @@ def run_interactive_wizard(
                     continue
             key_id = _next_generated_key_id(provider, app_label, api_keys, existing_keys)
             info(f"Generated key_id: {key_id}")
-            _resolve_policy_for_direct_secret(key_id, provider, policy_index)
         else:
             default_key_id = _default_key_id(provider)
             while True:
@@ -1721,8 +1978,18 @@ def run_interactive_wizard(
             if explicit_policy is None:
                 die(f"Refusing policy-less custom secret for key_id {key_id}")
 
+        selected_adapter_ids = _prompt_key_adapter_ids(key_id, declared_adapter_ids)
+        effective_adapters = selected_adapter_ids or ["subumbra-proxy"]
+        if choice_num <= n_known:
+            _resolve_policy_for_direct_secret(key_id, provider, policy_index, effective_adapters)
         api_keys[key_id] = (provider, target_host, auth_header, auth_prefix, api_key_1)
-        ok(f"{provider:12s}  →  {key_id}  (key hidden)")
+        _bind_key_to_adapters(
+            key_id,
+            selected_adapter_ids,
+            key_adapters_by_key_id=key_adapters_by_key_id,
+            allowed_keys_by_adapter=allowed_keys_by_adapter,
+        )
+        ok(f"{provider:12s}  →  {key_id}  →  {_binding_label(key_adapters_by_key_id[key_id])}  (key hidden)")
 
     missing_policy_key_ids = sorted(
         key_id
@@ -1735,21 +2002,8 @@ def run_interactive_wizard(
         )
 
     print("\n" + "═" * 70)
-    print("  Subumbra Bootstrap — Step 3 of 4: Adapter Key Scopes")
+    print("  Subumbra Bootstrap — Step 4 of 4: Probe And Token Settings")
     print("═" * 70)
-    print("  Choose which key_ids each built-in adapter may fetch from subumbra-keys.")
-    print("  1. subumbra-proxy: all key_ids that apps access via the transparent sidecar")
-    print("     (api_base: http://subumbra-proxy:8090/t/<key_id>/...).")
-    print("     For most deployments, enter all provider key_ids here.")
-    print("  2. subumbra-probe: keys available to the verification/proof container")
-    print("  subumbra-ui is metadata-only and never receives ciphertext fetch scope.")
-    print("═" * 70 + "\n")
-
-    available_key_ids = sorted(api_keys.keys())
-    allowed_keys_by_adapter = {
-        "subumbra-proxy": _prompt_allowed_keys("subumbra-proxy", available_key_ids),
-        "subumbra-ui": [],
-    }
     enable_probe = input(
         "  Enable subumbra-probe optional diagnostic provisioning? [y/N]: "
     ).strip().lower()
@@ -1764,6 +2018,7 @@ def run_interactive_wizard(
             allowed_keys_by_adapter["subumbra-probe"] = list(proxy_scope)
             ok("subumbra-probe scope mirrors subumbra-proxy.")
         else:
+            available_key_ids = sorted(api_keys.keys())
             allowed_keys_by_adapter["subumbra-probe"] = _prompt_allowed_keys(
                 "subumbra-probe", available_key_ids
             )
@@ -1779,7 +2034,7 @@ def run_interactive_wizard(
             continue
         break
 
-    return api_keys, cf_creds, allowed_keys_by_adapter, token_ttl_days, shred_paths
+    return api_keys, cf_creds, allowed_keys_by_adapter, key_adapters_by_key_id, token_ttl_days, shred_paths
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2273,13 +2528,29 @@ def run_push_registry() -> None:
         die(f"Cannot read keys.json: {exc}")
 
     policy_index = _load_policy_index()
+    persisted_adapters = _load_persisted_key_adapter_bindings()
     policy_by_key_id: dict[str, dict[str, Any]] = {}
     for key_id, record in keys_payload.items():
         provider = record.get("provider", "unknown")
         target_host = record.get("target_host")
         if not isinstance(target_host, str) or not target_host:
             die(f"keys.json record {key_id!r} missing target_host")
-        policy_by_key_id[key_id] = _resolve_policy_for_key(key_id, provider, target_host, policy_index)
+        if key_id in policy_index:
+            allowed_adapters = _policy_adapter_ids(policy_index[key_id])
+        else:
+            allowed_adapters = persisted_adapters.get(key_id)
+            if not allowed_adapters:
+                die(
+                    f"No persisted adapter binding found for key_id {key_id!r}.\n"
+                    "  Re-run full bootstrap from this repo checkout or add an explicit SUBUMBRA_POLICY_PATH entry."
+                )
+        policy_by_key_id[key_id] = _resolve_policy_for_key(
+            key_id,
+            provider,
+            target_host,
+            policy_index,
+            allowed_adapters,
+        )
 
     step("Publishing structured KV entries to Cloudflare KV")
     try:
@@ -2347,7 +2618,7 @@ def run_rotate_wizard() -> None:
     target_host = None
     print()
     while True:
-        choice = input("  Select key to rotate (number, key_id, or new key_id): ").strip()
+        choice = input("  Select existing key to rotate (number or key_id): ").strip()
         if not choice:
             print("  ✗  Selection required.\n")
             continue
@@ -2359,8 +2630,6 @@ def run_rotate_wizard() -> None:
                 key_id = key_ids[idx]
                 provider = existing_keys[key_id].get("provider", "unknown")
                 target_host = existing_keys[key_id].get("target_host")
-                if not target_host:
-                    target_host = _resolve_target_host(provider, prompt_if_missing=True)
                 break
             print(f"  ✗  Enter a number between 1 and {len(key_ids)}.\n")
             continue
@@ -2372,26 +2641,25 @@ def run_rotate_wizard() -> None:
             key_id = choice
             provider = existing_keys[key_id].get("provider", "unknown")
             target_host = existing_keys[key_id].get("target_host")
-            if not target_host:
-                target_host = _resolve_target_host(provider, prompt_if_missing=True)
             break
 
-        # Try as new key_id
-        if KEY_ID_RE.match(choice):
-            key_id = choice
-            print(f"\n  New key: {key_id} (not in current keys.json)")
-            while True:
-                prov_input = input("  Provider name: ").strip().lower()
-                if prov_input and re.match(r'^[a-z][a-z0-9_-]*$', prov_input):
-                    provider = prov_input
-                    target_host = _resolve_target_host(provider, prompt_if_missing=True)
-                    break
-                print("  ✗  Provider must be lowercase alphanumeric.\n")
-            break
-
-        print(f"  ✗  '{choice}' is not a valid selection or key_id format.\n")
+        print(f"  ✗  '{choice}' is not an existing key selection.\n")
 
     print(f"\n  Rotating: {key_id} ({provider})")
+    existing_record = existing_keys[key_id]
+    if existing_record.get("enc_version") != 3:
+        die(
+            f"--rotate only supports existing V3 records. key_id {key_id!r} is enc_version="
+            f"{existing_record.get('enc_version', 1)}.\n  Use full bootstrap for V2 migration."
+        )
+    existing_policy_id = existing_record.get("policy_id")
+    existing_policy_hash = existing_record.get("policy_hash")
+    if not isinstance(existing_policy_id, str) or not existing_policy_id.strip():
+        die(f"--rotate requires an existing V3 policy_id for key_id {key_id!r}. Use full bootstrap.")
+    if not isinstance(existing_policy_hash, str) or not existing_policy_hash.strip():
+        die(f"--rotate requires an existing V3 policy_hash for key_id {key_id!r}. Use full bootstrap.")
+    if not isinstance(target_host, str) or not target_host:
+        die(f"--rotate requires target_host on the existing V3 record for key_id {key_id!r}.")
 
     # ── 5. Get new API key ───────────────────────────────────────────────
     while True:
@@ -2405,23 +2673,25 @@ def run_rotate_wizard() -> None:
             continue
         break
 
-    # ── 6. Encrypt with V2 envelope ──────────────────────────────────────
+    # ── 6. Encrypt with V3 envelope ──────────────────────────────────────
     step(f"Encrypting new key for {key_id}")
     now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
     dek = os.urandom(32)
-    ciphertext = encrypt_api_key_v2(dek, new_key, key_id)
+    ciphertext = encrypt_api_key_v3(dek, new_key, key_id, existing_policy_hash)
     wrapped = wrap_dek(pub_key, dek)
 
     record = {
         "key_id":      key_id,
-        "enc_version": 2,
+        "enc_version": 3,
         "pub_key_fp":  fp,
         "wrapped_dek": wrapped,
         "ciphertext":  ciphertext,
         "provider":    provider,
         "target_host": target_host,
+        "policy_id":   existing_policy_id,
+        "policy_hash": existing_policy_hash,
         "created_at":  now_iso,
-        "label":       key_id,
+        "label":       existing_record.get("label", key_id),
     }
     ok(f"Encrypted {provider:12s} → {key_id}")
 
@@ -2467,8 +2737,7 @@ def run_rotate_policy() -> None:
         die("keys.json is empty — nothing to rotate.")
 
     policy_index = _load_policy_index()
-    cf_creds = _get_push_registry_cf_creds()
-    worker_url = os.environ.get("CF_WORKER_URL", "").strip() or _build_worker_url(cf_creds["CF_WORKER_NAME"])
+    persisted_adapters = _load_persisted_key_adapter_bindings()
 
     records_to_rotate: list[tuple[str, dict[str, Any], dict[str, Any], str]] = []
     for key_id, record in existing_keys.items():
@@ -2476,7 +2745,16 @@ def run_rotate_policy() -> None:
         target_host = record.get("target_host")
         if not isinstance(target_host, str) or not target_host:
             die(f"keys.json record {key_id!r} missing target_host")
-        policy = _resolve_policy_for_key(key_id, provider, target_host, policy_index)
+        if key_id in policy_index:
+            allowed_adapters = _policy_adapter_ids(policy_index[key_id])
+        else:
+            allowed_adapters = persisted_adapters.get(key_id)
+            if not allowed_adapters:
+                die(
+                    f"No persisted adapter binding found for key_id {key_id!r}.\n"
+                    "  Re-run full bootstrap from this repo checkout or add an explicit SUBUMBRA_POLICY_PATH entry."
+                )
+        policy = _resolve_policy_for_key(key_id, provider, target_host, policy_index, allowed_adapters)
         desired_policy_hash = compute_policy_hash(policy)
         if (
             record.get("enc_version") != 3
@@ -2488,6 +2766,20 @@ def run_rotate_policy() -> None:
     if not records_to_rotate:
         ok("No policy-bound rotation required — all records already match current policy_hash")
         return
+
+    v2_candidates = [
+        key_id
+        for key_id, record, _policy, _desired_policy_hash in records_to_rotate
+        if record.get("enc_version") != 3
+    ]
+    if v2_candidates:
+        die(
+            "--rotate-policy only supports existing V3 records. "
+            f"V2 migration requires full bootstrap: {', '.join(sorted(v2_candidates))}"
+        )
+
+    cf_creds = _get_push_registry_cf_creds()
+    worker_url = os.environ.get("CF_WORKER_URL", "").strip() or _build_worker_url(cf_creds["CF_WORKER_NAME"])
 
     step("Pushing transient SUBUMBRA_SETUP_TOKEN to CF Secrets for policy rotation")
     rotate_setup_token = secrets.token_urlsafe(48)
@@ -2532,6 +2824,7 @@ def run_rotate_policy() -> None:
             record.get("provider", "unknown"),
             record["target_host"],
             policy_index,
+            _policy_adapter_ids(policy_index[key_id]) if key_id in policy_index else persisted_adapters[key_id],
         )
         for key_id, record in existing_keys.items()
     }
@@ -2569,7 +2862,7 @@ def main() -> None:
     if not use_wizard:
         step("Automation mode — loading credentials from environment")
         try:
-            api_keys, cf_creds, allowed_keys_by_adapter, token_ttl_days = _load_env_fallback(existing_keys)
+            api_keys, cf_creds, allowed_keys_by_adapter, key_adapters_by_key_id, token_ttl_days = _load_env_fallback(existing_keys)
         except AutomationInputError as exc:
             use_wizard = _prompt_after_automation_error(str(exc))
         else:
@@ -2582,7 +2875,7 @@ def main() -> None:
             step("Interactive wizard — no credentials found in environment")
     if use_wizard:
         try:
-            api_keys, cf_creds, allowed_keys_by_adapter, token_ttl_days, shred_paths = run_interactive_wizard(existing_keys)
+            api_keys, cf_creds, allowed_keys_by_adapter, key_adapters_by_key_id, token_ttl_days, shred_paths = run_interactive_wizard(existing_keys)
         except KeyboardInterrupt:
             print("\n\nAborted. No changes written.", file=sys.stderr)
             sys.exit(0)
@@ -2601,7 +2894,7 @@ def main() -> None:
     if is_rotation:
         step("Existing keys.json found — ROTATION MODE")
         if any(record.get("enc_version", 1) == 2 for record in existing_keys.values()):
-            warn("V2 records detected in keys.json — run --rotate-policy to migrate them to V3.")
+            warn("V2 records detected in keys.json — full bootstrap is required for V2 migration.")
         if keys_to_remove:
             warn("=" * 62)
             warn("WARNING: The following keys are in keys.json but NOT")
@@ -2632,7 +2925,7 @@ def main() -> None:
 
         print("  Keys to encrypt:")
         for kid, (provider, _target_host, _auth_header, _auth_prefix, _raw) in api_keys.items():
-            print(f"    {kid:30s} → {provider}")
+            print(f"    {kid:30s} → {provider:12s} → {_binding_label(key_adapters_by_key_id[kid])}")
 
         if keys_to_remove:
             print(f"\n  ⚠  WARNING — ROTATION MODE")
@@ -2655,7 +2948,13 @@ def main() -> None:
     policy_index = _load_policy_index()
     policy_by_key_id: dict[str, dict[str, Any]] = {}
     for key_id, (provider, target_host, _auth_header, _auth_prefix, _raw) in api_keys.items():
-        policy_by_key_id[key_id] = _resolve_policy_for_key(key_id, provider, target_host, policy_index)
+        policy_by_key_id[key_id] = _resolve_policy_for_key(
+            key_id,
+            provider,
+            target_host,
+            policy_index,
+            key_adapters_by_key_id[key_id],
+        )
 
     # ── Step 3: generate runtime auth tokens ─────────────────────────────
     # SECURITY: These are privileged bearer/HMAC secrets. Anyone who obtains
@@ -2672,7 +2971,7 @@ def main() -> None:
         if adapter_id not in adapter_tokens:
             adapter_tokens[adapter_id] = secrets.token_hex(32)
     subumbra_hmac_key = secrets.token_hex(32)   # 64-char hex
-    ok("SUBUMBRA_TOKEN_PROXY generated")
+    ok("SUBUMBRA_TOKEN_PROXY generated (proxy transport / compatibility mode)")
     ok("SUBUMBRA_TOKEN_UI generated")
     if "subumbra-probe" in adapter_tokens:
         ok("SUBUMBRA_TOKEN_PROBE generated")
@@ -2757,7 +3056,7 @@ def main() -> None:
             "label":       key_id,
         }
         del dek
-        ok(f"Encrypted {provider:12s} → {key_id}")
+        ok(f"Encrypted {provider:12s} → {key_id}  →  {_binding_label(key_adapters_by_key_id[key_id])}")
 
     # ── Step 7: atomically write encrypted blobs ─────────────────────────
     # Write to a temp file in the same directory, then os.replace() for atomic
@@ -2917,8 +3216,9 @@ def main() -> None:
   V3 envelope encryption active:
     Public key:    {PUBLIC_KEY_FILE}
     Fingerprint:   {pub_key_fp}
-    Per-key rotate: docker compose --profile bootstrap run --rm -it bootstrap --rotate
-    Policy rotate: docker compose --profile bootstrap run --rm -it bootstrap --rotate-policy
+    Per-key rotate: existing V3 records only via docker compose --profile bootstrap run --rm -it bootstrap --rotate
+    Policy rotate: V3 policy refresh only via docker compose --profile bootstrap run --rm -it bootstrap --rotate-policy
+    V2 migration:  full bootstrap required
 """))
 
 
