@@ -93,9 +93,9 @@ done
 container_for_service() {
     case "$1" in
         litellm) echo "litellm" ;;
-        subumbra-keys) echo "subumbra-keys" ;;
-        subumbra-ui) echo "subumbra-ui" ;;
-        subumbra-proxy) echo "subumbra-proxy" ;;
+        subumbra-keys) echo "${SUBUMBRA_KEYS_CONTAINER:-subumbra-keys}" ;;
+        subumbra-ui) echo "${SUBUMBRA_UI_CONTAINER:-subumbra-ui}" ;;
+        subumbra-proxy) echo "${SUBUMBRA_PROXY_CONTAINER:-subumbra-proxy}" ;;
         subumbra-probe) echo "subumbra-probe" ;;
         *)
             return 1
