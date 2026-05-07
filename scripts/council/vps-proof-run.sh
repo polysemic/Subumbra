@@ -254,7 +254,10 @@ collect_logs() {
     } >"${artifact_dir}/remote-state.txt" 2>&1 || true
 
     for svc in subumbra-keys subumbra-proxy subumbra-ui; do
-        docker logs "$svc" >"${artifact_dir}/logs-${svc}.txt" 2>&1 || true
+        suffix="${svc#subumbra-}"; suffix="${suffix^^}"
+        ctr_var="SUBUMBRA_${suffix}_CONTAINER"
+        ctr="${!ctr_var:-$svc}"
+        docker logs "$ctr" >"${artifact_dir}/logs-${svc}.txt" 2>&1 || true
     done
 }
 
@@ -287,15 +290,10 @@ precheck() {
         return 1
     fi
 
-    if [[ "$mode" == "fresh-install" ]]; then
-        running="$(docker ps --format '{{.Names}}' || true)"
-        for name in subumbra-keys subumbra-proxy subumbra-ui; do
-            if printf '%s\n' "$running" | grep -Fxq "$name"; then
-                echo "ERROR: fresh-install mode requires no conflicting live container: $name" >&2
-                return 1
-            fi
-        done
-    fi
+    # No live-container conflict check needed: install_fresh_once patches
+    # container_name in the workspace docker-compose.yml to use the
+    # compose_project prefix, so proof containers never collide with the
+    # live stack's subumbra-keys / subumbra-proxy / subumbra-ui names.
 
     if [[ "$mode" == "existing-stack" && ! -f .env ]]; then
         echo "ERROR: existing-stack mode requires initialized .env" >&2
@@ -360,6 +358,16 @@ install_fresh_once() {
     apply_worker_name .env.bootstrap
     export COMPOSE_PROJECT_NAME="$compose_project"
     export CF_WORKER_NAME="$worker_name"
+    # Prefix container names so the proof run doesn't conflict with a live stack
+    # that uses the same absolute container_name directives.
+    sed -i \
+        -e "s/^    container_name: subumbra-keys$/    container_name: ${compose_project}-subumbra-keys/" \
+        -e "s/^    container_name: subumbra-proxy$/    container_name: ${compose_project}-subumbra-proxy/" \
+        -e "s/^    container_name: subumbra-ui$/    container_name: ${compose_project}-subumbra-ui/" \
+        "${workdir}/docker-compose.yml"
+    export SUBUMBRA_KEYS_CONTAINER="${compose_project}-subumbra-keys"
+    export SUBUMBRA_PROXY_CONTAINER="${compose_project}-subumbra-proxy"
+    export SUBUMBRA_UI_CONTAINER="${compose_project}-subumbra-ui"
     if [[ -n "$build_targets_string" ]]; then
         # shellcheck disable=SC2086
         docker compose build $build_targets_string
