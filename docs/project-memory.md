@@ -60,6 +60,10 @@ them.
 - Bootstrap now self-heals a stale saved Cloudflare KV namespace ID through the
   existing account list/title-scan path instead of requiring manual
   `kv-config.json` deletion as the normal recovery step.
+- Bootstrap now treats app identity as a per-key input: direct-provider
+  automation slots require matching `*_ADAPTERS` values, non-empty values bind
+  the key to named app adapters, and blank `*_ADAPTERS=` is an explicit
+  compatibility/simple-mode choice that binds that key to `subumbra-proxy`.
 - Bootstrap now accepts optional `SUBUMBRA_POLICY_PATH` input for policy-backed
   bootstrap ingestion, while built-in direct-provider secrets retain a narrow
   in-memory auto-compat fallback when no explicit policy entry is supplied.
@@ -81,6 +85,9 @@ them.
 - Worker-side V2 records remain readable only through the R45-4 grace window;
   `--rotate-policy` performs Worker-mediated re-encryption without host
   plaintext recovery.
+- After R46, `--rotate` is supported only for existing V3 records and
+  `--rotate-policy` refuses V2 inputs locally; V2 migration now means full
+  re-bootstrap rather than in-place upgrade repair.
 - Automation-mode app imports use `IMPORT_PATH_<n>` plus required
   `IMPORT_APP_LABEL_<n>` entries in `.env.bootstrap`.
 - Full bootstrap now writes `/app/data/system-integrity.json`, and
