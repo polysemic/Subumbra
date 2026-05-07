@@ -70,10 +70,12 @@ if [[ -f "$bootstrap_file" ]]; then
     done < "$bootstrap_file"
 fi
 
+# stdin must not be attached when this script is fed on SSH stdin (e.g. vps-proof-run): compose run
+# otherwise the container may consume the remainder of the parent bash script.
 docker compose --profile bootstrap run -T --rm \
     "${volume_args[@]}" \
     "${env_args[@]}" \
-    bootstrap "$@"
+    bootstrap "$@" </dev/null
 
 if [[ -f "$bootstrap_file" ]]; then
     if command -v shred >/dev/null 2>&1; then
