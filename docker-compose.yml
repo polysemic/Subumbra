@@ -1,3 +1,5 @@
+name: subumbra
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Networks
 #   internal  — air-gapped, no outbound internet (subumbra-keys, ui, bootstrap)
@@ -5,7 +7,6 @@
 # ─────────────────────────────────────────────────────────────────────────────
 networks:
   internal:
-    name: subumbra_internal
     driver: bridge
     internal: true # Docker enforces: no outbound routing
   external:
