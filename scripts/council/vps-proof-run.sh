@@ -358,13 +358,21 @@ install_fresh_once() {
     apply_worker_name .env.bootstrap
     export COMPOSE_PROJECT_NAME="$compose_project"
     export CF_WORKER_NAME="$worker_name"
-    # Prefix container names so the proof run doesn't conflict with a live stack
-    # that uses the same absolute container_name directives.
+    # Prefix container names and strip host port bindings so the proof run
+    # doesn't conflict with a live stack that holds the same ports/names.
     sed -i \
         -e "s/^    container_name: subumbra-keys$/    container_name: ${compose_project}-subumbra-keys/" \
         -e "s/^    container_name: subumbra-proxy$/    container_name: ${compose_project}-subumbra-proxy/" \
         -e "s/^    container_name: subumbra-ui$/    container_name: ${compose_project}-subumbra-ui/" \
         "${workdir}/docker-compose.yml"
+    # Remove host-bound port entries so containers only live on Docker networks.
+    python3 - "${workdir}/docker-compose.yml" <<'PY'
+import re, sys
+text = open(sys.argv[1]).read()
+# Remove entire ports: blocks (4-space indent "ports:" + 6-space indented entries)
+text = re.sub(r'\n    ports:\n(?:      - "[^"]*"[^\n]*\n)+', '\n', text)
+open(sys.argv[1], "w").write(text)
+PY
     export SUBUMBRA_KEYS_CONTAINER="${compose_project}-subumbra-keys"
     export SUBUMBRA_PROXY_CONTAINER="${compose_project}-subumbra-proxy"
     export SUBUMBRA_UI_CONTAINER="${compose_project}-subumbra-ui"
