@@ -358,24 +358,30 @@ install_fresh_once() {
     apply_worker_name .env.bootstrap
     export COMPOSE_PROJECT_NAME="$compose_project"
     export CF_WORKER_NAME="$worker_name"
-    # Prefix container names and strip host port bindings so the proof run
-    # doesn't conflict with a live stack that holds the same ports/names.
+    # Prefix container names so the proof run doesn't conflict with a live stack
+    # that uses the same absolute container_name directives.
     sed -i \
         -e "s/^    container_name: subumbra-keys$/    container_name: ${compose_project}-subumbra-keys/" \
         -e "s/^    container_name: subumbra-proxy$/    container_name: ${compose_project}-subumbra-proxy/" \
         -e "s/^    container_name: subumbra-ui$/    container_name: ${compose_project}-subumbra-ui/" \
         "${workdir}/docker-compose.yml"
-    # Remove host-bound port entries so containers only live on Docker networks.
-    python3 - "${workdir}/docker-compose.yml" <<'PY'
+    # Allocate a free host port for the proof proxy and remap the UI port away.
+    # The UI host port is not needed by verify-round.sh; strip it entirely.
+    # The proxy host port IS needed by verify-round.sh; remap to a free port.
+    proof_proxy_port="$(python3 -c "import socket; s=socket.socket(); s.bind(('127.0.0.1',0)); p=s.getsockname()[1]; s.close(); print(p)")"
+    python3 - "${workdir}/docker-compose.yml" "$proof_proxy_port" <<'PY'
 import re, sys
 text = open(sys.argv[1]).read()
-# Remove entire ports: blocks (4-space indent "ports:" + 6-space indented entries)
-text = re.sub(r'\n    ports:\n(?:      - "[^"]*"[^\n]*\n)+', '\n', text)
+# Strip the UI host port binding (live stack holds the same port)
+text = re.sub(r'\n    ports:\n(      - "127\.0\.0\.1:\d+:8080"[^\n]*\n)', '\n', text)
+# Remap the proxy host port to the free port supplied as argv[2]
+text = re.sub(r'(      - "127\.0\.0\.1:)\d+(:8090")', rf'\g<1>{sys.argv[2]}\2', text)
 open(sys.argv[1], "w").write(text)
 PY
     export SUBUMBRA_KEYS_CONTAINER="${compose_project}-subumbra-keys"
     export SUBUMBRA_PROXY_CONTAINER="${compose_project}-subumbra-proxy"
     export SUBUMBRA_UI_CONTAINER="${compose_project}-subumbra-ui"
+    export SUBUMBRA_PROXY_HOST_PORT="$proof_proxy_port"
     if [[ -n "$build_targets_string" ]]; then
         # shellcheck disable=SC2086
         docker compose build $build_targets_string
