@@ -36,6 +36,16 @@ and fresh sessions tend to miss.
 - Round-local `council/{round}/verify-round.sh` hooks stay local-only under the
   ignored `council/` tree; when VPS proof needs them, copy them into the VPS
   checkout or staging path and record that transfer in the report.
+- Treat `/opt/subumbra` as the canonical operator checkout during VPS work.
+  Bundle/staging fallback is exception-only and must use a one-off `~/`
+  sibling path without deleting, replacing, emptying, or repurposing
+  `/opt/subumbra`.
+- `existing-stack` verification must not shut down the live `/opt/subumbra`
+  Docker stack. `fresh-install` teardown must stay scoped to the isolated proof
+  workspace and its scoped Compose project only.
+- When proof wrappers run over `ssh ... bash -s`, any non-interactive
+  `docker compose run` step should redirect stdin away from the SSH script
+  stream unless interactive input is intentionally required.
 - Closeout should capture minor non-blocking cleanup in `council/cleanup.md`
   rather than reopening finished rounds.
 

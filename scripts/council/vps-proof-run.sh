@@ -157,7 +157,9 @@ case "$mode" in
         ;;
     fresh-install)
         cleanup_policy="remove-isolated-proof"
+        # Docker Compose project names must be lowercase (ISO timestamps contain T/Z).
         compose_project="scr-${run_id//[^a-zA-Z0-9]/-}"
+        compose_project="$(printf '%s' "$compose_project" | tr '[:upper:]' '[:lower:]')"
         worker_name="$compose_project"
         ;;
     *)
@@ -252,7 +254,10 @@ collect_logs() {
     } >"${artifact_dir}/remote-state.txt" 2>&1 || true
 
     for svc in subumbra-keys subumbra-proxy subumbra-ui; do
-        docker logs "$svc" >"${artifact_dir}/logs-${svc}.txt" 2>&1 || true
+        suffix="${svc#subumbra-}"; suffix="${suffix^^}"
+        ctr_var="SUBUMBRA_${suffix}_CONTAINER"
+        ctr="${!ctr_var:-$svc}"
+        docker logs "$ctr" >"${artifact_dir}/logs-${svc}.txt" 2>&1 || true
     done
 }
 
@@ -285,15 +290,10 @@ precheck() {
         return 1
     fi
 
-    if [[ "$mode" == "fresh-install" ]]; then
-        running="$(docker ps --format '{{.Names}}' || true)"
-        for name in subumbra-keys subumbra-proxy subumbra-ui; do
-            if printf '%s\n' "$running" | grep -Fxq "$name"; then
-                echo "ERROR: fresh-install mode requires no conflicting live container: $name" >&2
-                return 1
-            fi
-        done
-    fi
+    # No live-container conflict check needed: install_fresh_once patches
+    # container_name in the workspace docker-compose.yml to use the
+    # compose_project prefix, so proof containers never collide with the
+    # live stack's subumbra-keys / subumbra-proxy / subumbra-ui names.
 
     if [[ "$mode" == "existing-stack" && ! -f .env ]]; then
         echo "ERROR: existing-stack mode requires initialized .env" >&2
@@ -358,6 +358,30 @@ install_fresh_once() {
     apply_worker_name .env.bootstrap
     export COMPOSE_PROJECT_NAME="$compose_project"
     export CF_WORKER_NAME="$worker_name"
+    # Prefix container names so the proof run doesn't conflict with a live stack
+    # that uses the same absolute container_name directives.
+    sed -i \
+        -e "s/^    container_name: subumbra-keys$/    container_name: ${compose_project}-subumbra-keys/" \
+        -e "s/^    container_name: subumbra-proxy$/    container_name: ${compose_project}-subumbra-proxy/" \
+        -e "s/^    container_name: subumbra-ui$/    container_name: ${compose_project}-subumbra-ui/" \
+        "${workdir}/docker-compose.yml"
+    # Allocate a free host port for the proof proxy and remap the UI port away.
+    # The UI host port is not needed by verify-round.sh; strip it entirely.
+    # The proxy host port IS needed by verify-round.sh; remap to a free port.
+    proof_proxy_port="$(python3 -c "import socket; s=socket.socket(); s.bind(('127.0.0.1',0)); p=s.getsockname()[1]; s.close(); print(p)")"
+    python3 - "${workdir}/docker-compose.yml" "$proof_proxy_port" <<'PY'
+import re, sys
+text = open(sys.argv[1]).read()
+# Strip the UI host port binding (live stack holds the same port)
+text = re.sub(r'\n    ports:\n(      - "127\.0\.0\.1:\d+:8080"[^\n]*\n)', '\n', text)
+# Remap the proxy host port to the free port supplied as argv[2]
+text = re.sub(r'(      - "127\.0\.0\.1:)\d+(:8090")', rf'\g<1>{sys.argv[2]}\2', text)
+open(sys.argv[1], "w").write(text)
+PY
+    export SUBUMBRA_KEYS_CONTAINER="${compose_project}-subumbra-keys"
+    export SUBUMBRA_PROXY_CONTAINER="${compose_project}-subumbra-proxy"
+    export SUBUMBRA_UI_CONTAINER="${compose_project}-subumbra-ui"
+    export SUBUMBRA_PROXY_HOST_PORT="$proof_proxy_port"
     if [[ -n "$build_targets_string" ]]; then
         # shellcheck disable=SC2086
         docker compose build $build_targets_string
@@ -365,9 +389,11 @@ install_fresh_once() {
     if [[ -f "council/${round}/pre-bootstrap.sh" ]]; then
         bash "council/${round}/pre-bootstrap.sh"
     fi
-    ./bootstrap.sh
-    ./scripts/council/reset.sh
-    ./scripts/council/preflight.sh
+    # Explicit exit checks: run_stage calls functions via `if ! fn`, which
+    # disables set -e inside the function body. Each step must bail manually.
+    ./bootstrap.sh || return 1
+    ./scripts/council/reset.sh || return 1
+    ./scripts/council/preflight.sh || return 1
 }
 
 update_existing_stack() {
@@ -413,11 +439,18 @@ if [[ "$dry_run" == "1" ]]; then
     exit 0
 fi
 
-if [[ "$mode" == "fresh-install" ]]; then
-    run_stage remote-install install_fresh_once
-else
-    run_stage remote-update update_existing_stack
-fi
+case "$mode" in
+    fresh-install)
+        run_stage remote-install install_fresh_once
+        ;;
+    existing-stack)
+        run_stage remote-update update_existing_stack
+        ;;
+    *)
+        echo "ERROR: unsupported mode in install/update dispatch: $mode" >&2
+        exit 1
+        ;;
+esac
 run_stage remote-verify verify_once
 run_stage remote-probes run_independent_probes
 overall="PASS"

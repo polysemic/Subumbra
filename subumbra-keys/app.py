@@ -222,9 +222,9 @@ def _now_iso() -> str:
 def _init_audit_db() -> sqlite3.Connection | None:
     try:
         AUDIT_DIR.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(AUDIT_DB_PATH, check_same_thread=False)
+        conn = sqlite3.connect(AUDIT_DB_PATH, check_same_thread=False, timeout=30)
+        conn.execute("PRAGMA busy_timeout=10000")
         conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA busy_timeout=500")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS audit_events (

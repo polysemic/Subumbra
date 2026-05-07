@@ -1,3 +1,5 @@
+name: subumbra
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Networks
 #   internal  — air-gapped, no outbound internet (subumbra-keys, ui, bootstrap)
@@ -5,7 +7,6 @@
 # ─────────────────────────────────────────────────────────────────────────────
 networks:
   internal:
-    name: subumbra_internal
     driver: bridge
     internal: true # Docker enforces: no outbound routing
   external:
@@ -178,6 +179,7 @@ services:
       - subumbra_keys_data:/app/data
       # Mount worker source so bootstrap can deploy via wrangler
       - ./worker:/app/worker:ro
+      - ./providers.json:/app/providers.json:ro
     env_file:
       # required: false — wizard runs when file is absent (interactive mode)
       # Populate this file for CI/automation (headless) mode.
@@ -185,6 +187,7 @@ services:
         required: false
     environment:
       DATA_DIR: /app/data
+      SUBUMBRA_ADAPTER_REGISTRY: ${SUBUMBRA_ADAPTER_REGISTRY:-}
 
   # ───────────────────────────────────────────────────────────────────────────
   # cloudflared  —  optional Cloudflare Tunnel; run with: --profile tunnel
