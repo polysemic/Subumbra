@@ -2273,7 +2273,8 @@ def _put_worker_secret(cf_creds: dict[str, str], secret_name: str, secret_value:
 
 def call_setup_keygen(worker_url: str, setup_token: str) -> tuple[str, str, str]:
     last_http_error: urllib.error.HTTPError | None = None
-    for attempt in range(1, 13):
+    _MAX_KEYGEN_ATTEMPTS = 24
+    for attempt in range(1, _MAX_KEYGEN_ATTEMPTS + 1):
         req = urllib.request.Request(
             f"{worker_url.rstrip('/')}/setup/keygen",
             data=b"",
@@ -2290,10 +2291,10 @@ def call_setup_keygen(worker_url: str, setup_token: str) -> tuple[str, str, str]
             break
         except urllib.error.HTTPError as exc:
             last_http_error = exc
-            if exc.code in (401, 403, 503) and attempt < 12:
+            if exc.code in (401, 403, 503) and attempt < _MAX_KEYGEN_ATTEMPTS:
                 info(
                     "Cloudflare setup token not visible yet; "
-                    f"retrying /setup/keygen ({attempt}/12)"
+                    f"retrying /setup/keygen ({attempt}/{_MAX_KEYGEN_ATTEMPTS})"
                 )
                 time.sleep(5)
                 continue
@@ -2324,7 +2325,8 @@ def call_setup_keygen(worker_url: str, setup_token: str) -> tuple[str, str, str]
 def call_internal_rotate(worker_url: str, setup_token: str, rotate_payload: dict[str, Any]) -> dict[str, Any]:
     last_http_error: urllib.error.HTTPError | None = None
     body = json.dumps(rotate_payload, separators=(",", ":")).encode("utf-8")
-    for attempt in range(1, 13):
+    _MAX_ROTATE_ATTEMPTS = 24
+    for attempt in range(1, _MAX_ROTATE_ATTEMPTS + 1):
         req = urllib.request.Request(
             f"{worker_url.rstrip('/')}/internal/rotate",
             data=body,
@@ -2341,10 +2343,10 @@ def call_internal_rotate(worker_url: str, setup_token: str, rotate_payload: dict
             break
         except urllib.error.HTTPError as exc:
             last_http_error = exc
-            if exc.code in (401, 403) and attempt < 12:
+            if exc.code in (401, 403) and attempt < _MAX_ROTATE_ATTEMPTS:
                 info(
                     "Cloudflare rotate token not visible yet; "
-                    f"retrying /internal/rotate ({attempt}/12)"
+                    f"retrying /internal/rotate ({attempt}/{_MAX_ROTATE_ATTEMPTS})"
                 )
                 time.sleep(5)
                 continue
