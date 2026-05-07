@@ -367,9 +367,11 @@ install_fresh_once() {
     if [[ -f "council/${round}/pre-bootstrap.sh" ]]; then
         bash "council/${round}/pre-bootstrap.sh"
     fi
-    ./bootstrap.sh
-    ./scripts/council/reset.sh
-    ./scripts/council/preflight.sh
+    # Explicit exit checks: run_stage calls functions via `if ! fn`, which
+    # disables set -e inside the function body. Each step must bail manually.
+    ./bootstrap.sh || return 1
+    ./scripts/council/reset.sh || return 1
+    ./scripts/council/preflight.sh || return 1
 }
 
 update_existing_stack() {
