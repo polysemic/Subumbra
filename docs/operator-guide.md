@@ -9,7 +9,7 @@ Provider validation now comes from Cloudflare KV rather than the Worker bundle.
 
 ### Adding a built-in provider without redeploying the Worker
 
-1. Add the provider entry to `worker/src/providers.json`.
+1. Add the provider entry to root `providers.json`.
 2. Run:
 
 ```bash
@@ -96,7 +96,7 @@ curl -sS \
 
 ## 3. Registry Publish And Removal Guidance
 
-Editing local `worker/src/providers.json` alone is **not enough**.
+Editing local `providers.json` alone is **not enough**.
 
 Operational rule for built-ins:
 
@@ -114,11 +114,12 @@ Secure provider removal note:
 
 ## 4. Rotation / Update Guidance
 
-To rotate a provider token:
+To rotate or refresh a provider record:
 
-1. update the secret value for that provider in your bootstrap input flow
-2. rerun `./bootstrap.sh`
-3. recreate the local services if needed
+1. For an existing V3 key secret change, run `docker compose --profile bootstrap run --rm -it bootstrap --rotate`
+2. For an existing V3 policy-hash refresh, run `docker compose --profile bootstrap run --rm -it bootstrap --rotate-policy`
+3. For any V2 migration or retained-set rebuild, rerun `./bootstrap.sh`
+4. Recreate the local services after a full bootstrap if needed
 
 This keeps subumbra records, local env state, and the deployed Worker configuration
 aligned.
@@ -131,13 +132,13 @@ single-key rotation after the bootstrap completes.
 
 ### Single-Key Rotation
 
-Use this when only one provider secret needs to change.
+Use this when only one existing V3 provider secret needs to change.
 
 ```bash
 docker compose --profile bootstrap run --rm -it bootstrap --rotate
 ```
 
-The wizard prompts for the `key_id` and replacement secret. After a successful
+The wizard prompts for an existing `key_id` and replacement secret. After a successful
 per-key rotation, no service restart is required.
 
 ### Full Re-Bootstrap
@@ -157,9 +158,9 @@ For policy-backed bootstrap ingestion, you may also define
 `SUBUMBRA_POLICY_PATH=/opt/subumbra/policies.json` in `.env.bootstrap`.
 `./bootstrap.sh` mounts that host JSON file read-only into the bootstrap
 container and passes the in-container path automatically. Built-in direct
-provider secrets can still use the current in-memory auto-compat path when no
-external policy entry is supplied, but imported secrets now require a matching
-policy document.
+provider secrets can still use synthesized app-bound or compatibility/simple
+policies when no external policy entry is supplied, but imported secrets now
+require a matching policy document.
 
 For automation-mode imports from app-owned `.env` files, define
 `IMPORT_PATH_<n>` together with the required `IMPORT_APP_LABEL_<n>` entries in
@@ -178,23 +179,27 @@ Verify the currently deployed Worker against that integrity artifact with:
 Use `--integrity-file <path>` to test a copied or staged integrity file
 without mutating the live artifact.
 
-### Custom Adapters (Round 35)
+### App Adapters
 
-Automation-mode bootstrap can add custom adapters with `ADAPTER_IDS` in
-`.env.bootstrap`. This is additive-only: the built-in adapters remain
-provisioned automatically, and each custom adapter uses a matching
-`<NORMALIZED_ID>_ALLOWED_KEYS` variable, where normalization means uppercase
-with `-` replaced by `_`.
+Interactive and automation bootstrap now both support app-bound adapters.
+
+- declare custom app adapter IDs up front
+- bind each direct secret to one or more declared adapters with per-key
+  `*_ADAPTERS` values
+- leave `*_ADAPTERS` blank only for explicit compatibility/simple mode, which
+  binds that key to `subumbra-proxy`
 
 Example:
 
 ```bash
-ADAPTER_IDS=open-webui
-OPEN_WEBUI_ALLOWED_KEYS=github_main
+ADAPTER_IDS=litellm,openwebui
+OPENAI_KEY=...
+OPENAI_KEY_ID=openai_litellm_1
+OPENAI_KEY_ADAPTERS=litellm
+OPENAI_KEY_2=...
+OPENAI_KEY_ID_2=openai_openwebui_1
+OPENAI_KEY_2_ADAPTERS=openwebui
 ```
-
-Custom adapters are a CI/automation-mode feature in this round. The interactive
-bootstrap wizard still supports only the built-in adapters.
 
 ### Emergency Adapter Expiry
 

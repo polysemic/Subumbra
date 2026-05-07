@@ -29,6 +29,8 @@ LiteLLM now uses the secure transparent contract:
   `SUBUMBRA_TOKEN_LITELLM`
 - `key_id` moves into the `api_base` path
 - LiteLLM no longer sends plain Subumbra key IDs as credentials
+- `SUBUMBRA_TOKEN_PROXY` is compatibility/simple mode only, not the normal
+  LiteLLM app credential
 
 ## Required LiteLLM Model Shape
 

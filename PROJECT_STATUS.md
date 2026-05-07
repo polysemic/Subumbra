@@ -146,17 +146,18 @@ This arc focuses on evolving Subumbra from a static, bundled configuration into 
 - **Round 45-3 — V3 Binding And Structured KV Publication** (Closed 2026-05-04): bootstrap now writes V3 records with `policy_id` / baseline-bound `policy_hash`, publishes structured KV entries (`policy:<id>`, `key:<id>`, `template:<name>`, `registry_version`), Worker reads structured KV instead of `subumbra_registry_v1`, and `--rotate-policy` re-encrypts through the Worker without host plaintext recovery.
 - **Round 45-4 — Worker REST Enforcement Foundation** (Closed 2026-05-04): `SUBUMBRA_ADAPTER_TOKENS` now carries `{id, token}` objects so the Worker resolves adapter identity from the authenticated token; `getRegistryEntry` returns the full `allow` block; `handleProxy` enforces adapter scope, method, path prefix, content-type, and body size for V3 records (V2 grace path skips all allow-block checks); `authorization`, `x-api-key`, and `x-api-key-id` stripped by `HOP_BY_HOP_HEADERS`; structural `intent` metadata logged when present. Two code bugs found and fixed by Gemini: CT enforcement bypass when proxy sends null body (committed `20d5061`), bootstrap DO cold-start 503 not retried (committed `37d59c7`). Council fixture remediation: `policies.json` in correct format, `bootstrap-overlay.env` uses `SUBUMBRA_POLICY_PATH` + key slots 3/4/5, `verify-round.sh` V6 does active fixture rewrite via `cryptography`, DNS readiness poll added. Clean-run proof `codexremed-20260504T215118`: V1–V8 all PASS. All C1–C10 diff checks PASS.
 - **Round TBD — Path-To-Alpha Arc Planning** (Closed 2026-05-06): the council approved and staged the post-R45 alpha-hardening arc. Council-local kickoff folders now exist for `r46-alpha-app-identity-rotation`, `r46-5-vault-granularity`, `r47-runtime-contract-cleanup`, `r48-intent-response-enforcement`, `r49-velocity-circuit-breakers`, `r50-management-api`, `r51-signed-template-catalog`, `r52-readonly-policy-ui`, and `r53-alpha-release-gate`. The round made no source-code changes; Opus and Gemini verification both passed.
+- **Round 46 — Alpha App Identity And Rotation** (Closed 2026-05-07): bootstrap now binds direct-provider secrets per app with required per-key `*_ADAPTERS` inputs, explicit compatibility mode, and app-specific `SUBUMBRA_TOKEN_<APP>` outputs; proxy request-time Worker calls now forward the caller adapter token so Worker `allow.adapters` enforcement reflects the real app identity; bootstrap authority moved to root `providers.json`; `--rotate` / `--rotate-policy` are now V3-only with full re-bootstrap as the documented V2 migration path; the tracked operator/app docs now match the V3 app-token contract; official fresh-install VPS proof passed at `claude-vps-20260507T180730Z` on SHA `4196033`.
 
 ## Path Forward
 
 Immediate follow-up sequence — targeting 0.0.1 Alpha:
 
-1. **Round 46 — Alpha App Identity And Rotation**
-   Open `council/r46-alpha-app-identity-rotation/` next. Scope: app-specific bootstrap identity, V3-only rotation reliability, doc truth, and a fresh-install app smoke matrix.
-2. **Round 46.5 — Vault Granularity Decision**
-   Open `council/r46-5-vault-granularity/` in parallel with or immediately after R46. This decision blocks R47 implementation scope and must decide single-vault for alpha, per-key vault for alpha, or post-alpha per-key vault deferral.
-3. **Round 47+ — Alpha Hardening Arc**
-   After R46 and the vault decision, continue with runtime contract cleanup, intent/response enforcement, velocity/circuit breakers, management API, signed template catalog, read-only policy UI, and the alpha release/recovery gate as staged by `council/approved/rTBD-structure-upgrade.md`.
+1. **Round 46.5 — Vault Granularity Decision**
+   Open `council/r46-5-vault-granularity/` next. This decision blocks R47 implementation scope and must decide single-vault for alpha, per-key vault for alpha, or post-alpha per-key vault deferral.
+2. **Round 47+ — Alpha Hardening Arc**
+   After the vault decision, continue with runtime contract cleanup, intent/response enforcement, velocity/circuit breakers, management API, signed template catalog, read-only policy UI, and the alpha release/recovery gate as staged by `council/approved/rTBD-structure-upgrade.md`.
+3. **Bootstrap hardening follow-up**
+   Future rounds should keep Cloudflare KV namespace mutation on the hardened bootstrap helper path and continue auditing non-interactive `docker compose run` entrypoints for SSH/stdin safety so fresh-install proof capture remains reliable.
 4. **Nonce-store watch item**
    Reproduce `subumbra-keys` `nonce_store_failure reason=nonce_store_error` on the current stack before attempting further source changes; Round 44.5.1 did not reproduce it under concurrent signed key fetches.
 5. **Round 44 Security Arc (Approved sequence)**

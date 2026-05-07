@@ -66,6 +66,13 @@ Do not bounce casually between `/opt/subumbra` and ad hoc `~/subumbra-*test`
 checkouts in the same verification attempt. Pick one path, record it, and keep
 the run self-consistent.
 
+Operator-safety rules:
+
+- Treat `/opt/subumbra` as the canonical operator checkout, not disposable test space.
+- Do not delete, replace, empty, or repurpose `/opt/subumbra` when using a staging fallback.
+- Do not run `docker compose down`, `down -v`, or equivalent cleanup against the live `/opt/subumbra` stack during verification unless the approved lane explicitly requires an isolated fresh-install proof elsewhere.
+- If a fallback checkout is needed, create a one-off sibling path under your home directory and leave `/opt/subumbra` untouched.
+
 ### If the VPS cannot pull the branch cleanly
 
 Use this only as a fallback when the branch is not yet reachable from GitHub or
@@ -87,8 +94,8 @@ scp subumbra-round.bundle subumbra:/tmp/
 
 ```bash
 ssh subumbra
-mkdir -p ~/subumbra-stage
-cd ~/subumbra-stage
+mkdir -p ~/subumbra-stage-<round>-<agent>-<timestamp>
+cd ~/subumbra-stage-<round>-<agent>-<timestamp>
 git fetch /tmp/subumbra-round.bundle <branch-name>:<vps-test-branch>
 git checkout <vps-test-branch>
 ```
@@ -96,6 +103,13 @@ git checkout <vps-test-branch>
 Document this in the verification report as a staging workaround, and delete the
 staging checkout after the run. Do not reuse long-lived `~/subumbra-r41test`
 style directories across verifiers.
+
+Staging fallback safety requirements:
+
+- The staging checkout exists only to prove the branch under test; it must not become the new long-lived VPS working directory.
+- Never move, rename, or sync the staging checkout onto `/opt/subumbra` as part of verification.
+- Never point destructive cleanup commands at `/opt/subumbra` while cleaning up staging paths.
+- Any stack teardown for fallback testing must target only the isolated staging project name or temp workspace created for that run.
 
 ### If bootstrap files or harness files are missing on the VPS
 

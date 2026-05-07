@@ -86,20 +86,18 @@ wizard finishes - keys exist in RAM only during the session.
 The wizard collects:
 
 - Cloudflare credentials (API token, account ID, worker name)
-- provider API keys and `key_id` labels (one key per prompt, hidden input)
-- built-in adapter scopes via numbered selection:
-  - `subumbra-proxy` - the shared app-facing sidecar
-  - `subumbra-ui` - metadata only (no key fetch scope)
+- declared app adapter IDs such as `litellm` or `openwebui`
+- provider API keys, generated `key_id` labels, and per-key adapter bindings
+- explicit compatibility/simple mode only when you intentionally leave a key's
+  adapter selection blank, which binds that key to `subumbra-proxy`
+- `subumbra-ui` remains metadata only (no key fetch scope)
 - optional: `subumbra-probe` - an optional diagnostic container for verifying your
   deployment; its scope is usually the same as or narrower than `subumbra-proxy`
-
-At Step 3, put the app-facing provider keys in `subumbra-proxy`. This is the
-shared app-owned path used by standalone LiteLLM and other external apps.
 
 During full bootstrap, Cloudflare now generates the RSA key pair through the
 one-shot `/setup/keygen` Worker path. The bootstrap container only receives the
 returned public key, writes `public_key.pem`, and uses that public key for the
-local V2 envelope records.
+local V3 envelope records.
 
 ### 5b. Automation path (`.env.bootstrap`)
 
@@ -108,14 +106,16 @@ installation, or are migrating from an existing deployment.
 
 ```bash
 cp .env.bootstrap.example .env.bootstrap
-# edit .env.bootstrap: CF credentials, provider keys, key_ids, adapter scopes,
+# edit .env.bootstrap: CF credentials, provider keys, key_ids, per-key *_ADAPTERS,
 # and optional IMPORT_PATH_<n> / IMPORT_APP_LABEL_<n> entries
 ./bootstrap.sh
 ```
 
 See `.env.bootstrap.example` for the full list of expected variables. Key format:
-`{PROVIDER}_KEY=<value>` with optional `KEY_ID_SUFFIX` and `ALLOWED_KEYS` entries
-per adapter. App-owned imports use `IMPORT_PATH_<n>` plus required
+`{PROVIDER}_KEY=<value>` with matching `{PROVIDER}_KEY_ID=<key_id>` and
+`{PROVIDER}_KEY_ADAPTERS=<adapter_ids>` entries per direct secret slot.
+Blank `*_ADAPTERS` is explicit compatibility/simple mode only. App-owned
+imports use `IMPORT_PATH_<n>` plus required
 `IMPORT_APP_LABEL_<n>` entries; `bootstrap.sh` mounts those files readonly into
 the container. The automation path does not start an interactive wizard.
 
@@ -128,7 +128,8 @@ grep -E '^(SUBUMBRA_TOKEN_|CF_WORKER_URL|PROBE_ALLOWED_KEYS|UI_ALLOWED_KEYS)' .e
 `bootstrap.sh` writes the generated Subumbra runtime values directly into `.env`:
 
 - `SUBUMBRA_ADAPTER_REGISTRY`
-- `SUBUMBRA_TOKEN_PROXY`
+- per-app tokens such as `SUBUMBRA_TOKEN_LITELLM` and `SUBUMBRA_TOKEN_OPENWEBUI`
+- `SUBUMBRA_TOKEN_PROXY` for proxy transport and explicit compatibility/simple mode
 - `SUBUMBRA_TOKEN_UI`
 - `SUBUMBRA_HMAC_KEY`
 - `CF_WORKER_URL`
@@ -188,7 +189,7 @@ Use the standalone guide:
 That guide shows the supported app-owned contract:
 
 - `api_base: http://subumbra-proxy:8090/t/<key_id>/...`
-- `api_key: <SUBUMBRA_TOKEN_PROXY>` — use the value of `SUBUMBRA_TOKEN_PROXY` from `.env`
+- `api_key: <SUBUMBRA_TOKEN_LITELLM>` — use the LiteLLM app token from `.env`
 
 ## Next
 

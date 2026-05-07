@@ -9,7 +9,7 @@
 
 Subumbra is a zero-trust key-broker core. The decrypt/proxy contract is:
 
-- **Adapters** request narrow capability by supplying a V2 envelope, a target
+- **Adapters** request narrow capability by supplying a V3 envelope, a target
   destination, and transport payload.
 - **The Worker/core** authenticates, validates, decrypts, injects auth, and
   proxies — the adapter never sees the decrypted API key.
@@ -26,9 +26,9 @@ should target.
 
 ---
 
-## Prerequisites — Obtaining a V2 Envelope
+## Prerequisites — Obtaining a V3 Envelope
 
-Before an adapter can call `POST /proxy`, it must first obtain a V2 envelope
+Before an adapter can call `POST /proxy`, it must first obtain a V3 envelope
 record from `subumbra-keys`.
 
 Request:
@@ -40,7 +40,7 @@ GET /keys/<key_id>
 Required headers:
 
 ```text
-X-Subumbra-Token: <adapter token from SUBUMBRA_ACCESS_TOKEN env var>
+X-Subumbra-Token: <app adapter token such as SUBUMBRA_TOKEN_LITELLM or SUBUMBRA_TOKEN_OPENWEBUI>
 X-Subumbra-Timestamp: <unix epoch seconds>
 X-Subumbra-Nonce: <single-use hex nonce>
 X-Subumbra-Signature: <hex hmac>
@@ -67,7 +67,7 @@ Expected subumbra-keys response fields:
 | `target_host` | string | Provider hostname used to derive `target_url` |
 | `wrapped_dek` | string | RSA-OAEP-wrapped per-record DEK, base64 |
 | `pub_key_fp` | string | RSA key-pair fingerprint (`sha256:<hex>`) |
-| `enc_version` | number | Must be `2` |
+| `enc_version` | number | Must be `3` |
 
 Adapters are expected to derive the canonical `/proxy` payload fields from this
 subumbra-keys response before making the Worker call.
@@ -79,7 +79,7 @@ subumbra-keys response before making the Worker call.
 Authentication header (required on every request):
 
 ```
-X-Subumbra-Token: <adapter token — SUBUMBRA_TOKEN_<APP> from .env, injected as SUBUMBRA_ACCESS_TOKEN in the container>
+X-Subumbra-Token: <adapter token — SUBUMBRA_TOKEN_<APP> from .env>
 ```
 
 Request body (JSON, all fields required unless noted):
@@ -94,8 +94,9 @@ Request body (JSON, all fields required unless noted):
 | `body` | JSON-serializable or null | Request body; must be null for GET/HEAD; see payload limitation below |
 | `wrapped_dek` | string | RSA-OAEP-wrapped per-record DEK, base64 |
 | `pub_key_fp` | string | SHA-256 fingerprint of the RSA key pair used for wrapping (`sha256:<hex>`) |
-| `key_id` | string | Record identity; used as AAD: `subumbra:v2:<key_id>` |
-| `enc_version` | number | Must be `2`; non-V2 records are hard-rejected |
+| `policy_hash` | string | V3 policy-binding hash from the live record |
+| `key_id` | string | Record identity; used as AAD: `subumbra:v3:<key_id>:<policy_hash>` |
+| `enc_version` | number | Must be `3`; V2 records are hard-rejected |
 
 ---
 
@@ -103,8 +104,9 @@ Request body (JSON, all fields required unless noted):
 
 The Worker enforces these security invariants before any upstream request is made:
 
-1. **Token authentication** — `X-Subumbra-Token` validated against `SUBUMBRA_ACCESS_TOKEN`
-   via timing-safe comparison; any mismatch is rejected before parsing the body.
+1. **Token authentication** — `X-Subumbra-Token` is resolved against the live
+   adapter-token registry via timing-safe comparison; any mismatch is rejected
+   before parsing the body.
 
 2. **SSRF prevention** — `target_url` hostname must appear in the live provider
    registry stored in Cloudflare KV; unlisted hostnames are rejected with 403.
@@ -210,7 +212,7 @@ explicitly include all headers the upstream provider requires (e.g.
   with 403.
 - Declare a `provider` that does not match the hostname's registry entry —
   rejected with 400.
-- Send `enc_version` other than `2` — rejected with 400.
+- Send `enc_version` other than `3` — rejected with 400/410.
 - Expect the decrypted API key in any response field — the core never returns it.
 
 ---
@@ -224,6 +226,8 @@ The current supported app-owned contract is the transparent sidecar path:
 - `subumbra-proxy` uses the first path segment after `/t/` as the requested
   `key_id`
 - `subumbra-keys` enforces the adapter's `allowed_keys`
+- the proxy forwards the caller token to the Worker so `allow.adapters`
+  enforcement stays app-specific on request-time proxying
 
 This is the current primary adapter path for standalone LiteLLM and similar
 external apps.
@@ -442,6 +446,7 @@ V3 record fields (additions to V2):
 
 V2 records are rejected at `handleProxy` entry with HTTP 410 and body
 `{"error":"enc_version 2 not supported — run --rotate-policy to upgrade"}`.
+Use full bootstrap for actual V2 migration.
 
 ### Policy Starter Templates
 

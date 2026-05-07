@@ -115,13 +115,18 @@ PY
 }
 
 fail=0
-poll_docker_health subumbra-keys || fail=1
-poll_docker_health subumbra-proxy || fail=1
+poll_docker_health "${SUBUMBRA_KEYS_CONTAINER:-subumbra-keys}" || fail=1
+poll_docker_health "${SUBUMBRA_PROXY_CONTAINER:-subumbra-proxy}" || fail=1
 if bundled_litellm_present; then
     poll_litellm || fail=1
 else
     printf '[OK] litellm bundled-service=absent\n'
 fi
-poll_ui || fail=1
+# In isolated proof runs the UI has no host port binding; use Docker health.
+if [[ -n "${SUBUMBRA_UI_CONTAINER:-}" ]]; then
+    poll_docker_health "$SUBUMBRA_UI_CONTAINER" || fail=1
+else
+    poll_ui || fail=1
+fi
 
 exit "$fail"
