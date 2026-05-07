@@ -2060,6 +2060,60 @@ def _run(cmd: list[str], *, cwd: Path, env: dict, input_text: str | None = None)
     return result.stdout.strip()
 
 
+def _persist_kv_namespace_config(namespace_id: str, title: str) -> str:
+    with KV_CONFIG_FILE.open("w") as fh:
+        json.dump({"namespace_id": namespace_id, "title": title}, fh, indent=2)
+        fh.write("\n")
+    return namespace_id
+
+
+def _list_kv_namespaces(base_url: str, auth_headers: dict[str, str]) -> list[dict[str, Any]]:
+    namespaces: list[dict[str, Any]] = []
+    page = 1
+    per_page = 1000
+
+    while True:
+        query = urllib.parse.urlencode({
+            "page": page,
+            "per_page": per_page,
+            "order": "title",
+            "direction": "asc",
+        })
+        list_req = urllib.request.Request(f"{base_url}?{query}", headers=auth_headers)
+        try:
+            with urllib.request.urlopen(list_req) as resp:
+                list_result = json.loads(resp.read())
+        except Exception as exc:
+            die(f"Failed to list KV namespaces: {exc}")
+
+        batch = list_result.get("result") or []
+        if not isinstance(batch, list):
+            die("Cloudflare KV list returned an invalid response payload")
+        namespaces.extend(batch)
+
+        result_info = list_result.get("result_info") or {}
+        total_count = result_info.get("total_count")
+        if isinstance(total_count, int):
+            if len(namespaces) >= total_count:
+                break
+        elif len(batch) < per_page:
+            break
+        page += 1
+
+    return namespaces
+
+
+def _find_kv_namespace_by_title(
+    base_url: str,
+    auth_headers: dict[str, str],
+    title: str,
+) -> dict[str, Any] | None:
+    for entry in _list_kv_namespaces(base_url, auth_headers):
+        if entry.get("title") == title:
+            return entry
+    return None
+
+
 def _create_or_reuse_kv_namespace(cf_creds: dict[str, str]) -> str:
     title = f"{cf_creds['CF_WORKER_NAME']}-PROVIDER_REGISTRY_KV"
     base_url = (
@@ -2072,34 +2126,14 @@ def _create_or_reuse_kv_namespace(cf_creds: dict[str, str]) -> str:
     }
 
     # List existing namespaces and reuse if a matching title is found.
-    list_req = urllib.request.Request(base_url, headers=auth_headers)
-    try:
-        with urllib.request.urlopen(list_req) as resp:
-            list_result = json.loads(resp.read())
-    except Exception as exc:
-        die(f"Failed to list KV namespaces: {exc}")
-
-    existing = list_result.get("result") or []
+    existing = _list_kv_namespaces(base_url, auth_headers)
     saved_namespace_id = None
     if KV_CONFIG_FILE.exists():
         saved_namespace_id = _load_kv_namespace_id()
-    if len(existing) >= 100:
-        warn(
-            "KV namespace list returned 100 results; the account may have more "
-            "namespaces than the page limit. If a matching namespace exists on "
-            "a later page it will not be found and a new one will be created."
-        )
     if saved_namespace_id is not None:
         for entry in existing:
             if entry.get("id") == saved_namespace_id:
-                with KV_CONFIG_FILE.open("w") as fh:
-                    json.dump(
-                        {"namespace_id": saved_namespace_id, "title": entry.get("title", title)},
-                        fh,
-                        indent=2,
-                    )
-                    fh.write("\n")
-                return saved_namespace_id
+                return _persist_kv_namespace_config(saved_namespace_id, entry.get("title", title))
         warn(
             "Saved KV namespace ID missing from active Cloudflare account; falling back to title scan."
         )
@@ -2107,10 +2141,7 @@ def _create_or_reuse_kv_namespace(cf_creds: dict[str, str]) -> str:
         if entry.get("title") == title:
             namespace_id = entry["id"]
             info(f"Reusing existing KV namespace: {title}")
-            with KV_CONFIG_FILE.open("w") as fh:
-                json.dump({"namespace_id": namespace_id, "title": title}, fh, indent=2)
-                fh.write("\n")
-            return namespace_id
+            return _persist_kv_namespace_config(namespace_id, title)
 
     # No match found — create a new namespace.
     payload = json.dumps({"title": title}).encode()
@@ -2124,6 +2155,18 @@ def _create_or_reuse_kv_namespace(cf_creds: dict[str, str]) -> str:
     try:
         with urllib.request.urlopen(create_req) as resp:
             result = json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        if exc.code == 400:
+            existing_entry = _find_kv_namespace_by_title(base_url, auth_headers, title)
+            if existing_entry is not None:
+                namespace_id = existing_entry["id"]
+                info(f"Reusing existing KV namespace after create conflict: {title}")
+                return _persist_kv_namespace_config(namespace_id, title)
+        die(
+            f"Failed to create provider-registry KV namespace: HTTP {exc.code}\n"
+            f"--- response body ---\n{body}"
+        )
     except Exception as exc:
         die(f"Failed to create provider-registry KV namespace: {exc}")
 
@@ -2131,10 +2174,7 @@ def _create_or_reuse_kv_namespace(cf_creds: dict[str, str]) -> str:
         die("Failed to create provider-registry KV namespace")
 
     namespace_id = result["result"]["id"]
-    with KV_CONFIG_FILE.open("w") as fh:
-        json.dump({"namespace_id": namespace_id, "title": title}, fh, indent=2)
-        fh.write("\n")
-    return namespace_id
+    return _persist_kv_namespace_config(namespace_id, title)
 
 
 def _append_provider_registry_kv_binding(wrangler_toml: Path, namespace_id: str) -> None:
