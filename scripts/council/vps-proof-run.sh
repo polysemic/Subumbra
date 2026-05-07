@@ -157,7 +157,9 @@ case "$mode" in
         ;;
     fresh-install)
         cleanup_policy="remove-isolated-proof"
+        # Docker Compose project names must be lowercase (ISO timestamps contain T/Z).
         compose_project="scr-${run_id//[^a-zA-Z0-9]/-}"
+        compose_project="$(printf '%s' "$compose_project" | tr '[:upper:]' '[:lower:]')"
         worker_name="$compose_project"
         ;;
     *)
@@ -413,11 +415,18 @@ if [[ "$dry_run" == "1" ]]; then
     exit 0
 fi
 
-if [[ "$mode" == "fresh-install" ]]; then
-    run_stage remote-install install_fresh_once
-else
-    run_stage remote-update update_existing_stack
-fi
+case "$mode" in
+    fresh-install)
+        run_stage remote-install install_fresh_once
+        ;;
+    existing-stack)
+        run_stage remote-update update_existing_stack
+        ;;
+    *)
+        echo "ERROR: unsupported mode in install/update dispatch: $mode" >&2
+        exit 1
+        ;;
+esac
 run_stage remote-verify verify_once
 run_stage remote-probes run_independent_probes
 overall="PASS"
