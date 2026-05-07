@@ -88,6 +88,9 @@ them.
 - After R46, `--rotate` is supported only for existing V3 records and
   `--rotate-policy` refuses V2 inputs locally; V2 migration now means full
   re-bootstrap rather than in-place upgrade repair.
+- R46.5 approved the Alpha vault-granularity direction without implementing it
+  yet: shared vault remains the default, and R47 is expected to add an opt-in
+  per-key unique-vault path using `UNIQUE_KEY_<key_id>=true/false`.
 - Automation-mode app imports use `IMPORT_PATH_<n>` plus required
   `IMPORT_APP_LABEL_<n>` entries in `.env.bootstrap`.
 - Full bootstrap now writes `/app/data/system-integrity.json`, and
