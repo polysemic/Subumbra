@@ -16,7 +16,9 @@ from fastapi.background import BackgroundTasks
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 
-SUBUMBRA_ACCESS_TOKEN = os.environ.get("SUBUMBRA_ACCESS_TOKEN", "")
+SUBUMBRA_ACCESS_TOKEN = os.environ.get("SUBUMBRA_ACCESS_TOKEN", "") or os.environ.get(
+    "SUBUMBRA_TOKEN_PROXY", ""
+)
 SUBUMBRA_HMAC_KEY = os.environ.get("SUBUMBRA_HMAC_KEY", "")
 SUBUMBRA_KEYS_URL = os.environ.get("SUBUMBRA_KEYS_URL", "").rstrip("/")
 CF_WORKER_URL = os.environ.get("CF_WORKER_URL", "").rstrip("/")
@@ -25,13 +27,14 @@ CF_ACCESS_CLIENT_SECRET = os.environ.get("CF_ACCESS_CLIENT_SECRET", "")
 SUBUMBRA_ADAPTER_REGISTRY_RAW = os.environ.get("SUBUMBRA_ADAPTER_REGISTRY", "")
 
 REQUIRED = (
-    "SUBUMBRA_ACCESS_TOKEN",
     "SUBUMBRA_HMAC_KEY",
     "SUBUMBRA_KEYS_URL",
     "CF_WORKER_URL",
     "SUBUMBRA_ADAPTER_REGISTRY",
 )
 MISSING = [name for name in REQUIRED if not os.environ.get(name)]
+if not SUBUMBRA_ACCESS_TOKEN:
+    MISSING.append("SUBUMBRA_ACCESS_TOKEN or SUBUMBRA_TOKEN_PROXY")
 if MISSING:
     print(f"ERROR: missing env vars: {MISSING}", file=sys.stderr)
     sys.exit(1)

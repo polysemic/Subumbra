@@ -125,7 +125,7 @@ ssh "$remote_host" "mkdir -p '${remote_repo}/council'"
 scp -r "${repo_root}/council/${round}" "${remote_host}:${remote_repo}/council/" >/dev/null
 
 set +e
-ssh "$remote_host" \
+ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=20 "$remote_host" \
     "ROUND='$round' AGENT='$agent' BRANCH='$branch' MODE='$mode' RUN_ID='$run_id' REPO='$remote_repo' BUILD_TARGETS='$build_targets_string' DRY_RUN='$dry_run' bash -s" >"$local_ssh_log" 2>&1 <<'REMOTE'
 set -euo pipefail
 
@@ -420,7 +420,7 @@ update_existing_stack() {
 
 verify_once() {
     local status=0
-    (cd "$workdir" && VERIFY_MODE="$mode" RUN_ID_OVERRIDE="$run_id" AGENT="$agent" ./scripts/council/verify.sh "$round") || status=$?
+    (cd "$workdir" && CLEAN_RUN_ARTIFACT_DIR="$artifact_dir" VERIFY_MODE="$mode" RUN_ID_OVERRIDE="$run_id" AGENT="$agent" ./scripts/council/verify.sh "$round") || status=$?
     if [[ "$workdir" != "$repo" && -d "${workdir}/council/${round}/runs/${run_id}" ]]; then
         cp -R "${workdir}/council/${round}/runs/${run_id}/." "$artifact_dir/"
     fi

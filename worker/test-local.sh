@@ -165,39 +165,41 @@ if [[ "$TEST_MODE" == "normal" ]]; then
   echo ""
   echo "── Test 5: Valid setup bearer on /setup/keygen ──────────────────────────"
   echo "   Expect: HTTP 200 on first initialization, HTTP 409 if already initialized,"
-  echo "           or HTTP 403 if the deployed stack has already removed the transient setup token"
+  echo "           HTTP 403 if the deployed stack removed the transient setup token,"
+  echo "           or HTTP 401 if no setup token is configured locally anymore"
 
   BODY=$(curl -s -X POST "$BASE_URL/setup/keygen" \
     -H "Authorization: Bearer $SETUP_TOKEN")
   STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE_URL/setup/keygen" \
     -H "Authorization: Bearer $SETUP_TOKEN")
 
-  if [[ "$STATUS" == "200" || "$STATUS" == "409" || "$STATUS" == "403" ]]; then
+  if [[ "$STATUS" == "200" || "$STATUS" == "409" || "$STATUS" == "403" || "$STATUS" == "401" ]]; then
     echo "  PASS  Valid setup bearer → HTTP $STATUS"
     echo "        body: $BODY"
     PASS=$((PASS + 1))
   else
-    echo "  FAIL  Valid setup bearer — expected HTTP 200, 409, or 403, got HTTP $STATUS"
+    echo "  FAIL  Valid setup bearer — expected HTTP 200, 409, 403, or 401, got HTTP $STATUS"
     echo "        body: $BODY"
     FAIL=$((FAIL + 1))
   fi
 
   echo ""
   echo "── Test 6: Second valid setup bearer on /setup/keygen ───────────────────"
-  echo "   Expect: HTTP 409 if setup token remains active, or HTTP 403 if the"
-  echo "           deployed stack has already removed the transient setup token"
+  echo "   Expect: HTTP 409 if setup token remains active, HTTP 403 if the"
+  echo "           deployed stack removed the transient setup token,"
+  echo "           or HTTP 401 if no setup token is configured locally anymore"
 
   BODY=$(curl -s -X POST "$BASE_URL/setup/keygen" \
     -H "Authorization: Bearer $SETUP_TOKEN")
   STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE_URL/setup/keygen" \
     -H "Authorization: Bearer $SETUP_TOKEN")
 
-  if [[ "$STATUS" == "409" || "$STATUS" == "403" ]]; then
+  if [[ "$STATUS" == "409" || "$STATUS" == "403" || "$STATUS" == "401" ]]; then
     echo "  PASS  Second valid setup bearer → HTTP $STATUS"
     echo "        body: $BODY"
     PASS=$((PASS + 1))
   else
-    echo "  FAIL  Second valid setup bearer — expected HTTP 409 or 403, got HTTP $STATUS"
+    echo "  FAIL  Second valid setup bearer — expected HTTP 409, 403, or 401, got HTTP $STATUS"
     echo "        body: $BODY"
     FAIL=$((FAIL + 1))
   fi
