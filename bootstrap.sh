@@ -66,6 +66,8 @@ if [[ -f "$bootstrap_file" ]]; then
             volume_args+=(-v "$repo_root/$value:$mount_path:ro")
             env_args+=(-e "${key}=${mount_path}")
             env_args+=(-e "${label_key}=${label}")
+        elif [[ "$key" == "CF_WORKER_NAME" ]]; then
+            env_args+=(-e "CF_WORKER_NAME=${value}")
         fi
     done < "$bootstrap_file"
 fi

@@ -22,10 +22,13 @@ Keys file (written by bootstrap, read-only at runtime):
   {
     "anthropic_prod": {
       "key_id":       "anthropic_prod",
-      "enc_version":  2,
+      "enc_version":  3,
       "pub_key_fp":   "sha256:<hex>",
       "wrapped_dek":  "<base64-encoded RSA-OAEP-wrapped AES-256 DEK>",
       "ciphertext":   "<base64-encoded AES-256-GCM blob (nonce || ct || tag)>",
+      "policy_id":    "auto-app-anthropic_prod",
+      "policy_hash":  "<sha256-policy-hash>",
+      "vault_instance":"vault",
       "provider":     "anthropic",
       "target_host":  "api.anthropic.com",
       "created_at":   "2026-01-01T00:00:00+00:00",
@@ -594,6 +597,7 @@ def get_key(key_id: str) -> tuple[Response, int]:
         "enc_version": entry.get("enc_version", 1),
         "policy_id": entry.get("policy_id"),
         "policy_hash": entry.get("policy_hash"),
+        "vault_instance": entry.get("vault_instance"),
     }), 200
 
 

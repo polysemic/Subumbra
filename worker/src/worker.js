@@ -220,69 +220,6 @@ function base64ToBytes(b64) {
   return bytes;
 }
 
-async function importLegacyPrivateKey(env) {
-  const derBytes = base64ToBytes(env.WORKER_PRIVATE_KEY);
-  return crypto.subtle.importKey(
-    "pkcs8",
-    derBytes,
-    { name: "RSA-OAEP", hash: "SHA-256" },
-    false,
-    ["decrypt"],
-  );
-}
-
-/**
- * V2 Asymmetric Envelope Decrypt.
- *
- * 1. Verify pub_key_fp matches the loaded private key's fingerprint
- * 2. Unwrap DEK using RSA-OAEP private key
- * 3. Decrypt API key using DEK with AES-256-GCM + AAD
- *
- * @param {CryptoKey} privateKey - non-extractable RSA private key
- * @param {string} expectedPubKeyFp - stored fingerprint for the loaded key
- * @param {string} ciphertextB64 - base64: nonce[12] || AES-GCM(api_key, aad)
- * @param {string} wrappedDekB64 - base64: RSA-OAEP(DEK[32])
- * @param {string} pubKeyFp      - sha256:<hex> fingerprint of wrapping public key
- * @param {string} keyId         - key_id for AAD binding
- * @returns {Promise<string>}    - plaintext API key
- */
-async function decryptV2(privateKey, expectedPubKeyFp, ciphertextB64, wrappedDekB64, pubKeyFp, keyId) {
-  if (!wrappedDekB64 || !ciphertextB64 || !keyId) {
-    throw new Error("missing required V2 envelope fields");
-  }
-
-  // 1. Verify pub_key_fp matches loaded private key's fingerprint
-  if (pubKeyFp !== expectedPubKeyFp) {
-    throw new Error(
-      `record wrapped with unknown key pair (record: ${pubKeyFp}, ` +
-      `loaded: ${expectedPubKeyFp}) — re-bootstrap required`
-    );
-  }
-
-  // 2. Unwrap DEK using RSA private key
-  const dekBytes = await crypto.subtle.decrypt(
-    { name: "RSA-OAEP" },
-    privateKey,
-    base64ToBytes(wrappedDekB64),
-  );
-
-  // 3. Import DEK for AES-GCM (non-extractable)
-  const dekKey = await crypto.subtle.importKey(
-    "raw", dekBytes, { name: "AES-GCM" }, false, ["decrypt"],
-  );
-
-  // 4. Decrypt API key with AAD = "subumbra:v2:<key_id>"
-  const aad = new TextEncoder().encode(`subumbra:v2:${keyId}`);
-  const ctBlob = base64ToBytes(ciphertextB64);
-  const plaintext = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: ctBlob.slice(0, 12), additionalData: aad },
-    dekKey,
-    ctBlob.slice(12),
-  );
-
-  return new TextDecoder().decode(plaintext);
-}
-
 async function decryptV3(privateKey, expectedPubKeyFp, ciphertextB64, wrappedDekB64, pubKeyFp, keyId, policyHash) {
   if (!policyHash) {
     throw new Error("missing required V3 policy_hash");
@@ -396,8 +333,8 @@ function jsonError(message, status) {
   });
 }
 
-function getVaultStub(env) {
-  const vaultId = env.SUBUMBRA_VAULT.idFromName(VAULT_INSTANCE_NAME);
+function getVaultStub(env, vaultInstance = VAULT_INSTANCE_NAME) {
+  const vaultId = env.SUBUMBRA_VAULT.idFromName(vaultInstance);
   return env.SUBUMBRA_VAULT.get(vaultId);
 }
 
@@ -409,142 +346,6 @@ function parseBearerToken(request) {
 
 function bytesToHex(bytes) {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Durable Object — SubumbraProxy
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * SubumbraProxy Durable Object
- *
- * Legacy request-scoped proxy DO retained for compatibility during the vault
- * migration round. Active traffic now routes through SubumbraVault instead.
- *
- * The DO holds the forwarded decrypted key only for the duration of the
- * upstream fetch (~100 ms).
- * No state is persisted to Durable Object storage.
- */
-export class SubumbraProxy {
-  constructor(state, env) {
-    // state.storage is available but we intentionally never use it —
-    // the DO is purely ephemeral for this use case.
-    this.state = state;
-    this.env = env;
-  }
-
-  async fetch(request) {
-    if (request.method !== "POST") {
-      return jsonError("method not allowed", 405);
-    }
-
-    let payload;
-    try {
-      payload = await request.json();
-    } catch {
-      return jsonError("invalid JSON body", 400);
-    }
-
-    const {
-      ciphertext,
-      wrappedDek,
-      pubKeyFp,
-      keyId,
-      targetUrl,
-      method,
-      headers: reqHeaders,
-      body,
-      authScheme,
-      authHeaderName,
-      authQueryParam,
-    } = payload;
-
-    if (
-      !ciphertext ||
-      !wrappedDek ||
-      !pubKeyFp ||
-      !keyId ||
-      !targetUrl ||
-      !authHeader ||
-      typeof authPrefix !== "string"
-    ) {
-      return jsonError("missing required fields", 400);
-    }
-
-    let apiKey;
-    try {
-      const privateKey = await importLegacyPrivateKey(this.env);
-      apiKey = await decryptV2(
-        privateKey,
-        this.env.WORKER_KEY_FINGERPRINT,
-        ciphertext,
-        wrappedDek,
-        pubKeyFp,
-        keyId,
-      );
-    } catch (err) {
-      console.error("subumbra: decryption failed:", err.message);
-      return jsonError("decryption failed", 500);
-    }
-
-    // Build upstream request headers:
-    //   1. Start with caller-supplied headers (already stripped of hop-by-hop)
-    //   2. Override / inject the auth header from the resolved registry policy
-    const upstreamHeaders = new Headers();
-    for (const [k, v] of Object.entries(reqHeaders || {})) {
-      upstreamHeaders.set(k, v);
-    }
-
-    upstreamHeaders.set(authHeader, `${authPrefix}${apiKey}`);
-
-    // If the upstream auth scheme is not Authorization, remove any stale caller-supplied
-    // Authorization header so it does not leak alongside x-api-key style auth.
-    if (authHeader.toLowerCase() !== "authorization") {
-      upstreamHeaders.delete("authorization");
-    }
-
-    // Strip API-key query parameters from the target URL — auth is always
-    // injected via headers above. Some providers (e.g. Gemini native API)
-    // have LiteLLM embed a ?key=<value> param in the URL; that value is a
-    // pre-substituted Subumbra token, not a valid API key, so it must be
-    // removed before the upstream call or it overrides the injected header.
-    const cleanUrl = new URL(targetUrl);
-    cleanUrl.searchParams.delete("key");
-    cleanUrl.searchParams.delete("api_key");
-    cleanUrl.searchParams.delete("apikey");
-
-    // Make the upstream call — stream the response body through
-    let upstreamResponse;
-    try {
-      upstreamResponse = await fetch(cleanUrl.toString(), {
-        method: method ?? "POST",
-        headers: upstreamHeaders,
-        body: body != null ? JSON.stringify(body) : undefined,
-      });
-    } catch (err) {
-      // Network error reaching provider — do not expose err.message
-      return jsonError("upstream connection failed", 502);
-    }
-
-    // apiKey reference goes out of scope here; V8 GC will collect it.
-    // There is no explicit zeroing API for JS strings, but the key is
-    // no longer reachable after this point.
-
-    // Forward the upstream response with its original status + headers.
-    // Preserve streaming — do not buffer.
-    const responseHeaders = new Headers();
-    for (const [k, v] of upstreamResponse.headers.entries()) {
-      // Strip hop-by-hop headers from upstream response
-      if (!HOP_BY_HOP_HEADERS.has(k.toLowerCase())) {
-        responseHeaders.set(k, v);
-      }
-    }
-
-    return new Response(upstreamResponse.body, {
-      status: upstreamResponse.status,
-      headers: responseHeaders,
-    });
-  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -937,7 +738,7 @@ export default {
     // ── GET /health ─────────────────────────────────────────────────────────
     if (request.method === "GET" && url.pathname === "/health") {
       return new Response(
-        JSON.stringify({ status: "ok", timestamp: new Date().toISOString(), vault_configured: !!env.SUBUMBRA_VAULT }),
+        JSON.stringify({ status: "ok" }),
         { status: 200, headers: { "content-type": "application/json" } },
       );
     }
@@ -965,11 +766,26 @@ export default {
 };
 
 async function handleSetupKeygen(request, env) {
+  let vaultInstance = VAULT_INSTANCE_NAME;
+  const bodyText = await request.text();
+  if (bodyText.trim() !== "") {
+    let payload;
+    try {
+      payload = JSON.parse(bodyText);
+    } catch {
+      return jsonError("invalid JSON body", 400);
+    }
+    if (!payload || typeof payload.vault_instance !== "string" || !payload.vault_instance) {
+      return jsonError("missing or invalid field: vault_instance", 400);
+    }
+    vaultInstance = payload.vault_instance;
+  }
+
   try {
     if (!env.SUBUMBRA_VAULT) {
       throw new Error("vault binding missing");
     }
-    const vault = getVaultStub(env);
+    const vault = getVaultStub(env, vaultInstance);
     return await vault.fetch(`https://do-internal${VAULT_SETUP_PATH}`, {
       method: "POST",
       headers: request.headers,
@@ -981,15 +797,36 @@ async function handleSetupKeygen(request, env) {
 }
 
 async function handleInternalRotate(request, env) {
+  let payloadText;
+  try {
+    payloadText = await request.text();
+  } catch {
+    return jsonError("invalid JSON body", 400);
+  }
+
+  let vaultInstance = VAULT_INSTANCE_NAME;
+  let payload;
+  try {
+    payload = JSON.parse(payloadText);
+  } catch {
+    return jsonError("invalid JSON body", 400);
+  }
+  if (payload.vault_instance !== undefined) {
+    if (typeof payload.vault_instance !== "string" || !payload.vault_instance) {
+      return jsonError("missing or invalid field: vault_instance", 400);
+    }
+    vaultInstance = payload.vault_instance;
+  }
+
   try {
     if (!env.SUBUMBRA_VAULT) {
       throw new Error("vault binding missing");
     }
-    const vault = getVaultStub(env);
+    const vault = getVaultStub(env, vaultInstance);
     return await vault.fetch(`https://do-internal${VAULT_ROTATE_PATH}`, {
       method: "POST",
       headers: request.headers,
-      body: await request.text(),
+      body: payloadText,
     });
   } catch {
     console.error("subumbra: internal rotate vault unavailable");
@@ -1014,7 +851,7 @@ async function authorizeRequest(request, env) {
   const incomingToken = request.headers.get("X-Subumbra-Token") ?? "";
   const adapterId = await resolveAdapterToken(incomingToken, validTokens);
   if (adapterId === null) {
-    console.warn("subumbra: unauthorized request from", request.headers.get("CF-Connecting-IP"));
+    console.warn("subumbra: unauthorized request");
     return { ok: false, response: jsonError("unauthorized", 401) };
   }
 
@@ -1058,6 +895,7 @@ async function handleProxy(request, env) {
 
   const { ciphertext, provider, target_url, method, headers: fwdHeaders, body: reqBody,
     wrapped_dek, pub_key_fp, key_id, enc_version, policy_id, policy_hash } = body;
+  const vaultInstance = body.vault_instance ?? VAULT_INSTANCE_NAME;
 
   if (!ciphertext || typeof ciphertext !== "string") {
     return jsonError("missing or invalid field: ciphertext", 400);
@@ -1073,6 +911,9 @@ async function handleProxy(request, env) {
   }
   if (!key_id || typeof key_id !== "string") {
     return jsonError("missing or invalid field: key_id", 400);
+  }
+  if (!vaultInstance || typeof vaultInstance !== "string") {
+    return jsonError("missing or invalid field: vault_instance", 400);
   }
 
   const version = enc_version ?? 1;
@@ -1197,10 +1038,7 @@ async function handleProxy(request, env) {
   }
 
   if (registryEntry.allow_max_body_bytes !== null && reqBody !== null) {
-    // JSON.stringify length is a UTF-16 code-unit count, not a raw byte count.
-    // Raw bytes are not recoverable after request.json() parsing (recon Q2).
-    // This is an approximation; max_body_bytes is enforced on this basis.
-    const bodySize = JSON.stringify(reqBody).length;
+    const bodySize = new TextEncoder().encode(JSON.stringify(reqBody)).length;
     if (bodySize > registryEntry.allow_max_body_bytes) {
       console.warn(
         "subumbra: policy deny body_size=%d max=%d key_id=%s",
@@ -1229,13 +1067,14 @@ async function handleProxy(request, env) {
   }
 
   // ── 5. Forward encrypted envelope to Durable Object ───────────────────────
-  const doStub = getVaultStub(env);
+  const doStub = getVaultStub(env, vaultInstance);
 
   const doPayload = JSON.stringify({
     ciphertext,
     wrappedDek: wrapped_dek,
     pubKeyFp: pub_key_fp,
     keyId: key_id,
+    vaultInstance,
     encVersion: version,
     policyId: policy_id ?? registryEntry.policy_id,
     policyHash: policy_hash ?? registryEntry.policy_hash,

@@ -4,7 +4,7 @@
 #
 # Prerequisites:
 #   1. Copy worker/.dev.vars.example to worker/.dev.vars and fill in the local test values:
-#        SUBUMBRA_ADAPTER_TOKENS=["<adapter token to accept>"]
+#        SUBUMBRA_ADAPTER_TOKENS=[{"id":"local-test","token":"<adapter token to accept>"}]
 #        SUBUMBRA_SETUP_TOKEN=<setup token for /setup/keygen smoke>
 #        SUBUMBRA_HMAC_KEY=<any base64 value>
 #   2. Start the dev server in a separate terminal:
@@ -14,7 +14,9 @@
 #        TEST_MODE=no-vault bash test-local.sh
 #
 # This script checks health and fail-closed auth surfaces only. It does not
-# provision a local KV namespace or vault custody state.
+# provision a local KV namespace or vault custody state. On deployed stacks,
+# setup bearer checks may return 403 after bootstrap because the setup token is
+# transient and removed once initialization completes.
 # The dev server binds to http://localhost:8787 by default.
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -25,11 +27,22 @@ DEV_VARS_FILE="$(dirname "$0")/.dev.vars"
 TEST_MODE="${TEST_MODE:-normal}"
 
 if [[ -f "$DEV_VARS_FILE" ]]; then
-  VALID_TOKEN="$(grep '^SUBUMBRA_ADAPTER_TOKENS=' "$DEV_VARS_FILE" | sed -E 's/^SUBUMBRA_ADAPTER_TOKENS=\[\"([^\"]+)\"\].*/\1/' | tr -d '[:space:]')"
+  VALID_TOKEN="$(python3 - "$DEV_VARS_FILE" <<'PY'
+import json, sys
+for line in open(sys.argv[1], encoding="utf-8"):
+    if not line.startswith("SUBUMBRA_ADAPTER_TOKENS="):
+        continue
+    payload = line.split("=", 1)[1].strip()
+    entries = json.loads(payload)
+    token = entries[0]["token"] if entries else ""
+    print(token, end="")
+    break
+PY
+)"
   SETUP_TOKEN="$(grep '^SUBUMBRA_SETUP_TOKEN=' "$DEV_VARS_FILE" | cut -d= -f2- | tr -d '[:space:]')"
 else
   echo "WARNING: $DEV_VARS_FILE not found."
-  echo "         Copy worker/.dev.vars.example and set SUBUMBRA_ADAPTER_TOKENS=[\"<token>\"]"
+  echo '         Copy worker/.dev.vars.example and set SUBUMBRA_ADAPTER_TOKENS=[{"id":"local-test","token":"<token>"}]'
   echo "         and SUBUMBRA_SETUP_TOKEN=<value>."
   echo "         Using placeholder tokens — unauthorized checks still pass; success checks may not."
   echo ""
@@ -97,6 +110,8 @@ if [[ "$HEALTH_STATUS" != "200" ]]; then
   exit 1
 fi
 echo "  OK — server is up at $BASE_URL"
+HEALTH_BODY="$(curl -sS "$BASE_URL/health")"
+check_exact_body "Health body is minimal" '{"status":"ok"}' "$HEALTH_BODY"
 
 if [[ "$TEST_MODE" == "normal" ]]; then
   echo ""
@@ -149,33 +164,43 @@ if [[ "$TEST_MODE" == "normal" ]]; then
 
   echo ""
   echo "── Test 5: Valid setup bearer on /setup/keygen ──────────────────────────"
-  echo "   Expect: HTTP 200 on first initialization, or HTTP 409 if already initialized"
+  echo "   Expect: HTTP 200 on first initialization, HTTP 409 if already initialized,"
+  echo "           or HTTP 403 if the deployed stack has already removed the transient setup token"
 
   BODY=$(curl -s -X POST "$BASE_URL/setup/keygen" \
     -H "Authorization: Bearer $SETUP_TOKEN")
   STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE_URL/setup/keygen" \
     -H "Authorization: Bearer $SETUP_TOKEN")
 
-  if [[ "$STATUS" == "200" || "$STATUS" == "409" ]]; then
+  if [[ "$STATUS" == "200" || "$STATUS" == "409" || "$STATUS" == "403" ]]; then
     echo "  PASS  Valid setup bearer → HTTP $STATUS"
     echo "        body: $BODY"
     PASS=$((PASS + 1))
   else
-    echo "  FAIL  Valid setup bearer — expected HTTP 200 or 409, got HTTP $STATUS"
+    echo "  FAIL  Valid setup bearer — expected HTTP 200, 409, or 403, got HTTP $STATUS"
     echo "        body: $BODY"
     FAIL=$((FAIL + 1))
   fi
 
   echo ""
   echo "── Test 6: Second valid setup bearer on /setup/keygen ───────────────────"
-  echo "   Expect: HTTP 409 (already initialized path must remain unchanged)"
+  echo "   Expect: HTTP 409 if setup token remains active, or HTTP 403 if the"
+  echo "           deployed stack has already removed the transient setup token"
 
   BODY=$(curl -s -X POST "$BASE_URL/setup/keygen" \
     -H "Authorization: Bearer $SETUP_TOKEN")
   STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE_URL/setup/keygen" \
     -H "Authorization: Bearer $SETUP_TOKEN")
 
-  check "Second valid setup bearer → 409" "409" "$STATUS" "$BODY"
+  if [[ "$STATUS" == "409" || "$STATUS" == "403" ]]; then
+    echo "  PASS  Second valid setup bearer → HTTP $STATUS"
+    echo "        body: $BODY"
+    PASS=$((PASS + 1))
+  else
+    echo "  FAIL  Second valid setup bearer — expected HTTP 409 or 403, got HTTP $STATUS"
+    echo "        body: $BODY"
+    FAIL=$((FAIL + 1))
+  fi
 elif [[ "$TEST_MODE" == "no-vault" ]]; then
   echo ""
   echo "── Test 1: Valid setup bearer on /setup/keygen without vault binding ────"

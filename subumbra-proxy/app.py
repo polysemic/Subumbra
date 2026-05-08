@@ -76,6 +76,7 @@ EXPECTED_RECORD_FIELDS = {
     "key_id",
     "policy_id",
     "policy_hash",
+    "vault_instance",
 }
 
 app = FastAPI()
@@ -170,6 +171,7 @@ def proxy_payload(record, key_id, *, target_url, method, headers, body):
         "enc_version": record["enc_version"],
         "policy_id": record["policy_id"],
         "policy_hash": record["policy_hash"],
+        "vault_instance": record["vault_instance"],
     }
 
 
@@ -387,7 +389,8 @@ async def get_worker_auth_status() -> str:
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "worker_auth": await get_worker_auth_status()}
+    await get_worker_auth_status()
+    return {"status": "ok"}
 
 
 
