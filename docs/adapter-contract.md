@@ -93,12 +93,58 @@ Request body (JSON, all fields required unless noted):
 | `method` | string | HTTP method for the upstream call (e.g. `"POST"`) |
 | `headers` | object | Headers to forward to the upstream; adapter must include all provider-required headers (e.g. `content-type`, `anthropic-version`); the Worker strips hop-by-hop headers before forwarding |
 | `body` | JSON-serializable or null | Request body; must be null for GET/HEAD; see payload limitation below |
+| `intent` | object, optional | Optional request-side attestation metadata. Transparent-path callers may supply this via the `X-Subumbra-Intent-*` headers documented below; direct callers may send the canonical top-level object themselves. |
 | `wrapped_dek` | string | RSA-OAEP-wrapped per-record DEK, base64 |
 | `pub_key_fp` | string | SHA-256 fingerprint of the RSA key pair used for wrapping (`sha256:<hex>`) |
 | `policy_hash` | string | V3 policy-binding hash from the live record |
 | `key_id` | string | Record identity; used as AAD: `subumbra:v3:<key_id>:<policy_hash>` |
 | `enc_version` | number | Must be `3`; V2 records are hard-rejected |
 | `vault_instance` | string | Target vault instance for decrypt/rotate routing |
+
+---
+
+### Optional `intent` Field
+
+When present, `intent` is a top-level field in the canonical Worker `/proxy`
+payload:
+
+```json
+"intent": {
+  "source": "<string or null>",
+  "trust": {
+    "allowed_initiators": ["..."],
+    "allowed_content_sources": ["..."]
+  }
+}
+```
+
+R48 activates optional request-side guardrails only:
+
+- `intent.trust.allowed_initiators`
+- `intent.trust.allowed_content_sources`
+
+Missing `intent` remains accepted by default in R48. A later round may add
+stricter opt-in blocking semantics, but that is not part of the current
+runtime contract.
+
+### Transparent-Path `intent` Carrier
+
+Transparent `/t/<key_id>/...` callers can supply the same metadata with these
+Subumbra-specific headers:
+
+- `X-Subumbra-Intent-Source`
+- `X-Subumbra-Intent-Initiators`
+- `X-Subumbra-Intent-Content-Sources`
+
+Header value rules:
+
+- `X-Subumbra-Intent-Source`: single string
+- `X-Subumbra-Intent-Initiators`: comma-separated list
+- `X-Subumbra-Intent-Content-Sources`: comma-separated list
+
+`subumbra-proxy` converts those headers into the canonical top-level `intent`
+object sent to the Worker and strips the raw `X-Subumbra-*` headers before any
+upstream provider fetch.
 
 ---
 
@@ -370,11 +416,14 @@ None of these can be overridden by any per-record configuration.
 | `allow.path_prefixes` contains `"*"` or `""` | Wildcard or empty prefix — rejected |
 | `auth.scheme: "query"` without `allow_query: true` | Query auth requires explicit opt-in |
 
-### Reserved Blocks (Not Yet Enforced)
+### Reserved Blocks
 
 The `intent`, `response`, and `velocity` blocks are reserved in the schema. They
-must parse without error if present, but they are not acted upon until later
-rounds (R46-1 for intent and response enforcement).
+must parse without error if present.
+
+- R48 activates request-side `intent.trust.*` guardrails.
+- Response-side `response.deny_patterns` enforcement is still deferred to R48-5.
+- `velocity` remains reserved and not enforced at runtime.
 
 ```json
 "intent": {
