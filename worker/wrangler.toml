@@ -14,6 +14,9 @@ class_name = "SubumbraVault"       # exported class name in worker.js
 tag = "v2"
 new_sqlite_classes = ["SubumbraVault"]
 
+[[migrations]]
+tag = "v3"
+
 
 # ── Observability ─────────────────────────────────────────────────────────────
 [observability]
