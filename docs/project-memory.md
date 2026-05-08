@@ -41,6 +41,12 @@ them.
   runtime, currently within the SQLite-backed `SubumbraVault` Durable Object isolate.
 - The transparent sidecar route (`subumbra-proxy` / `/t/<key_id>/...`) is the
   current reference integration path.
+- Transparent-sidecar callers can now supply optional request-side intent
+  metadata via `X-Subumbra-Intent-Source`,
+  `X-Subumbra-Intent-Initiators`, and
+  `X-Subumbra-Intent-Content-Sources`; the proxy converts those into the
+  canonical Worker `/proxy` `intent` field and strips them before upstream
+  provider requests.
 - App-facing transparent traffic now authenticates with adapter token in
   `Authorization` or `X-API-Key`; legacy raw-`key_id` transparent auth is gone.
 - The legacy sidecar `/v1/request` surface is no longer a supported app-facing
@@ -93,6 +99,10 @@ them.
   dedicated `vault-<key_id>` instances, runtime records now carry
   `vault_instance`, and bootstrap recovery can repair one missing key with
   `--provision <key_id>` without rewriting successful records.
+- R48 activates optional request-side `intent.trust` guardrails for
+  `allowed_initiators` and `allowed_content_sources`, but missing `intent`
+  still remains accepted by default. Response-side `response.deny_patterns`
+  enforcement is still deferred beyond R48.
 - Automation-mode app imports use `IMPORT_PATH_<n>` plus required
   `IMPORT_APP_LABEL_<n>` entries in `.env.bootstrap`.
 - Full bootstrap now writes `/app/data/system-integrity.json`, and
