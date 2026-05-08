@@ -102,6 +102,7 @@ SYSTEM_INTEGRITY_FILE = DATA_DIR / "system-integrity.json"
 HOST_ENV_FILE   = Path("/app/host-env")
 WORKER_SRC      = Path("/app/worker")
 PROVIDERS_FILE  = Path("/app/providers.json")
+MANIFEST_FILE   = Path("/app/subumbra.json")
 CUSTOM_PROVIDER_REGISTRY_FILE = DATA_DIR / "custom-providers.json"
 KV_CONFIG_FILE = DATA_DIR / "kv-config.json"
 STRUCTURED_KV_SCHEMA_VERSION = "1"
@@ -170,6 +171,10 @@ def _load_unique_key_flags(key_ids: list[str]) -> dict[str, bool]:
         )
         for key_id in key_ids
     }
+
+
+def _manifest_die(message: str) -> NoReturn:
+    die(f"subumbra.json: {message}")
 
 
 def _vault_instance_for_key(key_id: str, unique_key_flags: dict[str, bool]) -> str:
@@ -721,6 +726,131 @@ def _load_policy_index() -> dict[str, dict[str, Any]]:
             die(f"SUBUMBRA_POLICY_PATH duplicate key_id {key_id!r}")
         index[key_id] = normalized
     return index
+
+
+def _resolve_manifest_secret(secret_ref: str) -> str:
+    if not isinstance(secret_ref, str) or not secret_ref.strip():
+        _manifest_die("secret_ref must be a non-empty string")
+    resolved = os.environ.get(secret_ref, "").strip()
+    if not resolved:
+        _manifest_die(f"secret_ref {secret_ref!r} is missing or empty in the bootstrap environment")
+    return resolved
+
+
+def _effective_manifest_adapters(adapters: list[str]) -> list[str]:
+    return list(adapters) if adapters else ["subumbra-proxy"]
+
+
+def _normalize_manifest_record(record: Any, idx: int) -> dict[str, Any]:
+    source = f"subumbra.json.keys[{idx}]"
+    if not isinstance(record, dict):
+        _manifest_die(f"{source} must be an object")
+
+    required = {"key_id", "provider", "secret_ref", "adapters", "unique_vault", "policy"}
+    missing = sorted(required - record.keys())
+    if missing:
+        _manifest_die(f"{source} missing required field(s): {', '.join(missing)}")
+
+    key_id = record.get("key_id")
+    if not isinstance(key_id, str) or not KEY_ID_RE.fullmatch(key_id):
+        _manifest_die(f"{source}.key_id is invalid")
+
+    provider = record.get("provider")
+    if not isinstance(provider, str) or not provider:
+        _manifest_die(f"{source}.provider must be a non-empty string")
+    provider_entry = BUILTIN_PROVIDER_BY_ID.get(provider)
+    if provider_entry is None:
+        _manifest_die(f"{source}.provider {provider!r} is not available in the built-in catalog")
+
+    secret_ref = record.get("secret_ref")
+    if not isinstance(secret_ref, str) or not secret_ref.strip():
+        _manifest_die(f"{source}.secret_ref must be a non-empty string")
+    raw_secret = _resolve_manifest_secret(secret_ref)
+
+    adapters = record.get("adapters")
+    if not isinstance(adapters, list):
+        _manifest_die(f"{source}.adapters must be an array")
+    normalized_adapters: list[str] = []
+    seen_adapters: set[str] = set()
+    for adapter_idx, adapter_id in enumerate(adapters):
+        if not isinstance(adapter_id, str) or not ADAPTER_ID_RE.fullmatch(adapter_id):
+            _manifest_die(f"{source}.adapters[{adapter_idx}] is invalid")
+        if adapter_id in BUILTIN_ADAPTER_IDS:
+            _manifest_die(f"{source}.adapters[{adapter_idx}] {adapter_id!r} is reserved")
+        if adapter_id in seen_adapters:
+            continue
+        seen_adapters.add(adapter_id)
+        normalized_adapters.append(adapter_id)
+    effective_adapters = _effective_manifest_adapters(normalized_adapters)
+
+    unique_vault = record.get("unique_vault")
+    if not isinstance(unique_vault, bool):
+        _manifest_die(f"{source}.unique_vault must be true or false")
+
+    policy = record.get("policy")
+    if not isinstance(policy, dict):
+        _manifest_die(f"{source}.policy must be an object")
+    normalized_policy = _normalize_policy_doc(policy, f"{source}.policy")
+    if normalized_policy["key_id"] != key_id:
+        _manifest_die(
+            f"{source}.policy.key_id {normalized_policy['key_id']!r} does not match record key_id {key_id!r}"
+        )
+    if normalized_policy.get("source") != "env":
+        _manifest_die(f"{source}.policy.source must be 'env' for direct secret bootstrap")
+    if normalized_policy["target"]["host"] != provider_entry["target_host"]:
+        _manifest_die(
+            f"{source}.policy.target.host {normalized_policy['target']['host']!r} "
+            f"does not match provider host {provider_entry['target_host']!r}"
+        )
+    if sorted(_policy_adapter_ids(normalized_policy)) != sorted(effective_adapters):
+        _manifest_die(
+            f"{source}.policy.allow.adapters does not match adapters for key_id {key_id!r}"
+        )
+
+    return {
+        "key_id": key_id,
+        "provider": provider,
+        "secret_ref": secret_ref,
+        "raw_secret": raw_secret,
+        "adapters": normalized_adapters,
+        "effective_adapters": effective_adapters,
+        "unique_vault": unique_vault,
+        "policy": normalized_policy,
+        "target_host": provider_entry["target_host"],
+        "auth_header": provider_entry["auth_header"],
+        "auth_prefix": provider_entry["auth_prefix"],
+    }
+
+
+def _load_manifest_records() -> list[dict[str, Any]]:
+    if not MANIFEST_FILE.exists():
+        _manifest_die(f"required manifest file is missing at {MANIFEST_FILE}")
+    if not MANIFEST_FILE.is_file():
+        _manifest_die(f"{MANIFEST_FILE} is not a regular file")
+
+    try:
+        payload = json.loads(MANIFEST_FILE.read_text(encoding="utf-8"))
+    except OSError as exc:
+        _manifest_die(f"unreadable manifest: {exc}")
+    except json.JSONDecodeError as exc:
+        _manifest_die(f"invalid JSON: {exc}")
+
+    if not isinstance(payload, dict):
+        _manifest_die("top-level value must be an object")
+    records = payload.get("keys")
+    if not isinstance(records, list) or not records:
+        _manifest_die("top-level 'keys' must be a non-empty array")
+
+    normalized_records: list[dict[str, Any]] = []
+    seen_key_ids: set[str] = set()
+    for idx, record in enumerate(records):
+        normalized = _normalize_manifest_record(record, idx)
+        key_id = normalized["key_id"]
+        if key_id in seen_key_ids:
+            _manifest_die(f"duplicate key_id {key_id!r}")
+        seen_key_ids.add(key_id)
+        normalized_records.append(normalized)
+    return normalized_records
 
 
 def _auth_scheme_from_provider_entry(provider_entry: dict[str, str]) -> str:
@@ -1684,7 +1814,8 @@ def _has_env_credentials() -> bool:
     unattended (CI/automation) mode:
       - CF_API_TOKEN     (non-empty)
       - CF_ACCOUNT_ID    (non-empty)
-      - at least one provider key from the built-in provider registry (non-empty)
+      - either a manifest file for the Round-1 operator path or
+        at least one provider key from the legacy built-in registry path
 
     Comment-only, whitespace-only, or REPLACE_ME placeholder values do NOT
     satisfy this check — only real non-empty values count.
@@ -1697,6 +1828,8 @@ def _has_env_credentials() -> bool:
     for placeholder in ("REPLACE_ME", "YOUR_TOKEN_HERE", "CHANGEME"):
         if placeholder in cf_token.upper() or placeholder in cf_account.upper():
             return False
+    if MANIFEST_FILE.exists():
+        return True
     has_provider = any(
         os.environ.get(env_var, "").strip() and
         "REPLACE_ME" not in os.environ.get(env_var, "").upper()
@@ -1812,6 +1945,80 @@ def _parse_token_ttl_days(raw: str) -> int:
     if token_ttl_days <= 0:
         die("TOKEN_TTL_DAYS must be a positive integer")
     return token_ttl_days
+
+
+def _load_manifest_bootstrap() -> tuple[
+    dict[str, tuple[str, str, str, str, str]],
+    dict[str, str],
+    dict[str, list[str]],
+    dict[str, list[str]],
+    int,
+    dict[str, bool],
+    dict[str, dict[str, Any]],
+]:
+    records = _load_manifest_records()
+
+    cf_creds: dict[str, str] = {}
+    missing_cf: list[str] = []
+    for var in ("CF_API_TOKEN", "CF_ACCOUNT_ID"):
+        val = os.environ.get(var, "").strip()
+        if not val:
+            missing_cf.append(var)
+        else:
+            cf_creds[var] = val
+    if missing_cf:
+        die(f"Missing required Cloudflare bootstrap credential(s): {', '.join(missing_cf)}")
+    cf_creds["CF_WORKER_NAME"] = (
+        os.environ.get("CF_WORKER_NAME", "").strip() or "subumbra-proxy"
+    )
+
+    declared_adapter_ids: list[str] = []
+    seen_declared: set[str] = set()
+    api_keys: dict[str, tuple[str, str, str, str, str]] = {}
+    key_adapters_by_key_id: dict[str, list[str]] = {}
+    policy_by_key_id: dict[str, dict[str, Any]] = {}
+    unique_key_flags: dict[str, bool] = {}
+    allowed_keys_by_adapter: dict[str, list[str]] = {
+        "subumbra-proxy": [],
+        "subumbra-ui": [],
+    }
+
+    for record in records:
+        for adapter_id in record["adapters"]:
+            if adapter_id in seen_declared:
+                continue
+            seen_declared.add(adapter_id)
+            declared_adapter_ids.append(adapter_id)
+            allowed_keys_by_adapter[adapter_id] = []
+
+    for record in records:
+        key_id = record["key_id"]
+        api_keys[key_id] = (
+            record["provider"],
+            record["target_host"],
+            record["auth_header"],
+            record["auth_prefix"],
+            record["raw_secret"],
+        )
+        policy_by_key_id[key_id] = record["policy"]
+        unique_key_flags[key_id] = record["unique_vault"]
+        _bind_key_to_adapters(
+            key_id,
+            record["adapters"],
+            key_adapters_by_key_id=key_adapters_by_key_id,
+            allowed_keys_by_adapter=allowed_keys_by_adapter,
+        )
+
+    token_ttl_days = _parse_token_ttl_days(os.environ.get("TOKEN_TTL_DAYS", ""))
+    return (
+        api_keys,
+        cf_creds,
+        allowed_keys_by_adapter,
+        key_adapters_by_key_id,
+        token_ttl_days,
+        unique_key_flags,
+        policy_by_key_id,
+    )
 
 
 def _load_env_fallback(
@@ -2808,22 +3015,18 @@ def run_push_registry() -> None:
         die(f"Cannot read keys.json: {exc}")
 
     policy_index = _load_policy_index()
-    persisted_adapters = _load_persisted_key_adapter_bindings()
     policy_by_key_id: dict[str, dict[str, Any]] = {}
     for key_id, record in keys_payload.items():
         provider = record.get("provider", "unknown")
         target_host = record.get("target_host")
         if not isinstance(target_host, str) or not target_host:
             die(f"keys.json record {key_id!r} missing target_host")
-        if key_id in policy_index:
-            allowed_adapters = _policy_adapter_ids(policy_index[key_id])
-        else:
-            allowed_adapters = persisted_adapters.get(key_id)
-            if not allowed_adapters:
-                die(
-                    f"No persisted adapter binding found for key_id {key_id!r}.\n"
-                    "  Re-run full bootstrap from this repo checkout or add an explicit SUBUMBRA_POLICY_PATH entry."
-                )
+        if key_id not in policy_index:
+            die(
+                f"No explicit policy source found for key_id {key_id!r}.\n"
+                "  Re-run full bootstrap from this repo checkout to republish manifest-era structured KV."
+            )
+        allowed_adapters = _policy_adapter_ids(policy_index[key_id])
         policy_by_key_id[key_id] = _resolve_policy_for_key(
             key_id,
             provider,
@@ -3128,17 +3331,38 @@ def run_provision_key(target_key_id: str) -> None:
         die(f"{target_key_id!r} already exists in keys.json — no targeted repair needed")
 
     if _choose_bootstrap_mode():
-        die("--provision requires automation/bootstrap env inputs; interactive repair is not supported")
+        die("--provision requires automation/bootstrap inputs; interactive repair is not supported")
 
-    try:
-        api_keys, cf_creds, _allowed_keys_by_adapter, key_adapters_by_key_id, _token_ttl_days = _load_env_fallback(existing_keys)
-    except AutomationInputError as exc:
-        die(str(exc))
+    if MANIFEST_FILE.exists():
+        (
+            api_keys,
+            cf_creds,
+            _allowed_keys_by_adapter,
+            key_adapters_by_key_id,
+            _token_ttl_days,
+            unique_key_flags,
+            policy_by_key_id,
+        ) = _load_manifest_bootstrap()
+    else:
+        try:
+            api_keys, cf_creds, _allowed_keys_by_adapter, key_adapters_by_key_id, _token_ttl_days = _load_env_fallback(existing_keys)
+        except AutomationInputError as exc:
+            die(str(exc))
+        unique_key_flags = _load_unique_key_flags(list(api_keys.keys()))
+        policy_index = _load_policy_index()
+        policy_by_key_id = {
+            key_id: _resolve_policy_for_key(
+                key_id,
+                provider,
+                target_host,
+                policy_index,
+                key_adapters_by_key_id[key_id],
+            )
+            for key_id, (provider, target_host, _auth_header, _auth_prefix, _raw) in api_keys.items()
+        }
 
     if target_key_id not in api_keys:
         die(f"{target_key_id!r} is not present in current bootstrap inputs")
-
-    policy_index = _load_policy_index()
     checkpoint = _load_bootstrap_checkpoint()
     worker_url = str(checkpoint.get("worker_url", "")).strip()
     setup_token = str(checkpoint.get("setup_token", "")).strip()
@@ -3148,7 +3372,6 @@ def run_provision_key(target_key_id: str) -> None:
     if checkpoint_host_env_updates and not isinstance(checkpoint_host_env_updates, dict):
         die("bootstrap checkpoint host_env_updates section is malformed")
 
-    unique_key_flags = _load_unique_key_flags(list(api_keys.keys()))
     provider, target_host, _auth_header, _auth_prefix, raw = api_keys[target_key_id]
     vault_instance = _vault_instance_for_key(target_key_id, unique_key_flags)
     checkpoint_entry = checkpoint.get("keys", {}).get(target_key_id)
@@ -3191,13 +3414,7 @@ def run_provision_key(target_key_id: str) -> None:
             f"  computed: {computed_fp}"
         )
 
-    policy = _resolve_policy_for_key(
-        target_key_id,
-        provider,
-        target_host,
-        policy_index,
-        key_adapters_by_key_id[target_key_id],
-    )
+    policy = policy_by_key_id[target_key_id]
     policy_hash = compute_policy_hash(policy)
     now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
     dek = os.urandom(32)
@@ -3224,19 +3441,16 @@ def run_provision_key(target_key_id: str) -> None:
     _write_keys_payload(existing_keys)
     ok(f"Added repaired record for {target_key_id}")
 
-    policy_by_key_id = {}
+    full_policy_by_key_id = {}
     for key_id, record in existing_keys.items():
-        policy_by_key_id[key_id] = _resolve_policy_for_key(
-            key_id,
-            record.get("provider", "unknown"),
-            record["target_host"],
-            policy_index,
-            key_adapters_by_key_id[key_id],
-        )
+        policy = policy_by_key_id.get(key_id)
+        if policy is None:
+            die(f"No manifest-era policy found for key_id {key_id!r} during targeted repair")
+        full_policy_by_key_id[key_id] = policy
 
     step("Publishing structured KV entries after targeted repair")
     try:
-        _publish_structured_kv(cf_creds, existing_keys, policy_by_key_id)
+        _publish_structured_kv(cf_creds, existing_keys, full_policy_by_key_id)
     except SystemExit:
         die("structured publish aborted before registry_version update")
     ok("Structured KV publication complete")
@@ -3285,13 +3499,27 @@ def main() -> None:
 
     if not use_wizard:
         step("Automation mode — loading credentials from environment")
-        try:
-            api_keys, cf_creds, allowed_keys_by_adapter, key_adapters_by_key_id, token_ttl_days = _load_env_fallback(existing_keys)
-        except AutomationInputError as exc:
-            use_wizard = _prompt_after_automation_error(str(exc))
-        else:
-            ok(f"Found {len(api_keys)} API key(s): {', '.join(api_keys.keys())}")
+        manifest_mode = MANIFEST_FILE.exists()
+        if manifest_mode:
+            (
+                api_keys,
+                cf_creds,
+                allowed_keys_by_adapter,
+                key_adapters_by_key_id,
+                token_ttl_days,
+                unique_key_flags,
+                policy_by_key_id,
+            ) = _load_manifest_bootstrap()
+            ok(f"Loaded {len(api_keys)} manifest key(s): {', '.join(api_keys.keys())}")
             ok("Cloudflare credentials present")
+        else:
+            try:
+                api_keys, cf_creds, allowed_keys_by_adapter, key_adapters_by_key_id, token_ttl_days = _load_env_fallback(existing_keys)
+            except AutomationInputError as exc:
+                use_wizard = _prompt_after_automation_error(str(exc))
+            else:
+                ok(f"Found {len(api_keys)} API key(s): {', '.join(api_keys.keys())}")
+                ok("Cloudflare credentials present")
     else:
         if _has_env_credentials():
             step("Interactive wizard — RAM-only entry selected")
@@ -3303,8 +3531,31 @@ def main() -> None:
         except KeyboardInterrupt:
             print("\n\nAborted. No changes written.", file=sys.stderr)
             sys.exit(0)
+        policy_index = _load_policy_index()
+        policy_by_key_id: dict[str, dict[str, Any]] = {}
+        for key_id, (provider, target_host, _auth_header, _auth_prefix, _raw) in api_keys.items():
+            policy_by_key_id[key_id] = _resolve_policy_for_key(
+                key_id,
+                provider,
+                target_host,
+                policy_index,
+                key_adapters_by_key_id[key_id],
+            )
+        unique_key_flags = _load_unique_key_flags(list(api_keys.keys()))
     if not use_wizard:
         shred_paths = []
+        if not MANIFEST_FILE.exists():
+            policy_index = _load_policy_index()
+            policy_by_key_id = {}
+            for key_id, (provider, target_host, _auth_header, _auth_prefix, _raw) in api_keys.items():
+                policy_by_key_id[key_id] = _resolve_policy_for_key(
+                    key_id,
+                    provider,
+                    target_host,
+                    policy_index,
+                    key_adapters_by_key_id[key_id],
+                )
+            unique_key_flags = _load_unique_key_flags(list(api_keys.keys()))
 
     _validate_allowed_keys(api_keys, allowed_keys_by_adapter)
 
@@ -3369,17 +3620,6 @@ def main() -> None:
             print("\nAborted. No changes written.")
             sys.exit(0)
 
-    policy_index = _load_policy_index()
-    policy_by_key_id: dict[str, dict[str, Any]] = {}
-    for key_id, (provider, target_host, _auth_header, _auth_prefix, _raw) in api_keys.items():
-        policy_by_key_id[key_id] = _resolve_policy_for_key(
-            key_id,
-            provider,
-            target_host,
-            policy_index,
-            key_adapters_by_key_id[key_id],
-        )
-
     # ── Step 3: generate runtime auth tokens ─────────────────────────────
     # SECURITY: These are privileged bearer/HMAC secrets. Anyone who obtains
     # an adapter token can drive the Worker as a scoped decryption oracle.
@@ -3412,8 +3652,6 @@ def main() -> None:
         allowed_keys_by_adapter,
         token_ttl_days=token_ttl_days,
     )
-    unique_key_flags = _load_unique_key_flags(list(api_keys.keys()))
-
     # ── Step 4: Phase 1 — deploy worker + push secrets ───────────────────
     # CRITICAL ORDER: remote secrets are pushed BEFORE keys.json is written.
     # If the deploy fails here, keys.json still holds the old blobs that match
