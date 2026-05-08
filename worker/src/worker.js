@@ -77,6 +77,20 @@ function parseStructuredRegistryJson(raw, keyName) {
   return parsed;
 }
 
+function optionalStringArray(value) {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const parsed = [];
+  for (const entry of value) {
+    if (typeof entry !== "string" || !entry) {
+      return null;
+    }
+    parsed.push(entry);
+  }
+  return parsed;
+}
+
 async function getRegistryEntry(env, keyId) {
   const registryVersion = await env.PROVIDER_REGISTRY_KV.get("registry_version", {
     cacheTtl: 30,
@@ -162,6 +176,7 @@ async function getRegistryEntry(env, keyId) {
     allow_path_prefixes: Array.isArray(allow.path_prefixes) ? allow.path_prefixes : [],
     allow_content_types: Array.isArray(allow.content_types) ? allow.content_types : [],
     allow_max_body_bytes: typeof allow.max_body_bytes === "number" ? allow.max_body_bytes : null,
+    intent: policy.intent && typeof policy.intent === "object" ? policy.intent : null,
   };
 }
 
@@ -932,23 +947,21 @@ async function handleProxy(request, env) {
     return jsonError("key format not supported — re-bootstrap required", 400);
   }
 
-  // ── 2.5. Intent observer ─────────────────────────────────────────────────
-  const intentField = body.intent;
-  if (intentField && typeof intentField === "object") {
-    const intentSource = typeof intentField.source === "string" ? intentField.source : null;
-    const intentTrust =
-      intentField.trust && typeof intentField.trust === "object" ? intentField.trust : null;
+  // ── 2.5. Intent observer / request-side guardrails ──────────────────────
+  const intentField =
+    body.intent && typeof body.intent === "object" && !Array.isArray(body.intent)
+      ? body.intent
+      : null;
+  const intentSource = intentField && typeof intentField.source === "string"
+    ? intentField.source
+    : null;
+  const intentTrust =
+    intentField && intentField.trust && typeof intentField.trust === "object" &&
+      !Array.isArray(intentField.trust)
+      ? intentField.trust
+      : null;
+  if (intentField) {
     console.info("subumbra: intent key_id=%s source=%s", key_id, intentSource);
-    if (intentTrust) {
-      console.info(
-        "subumbra: intent_trust key_id=%s initiators=%j content_sources=%j",
-        key_id,
-        Array.isArray(intentTrust.allowed_initiators) ? intentTrust.allowed_initiators : null,
-        Array.isArray(intentTrust.allowed_content_sources)
-          ? intentTrust.allowed_content_sources
-          : null,
-      );
-    }
   }
 
   let parsedTarget;
@@ -986,6 +999,57 @@ async function handleProxy(request, env) {
     return jsonError("target_url not allowed", 403);
   }
   console.info("subumbra: enc_version=3 key_id=%s", key_id);
+
+  const policyIntent =
+    registryEntry.intent && typeof registryEntry.intent === "object" && !Array.isArray(registryEntry.intent)
+      ? registryEntry.intent
+      : null;
+  const policyTrust =
+    policyIntent && policyIntent.trust && typeof policyIntent.trust === "object" &&
+      !Array.isArray(policyIntent.trust)
+      ? policyIntent.trust
+      : null;
+  const allowedInitiators = policyTrust
+    ? optionalStringArray(policyTrust.allowed_initiators)
+    : null;
+  const requestInitiators = intentTrust
+    ? optionalStringArray(intentTrust.allowed_initiators)
+    : null;
+  if (
+    allowedInitiators &&
+    allowedInitiators.length > 0 &&
+    requestInitiators &&
+    !requestInitiators.every((value) => allowedInitiators.includes(value))
+  ) {
+    console.warn(
+      "subumbra: policy deny reason=intent_disallowed_initiator adapter=%s key_id=%s source=%s",
+      auth.adapterId,
+      key_id,
+      intentSource,
+    );
+    return jsonError("intent_disallowed_initiator", 403);
+  }
+
+  const allowedContentSources = policyTrust
+    ? optionalStringArray(policyTrust.allowed_content_sources)
+    : null;
+  const requestContentSources = intentTrust
+    ? optionalStringArray(intentTrust.allowed_content_sources)
+    : null;
+  if (
+    allowedContentSources &&
+    allowedContentSources.length > 0 &&
+    requestContentSources &&
+    !requestContentSources.every((value) => allowedContentSources.includes(value))
+  ) {
+    console.warn(
+      "subumbra: policy deny reason=intent_disallowed_content_source adapter=%s key_id=%s source=%s",
+      auth.adapterId,
+      key_id,
+      intentSource,
+    );
+    return jsonError("intent_disallowed_content_source", 403);
+  }
 
   // ── 3.5. Allow-block enforcement ─────────────────────────────────────────
   if (!registryEntry.allow_adapters.includes(auth.adapterId)) {
