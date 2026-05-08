@@ -149,6 +149,8 @@ This arc focuses on evolving Subumbra from a static, bundled configuration into 
 - **Round 46 — Alpha App Identity And Rotation** (Closed 2026-05-07): bootstrap now binds direct-provider secrets per app with required per-key `*_ADAPTERS` inputs, explicit compatibility mode, and app-specific `SUBUMBRA_TOKEN_<APP>` outputs; proxy request-time Worker calls now forward the caller adapter token so Worker `allow.adapters` enforcement reflects the real app identity; bootstrap authority moved to root `providers.json`; `--rotate` / `--rotate-policy` are now V3-only with full re-bootstrap as the documented V2 migration path; the tracked operator/app docs now match the V3 app-token contract; official fresh-install VPS proof passed at `claude-vps-20260507T180730Z` on SHA `4196033`.
 - **Round 47 — Runtime Contract Cleanup** (Closed 2026-05-08): legacy `SubumbraProxy` class and `decryptV2` logic fully removed; moved to non-root (UID 10001) runtime user in `subumbra-proxy`; implemented byte-accurate (UTF-8) request body size enforcement; hardened health/logging surfaces; completed the staged 4-phase bootstrap pipeline with per-key sharded vault routing and checkpointed recovery; official fresh-install VPS proof passed at `gemini-vps-20260508T031738Z` with only a deferred verification-harness portability caveat.
 - **Round 48 — Intent Attestation And Response Policy Enforcement** (Closed 2026-05-08): request-side `intent.trust` guardrails are now active on the Worker/runtime path, `subumbra-proxy` transparently carries `intent` via `X-Subumbra-Intent-*` headers, bootstrap validates `intent.trust` string arrays, and the docs now reflect that missing `intent` remains accepted by default while response-side `deny_patterns` enforcement stays deferred to R48-5. Live existing-stack VPS proof passed at `claude-vps-20260508T052054Z` and `gemini-vps-20260508T052651Z`.
+- **Round 48-1 — Config Manifest Unification Arc Planning** (Closed 2026-05-08): the council approved a three-round operator-config simplification arc. `r48-2-manifest-ingest`, `r48-3-internal-state-authority`, and `r48-4-provider-catalog-removal` are now staged as the implementation sequence. The planning round made no source-code changes; it closed on council consensus and local scaffolding only.
+- **Round 48-2 — Manifest Ingest** (Closed 2026-05-08): bootstrap now supports manifest-era intake from repo-root `subumbra.json`, `.env.bootstrap.example` is secret-only, `bootstrap.sh` no longer mounts `SUBUMBRA_POLICY_PATH` or `IMPORT_PATH_*`, `run_push_registry()` now fails closed for manifest-era installs, and the operator guide plus checked-in `subumbra.example.json` now reflect the single-manifest flow. Fresh-install verifier proof passed at `codex-vps-20260508T211232Z` and `gemini-vps-20260508T214755Z` on SHA `b50facd`.
 - **Round 46.5 — Vault Granularity Decision** (Closed 2026-05-07): the council approved an Alpha mixed-vault direction: shared vault remains the default, while per-key unique vaults become an opt-in path via `UNIQUE_KEY_<key_id>=true/false`. The round made no runtime source changes; it finalized `decision.md`, documented the Cloudflare platform caveat around in-memory isolation claims, and unblocked R47 with the approved mixed-vault planning scope.
 
 ## Path Forward
@@ -157,13 +159,15 @@ Immediate follow-up sequence — targeting 0.0.1 Alpha:
 
 1. **Rounds 48.5+ — Remaining Alpha Hardening Arc**
    After the now-closed R48 request-side intent round, continue with R48-5 response buffering / `response.deny_patterns`, then velocity/circuit breakers, management API, signed template catalog, read-only policy UI, and the alpha release/recovery gate as staged by `council/approved/rTBD-structure-upgrade.md`.
-2. **Bootstrap hardening follow-up**
+2. **Rounds 48.3-48.4 — Remaining config-manifest unification arc**
+   `r48-2-manifest-ingest` is now closed. The remaining approved sequence is `r48-3-internal-state-authority`, then `r48-4-provider-catalog-removal`, to move day-2 authority fully into Subumbra internal state and then delete remaining hardcoded provider-catalog authority.
+3. **Bootstrap hardening follow-up**
    Future rounds should keep Cloudflare KV namespace mutation on the hardened bootstrap helper path and continue auditing non-interactive `docker compose run` entrypoints for SSH/stdin safety so fresh-install proof capture remains reliable.
-3. **Verification harness portability cleanup**
+4. **Verification harness portability cleanup**
    Consolidate round-local proof hooks around operator-first failure handling, reduce assumptions about host-installed tools, and make Wrangler dry-run behavior deterministic under read-only workspace mounts.
-4. **Nonce-store watch item**
+5. **Nonce-store watch item**
    Reproduce `subumbra-keys` `nonce_store_failure reason=nonce_store_error` on the current stack before attempting further source changes; Round 44.5.1 did not reproduce it under concurrent signed key fetches.
-5. **Round 44 Security Arc (Approved sequence)**
+6. **Round 44 Security Arc (Approved sequence)**
    The council planning round in `council/closed/round-44-security-review/` converged on a four-round implementation arc:
    - `council/closed/round-44-1-security-quick-wins/` — closed 2026-04-30; strict `pub_key_fp` enforcement, generic decryption failures, and truth-aligned Worker/docs comments
    - `council/closed/round-44-2-decrypt-in-existing-do/` — closed 2026-04-30; decrypt now runs inside the existing `SubumbraProxy` DO, and the Worker→DO hop keeps the original encrypted envelope intact

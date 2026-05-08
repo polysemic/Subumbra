@@ -6,6 +6,7 @@ cd "$repo_root"
 
 env_file=".env"
 bootstrap_file=".env.bootstrap"
+manifest_file="subumbra.json"
 
 if [[ ! -f "$env_file" ]]; then
     cp .env.example "$env_file"
@@ -20,6 +21,11 @@ declare -a volume_args=()
 declare -a env_args=()
 
 volume_args+=(-v "$repo_root/$env_file:/app/host-env:rw")
+
+if [[ ! -f "$manifest_file" ]]; then
+    echo "ERROR: $manifest_file is required for manifest-era bootstrap and must be a regular file." >&2
+    exit 1
+fi
 
 if [[ -f "$bootstrap_file" ]]; then
     while IFS= read -r line; do
@@ -42,31 +48,7 @@ if [[ -f "$bootstrap_file" ]]; then
             fi
         fi
 
-        if [[ "$key" == "SUBUMBRA_POLICY_PATH" ]]; then
-            if [[ ! -f "$value" ]]; then
-                echo "ERROR: SUBUMBRA_POLICY_PATH is missing or not a regular file: $value" >&2
-                exit 1
-            fi
-            mount_path="/app/bootstrap-policy/$(basename "$value")"
-            volume_args+=(-v "$repo_root/$value:$mount_path:ro")
-            env_args+=(-e "SUBUMBRA_POLICY_PATH=$mount_path")
-        elif [[ "$key" =~ ^IMPORT_PATH_([0-9]+)$ ]]; then
-            idx="${BASH_REMATCH[1]}"
-            label_key="IMPORT_APP_LABEL_${idx}"
-            label="$(sed -n "s/^${label_key}=//p" "$bootstrap_file" | tail -n 1)"
-            if [[ -z "$label" ]]; then
-                echo "ERROR: ${label_key} is required when ${key} is set." >&2
-                exit 1
-            fi
-            if [[ ! -f "$value" ]]; then
-                echo "ERROR: ${key} path is missing or not a regular file: $value" >&2
-                exit 1
-            fi
-            mount_path="/app/bootstrap-imports/${idx}/$(basename "$value")"
-            volume_args+=(-v "$repo_root/$value:$mount_path:ro")
-            env_args+=(-e "${key}=${mount_path}")
-            env_args+=(-e "${label_key}=${label}")
-        elif [[ "$key" == "CF_WORKER_NAME" ]]; then
+        if [[ "$key" == "CF_WORKER_NAME" ]]; then
             env_args+=(-e "CF_WORKER_NAME=${value}")
         fi
     done < "$bootstrap_file"

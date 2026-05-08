@@ -1,0 +1,45 @@
+{
+  "keys": [
+    {
+      "key_id": "anthropic_litellm",
+      "provider": "anthropic",
+      "secret_ref": "ANTHROPIC_KEY",
+      "adapters": [
+        "litellm"
+      ],
+      "unique_vault": false,
+      "policy": {
+        "key_id": "anthropic_litellm",
+        "policy_id": "anthropic-litellm",
+        "protocol": "http_rest",
+        "capability_class": "llm",
+        "source": "env",
+        "target": {
+          "host": "api.anthropic.com",
+          "base_path": "/v1"
+        },
+        "auth": {
+          "scheme": "header",
+          "header_name": "x-api-key"
+        },
+        "allow": {
+          "adapters": [
+            "litellm"
+          ],
+          "methods": [
+            "GET",
+            "POST"
+          ],
+          "path_prefixes": [
+            "/v1/models",
+            "/v1/messages"
+          ],
+          "content_types": [
+            "application/json"
+          ],
+          "max_body_bytes": 1048576
+        }
+      }
+    }
+  ]
+}
