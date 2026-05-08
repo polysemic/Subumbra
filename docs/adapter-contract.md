@@ -68,6 +68,7 @@ Expected subumbra-keys response fields:
 | `wrapped_dek` | string | RSA-OAEP-wrapped per-record DEK, base64 |
 | `pub_key_fp` | string | RSA key-pair fingerprint (`sha256:<hex>`) |
 | `enc_version` | number | Must be `3` |
+| `vault_instance` | string | Vault routing identity: shared keys use `vault`; unique keys use `vault-<key_id>` |
 
 Adapters are expected to derive the canonical `/proxy` payload fields from this
 subumbra-keys response before making the Worker call.
@@ -97,6 +98,7 @@ Request body (JSON, all fields required unless noted):
 | `policy_hash` | string | V3 policy-binding hash from the live record |
 | `key_id` | string | Record identity; used as AAD: `subumbra:v3:<key_id>:<policy_hash>` |
 | `enc_version` | number | Must be `3`; V2 records are hard-rejected |
+| `vault_instance` | string | Target vault instance for decrypt/rotate routing |
 
 ---
 
@@ -142,6 +144,9 @@ The Worker enforces these security invariants before any upstream request is mad
    to the caller unchanged. Callers do not need to buffer the full upstream
    response.
 
+9. **Body-size enforcement** — `allow.max_body_bytes` is enforced against the
+   UTF-8 byte length of the JSON-serialized outbound body.
+
 ---
 
 ## Provider Registry Freshness
@@ -174,6 +179,17 @@ All error responses use `Content-Type: application/json` with body
 | RSA fingerprint mismatch | 500 |
 | CF Secrets not configured | 503 |
 | Provider registry binding missing / key missing / invalid | 503 |
+
+---
+
+## Health Surface
+
+Both the Worker and `subumbra-proxy` expose an unauthenticated minimal health
+payload:
+
+```json
+{"status":"ok"}
+```
 
 ---
 

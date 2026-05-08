@@ -107,13 +107,16 @@ installation, or are migrating from an existing deployment.
 ```bash
 cp .env.bootstrap.example .env.bootstrap
 # edit .env.bootstrap: CF credentials, provider keys, key_ids, per-key *_ADAPTERS,
-# and optional IMPORT_PATH_<n> / IMPORT_APP_LABEL_<n> entries
+# per-key UNIQUE_KEY_<key_id> flags, and optional IMPORT_PATH_<n> / IMPORT_APP_LABEL_<n> entries
 ./bootstrap.sh
 ```
 
 See `.env.bootstrap.example` for the full list of expected variables. Key format:
 `{PROVIDER}_KEY=<value>` with matching `{PROVIDER}_KEY_ID=<key_id>` and
 `{PROVIDER}_KEY_ADAPTERS=<adapter_ids>` entries per direct secret slot.
+Optional `UNIQUE_KEY_<key_id>=true` provisions that key into its own
+`vault-<key_id>` Durable Object; omitted or `false` keeps the key on the shared
+`vault` instance.
 Blank `*_ADAPTERS` is explicit compatibility/simple mode only. App-owned
 imports use `IMPORT_PATH_<n>` plus required
 `IMPORT_APP_LABEL_<n>` entries; `bootstrap.sh` mounts those files readonly into
@@ -143,7 +146,8 @@ If probe provisioning was enabled during bootstrap, this step also writes:
 
 Probe values may be blank when probe was intentionally left unprovisioned.
 
-`public_key.pem` is also written into the bootstrap data volume for offline
+`public_key.pem` is written for the shared vault, and any unique-vault key also
+gets `public_key_<key_id>.pem` in the bootstrap data volume for offline
 single-key rotation. The Cloudflare-side private key never lands on the VPS.
 
 ## 7. Start The Core Stack
@@ -176,7 +180,7 @@ curl -sS http://127.0.0.1:10199/health
 curl -sS http://127.0.0.1:6563/api/status
 ```
 
-The proxy health response should now include `worker_auth`.
+Both health endpoints now return a minimal `{"status":"ok"}` body.
 
 ## 9. Standalone LiteLLM
 
