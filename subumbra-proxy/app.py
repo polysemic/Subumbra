@@ -68,6 +68,9 @@ KEY_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 TRANSPARENT_STRIP_HEADERS = {"authorization", "x-api-key", "x-api-key-id"}
 TRANSPARENT_STRIP_PREFIXES = ("x-subumbra-",)
 TRANSPARENT_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
+INTENT_SOURCE_HEADER = "x-subumbra-intent-source"
+INTENT_INITIATORS_HEADER = "x-subumbra-intent-initiators"
+INTENT_CONTENT_SOURCES_HEADER = "x-subumbra-intent-content-sources"
 
 EXPECTED_RECORD_FIELDS = {
     "ciphertext",
@@ -160,8 +163,8 @@ async def fetch_record(client, key_id: str, *, adapter_token: str | None = None)
     return record
 
 
-def proxy_payload(record, key_id, *, target_url, method, headers, body):
-    return {
+def proxy_payload(record, key_id, *, target_url, method, headers, body, intent: Optional[dict[str, Any]] = None):
+    payload = {
         "ciphertext": record["ciphertext"],
         "provider": record["provider"],
         "target_url": target_url,
@@ -176,6 +179,9 @@ def proxy_payload(record, key_id, *, target_url, method, headers, body):
         "policy_hash": record["policy_hash"],
         "vault_instance": record["vault_instance"],
     }
+    if intent is not None:
+        payload["intent"] = intent
+    return payload
 
 
 def worker_headers(*, adapter_token: str | None = None):
@@ -236,6 +242,45 @@ def strip_transparent_headers(headers: dict[str, str]) -> dict[str, str]:
     return stripped
 
 
+def get_header_case_insensitive(headers: dict[str, str], target: str) -> str | None:
+    for key, value in headers.items():
+        if key.lower() == target:
+            return value
+    return None
+
+
+def parse_intent_list_header(value: str | None) -> list[str] | None:
+    if value is None:
+        return None
+    items = [part.strip() for part in value.split(",")]
+    filtered = [item for item in items if item]
+    return filtered or None
+
+
+def build_transparent_intent(headers: dict[str, str]) -> dict[str, Any] | None:
+    source = get_header_case_insensitive(headers, INTENT_SOURCE_HEADER)
+    if source is not None:
+        source = source.strip() or None
+    initiators = parse_intent_list_header(get_header_case_insensitive(headers, INTENT_INITIATORS_HEADER))
+    content_sources = parse_intent_list_header(
+        get_header_case_insensitive(headers, INTENT_CONTENT_SOURCES_HEADER)
+    )
+
+    if source is None and initiators is None and content_sources is None:
+        return None
+
+    trust: dict[str, Any] = {}
+    if initiators is not None:
+        trust["allowed_initiators"] = initiators
+    if content_sources is not None:
+        trust["allowed_content_sources"] = content_sources
+
+    intent: dict[str, Any] = {"source": source}
+    if trust:
+        intent["trust"] = trust
+    return intent
+
+
 def build_transparent_target_url(target_host: str, path: str, query: str) -> str:
     clean_path = path.lstrip("/")
     if clean_path:
@@ -273,6 +318,7 @@ async def proxy_via_worker(
     adapter_token: str | None = None,
     adapter_id: str | None = None,
     record: dict | None = None,
+    intent: dict[str, Any] | None = None,
 ) -> Response:
     target_host, target_path = derive_log_safe_target(target_url)
     LOG.info(
@@ -308,6 +354,7 @@ async def proxy_via_worker(
         method=method,
         headers=headers,
         body=body,
+        intent=intent,
     )
 
     worker_req = CLIENT.build_request(
@@ -465,6 +512,7 @@ async def handle_transparent_request(path: str, request: Request):
 
     target_url = build_transparent_target_url(record["target_host"], forwarded_path, request.url.query)
     stripped_headers = strip_transparent_headers(inbound_headers)
+    intent = build_transparent_intent(inbound_headers)
     return await proxy_via_worker(
         key_id,
         target_url,
@@ -474,4 +522,5 @@ async def handle_transparent_request(path: str, request: Request):
         adapter_token=adapter_token,
         adapter_id=adapter_id,
         record=record,
+        intent=intent,
     )

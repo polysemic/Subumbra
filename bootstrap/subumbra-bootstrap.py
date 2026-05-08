@@ -663,8 +663,21 @@ def _normalize_policy_doc(doc: dict[str, Any], source: str) -> dict[str, Any]:
         if policy_match is not None:
             _validate_safe_pattern(policy_match, source, "intent.policy_match")
         trust = intent.get("trust")
-        if trust is not None and not isinstance(trust, dict):
-            _policy_die(source, "intent.trust must be an object")
+        if trust is not None:
+            if not isinstance(trust, dict):
+                _policy_die(source, "intent.trust must be an object")
+            for field_name in ("allowed_initiators", "allowed_content_sources"):
+                field_value = trust.get(field_name)
+                if field_value is None:
+                    continue
+                if not isinstance(field_value, list):
+                    _policy_die(source, f"intent.trust.{field_name} must be an array")
+                for idx, entry in enumerate(field_value):
+                    _policy_require_string(
+                        entry,
+                        source,
+                        f"intent.trust.{field_name}[{idx}]",
+                    )
 
     response = doc.get("response")
     if response is not None:
