@@ -46,6 +46,12 @@ and fresh sessions tend to miss.
 - When proof wrappers run over `ssh ... bash -s`, any non-interactive
   `docker compose run` step should redirect stdin away from the SSH script
   stream unless interactive input is intentionally required.
+- Verification should be treated like a normal operator path first: if the
+  documented install/bootstrap/update flow breaks, report that product-facing
+  failure and stop instead of inventing expert-only workarounds.
+- If a proof failure is clearly harness-only, stop once the pattern is clear
+  and classify it as a harness issue instead of burning repeated retries on the
+  same tooling gap.
 - Closeout should capture minor non-blocking cleanup in `council/cleanup.md`
   rather than reopening finished rounds.
 
