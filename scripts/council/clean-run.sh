@@ -201,6 +201,9 @@ cleanup() {
                 cd "$workspace"
                 export COMPOSE_PROJECT_NAME="scr-${run_id//[^a-z0-9]/-}"
                 export CF_WORKER_NAME="scr-${run_id//[^a-z0-9]/-}"
+                export SUBUMBRA_KEYS_CONTAINER="subumbra-keys"
+                export SUBUMBRA_PROXY_CONTAINER="subumbra-proxy"
+                export SUBUMBRA_UI_CONTAINER="subumbra-ui"
                 docker compose -p "scr-${run_id//[^a-z0-9]/-}" down -v >/dev/null 2>&1 || true
             )
         fi
@@ -238,6 +241,11 @@ run_step() {
         cd "$workspace"
         export COMPOSE_PROJECT_NAME="scr-${run_id//[^a-z0-9]/-}"
         export CF_WORKER_NAME="scr-${run_id//[^a-z0-9]/-}"
+        export SUBUMBRA_KEYS_CONTAINER="subumbra-keys"
+        export SUBUMBRA_PROXY_CONTAINER="subumbra-proxy"
+        export SUBUMBRA_UI_CONTAINER="subumbra-ui"
+        export SUBUMBRA_PROXY_HOST_PORT="10199"
+        export CLEAN_RUN_ARTIFACT_DIR="$artifact_dir"
         "$@"
     ) >>"$step_log" 2>&1; then
         log "step log: ${step_log}"
@@ -371,10 +379,50 @@ if [[ -n "$round_dir" && -f "council/${round_dir}/pre-bootstrap.sh" ]]; then
     run_step "pre-bootstrap" bash "council/${round_dir}/pre-bootstrap.sh"
 fi
 
-if [[ -f ./bootstrap.sh ]]; then
-    run_step "bootstrap" ./bootstrap.sh
+bootstrap_status=0
+if [[ -f "${workspace}/bootstrap.sh" ]]; then
+    (
+        cd "$workspace"
+        export COMPOSE_PROJECT_NAME="scr-${run_id//[^a-z0-9]/-}"
+        export CF_WORKER_NAME="scr-${run_id//[^a-z0-9]/-}"
+        export SUBUMBRA_KEYS_CONTAINER="subumbra-keys"
+        export SUBUMBRA_PROXY_CONTAINER="subumbra-proxy"
+        export SUBUMBRA_UI_CONTAINER="subumbra-ui"
+        export SUBUMBRA_PROXY_HOST_PORT="10199"
+        ./bootstrap.sh 2>&1 | tee "${artifact_dir}/bootstrap.log"
+    ) || bootstrap_status=$?
 else
-    run_step "bootstrap" docker compose --profile bootstrap run --rm bootstrap
+    (
+        cd "$workspace"
+        export COMPOSE_PROJECT_NAME="scr-${run_id//[^a-z0-9]/-}"
+        export CF_WORKER_NAME="scr-${run_id//[^a-z0-9]/-}"
+        export SUBUMBRA_KEYS_CONTAINER="subumbra-keys"
+        export SUBUMBRA_PROXY_CONTAINER="subumbra-proxy"
+        export SUBUMBRA_UI_CONTAINER="subumbra-ui"
+        export SUBUMBRA_PROXY_HOST_PORT="10199"
+        docker compose --profile bootstrap run --rm bootstrap 2>&1 | tee "${artifact_dir}/bootstrap.log"
+    ) || bootstrap_status=$?
+fi
+if [[ "$bootstrap_status" -ne 0 ]]; then
+    if [[ -n "$round_dir" && -f "council/${round_dir}/bootstrap-repair.sh" ]]; then
+        log "bootstrap exited non-zero; attempting round-local repair hook"
+        (
+            cd "$workspace"
+            export COMPOSE_PROJECT_NAME="scr-${run_id//[^a-z0-9]/-}"
+            export CF_WORKER_NAME="scr-${run_id//[^a-z0-9]/-}"
+            export SUBUMBRA_KEYS_CONTAINER="subumbra-keys"
+            export SUBUMBRA_PROXY_CONTAINER="subumbra-proxy"
+            export SUBUMBRA_UI_CONTAINER="subumbra-ui"
+            export SUBUMBRA_PROXY_HOST_PORT="10199"
+            BOOTSTRAP_ARTIFACT_DIR="$artifact_dir" \
+                ROUND="$round_dir" \
+                AGENT="$agent_name" \
+                RUN_ID="$run_id" \
+                bash "council/${round_dir}/bootstrap-repair.sh"
+        ) >>"$harness_log" 2>&1 || fail_step "bootstrap-repair" "round-local bootstrap repair failed"
+    else
+        fail_step "bootstrap" "bootstrap command failed"
+    fi
 fi
 run_step "reset" ./scripts/council/reset.sh
 run_step "preflight" ./scripts/council/preflight.sh

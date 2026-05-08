@@ -125,8 +125,9 @@ This keeps subumbra records, local env state, and the deployed Worker configurat
 aligned.
 
 Full bootstrap also re-runs the one-shot Cloudflare setup path for a fresh
-vault key pair. Preserve `public_key.pem` locally if you intend to use offline
-single-key rotation after the bootstrap completes.
+vault key pair. Preserve `public_key.pem` for shared-vault keys and any
+`public_key_<key_id>.pem` files for unique-vault keys if you intend to use
+offline single-key rotation after the bootstrap completes.
 
 ## 5. Recovery Playbook
 
@@ -196,10 +197,24 @@ ADAPTER_IDS=litellm,openwebui
 OPENAI_KEY=...
 OPENAI_KEY_ID=openai_litellm_1
 OPENAI_KEY_ADAPTERS=litellm
+UNIQUE_KEY_openai_litellm_1=false
 OPENAI_KEY_2=...
 OPENAI_KEY_ID_2=openai_openwebui_1
 OPENAI_KEY_2_ADAPTERS=openwebui
+UNIQUE_KEY_openai_openwebui_1=true
 ```
+
+### Targeted Bootstrap Repair
+
+If a fresh bootstrap partially succeeds and writes a retryable checkpoint, rerun
+only the failed key:
+
+```bash
+./bootstrap.sh --provision <key_id>
+```
+
+This reuses the staged checkpoint, provisions only the named missing vault/key,
+and atomically merges the repaired record into `keys.json`.
 
 ### Emergency Adapter Expiry
 

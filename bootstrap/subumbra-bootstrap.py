@@ -97,6 +97,7 @@ DATA_DIR        = Path(os.environ.get("DATA_DIR", "/app/data"))
 KEYS_FILE       = DATA_DIR / "keys.json"
 RUNTIME_ENV_OUT = DATA_DIR / "runtime.env"
 PUBLIC_KEY_FILE = DATA_DIR / "public_key.pem"
+CHECKPOINT_FILE = DATA_DIR / "bootstrap-checkpoint.json"
 SYSTEM_INTEGRITY_FILE = DATA_DIR / "system-integrity.json"
 HOST_ENV_FILE   = Path("/app/host-env")
 WORKER_SRC      = Path("/app/worker")
@@ -134,6 +135,10 @@ def die(msg: str) -> NoReturn:
     sys.exit(1)
 
 
+class BootstrapFlowError(RuntimeError):
+    """Raised for recoverable per-key bootstrap failures."""
+
+
 class AutomationInputError(RuntimeError):
     """Raised when interactive operators should be offered a fallback path."""
 
@@ -142,6 +147,225 @@ def _automation_fail(msg: str) -> NoReturn:
     if sys.stdin.isatty():
         raise AutomationInputError(msg)
     die(msg)
+
+
+def _parse_bool_flag(raw: str, *, flag_name: str) -> bool:
+    normalized = raw.strip().lower()
+    if normalized in {"", "0", "false", "no", "off"}:
+        return False
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    die(f"{flag_name} must be true/false")
+
+
+def _unique_key_env_var_name(key_id: str) -> str:
+    return f"UNIQUE_KEY_{key_id}"
+
+
+def _load_unique_key_flags(key_ids: list[str]) -> dict[str, bool]:
+    return {
+        key_id: _parse_bool_flag(
+            os.environ.get(_unique_key_env_var_name(key_id), ""),
+            flag_name=_unique_key_env_var_name(key_id),
+        )
+        for key_id in key_ids
+    }
+
+
+def _vault_instance_for_key(key_id: str, unique_key_flags: dict[str, bool]) -> str:
+    if unique_key_flags.get(key_id, False):
+        return f"vault-{key_id}"
+    return "vault"
+
+
+def _public_key_file_for_key(key_id: str, vault_instance: str) -> Path:
+    if vault_instance == "vault":
+        return PUBLIC_KEY_FILE
+    return DATA_DIR / f"public_key_{key_id}.pem"
+
+
+def _load_bootstrap_checkpoint() -> dict[str, Any]:
+    if not CHECKPOINT_FILE.exists():
+        return {"worker_url": "", "setup_token": "", "keys": {}, "host_env_updates": {}}
+    try:
+        checkpoint = json.loads(CHECKPOINT_FILE.read_text())
+    except (json.JSONDecodeError, OSError) as exc:
+        die(f"Cannot read bootstrap checkpoint: {exc}")
+    if not isinstance(checkpoint, dict):
+        die("bootstrap checkpoint is malformed")
+    checkpoint.setdefault("worker_url", "")
+    checkpoint.setdefault("setup_token", "")
+    checkpoint.setdefault("keys", {})
+    checkpoint.setdefault("host_env_updates", {})
+    if not isinstance(checkpoint["keys"], dict):
+        die("bootstrap checkpoint keys section is malformed")
+    if not isinstance(checkpoint["host_env_updates"], dict):
+        die("bootstrap checkpoint host_env_updates section is malformed")
+    return checkpoint
+
+
+def _write_bootstrap_checkpoint(checkpoint: dict[str, Any]) -> None:
+    tmp_file = CHECKPOINT_FILE.with_suffix(".json.tmp")
+    try:
+        fd = os.open(str(tmp_file), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as fh:
+            json.dump(checkpoint, fh, indent=2)
+            fh.write("\n")
+        os.replace(str(tmp_file), str(CHECKPOINT_FILE))
+    except OSError as exc:
+        die(f"Failed to write bootstrap checkpoint: {exc}")
+
+
+def _delete_bootstrap_checkpoint() -> None:
+    try:
+        CHECKPOINT_FILE.unlink(missing_ok=True)
+    except OSError as exc:
+        die(f"Failed to delete bootstrap checkpoint: {exc}")
+
+
+def _checkpoint_entry_by_vault_instance(checkpoint: dict[str, Any], vault_instance: str) -> dict[str, Any] | None:
+    for entry in checkpoint.get("keys", {}).values():
+        if isinstance(entry, dict) and entry.get("vault_instance") == vault_instance:
+            return entry
+    return None
+
+
+def _store_checkpoint_entry(
+    checkpoint: dict[str, Any],
+    key_id: str,
+    *,
+    vault_instance: str,
+    public_key_pem: str,
+    pub_key_fp: str,
+) -> None:
+    checkpoint.setdefault("keys", {})
+    checkpoint["keys"][key_id] = {
+        "vault_instance": vault_instance,
+        "public_key_pem": public_key_pem,
+        "pub_key_fp": pub_key_fp,
+    }
+    _write_bootstrap_checkpoint(checkpoint)
+
+
+def _write_public_key_file(path: Path, public_key_pem: str) -> None:
+    try:
+        fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(public_key_pem.encode("utf-8"))
+    except OSError as exc:
+        die(f"Failed to write {path.name}: {exc}")
+
+
+def _load_public_key_from_pem(public_key_pem: str):
+    try:
+        return serialization.load_pem_public_key(public_key_pem.encode("utf-8"))
+    except Exception as exc:
+        die(f"Failed to load returned public key: {exc}")
+
+
+def _write_keys_payload(keys_payload: dict[str, Any]) -> None:
+    tmp_keys = KEYS_FILE.with_suffix(".json.tmp")
+    try:
+        fd = os.open(str(tmp_keys), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+        with os.fdopen(fd, "w") as fh:
+            json.dump(keys_payload, fh, indent=2)
+            fh.write("\n")
+        os.replace(str(tmp_keys), str(KEYS_FILE))
+    except OSError as exc:
+        die(f"Failed to write keys.json: {exc}")
+
+
+def _build_runtime_env_lines(
+    *,
+    now_iso: str,
+    adapter_registry: dict[str, dict[str, Any]],
+    allowed_keys_by_adapter: dict[str, list[str]],
+    adapter_tokens: dict[str, str],
+    subumbra_hmac_key: str,
+    worker_url: str,
+    primary_pub_key_fp: str,
+) -> list[str]:
+    runtime_env_lines = [
+        f"# Generated by subumbra-bootstrap on {now_iso}",
+        "# PRIVILEGED — treat like an API key; restrict access to this file",
+        f"SUBUMBRA_ADAPTER_REGISTRY={json.dumps(adapter_registry, separators=(',', ':'))}",
+        f"PROXY_ALLOWED_KEYS={','.join(allowed_keys_by_adapter['subumbra-proxy'])}",
+        f"UI_ALLOWED_KEYS={','.join(allowed_keys_by_adapter['subumbra-ui'])}",
+        f"SUBUMBRA_TOKEN_PROXY={adapter_tokens['subumbra-proxy']}",
+        f"SUBUMBRA_TOKEN_UI={adapter_tokens['subumbra-ui']}",
+    ]
+    if "subumbra-probe" in allowed_keys_by_adapter:
+        runtime_env_lines.append(
+            f"PROBE_ALLOWED_KEYS={','.join(allowed_keys_by_adapter['subumbra-probe'])}"
+        )
+        runtime_env_lines.append(
+            f"SUBUMBRA_TOKEN_PROBE={adapter_tokens['subumbra-probe']}"
+        )
+    for adapter_id in allowed_keys_by_adapter:
+        if adapter_id not in BUILTIN_ADAPTER_IDS:
+            runtime_env_lines.append(
+                f"SUBUMBRA_TOKEN_{_normalize_adapter_id(adapter_id)}={adapter_tokens[adapter_id]}"
+            )
+    runtime_env_lines.extend(
+        [
+            f"SUBUMBRA_HMAC_KEY={subumbra_hmac_key}",
+            f"CF_WORKER_URL={worker_url}",
+            "# Public key fingerprint (audit trail — not sensitive)",
+            f"WORKER_KEY_FINGERPRINT={primary_pub_key_fp}",
+        ]
+    )
+    return runtime_env_lines
+
+
+def _build_host_env_updates(
+    *,
+    adapter_registry: dict[str, dict[str, Any]],
+    allowed_keys_by_adapter: dict[str, list[str]],
+    adapter_tokens: dict[str, str],
+    subumbra_hmac_key: str,
+    worker_url: str,
+    setup_token: str,
+) -> dict[str, str]:
+    host_env_updates = {
+        "SUBUMBRA_ADAPTER_REGISTRY": json.dumps(adapter_registry, separators=(",", ":")),
+        "PROXY_ALLOWED_KEYS": ",".join(allowed_keys_by_adapter["subumbra-proxy"]),
+        "UI_ALLOWED_KEYS": ",".join(allowed_keys_by_adapter["subumbra-ui"]),
+        "SUBUMBRA_TOKEN_PROXY": adapter_tokens["subumbra-proxy"],
+        "SUBUMBRA_TOKEN_UI": adapter_tokens["subumbra-ui"],
+        "SUBUMBRA_HMAC_KEY": subumbra_hmac_key,
+        "CF_WORKER_URL": worker_url,
+        "SUBUMBRA_SETUP_TOKEN": setup_token,
+    }
+    if "subumbra-probe" in allowed_keys_by_adapter:
+        host_env_updates["PROBE_ALLOWED_KEYS"] = ",".join(allowed_keys_by_adapter["subumbra-probe"])
+        host_env_updates["SUBUMBRA_TOKEN_PROBE"] = adapter_tokens["subumbra-probe"]
+    for adapter_id in allowed_keys_by_adapter:
+        if adapter_id not in BUILTIN_ADAPTER_IDS:
+            host_env_updates[f"SUBUMBRA_TOKEN_{_normalize_adapter_id(adapter_id)}"] = adapter_tokens[adapter_id]
+    return host_env_updates
+
+
+def _write_runtime_env_file(runtime_env_lines: list[str]) -> None:
+    runtime_env_content = "\n".join(runtime_env_lines) + "\n"
+    try:
+        fd = os.open(str(RUNTIME_ENV_OUT), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as fh:
+            fh.write(runtime_env_content)
+    except OSError as exc:
+        die(f"Failed to write runtime.env: {exc}")
+    ok("Runtime env written with mode 0600")
+
+
+def _sync_host_env_file(host_env_updates: dict[str, str]) -> None:
+    if HOST_ENV_FILE.is_file():
+        try:
+            _upsert_env_file(HOST_ENV_FILE, host_env_updates)
+            os.chmod(HOST_ENV_FILE, 0o600)
+        except OSError as exc:
+            die(f"Failed to update host env file {HOST_ENV_FILE}: {exc}")
+        ok(f"Repo-local env updated via {HOST_ENV_FILE}")
+    else:
+        info(f"Host env sync skipped — {HOST_ENV_FILE} is unavailable")
 
 
 def _load_provider_registry() -> list[dict]:
@@ -2271,13 +2495,14 @@ def _put_worker_secret(cf_creds: dict[str, str], secret_name: str, secret_value:
     ok(f"{secret_name} pushed")
 
 
-def call_setup_keygen(worker_url: str, setup_token: str) -> tuple[str, str, str]:
+def call_setup_keygen(worker_url: str, setup_token: str, vault_instance: str) -> tuple[str, str, str]:
     last_http_error: urllib.error.HTTPError | None = None
+    body = json.dumps({"vault_instance": vault_instance}, separators=(",", ":")).encode("utf-8")
     _MAX_KEYGEN_ATTEMPTS = 24
     for attempt in range(1, _MAX_KEYGEN_ATTEMPTS + 1):
         req = urllib.request.Request(
             f"{worker_url.rstrip('/')}/setup/keygen",
-            data=b"",
+            data=body,
             method="POST",
             headers={
                 "Authorization": f"Bearer {setup_token}",
@@ -2299,26 +2524,26 @@ def call_setup_keygen(worker_url: str, setup_token: str) -> tuple[str, str, str]
                 time.sleep(5)
                 continue
             body = exc.read().decode("utf-8", errors="replace")
-            die(
+            raise BootstrapFlowError(
                 f"Cloudflare setup keygen failed: HTTP {exc.code}\n"
                 f"--- response body ---\n{body}"
             )
         except Exception as exc:
-            die(f"Cloudflare setup keygen failed: {exc}")
+            raise BootstrapFlowError(f"Cloudflare setup keygen failed: {exc}") from exc
     else:
         if last_http_error is not None:
             body = last_http_error.read().decode("utf-8", errors="replace")
-            die(
+            raise BootstrapFlowError(
                 f"Cloudflare setup keygen failed after retry window: HTTP {last_http_error.code}\n"
                 f"--- response body ---\n{body}"
             )
-        die("Cloudflare setup keygen failed after retry window")
+        raise BootstrapFlowError("Cloudflare setup keygen failed after retry window")
 
     public_key_pem = payload.get("public_key_pem")
     pub_key_fp = payload.get("pub_key_fp")
     created_at = payload.get("created_at")
     if not all(isinstance(value, str) and value for value in (public_key_pem, pub_key_fp, created_at)):
-        die("Cloudflare setup keygen returned an invalid response payload")
+        raise BootstrapFlowError("Cloudflare setup keygen returned an invalid response payload")
     return public_key_pem, pub_key_fp, created_at
 
 
@@ -2614,28 +2839,13 @@ def run_rotate_wizard() -> None:
     print(BANNER, flush=True)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-    # ── 1. Load and validate public key ──────────────────────────────────
-    if not PUBLIC_KEY_FILE.exists():
-        die(
-            f"public_key.pem not found at {PUBLIC_KEY_FILE}\n"
-            "  Run a full bootstrap first to generate the RSA key pair."
-        )
-
-    try:
-        pub_key = serialization.load_pem_public_key(PUBLIC_KEY_FILE.read_bytes())
-    except Exception as exc:
-        die(f"Failed to load public_key.pem: {exc}\n  File may be corrupted — run a full bootstrap.")
-
-    fp = public_key_fingerprint(pub_key)
-
-    # ── 2. Display info ──────────────────────────────────────────────────
+    # ── 1. Display info ──────────────────────────────────────────────────
     print("\n" + "═" * 70)
     print("  Subumbra — Per-Key Rotation")
     print("  Uses existing RSA public key — no Cloudflare interaction needed")
     print("═" * 70)
-    print(f"\n  Public key fingerprint: {fp}")
 
-    # ── 3. Load existing keys ────────────────────────────────────────────
+    # ── 2. Load existing keys ────────────────────────────────────────────
     if not KEYS_FILE.exists():
         die("keys.json not found — run a full bootstrap first.")
 
@@ -2655,7 +2865,7 @@ def run_rotate_wizard() -> None:
         ver = meta.get("enc_version", 1)
         print(f"    {i}. {kid}  ({prov}, v{ver})")
 
-    # ── 4. Select key to rotate ──────────────────────────────────────────
+    # ── 3. Select key to rotate ──────────────────────────────────────────
     provider = None
     target_host = None
     print()
@@ -2702,8 +2912,26 @@ def run_rotate_wizard() -> None:
         die(f"--rotate requires an existing V3 policy_hash for key_id {key_id!r}. Use full bootstrap.")
     if not isinstance(target_host, str) or not target_host:
         die(f"--rotate requires target_host on the existing V3 record for key_id {key_id!r}.")
+    vault_instance = existing_record.get("vault_instance", "vault")
+    if not isinstance(vault_instance, str) or not vault_instance:
+        die(f"--rotate requires vault_instance on the existing V3 record for key_id {key_id!r}.")
 
-    # ── 5. Get new API key ───────────────────────────────────────────────
+    public_key_file = _public_key_file_for_key(key_id, vault_instance)
+    if not public_key_file.exists():
+        die(
+            f"Public key file not found at {public_key_file}\n"
+            f"  Run a full bootstrap first to provision vault_instance {vault_instance!r}."
+        )
+
+    try:
+        pub_key = serialization.load_pem_public_key(public_key_file.read_bytes())
+    except Exception as exc:
+        die(f"Failed to load {public_key_file.name}: {exc}\n  File may be corrupted — run a full bootstrap.")
+
+    fp = public_key_fingerprint(pub_key)
+    print(f"\n  Public key fingerprint: {fp}")
+
+    # ── 4. Get new API key ───────────────────────────────────────────────
     while True:
         new_key = getpass.getpass(f"\n  New API key for {key_id} (hidden): ").strip()
         if not new_key:
@@ -2715,7 +2943,7 @@ def run_rotate_wizard() -> None:
             continue
         break
 
-    # ── 6. Encrypt with V3 envelope ──────────────────────────────────────
+    # ── 5. Encrypt with V3 envelope ──────────────────────────────────────
     step(f"Encrypting new key for {key_id}")
     now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
     dek = os.urandom(32)
@@ -2732,30 +2960,23 @@ def run_rotate_wizard() -> None:
         "target_host": target_host,
         "policy_id":   existing_policy_id,
         "policy_hash": existing_policy_hash,
+        "vault_instance": vault_instance,
         "created_at":  now_iso,
         "label":       existing_record.get("label", key_id),
     }
     ok(f"Encrypted {provider:12s} → {key_id}")
 
-    # ── 7. Zero sensitive values ─────────────────────────────────────────
+    # ── 6. Zero sensitive values ─────────────────────────────────────────
     del dek
     new_key = "\x00" * len(new_key)
     del new_key
     del confirm_key
     gc.collect()
 
-    # ── 8. Atomically update keys.json ───────────────────────────────────
+    # ── 7. Atomically update keys.json ───────────────────────────────────
     step(f"Updating {key_id} in keys.json")
     existing_keys[key_id] = record
-    tmp_keys = KEYS_FILE.with_suffix(".json.tmp")
-    try:
-        fd = os.open(str(tmp_keys), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
-        with os.fdopen(fd, "w") as fh:
-            json.dump(existing_keys, fh, indent=2)
-            fh.write("\n")
-        os.replace(str(tmp_keys), str(KEYS_FILE))
-    except OSError as exc:
-        die(f"Failed to write keys.json: {exc}")
+    _write_keys_payload(existing_keys)
 
     ok(f"Updated {key_id} — only this record changed")
     info("All other records are untouched")
@@ -2835,6 +3056,7 @@ def run_rotate_policy() -> None:
                 "ciphertext": record["ciphertext"],
                 "wrapped_dek": record["wrapped_dek"],
                 "pub_key_fp": record["pub_key_fp"],
+                "vault_instance": record.get("vault_instance", "vault"),
                 "new_policy_hash": desired_policy_hash,
             }
             if record.get("enc_version") == 3 and isinstance(record.get("policy_hash"), str):
@@ -2876,6 +3098,153 @@ def run_rotate_policy() -> None:
     except SystemExit:
         die("structured publish aborted before registry_version update")
     ok("Structured KV publication complete")
+
+
+def run_provision_key(target_key_id: str) -> None:
+    print(BANNER, flush=True)
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+    if not CHECKPOINT_FILE.exists():
+        die("bootstrap-checkpoint.json not found — nothing to provision")
+
+    try:
+        existing_keys = json.loads(KEYS_FILE.read_text()) if KEYS_FILE.exists() else {}
+    except (json.JSONDecodeError, OSError) as exc:
+        die(f"Cannot read keys.json: {exc}")
+    if target_key_id in existing_keys:
+        die(f"{target_key_id!r} already exists in keys.json — no targeted repair needed")
+
+    if _choose_bootstrap_mode():
+        die("--provision requires automation/bootstrap env inputs; interactive repair is not supported")
+
+    try:
+        api_keys, cf_creds, _allowed_keys_by_adapter, key_adapters_by_key_id, _token_ttl_days = _load_env_fallback(existing_keys)
+    except AutomationInputError as exc:
+        die(str(exc))
+
+    if target_key_id not in api_keys:
+        die(f"{target_key_id!r} is not present in current bootstrap inputs")
+
+    policy_index = _load_policy_index()
+    checkpoint = _load_bootstrap_checkpoint()
+    worker_url = str(checkpoint.get("worker_url", "")).strip()
+    setup_token = str(checkpoint.get("setup_token", "")).strip()
+    if not worker_url or not setup_token:
+        die("bootstrap checkpoint is missing worker_url or setup_token")
+    checkpoint_host_env_updates = checkpoint.get("host_env_updates", {})
+    if checkpoint_host_env_updates and not isinstance(checkpoint_host_env_updates, dict):
+        die("bootstrap checkpoint host_env_updates section is malformed")
+
+    unique_key_flags = _load_unique_key_flags(list(api_keys.keys()))
+    provider, target_host, _auth_header, _auth_prefix, raw = api_keys[target_key_id]
+    vault_instance = _vault_instance_for_key(target_key_id, unique_key_flags)
+    checkpoint_entry = checkpoint.get("keys", {}).get(target_key_id)
+    if not isinstance(checkpoint_entry, dict) or checkpoint_entry.get("vault_instance") != vault_instance:
+        checkpoint_entry = _checkpoint_entry_by_vault_instance(checkpoint, vault_instance)
+
+    if checkpoint_entry is None:
+        step(f"Provisioning missing vault for {target_key_id}")
+        try:
+            public_key_pem, pub_key_fp, _created_at = call_setup_keygen(worker_url, setup_token, vault_instance)
+        except BootstrapFlowError as exc:
+            die(str(exc))
+        _store_checkpoint_entry(
+            checkpoint,
+            target_key_id,
+            vault_instance=vault_instance,
+            public_key_pem=public_key_pem,
+            pub_key_fp=pub_key_fp,
+        )
+        checkpoint_entry = checkpoint["keys"][target_key_id]
+    else:
+        public_key_pem = checkpoint_entry["public_key_pem"]
+        pub_key_fp = checkpoint_entry["pub_key_fp"]
+        _store_checkpoint_entry(
+            checkpoint,
+            target_key_id,
+            vault_instance=vault_instance,
+            public_key_pem=public_key_pem,
+            pub_key_fp=pub_key_fp,
+        )
+
+    public_key_file = _public_key_file_for_key(target_key_id, vault_instance)
+    _write_public_key_file(public_key_file, public_key_pem)
+    pub_key = _load_public_key_from_pem(public_key_pem)
+    computed_fp = public_key_fingerprint(pub_key)
+    if computed_fp != pub_key_fp:
+        die(
+            "Bootstrap checkpoint public key fingerprint mismatch\n"
+            f"  stored:   {pub_key_fp}\n"
+            f"  computed: {computed_fp}"
+        )
+
+    policy = _resolve_policy_for_key(
+        target_key_id,
+        provider,
+        target_host,
+        policy_index,
+        key_adapters_by_key_id[target_key_id],
+    )
+    policy_hash = compute_policy_hash(policy)
+    now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    dek = os.urandom(32)
+    ciphertext = encrypt_api_key_v3(dek, raw, target_key_id, policy_hash)
+    wrapped_dek = wrap_dek(pub_key, dek)
+    del dek
+
+    existing_keys[target_key_id] = {
+        "key_id": target_key_id,
+        "enc_version": 3,
+        "pub_key_fp": pub_key_fp,
+        "wrapped_dek": wrapped_dek,
+        "ciphertext": ciphertext,
+        "provider": provider,
+        "target_host": target_host,
+        "policy_id": policy["policy_id"],
+        "policy_hash": policy_hash,
+        "vault_instance": vault_instance,
+        "created_at": now_iso,
+        "label": target_key_id,
+    }
+
+    step(f"Updating {target_key_id} in keys.json")
+    _write_keys_payload(existing_keys)
+    ok(f"Added repaired record for {target_key_id}")
+
+    policy_by_key_id = {}
+    for key_id, record in existing_keys.items():
+        policy_by_key_id[key_id] = _resolve_policy_for_key(
+            key_id,
+            record.get("provider", "unknown"),
+            record["target_host"],
+            policy_index,
+            key_adapters_by_key_id[key_id],
+        )
+
+    step("Publishing structured KV entries after targeted repair")
+    try:
+        _publish_structured_kv(cf_creds, existing_keys, policy_by_key_id)
+    except SystemExit:
+        die("structured publish aborted before registry_version update")
+    ok("Structured KV publication complete")
+
+    if checkpoint_host_env_updates:
+        checkpoint_host_env_updates["SUBUMBRA_SETUP_TOKEN"] = setup_token
+        checkpoint["host_env_updates"] = checkpoint_host_env_updates
+        _write_bootstrap_checkpoint(checkpoint)
+        _sync_host_env_file(checkpoint_host_env_updates)
+
+    if len(existing_keys) >= len(api_keys):
+        step("Deleting transient SUBUMBRA_SETUP_TOKEN from CF Secrets")
+        _delete_worker_secret(cf_creds, "SUBUMBRA_SETUP_TOKEN")
+        if checkpoint_host_env_updates:
+            checkpoint_host_env_updates["SUBUMBRA_SETUP_TOKEN"] = ""
+            checkpoint["host_env_updates"] = checkpoint_host_env_updates
+            _sync_host_env_file(checkpoint_host_env_updates)
+        _delete_bootstrap_checkpoint()
+        ok("All requested keys are present — checkpoint cleared")
+    else:
+        warn("Other missing keys remain — bootstrap checkpoint preserved")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -3030,8 +3399,9 @@ def main() -> None:
         allowed_keys_by_adapter,
         token_ttl_days=token_ttl_days,
     )
+    unique_key_flags = _load_unique_key_flags(list(api_keys.keys()))
 
-    # ── Step 4: deploy worker + push secrets ─────────────────────────────
+    # ── Step 4: Phase 1 — deploy worker + push secrets ───────────────────
     # CRITICAL ORDER: remote secrets are pushed BEFORE keys.json is written.
     # If the deploy fails here, keys.json still holds the old blobs that match
     # the old key pair — the system remains consistent.
@@ -3043,160 +3413,166 @@ def main() -> None:
         provider_id_filter=bootstrapped_providers,
     )
     ok(f"Worker URL: {worker_url}")
+    checkpoint = _load_bootstrap_checkpoint()
+    checkpoint["worker_url"] = worker_url
+    checkpoint["setup_token"] = setup_token
+    host_env_updates = _build_host_env_updates(
+        adapter_registry=adapter_registry,
+        allowed_keys_by_adapter=allowed_keys_by_adapter,
+        adapter_tokens=adapter_tokens,
+        subumbra_hmac_key=subumbra_hmac_key,
+        worker_url=worker_url,
+        setup_token=setup_token,
+    )
+    checkpoint["host_env_updates"] = dict(host_env_updates)
+    _write_bootstrap_checkpoint(checkpoint)
+    _sync_host_env_file(host_env_updates)
 
-    # ── Step 5: generate RSA key pair in Cloudflare and store public key ─
-    step("Calling Cloudflare one-shot setup keygen")
-    public_key_pem, returned_pub_key_fp, _created_at = call_setup_keygen(worker_url, setup_token)
-    ok("Cloudflare setup keygen completed")
+    # ── Step 5: Phase 2 — provision per-key vault public keys ────────────
+    step("Provisioning per-key vault public keys")
+    phase2_material: dict[str, dict[str, str]] = {}
+    phase2_failures: list[tuple[str, str]] = []
+    public_keys_by_vault_instance: dict[str, Any] = {}
+    forced_failure_key = os.environ.get("SUBUMBRA_FORCE_PROVISION_FAILURE_KEY", "").strip()
 
-    step("Deleting transient SUBUMBRA_SETUP_TOKEN from CF Secrets")
-    _delete_worker_secret(cf_creds, "SUBUMBRA_SETUP_TOKEN")
+    for key_id, (provider, _target_host, _auth_header, _auth_prefix, _raw) in api_keys.items():
+        vault_instance = _vault_instance_for_key(key_id, unique_key_flags)
+        checkpoint_entry = checkpoint.get("keys", {}).get(key_id)
+        if not isinstance(checkpoint_entry, dict) or checkpoint_entry.get("vault_instance") != vault_instance:
+            checkpoint_entry = _checkpoint_entry_by_vault_instance(checkpoint, vault_instance)
 
-    step(f"Writing public key → {PUBLIC_KEY_FILE}")
-    try:
-        fd = os.open(str(PUBLIC_KEY_FILE), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
-        with os.fdopen(fd, "wb") as fh:
-            fh.write(public_key_pem.encode("utf-8"))
-    except OSError as exc:
-        die(f"Failed to write public_key.pem: {exc}")
-    ok("Public key written (mode 0644 — safe to store)")
+        if checkpoint_entry is None:
+            try:
+                public_key_pem, pub_key_fp, _created_at = call_setup_keygen(worker_url, setup_token, vault_instance)
+            except BootstrapFlowError as exc:
+                phase2_failures.append((key_id, str(exc)))
+                warn(f"{key_id}: vault provisioning failed")
+                continue
+            _store_checkpoint_entry(
+                checkpoint,
+                key_id,
+                vault_instance=vault_instance,
+                public_key_pem=public_key_pem,
+                pub_key_fp=pub_key_fp,
+            )
+        else:
+            public_key_pem = checkpoint_entry["public_key_pem"]
+            pub_key_fp = checkpoint_entry["pub_key_fp"]
+            _store_checkpoint_entry(
+                checkpoint,
+                key_id,
+                vault_instance=vault_instance,
+                public_key_pem=public_key_pem,
+                pub_key_fp=pub_key_fp,
+            )
 
-    try:
-        pub_key = serialization.load_pem_public_key(public_key_pem.encode("utf-8"))
-    except Exception as exc:
-        die(f"Failed to load returned public key: {exc}")
-    pub_key_fp = public_key_fingerprint(pub_key)
-    if pub_key_fp != returned_pub_key_fp:
-        die(
-            "Cloudflare setup keygen returned inconsistent fingerprint\n"
-            f"  returned: {returned_pub_key_fp}\n"
-            f"  computed: {pub_key_fp}"
-        )
-    info(f"Fingerprint: {pub_key_fp}")
+        public_key_file = _public_key_file_for_key(key_id, vault_instance)
+        _write_public_key_file(public_key_file, public_key_pem)
+        pub_key = _load_public_key_from_pem(public_key_pem)
+        computed_fp = public_key_fingerprint(pub_key)
+        if computed_fp != pub_key_fp:
+            die(
+                "Cloudflare setup keygen returned inconsistent fingerprint\n"
+                f"  returned: {pub_key_fp}\n"
+                f"  computed: {computed_fp}"
+            )
+        info(f"{key_id}: vault_instance={vault_instance} fingerprint={computed_fp}")
+        public_keys_by_vault_instance[vault_instance] = pub_key
+        if forced_failure_key == key_id:
+            phase2_failures.append((key_id, "forced verification failure after vault provisioning"))
+            warn(f"{key_id}: forced verification failure after vault provisioning")
+            continue
+        phase2_material[key_id] = {
+            "vault_instance": vault_instance,
+            "public_key_pem": public_key_pem,
+            "pub_key_fp": pub_key_fp,
+        }
+        ok(f"Provisioned {provider:12s} → {key_id}  →  {vault_instance}")
 
-    # ── Step 6: encrypt API keys (V3 envelope) ───────────────────────────
+    # ── Step 6: Phase 3 — encrypt successful keys ────────────────────────
     step("Encrypting API keys — V3 envelope (RSA-4096-OAEP + AES-256-GCM)")
     keys_payload: dict[str, dict] = {}
 
     for key_id, (provider, target_host, _auth_header, _auth_prefix, raw) in api_keys.items():
+        if key_id not in phase2_material:
+            continue
+        phase2_entry = phase2_material[key_id]
+        vault_instance = phase2_entry["vault_instance"]
+        pub_key = public_keys_by_vault_instance[vault_instance]
+        pub_key_fp = phase2_entry["pub_key_fp"]
         policy = policy_by_key_id[key_id]
         policy_hash = compute_policy_hash(policy)
         dek = os.urandom(32)
         ciphertext = encrypt_api_key_v3(dek, raw, key_id, policy_hash)
         wrapped_dek = wrap_dek(pub_key, dek)
         keys_payload[key_id] = {
-            "key_id":      key_id,
+            "key_id": key_id,
             "enc_version": 3,
-            "pub_key_fp":  pub_key_fp,
+            "pub_key_fp": pub_key_fp,
             "wrapped_dek": wrapped_dek,
-            "ciphertext":  ciphertext,
-            "provider":    provider,
+            "ciphertext": ciphertext,
+            "provider": provider,
             "target_host": target_host,
-            "policy_id":   policy["policy_id"],
+            "policy_id": policy["policy_id"],
             "policy_hash": policy_hash,
-            "created_at":  now_iso,
-            "label":       key_id,
+            "vault_instance": vault_instance,
+            "created_at": now_iso,
+            "label": key_id,
         }
         del dek
-        ok(f"Encrypted {provider:12s} → {key_id}  →  {_binding_label(key_adapters_by_key_id[key_id])}")
+        ok(
+            f"Encrypted {provider:12s} → {key_id}  →  "
+            f"{_binding_label(key_adapters_by_key_id[key_id])}  →  {vault_instance}"
+        )
 
-    # ── Step 7: atomically write encrypted blobs ─────────────────────────
-    # Write to a temp file in the same directory, then os.replace() for atomic
-    # promotion.  subumbra-keys will never read a partially written file.
-    # Mode 0o644: keys.json holds ciphertext only — safe to be world-readable.
-    # The subumbra-keys container runs as a non-root 'subumbra' user and must be able
-    # to read this file.  runtime.env (auth tokens) stays at 0o600.
+    # ── Step 7: Phase 4 — write successful keys only ─────────────────────
     step(f"Atomically writing encrypted blobs → {KEYS_FILE}")
-    tmp_keys = KEYS_FILE.with_suffix(".json.tmp")
-    try:
-        fd = os.open(str(tmp_keys), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
-        with os.fdopen(fd, "w") as fh:
-            json.dump(keys_payload, fh, indent=2)
-            fh.write("\n")
-        os.replace(str(tmp_keys), str(KEYS_FILE))
-    except OSError as exc:
-        die(f"Failed to write keys.json: {exc}")
+    _write_keys_payload(keys_payload)
     ok(f"Wrote {len(keys_payload)} key blob(s) — atomic rename complete")
     info("Blobs are useless without the CF private key — safe to store")
 
     # ── Step 8: publish structured KV ────────────────────────────────────
     step("Publishing structured KV entries to Cloudflare KV")
     try:
-        _publish_structured_kv(cf_creds, keys_payload, policy_by_key_id)
+        _publish_structured_kv(
+            cf_creds,
+            keys_payload,
+            {key_id: policy_by_key_id[key_id] for key_id in keys_payload},
+        )
     except SystemExit:
         die("structured publish aborted before registry_version update")
     ok("structured publish complete")
+
+    primary_pub_key_fp = next(
+        (
+            entry["pub_key_fp"]
+            for entry in phase2_material.values()
+            if entry["vault_instance"] == "vault"
+        ),
+        next(iter(phase2_material.values()), {}).get("pub_key_fp", ""),
+    )
 
     # ── Step 9: write runtime env with restricted permissions ────────────
     # SECURITY: These tokens are privileged secrets.  Write with mode 0600
     # and do NOT print values to stdout (which may be captured in CI/CD logs).
     step(f"Writing runtime env → {RUNTIME_ENV_OUT}")
-    runtime_env_lines = [
-        f"# Generated by subumbra-bootstrap on {now_iso}",
-        "# PRIVILEGED — treat like an API key; restrict access to this file",
-        f"SUBUMBRA_ADAPTER_REGISTRY={json.dumps(adapter_registry, separators=(',', ':'))}",
-        f"PROXY_ALLOWED_KEYS={','.join(allowed_keys_by_adapter['subumbra-proxy'])}",
-        f"UI_ALLOWED_KEYS={','.join(allowed_keys_by_adapter['subumbra-ui'])}",
-        f"SUBUMBRA_TOKEN_PROXY={adapter_tokens['subumbra-proxy']}",
-        f"SUBUMBRA_TOKEN_UI={adapter_tokens['subumbra-ui']}",
-    ]
-    if "subumbra-probe" in allowed_keys_by_adapter:
-        runtime_env_lines.append(
-            f"PROBE_ALLOWED_KEYS={','.join(allowed_keys_by_adapter['subumbra-probe'])}"
-        )
-        runtime_env_lines.append(
-            f"SUBUMBRA_TOKEN_PROBE={adapter_tokens['subumbra-probe']}"
-        )
-    for adapter_id in allowed_keys_by_adapter:
-        if adapter_id not in BUILTIN_ADAPTER_IDS:
-            runtime_env_lines.append(
-                f"SUBUMBRA_TOKEN_{_normalize_adapter_id(adapter_id)}={adapter_tokens[adapter_id]}"
-            )
-    runtime_env_lines.extend(
-        [
-            f"SUBUMBRA_HMAC_KEY={subumbra_hmac_key}",
-            f"CF_WORKER_URL={worker_url}",
-            "# Public key fingerprint (audit trail — not sensitive)",
-            f"WORKER_KEY_FINGERPRINT={pub_key_fp}",
-        ]
+    runtime_env_lines = _build_runtime_env_lines(
+        now_iso=now_iso,
+        adapter_registry=adapter_registry,
+        allowed_keys_by_adapter=allowed_keys_by_adapter,
+        adapter_tokens=adapter_tokens,
+        subumbra_hmac_key=subumbra_hmac_key,
+        worker_url=worker_url,
+        primary_pub_key_fp=primary_pub_key_fp,
     )
-    runtime_env_content = "\n".join(runtime_env_lines) + "\n"
-    try:
-        fd = os.open(str(RUNTIME_ENV_OUT), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as fh:
-            fh.write(runtime_env_content)
-    except OSError as exc:
-        die(f"Failed to write runtime.env: {exc}")
-    ok("Runtime env written with mode 0600")
+    _write_runtime_env_file(runtime_env_lines)
+    _sync_host_env_file(host_env_updates)
 
-    host_env_updates = {
-        "SUBUMBRA_ADAPTER_REGISTRY": json.dumps(adapter_registry, separators=(",", ":")),
-        "PROXY_ALLOWED_KEYS": ",".join(allowed_keys_by_adapter["subumbra-proxy"]),
-        "UI_ALLOWED_KEYS": ",".join(allowed_keys_by_adapter["subumbra-ui"]),
-        "SUBUMBRA_TOKEN_PROXY": adapter_tokens["subumbra-proxy"],
-        "SUBUMBRA_TOKEN_UI": adapter_tokens["subumbra-ui"],
-        "SUBUMBRA_HMAC_KEY": subumbra_hmac_key,
-        "CF_WORKER_URL": worker_url,
-        # Persist locally for operator/verification reference after the transient
-        # Cloudflare secret has already been used and deleted.
-        "SUBUMBRA_SETUP_TOKEN": setup_token,
-    }
-    if "subumbra-probe" in allowed_keys_by_adapter:
-        host_env_updates["PROBE_ALLOWED_KEYS"] = ",".join(allowed_keys_by_adapter["subumbra-probe"])
-        host_env_updates["SUBUMBRA_TOKEN_PROBE"] = adapter_tokens["subumbra-probe"]
-    for adapter_id in allowed_keys_by_adapter:
-        if adapter_id not in BUILTIN_ADAPTER_IDS:
-            host_env_updates[f"SUBUMBRA_TOKEN_{_normalize_adapter_id(adapter_id)}"] = adapter_tokens[adapter_id]
-
-    if HOST_ENV_FILE.is_file():
-        try:
-            _upsert_env_file(HOST_ENV_FILE, host_env_updates)
-            os.chmod(HOST_ENV_FILE, 0o600)
-        except OSError as exc:
-            die(f"Failed to update host env file {HOST_ENV_FILE}: {exc}")
-        ok(f"Repo-local env updated via {HOST_ENV_FILE}")
-    else:
-        info(f"Host env sync skipped — {HOST_ENV_FILE} is unavailable")
+    if not phase2_failures:
+        step("Deleting transient SUBUMBRA_SETUP_TOKEN from CF Secrets")
+        _delete_worker_secret(cf_creds, "SUBUMBRA_SETUP_TOKEN")
+        _delete_bootstrap_checkpoint()
+        ok("Bootstrap checkpoint cleared")
 
     # ── Step 10: zero sensitive memory ───────────────────────────────────
     step("Clearing sensitive values from memory")
@@ -3214,6 +3590,18 @@ def main() -> None:
     del cf_creds
     gc.collect()
     ok("Sensitive memory cleared (best-effort)")
+
+    if phase2_failures:
+        print("\n" + "─" * 70)
+        print("  Bootstrap completed with partial success")
+        print("  Successful records are live; failed keys were skipped:")
+        for key_id, message in phase2_failures:
+            print(f"    • {key_id}: {message.splitlines()[0]}")
+        print("\n  Retry each failed key with:")
+        for key_id, _message in phase2_failures:
+            print(f"    ./bootstrap.sh --provision {key_id}")
+        print("─" * 70)
+        sys.exit(1)
 
     if shred_paths:
         print("\n" + "─" * 70)
@@ -3256,20 +3644,27 @@ def main() -> None:
        See docs/adapter-contract.md for the canonical integration reference.
 
   V3 envelope encryption active:
-    Public key:    {PUBLIC_KEY_FILE}
-    Fingerprint:   {pub_key_fp}
+    Shared key:    {PUBLIC_KEY_FILE}
+    Fingerprint:   {primary_pub_key_fp or "(unique-vault only run)"}
     Per-key rotate: existing V3 records only via docker compose --profile bootstrap run --rm -it bootstrap --rotate
     Policy rotate: V3 policy refresh only via docker compose --profile bootstrap run --rm -it bootstrap --rotate-policy
+    Targeted repair: ./bootstrap.sh --provision <key_id>
     V2 migration:  full bootstrap required
 """))
 
 
 if __name__ == "__main__":
-    selected_modes = sum(flag in sys.argv for flag in ("--push-registry", "--rotate", "--rotate-policy"))
+    selected_modes = sum(flag in sys.argv for flag in ("--push-registry", "--rotate", "--rotate-policy", "--provision"))
     if selected_modes > 1:
-        die("--push-registry, --rotate, and --rotate-policy are mutually exclusive")
+        die("--push-registry, --rotate, --rotate-policy, and --provision are mutually exclusive")
     if "--push-registry" in sys.argv:
         run_push_registry()
+    elif "--provision" in sys.argv:
+        try:
+            target_key_id = sys.argv[sys.argv.index("--provision") + 1]
+        except IndexError:
+            die("--provision requires <key_id>")
+        run_provision_key(target_key_id)
     elif "--rotate-policy" in sys.argv:
         run_rotate_policy()
     elif "--rotate" in sys.argv:

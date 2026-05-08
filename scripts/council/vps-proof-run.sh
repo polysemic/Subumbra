@@ -125,7 +125,7 @@ ssh "$remote_host" "mkdir -p '${remote_repo}/council'"
 scp -r "${repo_root}/council/${round}" "${remote_host}:${remote_repo}/council/" >/dev/null
 
 set +e
-ssh "$remote_host" \
+ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=20 "$remote_host" \
     "ROUND='$round' AGENT='$agent' BRANCH='$branch' MODE='$mode' RUN_ID='$run_id' REPO='$remote_repo' BUILD_TARGETS='$build_targets_string' DRY_RUN='$dry_run' bash -s" >"$local_ssh_log" 2>&1 <<'REMOTE'
 set -euo pipefail
 
@@ -343,6 +343,7 @@ apply_worker_name() {
 }
 
 install_fresh_once() {
+    local bootstrap_status=0
     prepare_fresh_workspace
     cd "$workdir"
     if [[ -f .env.bootstrap_bak ]]; then
@@ -391,7 +392,18 @@ PY
     fi
     # Explicit exit checks: run_stage calls functions via `if ! fn`, which
     # disables set -e inside the function body. Each step must bail manually.
-    ./bootstrap.sh || return 1
+    ./bootstrap.sh 2>&1 | tee "${artifact_dir}/bootstrap.log" || bootstrap_status=$?
+    if [[ "$bootstrap_status" -ne 0 ]]; then
+        if [[ -f "council/${round}/bootstrap-repair.sh" ]]; then
+            BOOTSTRAP_ARTIFACT_DIR="$artifact_dir" \
+                ROUND="$round" \
+                AGENT="$agent" \
+                RUN_ID="$run_id" \
+                bash "council/${round}/bootstrap-repair.sh" || return 1
+        else
+            return "$bootstrap_status"
+        fi
+    fi
     ./scripts/council/reset.sh || return 1
     ./scripts/council/preflight.sh || return 1
 }
@@ -408,7 +420,7 @@ update_existing_stack() {
 
 verify_once() {
     local status=0
-    (cd "$workdir" && VERIFY_MODE="$mode" RUN_ID_OVERRIDE="$run_id" AGENT="$agent" ./scripts/council/verify.sh "$round") || status=$?
+    (cd "$workdir" && CLEAN_RUN_ARTIFACT_DIR="$artifact_dir" VERIFY_MODE="$mode" RUN_ID_OVERRIDE="$run_id" AGENT="$agent" ./scripts/council/verify.sh "$round") || status=$?
     if [[ "$workdir" != "$repo" && -d "${workdir}/council/${round}/runs/${run_id}" ]]; then
         cp -R "${workdir}/council/${round}/runs/${run_id}/." "$artifact_dir/"
     fi

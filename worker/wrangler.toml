@@ -7,21 +7,13 @@ compatibility_date = "2024-09-23"
 
 # ── Durable Objects ───────────────────────────────────────────────────────────
 [[durable_objects.bindings]]
-name       = "SUBUMBRA_PROXY"      # env.SUBUMBRA_PROXY in Worker code
-class_name = "SubumbraProxy"       # exported class name in worker.js
-
-[[durable_objects.bindings]]
 name       = "SUBUMBRA_VAULT"      # env.SUBUMBRA_VAULT in Worker code
 class_name = "SubumbraVault"       # exported class name in worker.js
-
-# Required: tell CF about the DO class so it can provision storage
-[[migrations]]
-tag         = "v1"
-new_classes = ["SubumbraProxy"]
 
 [[migrations]]
 tag = "v2"
 new_sqlite_classes = ["SubumbraVault"]
+
 
 # ── Observability ─────────────────────────────────────────────────────────────
 [observability]
