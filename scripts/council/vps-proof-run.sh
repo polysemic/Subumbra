@@ -343,6 +343,7 @@ apply_worker_name() {
 }
 
 install_fresh_once() {
+    local bootstrap_status=0
     prepare_fresh_workspace
     cd "$workdir"
     if [[ -f .env.bootstrap_bak ]]; then
@@ -391,7 +392,18 @@ PY
     fi
     # Explicit exit checks: run_stage calls functions via `if ! fn`, which
     # disables set -e inside the function body. Each step must bail manually.
-    ./bootstrap.sh || return 1
+    ./bootstrap.sh 2>&1 | tee "${artifact_dir}/bootstrap.log" || bootstrap_status=$?
+    if [[ "$bootstrap_status" -ne 0 ]]; then
+        if [[ -f "council/${round}/bootstrap-repair.sh" ]]; then
+            BOOTSTRAP_ARTIFACT_DIR="$artifact_dir" \
+                ROUND="$round" \
+                AGENT="$agent" \
+                RUN_ID="$run_id" \
+                bash "council/${round}/bootstrap-repair.sh" || return 1
+        else
+            return "$bootstrap_status"
+        fi
+    fi
     ./scripts/council/reset.sh || return 1
     ./scripts/council/preflight.sh || return 1
 }
