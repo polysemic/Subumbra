@@ -3183,6 +3183,15 @@ def main() -> None:
         ok("Deleted prior provider-registry KV namespace")
         for key_id in api_keys.keys():
             _delete_file_if_present(_public_key_file_for_key(key_id, _vault_instance_for_key(key_id, unique_key_flags)))
+        step("Re-deploying Worker after KV namespace reset")
+        worker_url = deploy_worker(
+            cf_creds,
+            adapter_tokens, subumbra_hmac_key,
+            setup_token,
+            provider_id_filter=bootstrapped_providers,
+        )
+        ok(f"Worker re-bound after reset: {worker_url}")
+        host_env_updates["CF_WORKER_URL"] = worker_url
         checkpoint = {
             "worker_url": worker_url,
             "setup_token": setup_token,
