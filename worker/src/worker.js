@@ -26,40 +26,6 @@
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
 
-function validateProviderRegistry(registry) {
-  const REQUIRED = ["provider_id", "target_host", "auth_header", "auth_prefix"];
-  const seenIds = new Set();
-  const seenHosts = new Set();
-
-  if (!Array.isArray(registry)) {
-    throw new Error("providers.json: top-level value must be an array");
-  }
-
-  for (const entry of registry) {
-    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-      throw new Error(`providers.json: each entry must be an object: ${JSON.stringify(entry)}`);
-    }
-
-    for (const field of REQUIRED) {
-      if (typeof entry[field] !== "string") {
-        throw new Error(
-          `providers.json: entry missing or non-string field '${field}': ${JSON.stringify(entry)}`
-        );
-      }
-    }
-
-    if (seenIds.has(entry.provider_id)) {
-      throw new Error(`providers.json: duplicate provider_id '${entry.provider_id}'`);
-    }
-    if (seenHosts.has(entry.target_host)) {
-      throw new Error(`providers.json: duplicate target_host '${entry.target_host}'`);
-    }
-
-    seenIds.add(entry.provider_id);
-    seenHosts.add(entry.target_host);
-  }
-}
-
 function parseStructuredRegistryJson(raw, keyName) {
   let parsed;
   try {
@@ -136,20 +102,6 @@ async function getRegistryEntry(env, keyId) {
     const err = new Error(`policy:${policyId} missing target.host`);
     err.code = "registry_invalid_schema";
     throw err;
-  }
-
-  let template = null;
-  const templateName = keyEntry.template_name;
-  if (typeof templateName === "string" && templateName) {
-    const templateRaw = await env.PROVIDER_REGISTRY_KV.get(`template:${templateName}`, {
-      cacheTtl: 30,
-    });
-    if (!templateRaw) {
-      const err = new Error(`template:${templateName} missing`);
-      err.code = "registry_missing";
-      throw err;
-    }
-    template = parseStructuredRegistryJson(templateRaw, `template:${templateName}`);
   }
 
   if (keyEntry.target_host !== policyTarget.host) {

@@ -101,9 +101,7 @@ CHECKPOINT_FILE = DATA_DIR / "bootstrap-checkpoint.json"
 SYSTEM_INTEGRITY_FILE = DATA_DIR / "system-integrity.json"
 HOST_ENV_FILE   = Path("/app/host-env")
 WORKER_SRC      = Path("/app/worker")
-PROVIDERS_FILE  = Path("/app/providers.json")
 MANIFEST_FILE   = Path("/app/subumbra.json")
-CUSTOM_PROVIDER_REGISTRY_FILE = DATA_DIR / "custom-providers.json"
 KV_CONFIG_FILE = DATA_DIR / "kv-config.json"
 STRUCTURED_KV_SCHEMA_VERSION = "1"
 
@@ -410,74 +408,12 @@ def _sync_host_env_file(host_env_updates: dict[str, str]) -> None:
         info(f"Host env sync skipped — {HOST_ENV_FILE} is unavailable")
 
 
-def _load_provider_registry() -> list[dict]:
-    """Load and validate the shared built-in provider registry."""
-    reg_path = PROVIDERS_FILE
-    try:
-        with reg_path.open() as fh:
-            entries = json.load(fh)
-    except (FileNotFoundError, json.JSONDecodeError) as exc:
-        die(f"Cannot load provider registry at {reg_path}: {exc}")
-
-    if not isinstance(entries, list):
-        die("providers.json: top-level value must be a JSON array")
-
-    required = {"provider_id", "target_host", "auth_header", "auth_prefix", "env_var"}
-    seen_ids: set[str] = set()
-    seen_hosts: set[str] = set()
-    seen_vars: set[str] = set()
-
-    for entry in entries:
-        if not isinstance(entry, dict):
-            die(f"providers.json: each entry must be an object: {entry!r}")
-
-        missing = required - entry.keys()
-        if missing:
-            die(f"providers.json: entry missing fields {sorted(missing)}: {entry}")
-
-        if not all(isinstance(entry[field], str) for field in required):
-            die(f"providers.json: all fields must be strings: {entry}")
-
-        provider_id = entry["provider_id"]
-        target_host = entry["target_host"]
-        env_var = entry["env_var"]
-
-        if provider_id in seen_ids:
-            die(f"providers.json: duplicate provider_id '{provider_id}'")
-        if target_host in seen_hosts:
-            die(f"providers.json: duplicate target_host '{target_host}'")
-        if not env_var:
-            die(f"providers.json: 'env_var' must be a non-empty string: {entry}")
-        if env_var in seen_vars:
-            die(f"providers.json: duplicate env_var '{env_var}'")
-
-        seen_ids.add(provider_id)
-        seen_hosts.add(target_host)
-        seen_vars.add(env_var)
-
-    return entries
-
-
-_REGISTRY = _load_provider_registry()
-BUILTIN_PROVIDER_BY_ID = {
-    entry["provider_id"]: entry
-    for entry in _REGISTRY
-}
-PROVIDER_HOSTS: dict[str, str] = {
-    entry["provider_id"]: entry["target_host"]
-    for entry in _REGISTRY
-}
-KNOWN_PROVIDERS: list[tuple[str, str]] = [
-    (entry["provider_id"], entry["env_var"])
-    for entry in _REGISTRY
-]
-
 # Maps both Subumbra canonical env var names AND common standalone-app aliases
 # to their provider_id. Both sides must be supported so that migration from a
 # standard LiteLLM .env (which uses ANTHROPIC_API_KEY) and the CI path (which
 # uses ANTHROPIC_KEY) both work.
 IMPORT_PROVIDER_WHITELIST: dict[str, str] = {
-    # Subumbra canonical names (from providers.json env_var field)
+    # Subumbra canonical secret refs retained for legacy import discovery
     "ANTHROPIC_KEY":        "anthropic",
     "OPENAI_KEY":           "openai",
     "GROQ_KEY":             "groq",
@@ -778,6 +714,25 @@ def _effective_manifest_adapters(adapters: list[str]) -> list[str]:
     return list(adapters) if adapters else ["subumbra-proxy"]
 
 
+def _auth_metadata_from_policy(policy: dict[str, Any], source: str) -> tuple[str, str]:
+    auth = policy.get("auth")
+    if not isinstance(auth, dict):
+        _policy_die(source, "auth must be an object")
+    scheme = auth.get("scheme")
+    if scheme == "bearer":
+        return "authorization", "Bearer "
+    if scheme == "basic":
+        return "authorization", "Basic "
+    if scheme == "header":
+        header_name = auth.get("header_name")
+        if not isinstance(header_name, str) or not header_name:
+            _policy_die(source, "auth.header_name must be a non-empty string")
+        return header_name, ""
+    if scheme == "query":
+        return "", ""
+    _policy_die(source, f"auth.scheme {scheme!r} is invalid")
+
+
 def _normalize_manifest_record(record: Any, idx: int) -> dict[str, Any]:
     source = f"subumbra.json.keys[{idx}]"
     if not isinstance(record, dict):
@@ -795,9 +750,6 @@ def _normalize_manifest_record(record: Any, idx: int) -> dict[str, Any]:
     provider = record.get("provider")
     if not isinstance(provider, str) or not provider:
         _manifest_die(f"{source}.provider must be a non-empty string")
-    provider_entry = BUILTIN_PROVIDER_BY_ID.get(provider)
-    if provider_entry is None:
-        _manifest_die(f"{source}.provider {provider!r} is not available in the built-in catalog")
 
     secret_ref = record.get("secret_ref")
     if not isinstance(secret_ref, str) or not secret_ref.strip():
@@ -834,15 +786,11 @@ def _normalize_manifest_record(record: Any, idx: int) -> dict[str, Any]:
         )
     if normalized_policy.get("source") != "env":
         _manifest_die(f"{source}.policy.source must be 'env' for direct secret bootstrap")
-    if normalized_policy["target"]["host"] != provider_entry["target_host"]:
-        _manifest_die(
-            f"{source}.policy.target.host {normalized_policy['target']['host']!r} "
-            f"does not match provider host {provider_entry['target_host']!r}"
-        )
     if sorted(_policy_adapter_ids(normalized_policy)) != sorted(effective_adapters):
         _manifest_die(
             f"{source}.policy.allow.adapters does not match adapters for key_id {key_id!r}"
         )
+    auth_header, auth_prefix = _auth_metadata_from_policy(normalized_policy, f"{source}.policy")
 
     return {
         "key_id": key_id,
@@ -853,10 +801,9 @@ def _normalize_manifest_record(record: Any, idx: int) -> dict[str, Any]:
         "effective_adapters": effective_adapters,
         "unique_vault": unique_vault,
         "policy": normalized_policy,
-        "target_host": provider_entry["target_host"],
-        "auth_header": provider_entry["auth_header"],
-        "auth_prefix": provider_entry["auth_prefix"],
-        "template_name": provider_entry["provider_id"],
+        "target_host": normalized_policy["target"]["host"],
+        "auth_header": auth_header,
+        "auth_prefix": auth_prefix,
     }
 
 
@@ -891,86 +838,10 @@ def _load_manifest_records() -> list[dict[str, Any]]:
     return normalized_records
 
 
-def _auth_scheme_from_provider_entry(provider_entry: dict[str, str]) -> str:
-    auth_header = provider_entry["auth_header"].lower()
-    auth_prefix = provider_entry["auth_prefix"]
-    if auth_header == "authorization" and auth_prefix == "Bearer ":
-        return "bearer"
-    if auth_header == "authorization" and auth_prefix == "Basic ":
-        return "basic"
-    return "header"
-
 def _binding_policy_id(key_id: str, allowed_adapters: list[str]) -> str:
     if "subumbra-proxy" in allowed_adapters:
         return f"auto-compat-{key_id}"
     return f"auto-app-{key_id}"
-
-
-def _synthesize_builtin_policy(
-    key_id: str,
-    provider: str,
-    allowed_adapters: list[str],
-) -> dict[str, Any] | None:
-    if provider not in BUILTIN_PROVIDER_BY_ID:
-        return None
-    provider_entry = BUILTIN_PROVIDER_BY_ID[provider]
-    capability_class = "custom_rest" if provider in NON_LLM_BUILTIN_PROVIDERS else "llm"
-    protocol = "openai_compatible" if provider in OPENAI_COMPATIBLE_BUILTIN_PROVIDERS else "http_rest"
-    auth: dict[str, Any] = {"scheme": _auth_scheme_from_provider_entry(provider_entry)}
-    if auth["scheme"] == "header":
-        auth["header_name"] = provider_entry["auth_header"]
-    return {
-        "key_id": key_id,
-        "policy_id": _binding_policy_id(key_id, allowed_adapters),
-        "protocol": protocol,
-        "capability_class": capability_class,
-        "source": "env",
-        "target": {"host": provider_entry["target_host"]},
-        "auth": auth,
-        "allow": {
-            "adapters": allowed_adapters,
-            "methods": ["GET", "POST"],
-            "path_prefixes": [provider_entry.get("api_base_path") or "/v1/chat/completions"],
-            "content_types": ["application/json"],
-            "max_body_bytes": 1048576,
-        },
-    }
-
-
-def _resolve_policy_for_direct_secret(
-    key_id: str,
-    provider: str,
-    policy_index: dict[str, dict[str, Any]],
-    allowed_adapters: list[str],
-) -> dict[str, Any]:
-    policy = policy_index.get(key_id)
-    if policy is not None:
-        if policy.get("source") != "env":
-            _automation_fail(
-                f"Automation mode: key_id {key_id} policy source must be 'env' for direct secret ingestion"
-            )
-        if sorted(_policy_adapter_ids(policy)) != sorted(allowed_adapters):
-            _automation_fail(
-                f"Automation mode: adapter binding for {key_id} does not match SUBUMBRA_POLICY_PATH\n"
-                f"  requested: {', '.join(allowed_adapters)}\n"
-                f"  policy   : {', '.join(_policy_adapter_ids(policy))}"
-            )
-        return policy
-    synthesized = _synthesize_builtin_policy(key_id, provider, allowed_adapters)
-    if synthesized is not None:
-        return synthesized
-    _automation_fail(
-        f"Automation mode: refusing policy-less secret for key_id {key_id} provider {provider}"
-    )
-
-
-def _require_import_policy(key_id: str, policy_index: dict[str, dict[str, Any]], import_path: str) -> dict[str, Any]:
-    policy = policy_index.get(key_id)
-    if policy is None or policy.get("source") != "import_path":
-        _automation_fail(
-            f"Automation mode: import path {import_path} requires matching policy with source 'import_path' for key_id {key_id}"
-        )
-    return policy
 
 
 def _write_system_integrity(worker_name: str, worker_url: str, bundle_sha256: str) -> None:
@@ -992,98 +863,6 @@ def _hash_worker_bundle(work_dir: Path) -> str:
     return hashlib.sha256(entrypoint.read_bytes()).hexdigest()
 
 
-def _validate_live_provider_registry(entries: list[dict], source: str) -> list[dict]:
-    required = {"provider_id", "target_host", "auth_header", "auth_prefix"}
-    if not isinstance(entries, list):
-        die(f"{source}: top-level value must be a JSON array")
-
-    seen_ids: set[str] = set()
-    seen_hosts: set[str] = set()
-    for entry in entries:
-        if not isinstance(entry, dict):
-            die(f"{source}: each entry must be an object: {entry!r}")
-        missing = required - entry.keys()
-        if missing:
-            die(f"{source}: entry missing fields {sorted(missing)}: {entry}")
-        if not all(isinstance(entry[field], str) for field in required):
-            die(f"{source}: all fields must be strings: {entry}")
-        provider_id = entry["provider_id"]
-        target_host = entry["target_host"]
-        if provider_id in seen_ids:
-            die(f"{source}: duplicate provider_id '{provider_id}'")
-        if target_host in seen_hosts:
-            die(f"{source}: duplicate target_host '{target_host}'")
-        seen_ids.add(provider_id)
-        seen_hosts.add(target_host)
-    return entries
-
-
-def _load_custom_provider_registry() -> list[dict]:
-    if not CUSTOM_PROVIDER_REGISTRY_FILE.exists():
-        return []
-    try:
-        with CUSTOM_PROVIDER_REGISTRY_FILE.open() as fh:
-            entries = json.load(fh)
-    except (FileNotFoundError, json.JSONDecodeError) as exc:
-        die(f"Cannot load custom provider registry at {CUSTOM_PROVIDER_REGISTRY_FILE}: {exc}")
-    return _validate_live_provider_registry(entries, "custom-providers.json")
-
-
-def _project_builtin_provider_registry(entries: list[dict]) -> list[dict]:
-    projected = [
-        {
-            "provider_id": entry["provider_id"],
-            "target_host": entry["target_host"],
-            "auth_header": entry["auth_header"],
-            "auth_prefix": entry["auth_prefix"],
-        }
-        for entry in entries
-    ]
-    return _validate_live_provider_registry(projected, "projected built-in provider registry")
-
-
-def _build_live_provider_registry_json(
-    provider_id_filter: "set[str] | None" = None,
-) -> str:
-    """Build the JSON blob pushed to Cloudflare KV.
-
-    provider_id_filter: when set, only built-in entries whose provider_id is in
-    the filter are included.  Custom provider entries are always included.
-    Pass None (default) to include all built-ins, e.g. for --push-registry.
-    """
-    builtins = _project_builtin_provider_registry(_load_provider_registry())
-    if provider_id_filter is not None:
-        builtins = [e for e in builtins if e["provider_id"] in provider_id_filter]
-    custom = _load_custom_provider_registry()
-    merged = builtins + custom
-    _validate_live_provider_registry(merged, "merged live provider registry")
-    return json.dumps(merged, separators=(",", ":"))
-
-
-def _load_template_registry() -> dict[str, dict[str, str]]:
-    templates: dict[str, dict[str, str]] = {}
-    for entry in _load_provider_registry():
-        templates[entry["provider_id"]] = {
-            "provider_id": entry["provider_id"],
-            "target_host": entry["target_host"],
-            "auth_header": entry["auth_header"],
-            "auth_prefix": entry["auth_prefix"],
-            "api_base_path": entry.get("api_base_path", ""),
-        }
-    for entry in _load_custom_provider_registry():
-        templates.setdefault(
-            entry["provider_id"],
-            {
-                "provider_id": entry["provider_id"],
-                "target_host": entry["target_host"],
-                "auth_header": entry["auth_header"],
-                "auth_prefix": entry["auth_prefix"],
-                "api_base_path": "",
-            },
-        )
-    return templates
-
-
 def _resolve_policy_for_key(
     key_id: str,
     provider: str,
@@ -1093,32 +872,26 @@ def _resolve_policy_for_key(
 ) -> dict[str, Any]:
     policy = policy_index.get(key_id)
     if policy is None:
-        policy = _synthesize_builtin_policy(key_id, provider, allowed_adapters)
-    if policy is None:
-        die(f"No policy found for key_id {key_id!r}")
+        die(
+            f"No policy found for key_id {key_id!r}.\n"
+            "  Manifest-owned routing and policy authority is required after provider catalog removal."
+        )
     if policy["target"]["host"] != target_host:
         die(
             f"Policy host conflict for key_id {key_id!r}: "
             f"policy target.host={policy['target']['host']!r} "
             f"does not match bootstrap target_host={target_host!r}"
         )
+    if sorted(_policy_adapter_ids(policy)) != sorted(allowed_adapters):
+        die(
+            f"Policy adapter conflict for key_id {key_id!r}: "
+            f"policy adapters={', '.join(_policy_adapter_ids(policy))} "
+            f"do not match bootstrap adapters={', '.join(allowed_adapters)}"
+        )
     return policy
 
 
-def _template_for_provider(provider_id: str, target_host: str, *, key_id: str) -> dict[str, str]:
-    template_registry = _load_template_registry()
-    template = template_registry.get(provider_id)
-    if template is None:
-        die(f"No template routing defaults found for provider {provider_id!r} (key_id={key_id!r})")
-    if template.get("target_host") != target_host:
-        die(
-            f"Template host conflict for key_id {key_id!r}: "
-            f"template target_host={template.get('target_host')!r} does not match record target_host={target_host!r}"
-        )
-    return template
-
-
-def _require_fat_record_fields(record: dict[str, Any], key_id: str) -> tuple[dict[str, Any], list[str], str, str, str]:
+def _require_fat_record_fields(record: dict[str, Any], key_id: str) -> tuple[dict[str, Any], list[str]]:
     policy = record.get("policy")
     if not isinstance(policy, dict):
         die(
@@ -1131,29 +904,11 @@ def _require_fat_record_fields(record: dict[str, Any], key_id: str) -> tuple[dic
             f"keys.json record {key_id!r} is missing embedded adapter authority.\n"
             "  Repair the record or re-run full bootstrap."
         )
-    auth_header = record.get("auth_header")
-    if not isinstance(auth_header, str) or not auth_header:
-        die(
-            f"keys.json record {key_id!r} is missing embedded auth_header.\n"
-            "  Repair the record or re-run full bootstrap."
-        )
-    auth_prefix = record.get("auth_prefix")
-    if not isinstance(auth_prefix, str):
-        die(
-            f"keys.json record {key_id!r} is missing embedded auth_prefix.\n"
-            "  Repair the record or re-run full bootstrap."
-        )
-    template_name = record.get("template_name")
-    if not isinstance(template_name, str) or not template_name:
-        die(
-            f"keys.json record {key_id!r} is missing embedded template_name.\n"
-            "  Repair the record or re-run full bootstrap."
-        )
-    return policy, list(adapters), auth_header, auth_prefix, template_name
+    return policy, list(adapters)
 
 
 def _verify_embedded_policy_hash(record: dict[str, Any], key_id: str) -> None:
-    policy, _adapters, _auth_header, _auth_prefix, _template_name = _require_fat_record_fields(record, key_id)
+    policy, _adapters = _require_fat_record_fields(record, key_id)
     stored_policy_id = record.get("policy_id")
     if not isinstance(stored_policy_id, str) or not stored_policy_id.strip():
         die(
@@ -1182,18 +937,13 @@ def _verify_embedded_policy_hash(record: dict[str, Any], key_id: str) -> None:
 def _build_structured_kv_entries(
     keys_payload: dict[str, dict[str, Any]],
 ) -> list[dict[str, str]]:
-    template_registry = _load_template_registry()
     entries: list[dict[str, str]] = []
     published_policy_ids: set[str] = set()
-    published_templates: set[str] = set()
 
     for key_id, record in sorted(keys_payload.items()):
-        policy, _adapters, auth_header, auth_prefix, template_name = _require_fat_record_fields(record, key_id)
+        policy, _adapters = _require_fat_record_fields(record, key_id)
         _verify_embedded_policy_hash(record, key_id)
         provider_id = record["provider"]
-        template = template_registry.get(template_name)
-        if template is None:
-            die(f"No template routing defaults found for template {template_name!r} (key_id={key_id!r})")
 
         key_entry = {
             "key_id": key_id,
@@ -1207,9 +957,6 @@ def _build_structured_kv_entries(
             "policy_hash": record["policy_hash"],
             "created_at": record["created_at"],
             "label": record["label"],
-            "auth_header": auth_header,
-            "auth_prefix": auth_prefix,
-            "template_name": template_name,
         }
         entries.append({"key": f"key:{key_id}", "value": json.dumps(key_entry, separators=(",", ":"))})
 
@@ -1223,64 +970,14 @@ def _build_structured_kv_entries(
             )
             published_policy_ids.add(policy_id)
 
-        if template_name not in published_templates:
-            entries.append(
-                {
-                    "key": f"template:{template_name}",
-                    "value": json.dumps(template, separators=(",", ":")),
-                }
-            )
-            published_templates.add(template_name)
-
     return entries
 
 
-def _upsert_custom_provider_registry_entry(
-    provider_id: str,
-    target_host: str,
-    auth_header: str,
-    auth_prefix: str,
-) -> None:
-    entries = _load_custom_provider_registry()
-    replacement = {
-        "provider_id": provider_id,
-        "target_host": target_host,
-        "auth_header": auth_header,
-        "auth_prefix": auth_prefix,
-    }
-
-    for entry in entries:
-        same_id = entry["provider_id"] == provider_id
-        same_host = entry["target_host"] == target_host
-        if same_id or same_host:
-            if entry != replacement:
-                die(
-                    "custom provider metadata conflict for "
-                    f"provider_id='{provider_id}' or target_host='{target_host}'"
-                )
-            return
-
-    entries.append(replacement)
-    with CUSTOM_PROVIDER_REGISTRY_FILE.open("w") as fh:
-        json.dump(entries, fh, indent=2)
-        fh.write("\n")
-
-
 def _resolve_target_host(provider: str, *, prompt_if_missing: bool) -> str:
-    target_host = PROVIDER_HOSTS.get(provider)
-    if target_host:
-        return target_host
-    if prompt_if_missing:
-        while True:
-            host = input("  Custom target host (e.g. api.example.com): ").strip().lower()
-            if host:
-                return host
-            print("  ✗  Target host cannot be empty.\n")
-    die(
-        f"No target_host mapping for provider '{provider}' in automation mode.\n"
-        "  Automation mode supports only built-in providers in the registry.\n"
-        "  Re-run interactively to add a custom provider:\n"
-        "    docker compose --profile bootstrap run --rm -it bootstrap"
+    _automation_fail(
+        f"No manifest-owned target.host found for provider {provider!r}.\n"
+        "  Provider catalog host resolution is no longer supported.\n"
+        "  Declare routing explicitly in subumbra.json policy.target.host."
     )
 
 
@@ -1886,9 +1583,6 @@ def _build_fat_record(
     policy: dict[str, Any],
     policy_hash: str,
     adapters: list[str],
-    auth_header: str,
-    auth_prefix: str,
-    template_name: str,
     vault_instance: str,
     created_at: str,
     label: str,
@@ -1905,9 +1599,6 @@ def _build_fat_record(
         "policy_hash": policy_hash,
         "policy": policy,
         "adapters": list(adapters),
-        "auth_header": auth_header,
-        "auth_prefix": auth_prefix,
-        "template_name": template_name,
         "vault_instance": vault_instance,
         "created_at": created_at,
         "label": label,
@@ -1921,11 +1612,10 @@ def _build_fat_record(
 def _has_env_credentials() -> bool:
     """
     Return True if the environment contains all required credentials for
-    unattended (CI/automation) mode:
+    unattended manifest-era bootstrap:
       - CF_API_TOKEN     (non-empty)
       - CF_ACCOUNT_ID    (non-empty)
-      - either a manifest file for the Round-1 operator path or
-        at least one provider key from the legacy built-in registry path
+      - subumbra.json exists
 
     Comment-only, whitespace-only, or REPLACE_ME placeholder values do NOT
     satisfy this check — only real non-empty values count.
@@ -1938,14 +1628,7 @@ def _has_env_credentials() -> bool:
     for placeholder in ("REPLACE_ME", "YOUR_TOKEN_HERE", "CHANGEME"):
         if placeholder in cf_token.upper() or placeholder in cf_account.upper():
             return False
-    if MANIFEST_FILE.exists():
-        return True
-    has_provider = any(
-        os.environ.get(env_var, "").strip() and
-        "REPLACE_ME" not in os.environ.get(env_var, "").upper()
-        for _, env_var in KNOWN_PROVIDERS
-    )
-    return has_provider
+    return MANIFEST_FILE.exists()
 
 
 def _has_cf_credentials() -> bool:
@@ -2141,159 +1824,14 @@ def _load_env_fallback(
     int,
 ]:
     """
-    Load credentials from environment variables.
-    Returns (api_keys, cf_creds, allowed_keys_by_adapter, key_adapters_by_key_id, token_ttl_days) in the same shape as
-    run_interactive_wizard().
-
-    api_keys: {key_id: (provider, target_host, auth_header, auth_prefix, raw_secret)}
+    Legacy env-only bootstrap is no longer supported after provider catalog removal.
     cf_creds: {"CF_API_TOKEN": ..., "CF_ACCOUNT_ID": ..., "CF_WORKER_NAME": ...}
     """
-    missing: list[str] = []
-
-    cf_creds: dict[str, str] = {}
-    for var in ("CF_API_TOKEN", "CF_ACCOUNT_ID"):
-        val = os.environ.get(var, "").strip()
-        if not val:
-            missing.append(var)
-        else:
-            cf_creds[var] = val
-
-    # CF_WORKER_NAME may default
-    cf_creds["CF_WORKER_NAME"] = (
-        os.environ.get("CF_WORKER_NAME", "").strip() or "subumbra-proxy"
+    _automation_fail(
+        "Legacy env-only bootstrap is no longer supported after provider catalog removal.\n"
+        "  Author subumbra.json with explicit policy.target.host and policy.auth settings,\n"
+        "  then provide only the referenced secrets in .env.bootstrap."
     )
-    policy_index = _load_policy_index()
-
-    api_keys: dict[str, tuple[str, str, str, str, str]] = {}
-    key_adapters_by_key_id: dict[str, list[str]] = {}
-    missing_key_ids: list[tuple[str, str]] = []
-    custom_adapter_ids = _parse_adapter_ids(os.environ.get("ADAPTER_IDS", ""))
-    declared_adapter_ids: set[str] = set(custom_adapter_ids)
-    allowed_keys_by_adapter: dict[str, list[str]] = {
-        "subumbra-proxy": [],
-        "subumbra-ui": [],
-    }
-    for adapter_id in custom_adapter_ids:
-        allowed_keys_by_adapter[adapter_id] = []
-    for provider, env_var in KNOWN_PROVIDERS:
-        base_key_id_var = _key_id_env_var_name(env_var)
-        provider_entry = BUILTIN_PROVIDER_BY_ID[provider]
-        for slot_idx in range(1, 10):
-            slot_env_var = env_var if slot_idx == 1 else f"{env_var}_{slot_idx}"
-            slot_key_id_var = base_key_id_var if slot_idx == 1 else f"{base_key_id_var}_{slot_idx}"
-            slot_adapter_var = _adapter_binding_env_var_name(slot_env_var)
-            val = os.environ.get(slot_env_var, "").strip()
-            if not val:
-                continue
-            key_id = os.environ.get(slot_key_id_var, "").strip()
-            if not key_id:
-                missing_key_ids.append((slot_env_var, slot_key_id_var))
-                continue
-            if slot_adapter_var not in os.environ:
-                _automation_fail(
-                    f"Automation mode: missing required adapter binding variable {slot_adapter_var} for {slot_env_var}\n"
-                    "  Set it to a comma-separated adapter list or leave it blank for compatibility/simple mode."
-                )
-            if not KEY_ID_RE.fullmatch(key_id):
-                _automation_fail(
-                    f"Automation mode: invalid key_id {key_id!r} from {slot_key_id_var}\n"
-                    f"  Must match ^[a-z0-9][a-z0-9_-]{{2,63}}$"
-                )
-            if key_id in api_keys:
-                existing_provider = api_keys[key_id][0]
-                _automation_fail(
-                    "Automation mode: duplicate key_id requested\n"
-                    f"  key_id      : {key_id}\n"
-                    f"  provider    : {provider}\n"
-                    f"  collides with provider {existing_provider}\n"
-                    f"  env var     : {slot_key_id_var}"
-                )
-            selected_adapter_ids = _parse_key_adapter_ids(
-                os.environ.get(slot_adapter_var, ""),
-                source=f"Automation mode {slot_adapter_var}",
-                declared_adapter_ids=declared_adapter_ids,
-            )
-            _resolve_policy_for_direct_secret(
-                key_id,
-                provider,
-                policy_index,
-                selected_adapter_ids or ["subumbra-proxy"],
-            )
-            api_keys[key_id] = (
-                provider,
-                provider_entry["target_host"],
-                provider_entry["auth_header"],
-                provider_entry["auth_prefix"],
-                val,
-            )
-            _bind_key_to_adapters(
-                key_id,
-                selected_adapter_ids,
-                key_adapters_by_key_id=key_adapters_by_key_id,
-                allowed_keys_by_adapter=allowed_keys_by_adapter,
-            )
-
-    if missing_key_ids:
-        preview = ", ".join(
-            f"{slot_env_var} -> {slot_key_id_var}"
-            for slot_env_var, slot_key_id_var in missing_key_ids[:3]
-        )
-        if len(missing_key_ids) > 3:
-            preview += f", +{len(missing_key_ids) - 3} more"
-        warn(
-            "Automation mode: detected key values without companion key IDs: "
-            + preview
-        )
-
-    for import_path, app_label in _collect_automation_imports():
-        declared_adapter_ids.add(app_label)
-        allowed_keys_by_adapter.setdefault(app_label, [])
-        detected = _parse_env_file(import_path)
-        if not detected:
-            _automation_fail(
-                f"Automation mode: no recognised provider keys found in import path {import_path}"
-            )
-        for env_var, provider_id, raw_value in detected:
-            target_host = _resolve_target_host(provider_id, prompt_if_missing=False)
-            provider_entry = BUILTIN_PROVIDER_BY_ID[provider_id]
-            auth_header = provider_entry["auth_header"]
-            auth_prefix = provider_entry["auth_prefix"]
-            key_id = _next_generated_key_id(provider_id, app_label, api_keys, existing_keys)
-            _require_import_policy(key_id, policy_index, import_path)
-            api_keys[key_id] = (provider_id, target_host, auth_header, auth_prefix, raw_value)
-            _bind_key_to_adapters(
-                key_id,
-                [app_label],
-                key_adapters_by_key_id=key_adapters_by_key_id,
-                allowed_keys_by_adapter=allowed_keys_by_adapter,
-            )
-
-    if not api_keys:
-        missing.append(f"at least one of: {', '.join(ev for _, ev in KNOWN_PROVIDERS)}")
-
-    if missing:
-        _automation_fail(
-            "Automation mode: missing required environment variables:\n"
-            + "\n".join(f"    {v}" for v in missing)
-            + "\n\n  Populate .env.bootstrap with all credentials, or run interactively:\n"
-            + "    docker compose --profile bootstrap run --rm -it bootstrap"
-        )
-
-    if _parse_allowed_keys_csv(os.environ.get("PROXY_ALLOWED_KEYS", "")):
-        _automation_fail(
-            "Automation mode: PROXY_ALLOWED_KEYS is no longer an input contract.\n"
-            "  Use per-key *_ADAPTERS bindings instead."
-        )
-    allowed_keys_by_adapter["subumbra-ui"] = _parse_allowed_keys_csv(os.environ.get("UI_ALLOWED_KEYS", ""))
-    probe_allowed_keys = _parse_allowed_keys_csv(os.environ.get("PROBE_ALLOWED_KEYS", ""))
-    if probe_allowed_keys:
-        allowed_keys_by_adapter["subumbra-probe"] = probe_allowed_keys
-    if allowed_keys_by_adapter["subumbra-ui"]:
-        die("UI_ALLOWED_KEYS must remain empty")
-
-    token_ttl_days = _parse_token_ttl_days(os.environ.get("TOKEN_TTL_DAYS", "90"))
-
-    return api_keys, cf_creds, allowed_keys_by_adapter, key_adapters_by_key_id, token_ttl_days
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2311,284 +1849,13 @@ def run_interactive_wizard(
     list[str],
 ]:
     """
-    Interactive terminal wizard. Requires a real TTY (run with -it).
-    Returns (api_keys, cf_creds, allowed_keys_by_adapter, key_adapters_by_key_id, token_ttl_days, shred_paths):
-      api_keys: {key_id: (provider, target_host, auth_header, auth_prefix, raw_secret)}
-      cf_creds: {"CF_API_TOKEN": ..., "CF_ACCOUNT_ID": ..., "CF_WORKER_NAME": ...}
+    Interactive catalog-era bootstrap is no longer supported after provider catalog removal.
     """
-    policy_index = _load_policy_index()
-
-    # ── Screen 1: Cloudflare Credentials ─────────────────────────────────────
-    print("\n" + "═" * 70)
-    print("  Subumbra Bootstrap — Step 1 of 4: Cloudflare Credentials")
-    print("  These values exist in RAM only for the duration of this session.")
-    print("═" * 70 + "\n")
-    print("  Minimum required CF API Token scopes:")
-    print("    • Account > Workers Scripts > Edit")
-    print("    • Account > Workers KV Storage > Edit\n")
-
-    while True:
-        cf_token = getpass.getpass("  Cloudflare API Token (hidden): ").strip()
-        if cf_token:
-            break
-        print("  ✗  API Token cannot be empty. Please try again.\n")
-
-    while True:
-        cf_account_id = getpass.getpass("  Cloudflare Account ID (hidden): ").strip()
-        if cf_account_id:
-            break
-        print("  ✗  Account ID cannot be empty. Please try again.\n")
-
-    _worker_default = os.environ.get("CF_WORKER_NAME", "subumbra-proxy")
-    cf_worker_name = input(
-        f"  CF Worker name (press Enter for '{_worker_default}'): "
-    ).strip() or _worker_default
-
-    cf_creds: dict[str, str] = {
-        "CF_API_TOKEN":   cf_token,
-        "CF_ACCOUNT_ID":  cf_account_id,
-        "CF_WORKER_NAME": cf_worker_name,
-    }
-
-    declared_adapter_ids = _prompt_declared_adapter_ids()
-    allowed_keys_by_adapter: dict[str, list[str]] = {
-        "subumbra-proxy": [],
-        "subumbra-ui": [],
-    }
-    key_adapters_by_key_id: dict[str, list[str]] = {}
-    for adapter_id in declared_adapter_ids:
-        allowed_keys_by_adapter.setdefault(adapter_id, [])
-
-    # ── Screen 2: Provider API Keys ───────────────────────────────────────────
-    api_keys: dict[str, tuple[str, str, str, str, str]] = {}
-    shred_paths: list[str] = []
-    n_known = len(KNOWN_PROVIDERS)
-    prompted_policy_key_ids: set[str] = set()
-
-    for key_id, policy in sorted(policy_index.items()):
-        if policy.get("source") != "env":
-            continue
-        target_host = policy.get("target", {}).get("host", "")
-        provider = next(
-            (provider_id for provider_id, host in PROVIDER_HOSTS.items() if host == target_host),
-            None,
-        )
-        if provider is None:
-            die(
-                f"Policy-backed interactive env prompt requires a built-in target.host; "
-                f"no built-in provider matches {target_host!r} for key_id {key_id}"
-            )
-        policy_adapters = _policy_adapter_ids(policy)
-        for adapter_id in policy_adapters:
-            if adapter_id not in BUILTIN_ADAPTER_IDS:
-                if adapter_id not in declared_adapter_ids:
-                    declared_adapter_ids.append(adapter_id)
-                    info(f"Registered adapter {adapter_id} from SUBUMBRA_POLICY_PATH for {key_id}")
-                allowed_keys_by_adapter.setdefault(adapter_id, [])
-        provider_entry = BUILTIN_PROVIDER_BY_ID[provider]
-        print("\n" + "─" * 70)
-        print(f"  Policy-backed secret required for {key_id}")
-        print("  This key is declared in SUBUMBRA_POLICY_PATH with source=env.")
-        print("─" * 70)
-        while True:
-            api_key_1 = getpass.getpass(f"  API Key for {key_id} (hidden, Enter to skip for now): ").strip()
-            if not api_key_1:
-                break
-            api_key_2 = getpass.getpass("  Confirm API Key (hidden): ").strip()
-            if api_key_1 != api_key_2:
-                print("  ✗  Keys do not match. Please try again.\n")
-                continue
-            api_keys[key_id] = (
-                provider,
-                provider_entry["target_host"],
-                provider_entry["auth_header"],
-                provider_entry["auth_prefix"],
-                api_key_1,
-            )
-            _bind_key_to_adapters(
-                key_id,
-                [] if policy_adapters == ["subumbra-proxy"] else policy_adapters,
-                key_adapters_by_key_id=key_adapters_by_key_id,
-                allowed_keys_by_adapter=allowed_keys_by_adapter,
-            )
-            prompted_policy_key_ids.add(key_id)
-            ok(f"{provider:12s}  →  {key_id}  →  {_binding_label(key_adapters_by_key_id[key_id])}  (key hidden)")
-            break
-
-    while True:
-        print("\n" + "═" * 70)
-        print("  Subumbra Bootstrap — Step 3 of 4: Provider API Keys")
-        print("  Add provider API keys. Multiple keys per provider are supported.\n")
-        print("  Press Enter with no selection to finish adding keys.\n")
-        print("  Known providers:")
-        for i, (provider, _) in enumerate(KNOWN_PROVIDERS, 1):
-            print(f"    {i}. {provider}")
-        print(f"    {n_known + 1}. Custom provider\n")
-
-        if api_keys:
-            print("  Added so far:")
-            for kid, (prov, _, _, _, _) in api_keys.items():
-                tail = kid.rsplit("_", 1)
-                if len(tail) == 2 and tail[1].isdigit() and kid.startswith(prov + "_"):
-                    app = kid[len(prov) + 1:].rsplit("_", 1)[0]
-                    print(f"    {kid}  ({prov} -> {app})")
-                else:
-                    print(f"    {kid}  ({prov})")
-            print()
-
-        choice = input(f"  Select provider (1-{n_known + 1}, or Enter to finish): ").strip()
-
-        if not choice:
-            if not api_keys:
-                print("\n  ✗  At least one API key is required.\n")
-                continue
-            break
-
-        # Parse numeric choice
-        try:
-            choice_num = int(choice)
-            if not (1 <= choice_num <= n_known + 1):
-                raise ValueError()
-        except ValueError:
-            print(f"\n  ✗  Enter a number between 1 and {n_known + 1}.\n")
-            continue
-
-        if choice_num <= n_known:
-            provider = KNOWN_PROVIDERS[choice_num - 1][0]
-        else:
-            # Custom provider
-            while True:
-                provider = input("  Custom provider name (lowercase letters/numbers): ").strip().lower()
-                if provider and re.match(r'^[a-z][a-z0-9_-]*$', provider):
-                    break
-                print("  ✗  Provider name must start with a letter and contain only lowercase alphanumeric, _ or -.\n")
-
-        target_host = _resolve_target_host(provider, prompt_if_missing=(choice_num > n_known))
-        if choice_num <= n_known:
-            provider_entry = BUILTIN_PROVIDER_BY_ID[provider]
-            auth_header = provider_entry["auth_header"]
-            auth_prefix = provider_entry["auth_prefix"]
-        else:
-            while True:
-                auth_header = input("  Auth header name (e.g. authorization, x-api-key): ").strip()
-                if auth_header:
-                    break
-                print("  ✗  Auth header cannot be empty.\n")
-            auth_prefix = input("  Auth prefix (e.g. Bearer , leave blank for none): ")
-            _upsert_custom_provider_registry_entry(provider, target_host, auth_header, auth_prefix)
-
-        app_label = None
-        key_id = ""
-        if choice_num <= n_known:
-            app_label = _prompt_app_label("  Key label for key_id generation (e.g. litellm, shared): ")
-
-        # Prompt for API key value (twice to confirm)
-        key_prompt_label = provider if choice_num <= n_known else key_id
-        while True:
-            api_key_1 = getpass.getpass(f"  API Key for {key_prompt_label} (hidden): ").strip()
-            if not api_key_1:
-                print("  ✗  API Key cannot be empty.\n")
-                continue
-            api_key_2 = getpass.getpass(f"  Confirm API Key (hidden): ").strip()
-            if api_key_1 != api_key_2:
-                print("  ✗  Keys do not match. Please try again.\n")
-                continue
-            break
-
-        if choice_num <= n_known:
-            duplicate_key_id = _find_duplicate_secret_key_id(api_keys, provider, api_key_1)
-            if duplicate_key_id is not None:
-                create_new = _prompt_duplicate_secret_action(provider, duplicate_key_id)
-                if not create_new:
-                    ok(f"{provider:12s}  →  reusing {duplicate_key_id}  (key hidden)")
-                    continue
-            key_id = _next_generated_key_id(provider, app_label, api_keys, existing_keys)
-            info(f"Generated key_id: {key_id}")
-        else:
-            default_key_id = _default_key_id(provider)
-            while True:
-                key_id_input = input(f"  Key ID [{default_key_id}]: ").strip()
-                key_id = key_id_input or default_key_id
-
-                if not KEY_ID_RE.match(key_id):
-                    print(f"  ✗  Invalid key_id. Must match ^[a-z0-9][a-z0-9_-]{{2,63}}$\n")
-                    continue
-                if key_id in api_keys:
-                    print(f"  ✗  key_id '{key_id}' already added in this session. Choose a different name.\n")
-                    continue
-                if key_id in existing_keys:
-                    ex_provider = existing_keys[key_id].get("provider", "unknown")
-                    if ex_provider != provider:
-                        print(f"\n  ⚠  WARNING: key_id '{key_id}' already exists in keys.json")
-                        print(f"     under provider '{ex_provider}', not '{provider}'.")
-                        confirm = input("     Overwrite? [y/N]: ").strip().lower()
-                        if confirm != "y":
-                            print("  Cancelled. Choose a different key_id.\n")
-                            continue
-                break
-            explicit_policy = policy_index.get(key_id)
-            if explicit_policy is not None and explicit_policy.get("source") != "env":
-                die(f"Policy for key_id {key_id} must use source='env' for direct secret entry")
-            if explicit_policy is None:
-                die(f"Refusing policy-less custom secret for key_id {key_id}")
-
-        selected_adapter_ids = _prompt_key_adapter_ids(key_id, declared_adapter_ids)
-        effective_adapters = selected_adapter_ids or ["subumbra-proxy"]
-        if choice_num <= n_known:
-            _resolve_policy_for_direct_secret(key_id, provider, policy_index, effective_adapters)
-        api_keys[key_id] = (provider, target_host, auth_header, auth_prefix, api_key_1)
-        _bind_key_to_adapters(
-            key_id,
-            selected_adapter_ids,
-            key_adapters_by_key_id=key_adapters_by_key_id,
-            allowed_keys_by_adapter=allowed_keys_by_adapter,
-        )
-        ok(f"{provider:12s}  →  {key_id}  →  {_binding_label(key_adapters_by_key_id[key_id])}  (key hidden)")
-
-    missing_policy_key_ids = sorted(
-        key_id
-        for key_id, policy in policy_index.items()
-        if policy.get("source") == "env" and key_id not in api_keys and key_id not in prompted_policy_key_ids
+    die(
+        "Interactive provider-catalog bootstrap is no longer supported.\n"
+        "  Author subumbra.json with explicit provider labels, policy.target.host, and policy.auth,\n"
+        "  then rerun bootstrap in manifest mode."
     )
-    if missing_policy_key_ids:
-        die(
-            "Missing required policy-backed env secret(s): " + ", ".join(missing_policy_key_ids)
-        )
-
-    print("\n" + "═" * 70)
-    print("  Subumbra Bootstrap — Step 4 of 4: Probe And Token Settings")
-    print("═" * 70)
-    enable_probe = input(
-        "  Enable subumbra-probe optional diagnostic provisioning? [y/N]: "
-    ).strip().lower()
-    if enable_probe == "y":
-        print("\n  subumbra-probe is an optional diagnostic container for verifying your")
-        print("  deployment. Its scope is usually the same as or narrower than subumbra-proxy.")
-        proxy_scope = allowed_keys_by_adapter["subumbra-proxy"]
-        mirror = input(
-            f"  Mirror subumbra-proxy scope ({len(proxy_scope)} key(s))? [Y/n]: "
-        ).strip().lower()
-        if mirror != "n":
-            allowed_keys_by_adapter["subumbra-probe"] = list(proxy_scope)
-            ok("subumbra-probe scope mirrors subumbra-proxy.")
-        else:
-            available_key_ids = sorted(api_keys.keys())
-            allowed_keys_by_adapter["subumbra-probe"] = _prompt_allowed_keys(
-                "subumbra-probe", available_key_ids
-            )
-    else:
-        info("Probe provisioning skipped — optional diagnostic container not provisioned.")
-
-    while True:
-        raw_ttl = input("\n  Token TTL in days [90]: ").strip()
-        try:
-            token_ttl_days = _parse_token_ttl_days(raw_ttl or "90")
-        except SystemExit:
-            print("  ✗  Token TTL must be a positive integer.\n")
-            continue
-        break
-
-    return api_keys, cf_creds, allowed_keys_by_adapter, key_adapters_by_key_id, token_ttl_days, shred_paths
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -3222,7 +2489,7 @@ def run_rotate_wizard() -> None:
         die(f"--rotate requires an existing V3 policy_hash for key_id {key_id!r}. Use full bootstrap.")
     if not isinstance(target_host, str) or not target_host:
         die(f"--rotate requires target_host on the existing V3 record for key_id {key_id!r}.")
-    policy, adapters, auth_header, auth_prefix, template_name = _require_fat_record_fields(existing_record, key_id)
+    policy, adapters = _require_fat_record_fields(existing_record, key_id)
     _verify_embedded_policy_hash(existing_record, key_id)
     vault_instance = existing_record.get("vault_instance", "vault")
     if not isinstance(vault_instance, str) or not vault_instance:
@@ -3272,9 +2539,6 @@ def run_rotate_wizard() -> None:
         policy=policy,
         policy_hash=existing_policy_hash,
         adapters=adapters,
-        auth_header=auth_header,
-        auth_prefix=auth_prefix,
-        template_name=template_name,
         vault_instance=vault_instance,
         created_at=now_iso,
         label=existing_record.get("label", key_id),
@@ -3314,8 +2578,6 @@ def run_provision_key(target_key_id: str) -> None:
     if target_key_id in existing_keys:
         die(f"{target_key_id!r} already exists in keys.json — no targeted repair needed")
 
-    if _choose_bootstrap_mode():
-        die("--provision requires automation/bootstrap inputs; interactive repair is not supported")
     cf_creds = _get_push_registry_cf_creds()
     checkpoint = _load_bootstrap_checkpoint()
     worker_url = str(checkpoint.get("worker_url", "")).strip()
@@ -3344,7 +2606,7 @@ def run_provision_key(target_key_id: str) -> None:
         die(f"bootstrap checkpoint key_id {target_key_id!r} is missing raw_secret.\n  Repair the checkpoint or re-run full bootstrap.")
     if not isinstance(vault_instance, str) or not vault_instance:
         die(f"bootstrap checkpoint key_id {target_key_id!r} is missing vault_instance.\n  Repair the checkpoint or re-run full bootstrap.")
-    policy, adapters, auth_header, auth_prefix, template_name = _require_fat_record_fields(checkpoint_entry, target_key_id)
+    policy, adapters = _require_fat_record_fields(checkpoint_entry, target_key_id)
     _verify_embedded_policy_hash(checkpoint_entry, target_key_id)
 
     public_key_pem = checkpoint_entry.get("public_key_pem", "")
@@ -3378,9 +2640,9 @@ def run_provision_key(target_key_id: str) -> None:
         raw_secret=raw,
         policy=policy,
         adapters=adapters,
-        auth_header=auth_header,
-        auth_prefix=auth_prefix,
-        template_name=template_name,
+        auth_header=checkpoint_entry.get("auth_header", ""),
+        auth_prefix=checkpoint_entry.get("auth_prefix", ""),
+        template_name=str(checkpoint_entry.get("template_name", "")),
     )
 
     public_key_file = _public_key_file_for_key(target_key_id, vault_instance)
@@ -3411,9 +2673,6 @@ def run_provision_key(target_key_id: str) -> None:
         policy=policy,
         policy_hash=policy_hash,
         adapters=adapters,
-        auth_header=auth_header,
-        auth_prefix=auth_prefix,
-        template_name=template_name,
         vault_instance=vault_instance,
         created_at=now_iso,
         label=target_key_id,
@@ -3668,7 +2927,6 @@ def main() -> None:
 
     for key_id, (provider, _target_host, _auth_header, _auth_prefix, _raw) in api_keys.items():
         vault_instance = _vault_instance_for_key(key_id, unique_key_flags)
-        template = _template_for_provider(provider, api_keys[key_id][1], key_id=key_id)
         policy = policy_by_key_id[key_id]
         _store_checkpoint_entry(
             checkpoint,
@@ -3683,7 +2941,7 @@ def main() -> None:
             adapters=key_adapters_by_key_id[key_id],
             auth_header=_auth_header,
             auth_prefix=_auth_prefix,
-            template_name=template["provider_id"],
+            template_name=provider,
         )
         checkpoint_entry = checkpoint.get("keys", {}).get(key_id)
         if not isinstance(checkpoint_entry, dict) or checkpoint_entry.get("vault_instance") != vault_instance:
@@ -3714,7 +2972,7 @@ def main() -> None:
                 adapters=key_adapters_by_key_id[key_id],
                 auth_header=_auth_header,
                 auth_prefix=_auth_prefix,
-                template_name=template["provider_id"],
+                template_name=provider,
             )
         else:
             public_key_pem = checkpoint_entry["public_key_pem"]
@@ -3732,7 +2990,7 @@ def main() -> None:
                 adapters=key_adapters_by_key_id[key_id],
                 auth_header=_auth_header,
                 auth_prefix=_auth_prefix,
-                template_name=template["provider_id"],
+                template_name=provider,
             )
 
         public_key_file = _public_key_file_for_key(key_id, vault_instance)
@@ -3771,7 +3029,6 @@ def main() -> None:
         pub_key_fp = phase2_entry["pub_key_fp"]
         policy = policy_by_key_id[key_id]
         policy_hash = compute_policy_hash(policy)
-        template = _template_for_provider(provider, target_host, key_id=key_id)
         dek = os.urandom(32)
         ciphertext = encrypt_api_key_v3(dek, raw, key_id, policy_hash)
         wrapped_dek = wrap_dek(pub_key, dek)
@@ -3785,9 +3042,6 @@ def main() -> None:
             policy=policy,
             policy_hash=policy_hash,
             adapters=key_adapters_by_key_id[key_id],
-            auth_header=_auth_header,
-            auth_prefix=_auth_prefix,
-            template_name=template["provider_id"],
             vault_instance=vault_instance,
             created_at=now_iso,
             label=key_id,
