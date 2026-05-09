@@ -22,7 +22,7 @@ networks:
 # Volumes
 # ─────────────────────────────────────────────────────────────────────────────
 volumes:
-  subumbra_keys_data:
+  keys_data:
     # Shared between bootstrap (write) and subumbra-keys (read)
     driver: local
   subumbra_audit_data:
@@ -47,7 +47,7 @@ services:
       - internal
     # Deliberately NOT published to host ports
     volumes:
-      - subumbra_keys_data:/app/data
+      - keys_data:/app/data
       - subumbra_audit_data:/app/audit
     environment:
       SUBUMBRA_ADAPTER_REGISTRY: ${SUBUMBRA_ADAPTER_REGISTRY}
@@ -173,10 +173,10 @@ services:
     profiles:
       - bootstrap
     networks:
-      - internal # writes to subumbra_keys_data volume
+      - internal # writes to keys_data volume
       - external # needs internet for wrangler deploy + CF API
     volumes:
-      - subumbra_keys_data:/app/data
+      - keys_data:/app/data
       # Mount worker source so bootstrap can deploy via wrangler
       - ./worker:/app/worker:ro
       - ./subumbra.json:/app/subumbra.json:ro

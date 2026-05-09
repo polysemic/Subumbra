@@ -54,9 +54,10 @@ if [[ -f "$bootstrap_file" ]]; then
     done < "$bootstrap_file"
 fi
 
-# --rotate needs stdin for the interactive wizard (caller pipes key_id + secrets).
-# All other invocations block stdin to prevent SSH stdin consumption by compose run.
-if [[ "${1:-}" == "--rotate" ]]; then
+# --rotate and full-bootstrap modes need stdin for the interactive wizard / nuke prompt.
+# Non-interactive subcommands keep stdin closed.
+mode="${1:-}"
+if [[ "$mode" == "--rotate" || "$mode" == "--nuke" || -z "$mode" ]]; then
     docker compose --profile bootstrap run -T --rm \
         "${volume_args[@]}" \
         "${env_args[@]}" \
@@ -68,7 +69,7 @@ else
         bootstrap "$@" </dev/null
 fi
 
-if [[ -f "$bootstrap_file" ]]; then
+if [[ -f "$bootstrap_file" && "$mode" != "--provision" ]]; then
     if command -v shred >/dev/null 2>&1; then
         shred -u "$bootstrap_file"
     else
@@ -85,4 +86,6 @@ with open(path, "r+b") as fh:
 os.remove(path)
 PY
     fi
+elif [[ -f "$bootstrap_file" && "$mode" == "--provision" ]]; then
+    echo "WARNING: .env.bootstrap retained after --provision for additional repair steps. Shred it manually when repairs are complete." >&2
 fi

@@ -43,7 +43,10 @@ The bootstrap file is intentionally short:
 - Cloudflare bootstrap credentials
 - optional bootstrap settings such as `TOKEN_TTL_DAYS`
 
-`./bootstrap.sh` shreds `.env.bootstrap` after the run completes.
+`./bootstrap.sh` shreds `.env.bootstrap` after a successful full bootstrap.
+Successful `./bootstrap.sh --provision <key_id>` runs intentionally retain the
+file so you can finish additional repair steps; shred it manually when repairs
+are complete.
 
 ## 3. Run Bootstrap
 
@@ -54,6 +57,11 @@ The bootstrap file is intentionally short:
 Bootstrap reads `subumbra.json`, resolves the referenced secret values from
 `.env.bootstrap`, deploys the Worker, encrypts the retained keys, and writes the
 runtime state under `data/`.
+
+If bootstrap detects existing Cloudflare vault or KV state for the current
+manifest, it stops and requires an explicit destructive acknowledgement before
+continuing. Interactive runs prompt `y/N`; non-interactive runs must be rerun
+with `--nuke` if you truly want a fresh Cloudflare reset.
 
 If bootstrap stops before completion, fix the reported input error and rerun the
 full bootstrap from the same repo checkout.
@@ -106,7 +114,9 @@ If a fresh bootstrap leaves a retryable checkpoint, repair a single missing key:
 ```
 
 `--provision` now reads the persisted checkpoint and internal key state. It does
-not require `subumbra.json` to remain on disk after bootstrap.
+not require a complete checkpoint record for the target key if `subumbra.json`
+and `.env.bootstrap` still provide the missing authority. If both the repair
+authority and the local public key are gone, rerun the full bootstrap instead.
 
 If `--rotate`, `--push-registry`, or `--provision` reports missing embedded
 authority fields or an embedded policy mismatch, stop and repair the local state
@@ -125,6 +135,11 @@ schema marker:
 `--push-registry` now reads only from the persisted internal state under
 `data/`. It does not require `subumbra.json` after bootstrap completes.
 
+Before `./bootstrap.sh --push-registry`, rewrite any legacy anchored
+`response.deny_patterns` values such as `^test$` to bare substring literals
+such as `test`. Runtime compatibility for the old anchored form is no longer
+preserved.
+
 Bootstrap no longer reads routing or auth defaults from `providers.json`. If a
 manifest record omits or misstates `policy.target.host` or `policy.auth`, the
 bootstrap run fails closed and must be corrected in `subumbra.json`.
@@ -136,4 +151,17 @@ the full bootstrap and recreate the runtime services:
 ```bash
 ./bootstrap.sh
 docker compose up -d --force-recreate
+```
+
+### Existing volume migration
+
+If your VPS already uses Docker's doubled legacy volume name, migrate it once
+before recreating the stack:
+
+```bash
+docker volume create keys_data
+docker run --rm \
+  -v subumbra_subumbra_keys_data:/from \
+  -v keys_data:/to \
+  alpine:3.21 sh -c "cp -a /from/. /to/"
 ```

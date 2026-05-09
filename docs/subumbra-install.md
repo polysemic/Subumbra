@@ -99,6 +99,11 @@ one-shot `/setup/keygen` Worker path. The bootstrap container only receives the
 returned public key, writes `public_key.pem`, and uses that public key for the
 local V3 envelope records.
 
+If a previous run already left Cloudflare vault or provider-registry state
+behind, full bootstrap now stops and asks for explicit destructive
+acknowledgement before it wipes that state and continues. In non-interactive
+automation, pass `--nuke` only when you intend a true fresh start.
+
 ### 5b. Automation path (`.env.bootstrap`)
 
 Use this path if you already have provider keys in a file, are scripting
@@ -121,6 +126,10 @@ Blank `*_ADAPTERS` is explicit compatibility/simple mode only. App-owned
 imports use `IMPORT_PATH_<n>` plus required
 `IMPORT_APP_LABEL_<n>` entries; `bootstrap.sh` mounts those files readonly into
 the container. The automation path does not start an interactive wizard.
+
+`./bootstrap.sh` shreds `.env.bootstrap` after a successful full bootstrap.
+`./bootstrap.sh --provision <key_id>` intentionally does **not** shred it so
+you can complete additional repair steps; shred it manually after repairs.
 
 ## 6. Verify Generated Runtime Values
 
@@ -162,6 +171,19 @@ Expected services:
 - `subumbra-keys` (healthy)
 - `subumbra-proxy` (healthy)
 - `subumbra-ui`
+
+### Existing volume migration
+
+If you already have data in Docker's older doubled volume name, migrate it once
+before switching to the renamed `keys_data` volume:
+
+```bash
+docker volume create keys_data
+docker run --rm \
+  -v subumbra_subumbra_keys_data:/from \
+  -v keys_data:/to \
+  alpine:3.21 sh -c "cp -a /from/. /to/"
+```
 
 Port exposure:
 

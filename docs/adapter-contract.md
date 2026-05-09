@@ -453,26 +453,25 @@ must parse without error if present.
   }
 },
 "response": {
-  "deny_patterns": ["<pattern>", ...]
+  "deny_patterns": ["<bare-substring>", ...]
 },
 "velocity": {}
 ```
 
 #### Safe Pattern Vocabulary
 
-`intent.policy_match` and `response.deny_patterns` accept string patterns.
-These patterns are validated at bootstrap ingestion. Patterns outside the safe
-vocabulary are rejected before the record is written.
+`intent.policy_match` and `response.deny_patterns` accept string values from a
+restricted safe vocabulary. These values are validated at bootstrap ingestion.
+Values outside the safe vocabulary are rejected before the record is written.
 
 **Allowed:**
-- Anchored literal equality: `^exact-string$`
-- Anchored bounded alternation: `^(value1|value2|value3)$` — the alternation
-  must be the entire pattern (anchored both ends); each alternative must be a
-  literal string with no metacharacters
+- Bare literal substring: `api_key`
+- Safe literal equality for `intent.policy_match`: `exact-string`
 
 **Forbidden (rejected at ingestion):**
-- Unbounded quantifiers: `.*`, `.+`, `\w+`, `\d+`, `[^...]+` — ReDoS risk
-- Unanchored patterns (no leading `^` or trailing `$`)
+- Anchored regex forms such as `^exact-string$`
+- Alternation or regex metacharacters such as `(a|b)`, `.*`, `.+`, `\w+`,
+  `\d+`, `[^...]+`
 - Lookaheads or lookbehinds
 - Backreferences
 - Nested groups
