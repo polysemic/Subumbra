@@ -238,6 +238,7 @@ run_stage() {
         return 1
     fi
     json_event "$stage" "pass"
+    json_event "$stage" "pass2"
     return 0
 }
 
@@ -465,6 +466,7 @@ case "$mode" in
         exit 1
         ;;
 esac
+json_event "diag" "after-esac"
 run_stage remote-verify verify_once
 run_stage remote-probes run_independent_probes
 overall="PASS"
