@@ -222,10 +222,29 @@ def _write_bootstrap_checkpoint(checkpoint: dict[str, Any]) -> None:
 
 
 def _delete_bootstrap_checkpoint() -> None:
+    if not CHECKPOINT_FILE.exists():
+        return
     try:
-        CHECKPOINT_FILE.unlink(missing_ok=True)
-    except OSError as exc:
-        die(f"Failed to delete bootstrap checkpoint: {exc}")
+        result = subprocess.run(
+            ["shred", "-u", str(CHECKPOINT_FILE)],
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        try:
+            CHECKPOINT_FILE.unlink(missing_ok=True)
+        except OSError as exc:
+            die(f"Failed to delete bootstrap checkpoint: {exc}")
+        return
+    except OSError:
+        try:
+            CHECKPOINT_FILE.unlink(missing_ok=True)
+        except OSError as exc:
+            die(f"Failed to delete bootstrap checkpoint: {exc}")
+        return
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip() or f"exit {result.returncode}"
+        die(f"Failed to shred bootstrap checkpoint: {detail}")
 
 
 def _checkpoint_entry_by_vault_instance(checkpoint: dict[str, Any], vault_instance: str) -> dict[str, Any] | None:
@@ -242,12 +261,30 @@ def _store_checkpoint_entry(
     vault_instance: str,
     public_key_pem: str,
     pub_key_fp: str,
+    provider: str,
+    target_host: str,
+    raw_secret: str,
+    policy: dict[str, Any],
+    adapters: list[str],
+    auth_header: str,
+    auth_prefix: str,
+    template_name: str,
 ) -> None:
     checkpoint.setdefault("keys", {})
     checkpoint["keys"][key_id] = {
         "vault_instance": vault_instance,
         "public_key_pem": public_key_pem,
         "pub_key_fp": pub_key_fp,
+        "provider": provider,
+        "target_host": target_host,
+        "raw_secret": raw_secret,
+        "policy": policy,
+        "policy_id": policy["policy_id"],
+        "policy_hash": compute_policy_hash(policy),
+        "adapters": list(adapters),
+        "auth_header": auth_header,
+        "auth_prefix": auth_prefix,
+        "template_name": template_name,
     }
     _write_bootstrap_checkpoint(checkpoint)
 
@@ -819,6 +856,7 @@ def _normalize_manifest_record(record: Any, idx: int) -> dict[str, Any]:
         "target_host": provider_entry["target_host"],
         "auth_header": provider_entry["auth_header"],
         "auth_prefix": provider_entry["auth_prefix"],
+        "template_name": provider_entry["provider_id"],
     }
 
 
@@ -1067,9 +1105,82 @@ def _resolve_policy_for_key(
     return policy
 
 
+def _template_for_provider(provider_id: str, target_host: str, *, key_id: str) -> dict[str, str]:
+    template_registry = _load_template_registry()
+    template = template_registry.get(provider_id)
+    if template is None:
+        die(f"No template routing defaults found for provider {provider_id!r} (key_id={key_id!r})")
+    if template.get("target_host") != target_host:
+        die(
+            f"Template host conflict for key_id {key_id!r}: "
+            f"template target_host={template.get('target_host')!r} does not match record target_host={target_host!r}"
+        )
+    return template
+
+
+def _require_fat_record_fields(record: dict[str, Any], key_id: str) -> tuple[dict[str, Any], list[str], str, str, str]:
+    policy = record.get("policy")
+    if not isinstance(policy, dict):
+        die(
+            f"keys.json record {key_id!r} is missing embedded policy authority.\n"
+            "  Repair the record or re-run full bootstrap."
+        )
+    adapters = record.get("adapters")
+    if not isinstance(adapters, list) or not adapters or not all(isinstance(adapter_id, str) and adapter_id for adapter_id in adapters):
+        die(
+            f"keys.json record {key_id!r} is missing embedded adapter authority.\n"
+            "  Repair the record or re-run full bootstrap."
+        )
+    auth_header = record.get("auth_header")
+    if not isinstance(auth_header, str) or not auth_header:
+        die(
+            f"keys.json record {key_id!r} is missing embedded auth_header.\n"
+            "  Repair the record or re-run full bootstrap."
+        )
+    auth_prefix = record.get("auth_prefix")
+    if not isinstance(auth_prefix, str):
+        die(
+            f"keys.json record {key_id!r} is missing embedded auth_prefix.\n"
+            "  Repair the record or re-run full bootstrap."
+        )
+    template_name = record.get("template_name")
+    if not isinstance(template_name, str) or not template_name:
+        die(
+            f"keys.json record {key_id!r} is missing embedded template_name.\n"
+            "  Repair the record or re-run full bootstrap."
+        )
+    return policy, list(adapters), auth_header, auth_prefix, template_name
+
+
+def _verify_embedded_policy_hash(record: dict[str, Any], key_id: str) -> None:
+    policy, _adapters, _auth_header, _auth_prefix, _template_name = _require_fat_record_fields(record, key_id)
+    stored_policy_id = record.get("policy_id")
+    if not isinstance(stored_policy_id, str) or not stored_policy_id.strip():
+        die(
+            f"keys.json record {key_id!r} is missing policy_id.\n"
+            "  Repair the record or re-run full bootstrap."
+        )
+    if policy.get("policy_id") != stored_policy_id:
+        die(
+            f"Embedded policy mismatch for key_id {key_id!r}: stored policy_id does not match embedded policy.\n"
+            "  Repair the record or re-run full bootstrap."
+        )
+    stored_policy_hash = record.get("policy_hash")
+    if not isinstance(stored_policy_hash, str) or not stored_policy_hash.strip():
+        die(
+            f"keys.json record {key_id!r} is missing policy_hash.\n"
+            "  Repair the record or re-run full bootstrap."
+        )
+    computed_policy_hash = compute_policy_hash(policy)
+    if computed_policy_hash != stored_policy_hash:
+        die(
+            f"Embedded policy mismatch for key_id {key_id!r}: stored policy_hash does not match embedded policy.\n"
+            "  Repair the record or re-run full bootstrap."
+        )
+
+
 def _build_structured_kv_entries(
     keys_payload: dict[str, dict[str, Any]],
-    policy_by_key_id: dict[str, dict[str, Any]],
 ) -> list[dict[str, str]]:
     template_registry = _load_template_registry()
     entries: list[dict[str, str]] = []
@@ -1077,11 +1188,12 @@ def _build_structured_kv_entries(
     published_templates: set[str] = set()
 
     for key_id, record in sorted(keys_payload.items()):
-        policy = policy_by_key_id[key_id]
+        policy, _adapters, auth_header, auth_prefix, template_name = _require_fat_record_fields(record, key_id)
+        _verify_embedded_policy_hash(record, key_id)
         provider_id = record["provider"]
-        template = template_registry.get(provider_id)
+        template = template_registry.get(template_name)
         if template is None:
-            die(f"No template routing defaults found for provider {provider_id!r}")
+            die(f"No template routing defaults found for template {template_name!r} (key_id={key_id!r})")
 
         key_entry = {
             "key_id": key_id,
@@ -1095,9 +1207,9 @@ def _build_structured_kv_entries(
             "policy_hash": record["policy_hash"],
             "created_at": record["created_at"],
             "label": record["label"],
-            "auth_header": template["auth_header"],
-            "auth_prefix": template["auth_prefix"],
-            "template_name": template["provider_id"],
+            "auth_header": auth_header,
+            "auth_prefix": auth_prefix,
+            "template_name": template_name,
         }
         entries.append({"key": f"key:{key_id}", "value": json.dumps(key_entry, separators=(",", ":"))})
 
@@ -1111,7 +1223,6 @@ def _build_structured_kv_entries(
             )
             published_policy_ids.add(policy_id)
 
-        template_name = template["provider_id"]
         if template_name not in published_templates:
             entries.append(
                 {
@@ -1251,46 +1362,6 @@ def _append_unique_adapter_binding(
     bindings = key_adapters_by_key_id.setdefault(key_id, [])
     if adapter_id not in bindings:
         bindings.append(adapter_id)
-
-
-def _load_persisted_key_adapter_bindings() -> dict[str, list[str]]:
-    raw_registry = os.environ.get("SUBUMBRA_ADAPTER_REGISTRY", "").strip()
-    if not raw_registry and HOST_ENV_FILE.is_file():
-        env_values = _load_simple_env_file(HOST_ENV_FILE)
-        raw_registry = env_values.get("SUBUMBRA_ADAPTER_REGISTRY", "").strip()
-    if not raw_registry and not HOST_ENV_FILE.is_file():
-        die(
-            "Cannot reconstruct app bindings for existing keys because SUBUMBRA_ADAPTER_REGISTRY is not available "
-            "in the environment and /app/host-env is unavailable.\n"
-            "  Re-run full bootstrap from this repo checkout or provide explicit SUBUMBRA_POLICY_PATH entries."
-        )
-    if not raw_registry:
-        die(
-            "Cannot reconstruct app bindings for existing keys because SUBUMBRA_ADAPTER_REGISTRY is missing from "
-            "the available bootstrap inputs.\n  Re-run full bootstrap from this repo checkout or provide explicit SUBUMBRA_POLICY_PATH entries."
-        )
-    try:
-        registry = json.loads(raw_registry)
-    except json.JSONDecodeError as exc:
-        die(f"SUBUMBRA_ADAPTER_REGISTRY in {HOST_ENV_FILE} is invalid JSON: {exc}")
-    if not isinstance(registry, dict):
-        die(f"SUBUMBRA_ADAPTER_REGISTRY in {HOST_ENV_FILE} must be a JSON object")
-
-    key_adapters_by_key_id: dict[str, list[str]] = {}
-    for adapter_id, entry in registry.items():
-        if adapter_id in {"subumbra-ui", "subumbra-probe"}:
-            continue
-        if not isinstance(entry, dict):
-            die(f"SUBUMBRA_ADAPTER_REGISTRY[{adapter_id}] must be an object")
-        allowed_keys = entry.get("allowed_keys")
-        if not isinstance(allowed_keys, list):
-            die(f"SUBUMBRA_ADAPTER_REGISTRY[{adapter_id}].allowed_keys must be an array")
-        for raw_key_id in allowed_keys:
-            if not isinstance(raw_key_id, str) or not raw_key_id:
-                die(f"SUBUMBRA_ADAPTER_REGISTRY[{adapter_id}].allowed_keys entries must be non-empty strings")
-            if adapter_id == "subumbra-proxy" or adapter_id not in BUILTIN_ADAPTER_IDS:
-                _append_unique_adapter_binding(key_adapters_by_key_id, raw_key_id, adapter_id)
-    return key_adapters_by_key_id
 
 
 def _prompt_app_label(prompt: str = "  App/label for this key: ") -> str:
@@ -1802,6 +1873,45 @@ def compute_policy_hash(policy_doc: dict[str, Any]) -> str:
         baseline_obj["auth"]["allow_query"] = auth["allow_query"]
     canonical = json.dumps(baseline_obj, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(canonical).hexdigest()
+
+
+def _build_fat_record(
+    *,
+    key_id: str,
+    provider: str,
+    target_host: str,
+    pub_key_fp: str,
+    wrapped_dek: str,
+    ciphertext: str,
+    policy: dict[str, Any],
+    policy_hash: str,
+    adapters: list[str],
+    auth_header: str,
+    auth_prefix: str,
+    template_name: str,
+    vault_instance: str,
+    created_at: str,
+    label: str,
+) -> dict[str, Any]:
+    return {
+        "key_id": key_id,
+        "enc_version": 3,
+        "pub_key_fp": pub_key_fp,
+        "wrapped_dek": wrapped_dek,
+        "ciphertext": ciphertext,
+        "provider": provider,
+        "target_host": target_host,
+        "policy_id": policy["policy_id"],
+        "policy_hash": policy_hash,
+        "policy": policy,
+        "adapters": list(adapters),
+        "auth_header": auth_header,
+        "auth_prefix": auth_prefix,
+        "template_name": template_name,
+        "vault_instance": vault_instance,
+        "created_at": created_at,
+        "label": label,
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2823,11 +2933,10 @@ def call_internal_rotate(worker_url: str, setup_token: str, rotate_payload: dict
 def _publish_structured_kv(
     cf_creds: dict[str, str],
     keys_payload: dict[str, dict[str, Any]],
-    policy_by_key_id: dict[str, dict[str, Any]],
 ) -> None:
     namespace_id = _create_or_reuse_kv_namespace(cf_creds)
     env = _wrangler_env(cf_creds)
-    entries = _build_structured_kv_entries(keys_payload, policy_by_key_id)
+    entries = _build_structured_kv_entries(keys_payload)
     if not entries:
         die("No structured KV entries compiled for publication")
 
@@ -3013,31 +3122,16 @@ def run_push_registry() -> None:
         keys_payload = json.loads(KEYS_FILE.read_text())
     except (json.JSONDecodeError, OSError) as exc:
         die(f"Cannot read keys.json: {exc}")
-
-    policy_index = _load_policy_index()
-    policy_by_key_id: dict[str, dict[str, Any]] = {}
     for key_id, record in keys_payload.items():
-        provider = record.get("provider", "unknown")
         target_host = record.get("target_host")
         if not isinstance(target_host, str) or not target_host:
             die(f"keys.json record {key_id!r} missing target_host")
-        if key_id not in policy_index:
-            die(
-                f"No explicit policy source found for key_id {key_id!r}.\n"
-                "  Re-run full bootstrap from this repo checkout to republish manifest-era structured KV."
-            )
-        allowed_adapters = _policy_adapter_ids(policy_index[key_id])
-        policy_by_key_id[key_id] = _resolve_policy_for_key(
-            key_id,
-            provider,
-            target_host,
-            policy_index,
-            allowed_adapters,
-        )
+        _require_fat_record_fields(record, key_id)
+        _verify_embedded_policy_hash(record, key_id)
 
     step("Publishing structured KV entries to Cloudflare KV")
     try:
-        _publish_structured_kv(cf_creds, keys_payload, policy_by_key_id)
+        _publish_structured_kv(cf_creds, keys_payload)
     except SystemExit:
         die("structured publish aborted before registry_version update")
     ok("Structured KV publication complete")
@@ -3128,6 +3222,8 @@ def run_rotate_wizard() -> None:
         die(f"--rotate requires an existing V3 policy_hash for key_id {key_id!r}. Use full bootstrap.")
     if not isinstance(target_host, str) or not target_host:
         die(f"--rotate requires target_host on the existing V3 record for key_id {key_id!r}.")
+    policy, adapters, auth_header, auth_prefix, template_name = _require_fat_record_fields(existing_record, key_id)
+    _verify_embedded_policy_hash(existing_record, key_id)
     vault_instance = existing_record.get("vault_instance", "vault")
     if not isinstance(vault_instance, str) or not vault_instance:
         die(f"--rotate requires vault_instance on the existing V3 record for key_id {key_id!r}.")
@@ -3166,20 +3262,23 @@ def run_rotate_wizard() -> None:
     ciphertext = encrypt_api_key_v3(dek, new_key, key_id, existing_policy_hash)
     wrapped = wrap_dek(pub_key, dek)
 
-    record = {
-        "key_id":      key_id,
-        "enc_version": 3,
-        "pub_key_fp":  fp,
-        "wrapped_dek": wrapped,
-        "ciphertext":  ciphertext,
-        "provider":    provider,
-        "target_host": target_host,
-        "policy_id":   existing_policy_id,
-        "policy_hash": existing_policy_hash,
-        "vault_instance": vault_instance,
-        "created_at":  now_iso,
-        "label":       existing_record.get("label", key_id),
-    }
+    record = _build_fat_record(
+        key_id=key_id,
+        provider=provider,
+        target_host=target_host,
+        pub_key_fp=fp,
+        wrapped_dek=wrapped,
+        ciphertext=ciphertext,
+        policy=policy,
+        policy_hash=existing_policy_hash,
+        adapters=adapters,
+        auth_header=auth_header,
+        auth_prefix=auth_prefix,
+        template_name=template_name,
+        vault_instance=vault_instance,
+        created_at=now_iso,
+        label=existing_record.get("label", key_id),
+    )
     ok(f"Encrypted {provider:12s} → {key_id}")
 
     # ── 6. Zero sensitive values ─────────────────────────────────────────
@@ -3201,121 +3300,6 @@ def run_rotate_wizard() -> None:
     print()
 
 
-def run_rotate_policy() -> None:
-    print(BANNER, flush=True)
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-    if not KEYS_FILE.exists():
-        die("keys.json not found — run a full bootstrap first.")
-
-    try:
-        existing_keys = json.loads(KEYS_FILE.read_text())
-    except (json.JSONDecodeError, OSError) as exc:
-        die(f"Cannot read keys.json: {exc}")
-    if not existing_keys:
-        die("keys.json is empty — nothing to rotate.")
-
-    policy_index = _load_policy_index()
-    persisted_adapters = _load_persisted_key_adapter_bindings()
-
-    records_to_rotate: list[tuple[str, dict[str, Any], dict[str, Any], str]] = []
-    for key_id, record in existing_keys.items():
-        provider = record.get("provider", "unknown")
-        target_host = record.get("target_host")
-        if not isinstance(target_host, str) or not target_host:
-            die(f"keys.json record {key_id!r} missing target_host")
-        if key_id in policy_index:
-            allowed_adapters = _policy_adapter_ids(policy_index[key_id])
-        else:
-            allowed_adapters = persisted_adapters.get(key_id)
-            if not allowed_adapters:
-                die(
-                    f"No persisted adapter binding found for key_id {key_id!r}.\n"
-                    "  Re-run full bootstrap from this repo checkout or add an explicit SUBUMBRA_POLICY_PATH entry."
-                )
-        policy = _resolve_policy_for_key(key_id, provider, target_host, policy_index, allowed_adapters)
-        desired_policy_hash = compute_policy_hash(policy)
-        if (
-            record.get("enc_version") != 3
-            or record.get("policy_hash") != desired_policy_hash
-            or record.get("policy_id") != policy["policy_id"]
-        ):
-            records_to_rotate.append((key_id, record, policy, desired_policy_hash))
-
-    if not records_to_rotate:
-        ok("No policy-bound rotation required — all records already match current policy_hash")
-        return
-
-    v2_candidates = [
-        key_id
-        for key_id, record, _policy, _desired_policy_hash in records_to_rotate
-        if record.get("enc_version") != 3
-    ]
-    if v2_candidates:
-        die(
-            "--rotate-policy only supports existing V3 records. "
-            f"V2 migration requires full bootstrap: {', '.join(sorted(v2_candidates))}"
-        )
-
-    cf_creds = _get_push_registry_cf_creds()
-    worker_url = os.environ.get("CF_WORKER_URL", "").strip() or _build_worker_url(cf_creds["CF_WORKER_NAME"])
-
-    step("Pushing transient SUBUMBRA_SETUP_TOKEN to CF Secrets for policy rotation")
-    rotate_setup_token = secrets.token_urlsafe(48)
-    _put_worker_secret(cf_creds, "SUBUMBRA_SETUP_TOKEN", rotate_setup_token)
-
-    try:
-        for key_id, record, policy, desired_policy_hash in records_to_rotate:
-            rotate_payload = {
-                "key_id": key_id,
-                "enc_version": record.get("enc_version", 1),
-                "ciphertext": record["ciphertext"],
-                "wrapped_dek": record["wrapped_dek"],
-                "pub_key_fp": record["pub_key_fp"],
-                "vault_instance": record.get("vault_instance", "vault"),
-                "new_policy_hash": desired_policy_hash,
-            }
-            if record.get("enc_version") == 3 and isinstance(record.get("policy_hash"), str):
-                rotate_payload["policy_hash"] = record["policy_hash"]
-            rotated = call_internal_rotate(worker_url, rotate_setup_token, rotate_payload)
-            record["ciphertext"] = rotated["ciphertext"]
-            record["enc_version"] = 3
-            record["policy_id"] = policy["policy_id"]
-            record["policy_hash"] = desired_policy_hash
-            ok(f"rotate-policy complete for {key_id}")
-    finally:
-        step("Deleting transient SUBUMBRA_SETUP_TOKEN from CF Secrets")
-        _delete_worker_secret(cf_creds, "SUBUMBRA_SETUP_TOKEN")
-
-    tmp_keys = KEYS_FILE.with_suffix(".json.tmp")
-    try:
-        fd = os.open(str(tmp_keys), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
-        with os.fdopen(fd, "w") as fh:
-            json.dump(existing_keys, fh, indent=2)
-            fh.write("\n")
-        os.replace(str(tmp_keys), str(KEYS_FILE))
-    except OSError as exc:
-        die(f"Failed to write keys.json: {exc}")
-    ok("Updated keys.json with rotated V3 ciphertext records")
-
-    policy_by_key_id = {
-        key_id: _resolve_policy_for_key(
-            key_id,
-            record.get("provider", "unknown"),
-            record["target_host"],
-            policy_index,
-            _policy_adapter_ids(policy_index[key_id]) if key_id in policy_index else persisted_adapters[key_id],
-        )
-        for key_id, record in existing_keys.items()
-    }
-    step("Publishing structured KV entries after policy rotation")
-    try:
-        _publish_structured_kv(cf_creds, existing_keys, policy_by_key_id)
-    except SystemExit:
-        die("structured publish aborted before registry_version update")
-    ok("Structured KV publication complete")
-
-
 def run_provision_key(target_key_id: str) -> None:
     print(BANNER, flush=True)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -3332,37 +3316,7 @@ def run_provision_key(target_key_id: str) -> None:
 
     if _choose_bootstrap_mode():
         die("--provision requires automation/bootstrap inputs; interactive repair is not supported")
-
-    if MANIFEST_FILE.exists():
-        (
-            api_keys,
-            cf_creds,
-            _allowed_keys_by_adapter,
-            key_adapters_by_key_id,
-            _token_ttl_days,
-            unique_key_flags,
-            policy_by_key_id,
-        ) = _load_manifest_bootstrap()
-    else:
-        try:
-            api_keys, cf_creds, _allowed_keys_by_adapter, key_adapters_by_key_id, _token_ttl_days = _load_env_fallback(existing_keys)
-        except AutomationInputError as exc:
-            die(str(exc))
-        unique_key_flags = _load_unique_key_flags(list(api_keys.keys()))
-        policy_index = _load_policy_index()
-        policy_by_key_id = {
-            key_id: _resolve_policy_for_key(
-                key_id,
-                provider,
-                target_host,
-                policy_index,
-                key_adapters_by_key_id[key_id],
-            )
-            for key_id, (provider, target_host, _auth_header, _auth_prefix, _raw) in api_keys.items()
-        }
-
-    if target_key_id not in api_keys:
-        die(f"{target_key_id!r} is not present in current bootstrap inputs")
+    cf_creds = _get_push_registry_cf_creds()
     checkpoint = _load_bootstrap_checkpoint()
     worker_url = str(checkpoint.get("worker_url", "")).strip()
     setup_token = str(checkpoint.get("setup_token", "")).strip()
@@ -3371,37 +3325,63 @@ def run_provision_key(target_key_id: str) -> None:
     checkpoint_host_env_updates = checkpoint.get("host_env_updates", {})
     if checkpoint_host_env_updates and not isinstance(checkpoint_host_env_updates, dict):
         die("bootstrap checkpoint host_env_updates section is malformed")
-
-    provider, target_host, _auth_header, _auth_prefix, raw = api_keys[target_key_id]
-    vault_instance = _vault_instance_for_key(target_key_id, unique_key_flags)
     checkpoint_entry = checkpoint.get("keys", {}).get(target_key_id)
-    if not isinstance(checkpoint_entry, dict) or checkpoint_entry.get("vault_instance") != vault_instance:
-        checkpoint_entry = _checkpoint_entry_by_vault_instance(checkpoint, vault_instance)
+    if not isinstance(checkpoint_entry, dict):
+        die(
+            f"bootstrap checkpoint is missing authority for key_id {target_key_id!r}.\n"
+            "  Repair the checkpoint or re-run full bootstrap."
+        )
 
-    if checkpoint_entry is None:
+    provider = checkpoint_entry.get("provider")
+    target_host = checkpoint_entry.get("target_host")
+    raw = checkpoint_entry.get("raw_secret")
+    vault_instance = checkpoint_entry.get("vault_instance")
+    if not isinstance(provider, str) or not provider:
+        die(f"bootstrap checkpoint key_id {target_key_id!r} is missing provider.\n  Repair the checkpoint or re-run full bootstrap.")
+    if not isinstance(target_host, str) or not target_host:
+        die(f"bootstrap checkpoint key_id {target_key_id!r} is missing target_host.\n  Repair the checkpoint or re-run full bootstrap.")
+    if not isinstance(raw, str) or not raw:
+        die(f"bootstrap checkpoint key_id {target_key_id!r} is missing raw_secret.\n  Repair the checkpoint or re-run full bootstrap.")
+    if not isinstance(vault_instance, str) or not vault_instance:
+        die(f"bootstrap checkpoint key_id {target_key_id!r} is missing vault_instance.\n  Repair the checkpoint or re-run full bootstrap.")
+    policy, adapters, auth_header, auth_prefix, template_name = _require_fat_record_fields(checkpoint_entry, target_key_id)
+    _verify_embedded_policy_hash(checkpoint_entry, target_key_id)
+
+    public_key_pem = checkpoint_entry.get("public_key_pem", "")
+    pub_key_fp = checkpoint_entry.get("pub_key_fp", "")
+    if not isinstance(public_key_pem, str):
+        public_key_pem = ""
+    if not isinstance(pub_key_fp, str):
+        pub_key_fp = ""
+    if not public_key_pem or not pub_key_fp:
+        shared_entry = _checkpoint_entry_by_vault_instance(checkpoint, vault_instance)
+        if isinstance(shared_entry, dict):
+            shared_public_key_pem = shared_entry.get("public_key_pem", "")
+            shared_pub_key_fp = shared_entry.get("pub_key_fp", "")
+            if isinstance(shared_public_key_pem, str) and shared_public_key_pem and isinstance(shared_pub_key_fp, str) and shared_pub_key_fp:
+                public_key_pem = shared_public_key_pem
+                pub_key_fp = shared_pub_key_fp
+    if not public_key_pem or not pub_key_fp:
         step(f"Provisioning missing vault for {target_key_id}")
         try:
             public_key_pem, pub_key_fp, _created_at = call_setup_keygen(worker_url, setup_token, vault_instance)
         except BootstrapFlowError as exc:
             die(str(exc))
-        _store_checkpoint_entry(
-            checkpoint,
-            target_key_id,
-            vault_instance=vault_instance,
-            public_key_pem=public_key_pem,
-            pub_key_fp=pub_key_fp,
-        )
-        checkpoint_entry = checkpoint["keys"][target_key_id]
-    else:
-        public_key_pem = checkpoint_entry["public_key_pem"]
-        pub_key_fp = checkpoint_entry["pub_key_fp"]
-        _store_checkpoint_entry(
-            checkpoint,
-            target_key_id,
-            vault_instance=vault_instance,
-            public_key_pem=public_key_pem,
-            pub_key_fp=pub_key_fp,
-        )
+    _store_checkpoint_entry(
+        checkpoint,
+        target_key_id,
+        vault_instance=vault_instance,
+        public_key_pem=public_key_pem,
+        pub_key_fp=pub_key_fp,
+        provider=provider,
+        target_host=target_host,
+        raw_secret=raw,
+        policy=policy,
+        adapters=adapters,
+        auth_header=auth_header,
+        auth_prefix=auth_prefix,
+        template_name=template_name,
+    )
 
     public_key_file = _public_key_file_for_key(target_key_id, vault_instance)
     _write_public_key_file(public_key_file, public_key_pem)
@@ -3414,7 +3394,6 @@ def run_provision_key(target_key_id: str) -> None:
             f"  computed: {computed_fp}"
         )
 
-    policy = policy_by_key_id[target_key_id]
     policy_hash = compute_policy_hash(policy)
     now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
     dek = os.urandom(32)
@@ -3422,35 +3401,35 @@ def run_provision_key(target_key_id: str) -> None:
     wrapped_dek = wrap_dek(pub_key, dek)
     del dek
 
-    existing_keys[target_key_id] = {
-        "key_id": target_key_id,
-        "enc_version": 3,
-        "pub_key_fp": pub_key_fp,
-        "wrapped_dek": wrapped_dek,
-        "ciphertext": ciphertext,
-        "provider": provider,
-        "target_host": target_host,
-        "policy_id": policy["policy_id"],
-        "policy_hash": policy_hash,
-        "vault_instance": vault_instance,
-        "created_at": now_iso,
-        "label": target_key_id,
-    }
+    existing_keys[target_key_id] = _build_fat_record(
+        key_id=target_key_id,
+        provider=provider,
+        target_host=target_host,
+        pub_key_fp=pub_key_fp,
+        wrapped_dek=wrapped_dek,
+        ciphertext=ciphertext,
+        policy=policy,
+        policy_hash=policy_hash,
+        adapters=adapters,
+        auth_header=auth_header,
+        auth_prefix=auth_prefix,
+        template_name=template_name,
+        vault_instance=vault_instance,
+        created_at=now_iso,
+        label=target_key_id,
+    )
 
     step(f"Updating {target_key_id} in keys.json")
     _write_keys_payload(existing_keys)
     ok(f"Added repaired record for {target_key_id}")
 
-    full_policy_by_key_id = {}
     for key_id, record in existing_keys.items():
-        policy = policy_by_key_id.get(key_id)
-        if policy is None:
-            die(f"No manifest-era policy found for key_id {key_id!r} during targeted repair")
-        full_policy_by_key_id[key_id] = policy
+        _require_fat_record_fields(record, key_id)
+        _verify_embedded_policy_hash(record, key_id)
 
     step("Publishing structured KV entries after targeted repair")
     try:
-        _publish_structured_kv(cf_creds, existing_keys, full_policy_by_key_id)
+        _publish_structured_kv(cf_creds, existing_keys)
     except SystemExit:
         die("structured publish aborted before registry_version update")
     ok("Structured KV publication complete")
@@ -3461,7 +3440,8 @@ def run_provision_key(target_key_id: str) -> None:
         _write_bootstrap_checkpoint(checkpoint)
         _sync_host_env_file(checkpoint_host_env_updates)
 
-    if len(existing_keys) >= len(api_keys):
+    expected_key_ids = set(checkpoint.get("keys", {}).keys())
+    if expected_key_ids and expected_key_ids.issubset(set(existing_keys.keys())):
         step("Deleting transient SUBUMBRA_SETUP_TOKEN from CF Secrets")
         _delete_worker_secret(cf_creds, "SUBUMBRA_SETUP_TOKEN")
         if checkpoint_host_env_updates:
@@ -3688,9 +3668,31 @@ def main() -> None:
 
     for key_id, (provider, _target_host, _auth_header, _auth_prefix, _raw) in api_keys.items():
         vault_instance = _vault_instance_for_key(key_id, unique_key_flags)
+        template = _template_for_provider(provider, api_keys[key_id][1], key_id=key_id)
+        policy = policy_by_key_id[key_id]
+        _store_checkpoint_entry(
+            checkpoint,
+            key_id,
+            vault_instance=vault_instance,
+            public_key_pem="",
+            pub_key_fp="",
+            provider=provider,
+            target_host=api_keys[key_id][1],
+            raw_secret=_raw,
+            policy=policy,
+            adapters=key_adapters_by_key_id[key_id],
+            auth_header=_auth_header,
+            auth_prefix=_auth_prefix,
+            template_name=template["provider_id"],
+        )
         checkpoint_entry = checkpoint.get("keys", {}).get(key_id)
         if not isinstance(checkpoint_entry, dict) or checkpoint_entry.get("vault_instance") != vault_instance:
             checkpoint_entry = _checkpoint_entry_by_vault_instance(checkpoint, vault_instance)
+        if isinstance(checkpoint_entry, dict):
+            public_key_pem = checkpoint_entry.get("public_key_pem", "")
+            pub_key_fp = checkpoint_entry.get("pub_key_fp", "")
+            if not isinstance(public_key_pem, str) or not public_key_pem or not isinstance(pub_key_fp, str) or not pub_key_fp:
+                checkpoint_entry = None
 
         if checkpoint_entry is None:
             try:
@@ -3705,6 +3707,14 @@ def main() -> None:
                 vault_instance=vault_instance,
                 public_key_pem=public_key_pem,
                 pub_key_fp=pub_key_fp,
+                provider=provider,
+                target_host=api_keys[key_id][1],
+                raw_secret=_raw,
+                policy=policy,
+                adapters=key_adapters_by_key_id[key_id],
+                auth_header=_auth_header,
+                auth_prefix=_auth_prefix,
+                template_name=template["provider_id"],
             )
         else:
             public_key_pem = checkpoint_entry["public_key_pem"]
@@ -3715,6 +3725,14 @@ def main() -> None:
                 vault_instance=vault_instance,
                 public_key_pem=public_key_pem,
                 pub_key_fp=pub_key_fp,
+                provider=provider,
+                target_host=api_keys[key_id][1],
+                raw_secret=_raw,
+                policy=policy,
+                adapters=key_adapters_by_key_id[key_id],
+                auth_header=_auth_header,
+                auth_prefix=_auth_prefix,
+                template_name=template["provider_id"],
             )
 
         public_key_file = _public_key_file_for_key(key_id, vault_instance)
@@ -3753,23 +3771,27 @@ def main() -> None:
         pub_key_fp = phase2_entry["pub_key_fp"]
         policy = policy_by_key_id[key_id]
         policy_hash = compute_policy_hash(policy)
+        template = _template_for_provider(provider, target_host, key_id=key_id)
         dek = os.urandom(32)
         ciphertext = encrypt_api_key_v3(dek, raw, key_id, policy_hash)
         wrapped_dek = wrap_dek(pub_key, dek)
-        keys_payload[key_id] = {
-            "key_id": key_id,
-            "enc_version": 3,
-            "pub_key_fp": pub_key_fp,
-            "wrapped_dek": wrapped_dek,
-            "ciphertext": ciphertext,
-            "provider": provider,
-            "target_host": target_host,
-            "policy_id": policy["policy_id"],
-            "policy_hash": policy_hash,
-            "vault_instance": vault_instance,
-            "created_at": now_iso,
-            "label": key_id,
-        }
+        keys_payload[key_id] = _build_fat_record(
+            key_id=key_id,
+            provider=provider,
+            target_host=target_host,
+            pub_key_fp=pub_key_fp,
+            wrapped_dek=wrapped_dek,
+            ciphertext=ciphertext,
+            policy=policy,
+            policy_hash=policy_hash,
+            adapters=key_adapters_by_key_id[key_id],
+            auth_header=_auth_header,
+            auth_prefix=_auth_prefix,
+            template_name=template["provider_id"],
+            vault_instance=vault_instance,
+            created_at=now_iso,
+            label=key_id,
+        )
         del dek
         ok(
             f"Encrypted {provider:12s} → {key_id}  →  "
@@ -3785,11 +3807,7 @@ def main() -> None:
     # ── Step 8: publish structured KV ────────────────────────────────────
     step("Publishing structured KV entries to Cloudflare KV")
     try:
-        _publish_structured_kv(
-            cf_creds,
-            keys_payload,
-            {key_id: policy_by_key_id[key_id] for key_id in keys_payload},
-        )
+        _publish_structured_kv(cf_creds, keys_payload)
     except SystemExit:
         die("structured publish aborted before registry_version update")
     ok("structured publish complete")
@@ -3898,16 +3916,18 @@ def main() -> None:
     Shared key:    {PUBLIC_KEY_FILE}
     Fingerprint:   {primary_pub_key_fp or "(unique-vault only run)"}
     Per-key rotate: existing V3 records only via docker compose --profile bootstrap run --rm -it bootstrap --rotate
-    Policy rotate: V3 policy refresh only via docker compose --profile bootstrap run --rm -it bootstrap --rotate-policy
+    Policy/routing/adapter changes: full bootstrap required
     Targeted repair: ./bootstrap.sh --provision <key_id>
     V2 migration:  full bootstrap required
 """))
 
 
 if __name__ == "__main__":
-    selected_modes = sum(flag in sys.argv for flag in ("--push-registry", "--rotate", "--rotate-policy", "--provision"))
+    if "--rotate-policy" in sys.argv:
+        die("--rotate-policy has been removed. Re-run full bootstrap for policy, routing, or adapter-binding changes.")
+    selected_modes = sum(flag in sys.argv for flag in ("--push-registry", "--rotate", "--provision"))
     if selected_modes > 1:
-        die("--push-registry, --rotate, --rotate-policy, and --provision are mutually exclusive")
+        die("--push-registry, --rotate, and --provision are mutually exclusive")
     if "--push-registry" in sys.argv:
         run_push_registry()
     elif "--provision" in sys.argv:
@@ -3916,8 +3936,6 @@ if __name__ == "__main__":
         except IndexError:
             die("--provision requires <key_id>")
         run_provision_key(target_key_id)
-    elif "--rotate-policy" in sys.argv:
-        run_rotate_policy()
     elif "--rotate" in sys.argv:
         run_rotate_wizard()
     else:
