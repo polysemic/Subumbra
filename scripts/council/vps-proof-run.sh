@@ -173,7 +173,9 @@ json_event() {
     local stage="$1"
     local status="$2"
     local message="${3:-}"
-    python3 - "$timeline_file" "$stage" "$status" "$message" "$mode" <<'PY'
+    local _rc=0
+    python3 - "$timeline_file" "$stage" "$status" "$message" "$mode" \
+        2>>"${artifact_dir}/json-event-errors.log" <<'PY' || _rc=$?
 import json, sys, datetime
 path, stage, status, message, mode = sys.argv[1:6]
 event = {
@@ -188,6 +190,10 @@ with open(path, "a", encoding="utf-8") as fh:
     json.dump(event, fh)
     fh.write("\n")
 PY
+    if [[ "$_rc" -ne 0 ]]; then
+        echo "[json_event warn] python3 exit ${_rc} for ${stage}:${status}" \
+            >>"${artifact_dir}/json-event-errors.log" || true
+    fi
 }
 
 write_result() {
@@ -238,7 +244,6 @@ run_stage() {
         return 1
     fi
     json_event "$stage" "pass"
-    json_event "$stage" "pass2"
     return 0
 }
 
@@ -466,7 +471,6 @@ case "$mode" in
         exit 1
         ;;
 esac
-json_event "diag" "after-esac"
 run_stage remote-verify verify_once
 run_stage remote-probes run_independent_probes
 overall="PASS"
