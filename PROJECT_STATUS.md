@@ -1,5 +1,5 @@
 # PROJECT_STATUS
-*Current state — updated 2026-05-08*
+*Current state — updated 2026-05-09*
 *Rounds 1–43.6, 43-6-3, 43-6-4-1, 43-6-4-2, and 43-6-4-bootstrap-ux closed. See `council/COUNCIL.md` for round history and current status.*
 
 ---
@@ -151,6 +151,7 @@ This arc focuses on evolving Subumbra from a static, bundled configuration into 
 - **Round 48 — Intent Attestation And Response Policy Enforcement** (Closed 2026-05-08): request-side `intent.trust` guardrails are now active on the Worker/runtime path, `subumbra-proxy` transparently carries `intent` via `X-Subumbra-Intent-*` headers, bootstrap validates `intent.trust` string arrays, and the docs now reflect that missing `intent` remains accepted by default while response-side `deny_patterns` enforcement stays deferred to R48-5. Live existing-stack VPS proof passed at `claude-vps-20260508T052054Z` and `gemini-vps-20260508T052651Z`.
 - **Round 48-1 — Config Manifest Unification Arc Planning** (Closed 2026-05-08): the council approved a three-round operator-config simplification arc. `r48-2-manifest-ingest`, `r48-3-internal-state-authority`, and `r48-4-provider-catalog-removal` are now staged as the implementation sequence. The planning round made no source-code changes; it closed on council consensus and local scaffolding only.
 - **Round 48-2 — Manifest Ingest** (Closed 2026-05-08): bootstrap now supports manifest-era intake from repo-root `subumbra.json`, `.env.bootstrap.example` is secret-only, `bootstrap.sh` no longer mounts `SUBUMBRA_POLICY_PATH` or `IMPORT_PATH_*`, `run_push_registry()` now fails closed for manifest-era installs, and the operator guide plus checked-in `subumbra.example.json` now reflect the single-manifest flow. Fresh-install verifier proof passed at `codex-vps-20260508T211232Z` and `gemini-vps-20260508T214755Z` on SHA `b50facd`.
+- **Round 48-3 — Internal State Authority** (Closed 2026-05-09): persisted V3 records and bootstrap checkpoint entries now carry embedded policy and adapter authority for day-2 commands; `--push-registry` and `--provision` now run from internal state without `subumbra.json`; `--rotate-policy` and reconstruction-only helper paths are removed; fixup verification passed after hardening checkpoint disposal and fresh-install pre-bootstrap failure handling. Verifier proof passed at `claude-vps-20260508T231902Z`, `gemini-vps-20260508T233305Z`, `claude-vps-20260509T002641Z`, and `gemini-vps-20260509T005723Z`.
 - **Round 46.5 — Vault Granularity Decision** (Closed 2026-05-07): the council approved an Alpha mixed-vault direction: shared vault remains the default, while per-key unique vaults become an opt-in path via `UNIQUE_KEY_<key_id>=true/false`. The round made no runtime source changes; it finalized `decision.md`, documented the Cloudflare platform caveat around in-memory isolation claims, and unblocked R47 with the approved mixed-vault planning scope.
 
 ## Path Forward
@@ -160,7 +161,7 @@ Immediate follow-up sequence — targeting 0.0.1 Alpha:
 1. **Rounds 48.5+ — Remaining Alpha Hardening Arc**
    After the now-closed R48 request-side intent round, continue with R48-5 response buffering / `response.deny_patterns`, then velocity/circuit breakers, management API, signed template catalog, read-only policy UI, and the alpha release/recovery gate as staged by `council/approved/rTBD-structure-upgrade.md`.
 2. **Rounds 48.3-48.4 — Remaining config-manifest unification arc**
-   `r48-2-manifest-ingest` is now closed. The remaining approved sequence is `r48-3-internal-state-authority`, then `r48-4-provider-catalog-removal`, to move day-2 authority fully into Subumbra internal state and then delete remaining hardcoded provider-catalog authority.
+   `r48-2-manifest-ingest` and `r48-3-internal-state-authority` are now closed. The remaining approved sequence is `r48-4-provider-catalog-removal`, to delete remaining hardcoded provider-catalog authority after day-2 control has fully moved into Subumbra internal state.
    - High-priority follow-up investigation: `r48-3` manifest-less `--provision` currently persists transient plaintext `raw_secret` in `bootstrap-checkpoint.json` so later repair can re-encrypt a missing key without `subumbra.json`. The council accepted this as the short-term path, but a future remediation round should define whether to keep that exception, require operator re-supply, or replace it with a different secret-recovery contract that restores the RAM-only invariant.
 3. **Bootstrap hardening follow-up**
    Future rounds should keep Cloudflare KV namespace mutation on the hardened bootstrap helper path and continue auditing non-interactive `docker compose run` entrypoints for SSH/stdin safety so fresh-install proof capture remains reliable.
