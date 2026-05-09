@@ -388,7 +388,7 @@ PY
         docker compose build $build_targets_string
     fi
     if [[ -f "council/${round}/pre-bootstrap.sh" ]]; then
-        bash "council/${round}/pre-bootstrap.sh"
+        bash "council/${round}/pre-bootstrap.sh" || return 1
     fi
     # Explicit exit checks: run_stage calls functions via `if ! fn`, which
     # disables set -e inside the function body. Each step must bail manually.

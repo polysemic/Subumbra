@@ -161,6 +161,7 @@ Immediate follow-up sequence — targeting 0.0.1 Alpha:
    After the now-closed R48 request-side intent round, continue with R48-5 response buffering / `response.deny_patterns`, then velocity/circuit breakers, management API, signed template catalog, read-only policy UI, and the alpha release/recovery gate as staged by `council/approved/rTBD-structure-upgrade.md`.
 2. **Rounds 48.3-48.4 — Remaining config-manifest unification arc**
    `r48-2-manifest-ingest` is now closed. The remaining approved sequence is `r48-3-internal-state-authority`, then `r48-4-provider-catalog-removal`, to move day-2 authority fully into Subumbra internal state and then delete remaining hardcoded provider-catalog authority.
+   - High-priority follow-up investigation: `r48-3` manifest-less `--provision` currently persists transient plaintext `raw_secret` in `bootstrap-checkpoint.json` so later repair can re-encrypt a missing key without `subumbra.json`. The council accepted this as the short-term path, but a future remediation round should define whether to keep that exception, require operator re-supply, or replace it with a different secret-recovery contract that restores the RAM-only invariant.
 3. **Bootstrap hardening follow-up**
    Future rounds should keep Cloudflare KV namespace mutation on the hardened bootstrap helper path and continue auditing non-interactive `docker compose run` entrypoints for SSH/stdin safety so fresh-install proof capture remains reliable.
 4. **Verification harness portability cleanup**
