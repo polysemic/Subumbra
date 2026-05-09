@@ -26,6 +26,8 @@ Each manifest record declares:
 
 `secret_ref` names the environment variable that will hold the provider secret
 during bootstrap. The manifest itself should not contain plaintext secrets.
+`provider` is now an operator-declared label, not a built-in routing lookup key.
+Routing and auth authority come from `policy.target.host` and `policy.auth`.
 
 ## 2. Create The Secret Bootstrap File
 
@@ -113,8 +115,8 @@ adapter bindings from bootstrap-era inputs.
 
 ## 6. Registry Publish Notes
 
-Structured KV publication still uses the current `key:`, `policy:`, and
-`template:` records:
+Structured KV publication now uses only `key:` and `policy:` records plus the
+schema marker:
 
 ```bash
 ./bootstrap.sh --push-registry
@@ -122,6 +124,10 @@ Structured KV publication still uses the current `key:`, `policy:`, and
 
 `--push-registry` now reads only from the persisted internal state under
 `data/`. It does not require `subumbra.json` after bootstrap completes.
+
+Bootstrap no longer reads routing or auth defaults from `providers.json`. If a
+manifest record omits or misstates `policy.target.host` or `policy.auth`, the
+bootstrap run fails closed and must be corrected in `subumbra.json`.
 
 There is no longer a separate `--rotate-policy` workflow. If you change
 manifest policy, adapter bindings, routing metadata, or vault layout, re-run

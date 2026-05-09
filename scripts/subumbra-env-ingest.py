@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import sys
@@ -9,34 +10,6 @@ import tempfile
 from collections import OrderedDict
 from pathlib import Path
 
-# Sync with bootstrap/subumbra-bootstrap.py:199 IMPORT_PROVIDER_WHITELIST.
-IMPORT_PROVIDER_WHITELIST: dict[str, str] = {
-    "ANTHROPIC_KEY": "anthropic",
-    "OPENAI_KEY": "openai",
-    "GROQ_KEY": "groq",
-    "DEEPSEEK_KEY": "deepseek",
-    "CEREBRAS_API_KEY": "cerebras",
-    "GEMINI_API_KEY": "gemini",
-    "MISTRAL_API_KEY": "mistral",
-    "OPENROUTER_API_KEY": "openrouter",
-    "TOGETHER_AI_API_KEY": "together",
-    "XAI_API_KEY": "xai",
-    "GITHUB_KEY": "github",
-    "SLACK_KEY": "slack",
-    "SENDGRID_KEY": "sendgrid",
-    "ANTHROPIC_API_KEY": "anthropic",
-    "OPENAI_API_KEY": "openai",
-    "GROQ_API_KEY": "groq",
-    "DEEPSEEK_API_KEY": "deepseek",
-    "TOGETHER_API_KEY": "together",
-    "GITHUB_TOKEN": "github",
-    "SLACK_BOT_TOKEN": "slack",
-    "SENDGRID_API_KEY": "sendgrid",
-    "GOOGLE_KEY": "gemini",
-    "GOOGLE_API_KEY": "gemini",
-}
-
-# Sync with bootstrap/subumbra-bootstrap.py:228 IMPORT_EXCLUSION_LIST.
 IMPORT_EXCLUSION_LIST: frozenset[str] = frozenset(
     {
         "LITELLM_MASTER_KEY",
@@ -52,44 +25,27 @@ IMPORT_EXCLUSION_LIST: frozenset[str] = frozenset(
     }
 )
 
-PROVIDER_OUTPUT_SPECS: list[tuple[str, str, str]] = [
-    ("anthropic", "ANTHROPIC_KEY", "ANTHROPIC_KEY_ID"),
-    ("openai", "OPENAI_KEY", "OPENAI_KEY_ID"),
-    ("groq", "GROQ_KEY", "GROQ_KEY_ID"),
-    ("deepseek", "DEEPSEEK_KEY", "DEEPSEEK_KEY_ID"),
-    ("cerebras", "CEREBRAS_API_KEY", "CEREBRAS_KEY_ID"),
-    ("gemini", "GEMINI_API_KEY", "GEMINI_KEY_ID"),
-    ("mistral", "MISTRAL_API_KEY", "MISTRAL_KEY_ID"),
-    ("openrouter", "OPENROUTER_API_KEY", "OPENROUTER_KEY_ID"),
-    ("together", "TOGETHER_AI_API_KEY", "TOGETHER_AI_KEY_ID"),
-    ("xai", "XAI_API_KEY", "XAI_KEY_ID"),
-    ("github", "GITHUB_KEY", "GITHUB_KEY_ID"),
-    ("slack", "SLACK_KEY", "SLACK_KEY_ID"),
-    ("sendgrid", "SENDGRID_KEY", "SENDGRID_KEY_ID"),
-]
-PROVIDER_CANONICAL_ENV = {provider: env_var for provider, env_var, _ in PROVIDER_OUTPUT_SPECS}
-PROVIDER_KEY_ID_ENV = {provider: key_id_var for provider, _, key_id_var in PROVIDER_OUTPUT_SPECS}
-
 ADAPTER_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,61}[a-z0-9]$")
 RUNNER_PREFIX_RE = re.compile(r"^RUNNER_")
-
-
-def normalize_adapter_id(adapter_id: str) -> str:
-    return adapter_id.upper().replace("-", "_")
+SECRET_NAME_RE = re.compile(r"(?:^|_)(?:API_)?(?:KEY|TOKEN|PAT|SECRET)$")
+NON_PROVIDER_PREFIXES = ("CF_", "SUBUMBRA_", "TUNNEL_", "WRANGLER_", "CLOUDFLARE_")
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Generate a reviewable .env.bootstrap.proposed file from one or more app .env files. "
-            "Supports multiple same-provider secrets, app-aware generated key_ids, and duplicate-"
-            "secret reuse prompts across app inputs."
+            "Generate reviewable manifest-era bootstrap drafts from one or more app .env files. "
+            "Outputs subumbra.json.proposed plus a secret-only .env.bootstrap.proposed."
         )
     )
     parser.add_argument("--source", action="append", default=[], help="Path to an app .env file")
     parser.add_argument("--app", action="append", default=[], help="Adapter/app id for the paired source")
-    parser.add_argument("--output", required=True, help="Path to write the generated artifact")
-    parser.add_argument("--force", action="store_true", help="Overwrite the output file if it exists")
+    parser.add_argument(
+        "--output",
+        required=True,
+        help="Directory path where subumbra.json.proposed and .env.bootstrap.proposed will be written",
+    )
+    parser.add_argument("--force", action="store_true", help="Overwrite existing proposed files")
     return parser
 
 
@@ -110,11 +66,23 @@ def is_excluded_key(key: str) -> bool:
         return True
     if RUNNER_PREFIX_RE.match(key):
         return True
+    if key.startswith(NON_PROVIDER_PREFIXES):
+        return True
     return False
 
 
-def parse_env_file(path: Path) -> OrderedDict[str, tuple[str, str]]:
-    results: OrderedDict[str, tuple[str, str]] = OrderedDict()
+def is_candidate_secret_key(key: str) -> bool:
+    if is_excluded_key(key):
+        return False
+    if not SECRET_NAME_RE.search(key):
+        return False
+    # Treat common provider-ish names as candidates, but keep the script generic:
+    # the generated manifest remains a draft the operator must review.
+    return True
+
+
+def parse_env_file(path: Path) -> OrderedDict[str, str]:
+    results: OrderedDict[str, str] = OrderedDict()
     try:
         with path.open("r", encoding="utf-8", errors="replace") as fh:
             for raw_line in fh:
@@ -128,11 +96,9 @@ def parse_env_file(path: Path) -> OrderedDict[str, tuple[str, str]]:
                 value = value.strip()
                 if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
                     value = value[1:-1]
-                if not value or is_excluded_key(key):
+                if not value or not is_candidate_secret_key(key):
                     continue
-                provider = IMPORT_PROVIDER_WHITELIST.get(key)
-                if provider is not None:
-                    results[key] = (provider, value)
+                results[key] = value
     except OSError as exc:
         raise RuntimeError(f"unable to read source file '{path}': {exc}") from exc
     return results
@@ -154,18 +120,27 @@ def collect_sources(source_paths: list[str], app_ids: list[str]) -> tuple[list[s
             apps_seen.add(raw_app_id)
 
         entries = parse_env_file(source_path)
-        for env_var, (provider, secret_value) in entries.items():
+        for env_var, secret_value in entries.items():
             candidates.append(
                 {
                     "app_id": raw_app_id,
-                    "provider": provider,
+                    "secret_ref": env_var,
                     "secret_value": secret_value,
-                    "env_var": env_var,
                     "source_path": raw_source,
                 }
             )
 
     return ordered_apps, candidates
+
+
+def derive_provider_label(secret_ref: str) -> str:
+    base = secret_ref.strip().lower()
+    for suffix in ("_api_key", "_key", "_token", "_pat", "_secret"):
+        if base.endswith(suffix):
+            base = base[: -len(suffix)]
+            break
+    base = re.sub(r"[^a-z0-9]+", "_", base).strip("_")
+    return base or "provider"
 
 
 def generate_key_id(provider: str, app_id: str, ordinal: int) -> str:
@@ -197,13 +172,13 @@ def _duplicate_prompt(
 ) -> bool:
     provider = candidate["provider"]
     app_id = candidate["app_id"]
-    env_var = candidate["env_var"]
+    secret_ref = candidate["secret_ref"]
     source_path = candidate["source_path"]
     existing_key_id = str(existing_record["key_id"])
     existing_apps = ",".join(existing_record["apps"])
     message = (
         f"duplicate secret detected for provider '{provider}' from app '{app_id}' "
-        f"({source_path}:{env_var}); existing record '{existing_key_id}' currently maps to app(s): "
+        f"({source_path}:{secret_ref}); existing record '{existing_key_id}' currently maps to app(s): "
         f"{existing_apps}"
     )
     if not interactive:
@@ -226,9 +201,13 @@ def resolve_provider_values(candidates: list[dict[str, str]]) -> list[dict[str, 
     interactive = sys.stdin.isatty()
 
     for candidate in candidates:
+        candidate["provider"] = derive_provider_label(candidate["secret_ref"])
         existing_same_secret = None
         for record in planned_records:
-            if record["provider"] == candidate["provider"] and record["secret_value"] == candidate["secret_value"]:
+            if (
+                record["provider"] == candidate["provider"]
+                and record["secret_value"] == candidate["secret_value"]
+            ):
                 existing_same_secret = record
                 break
 
@@ -240,7 +219,7 @@ def resolve_provider_values(candidates: list[dict[str, str]]) -> list[dict[str, 
                 existing_same_secret["origins"].append(
                     {
                         "app_id": candidate["app_id"],
-                        "env_var": candidate["env_var"],
+                        "secret_ref": candidate["secret_ref"],
                         "source_path": candidate["source_path"],
                     }
                 )
@@ -257,12 +236,13 @@ def resolve_provider_values(candidates: list[dict[str, str]]) -> list[dict[str, 
             {
                 "provider": provider,
                 "key_id": key_id,
+                "secret_ref": candidate["secret_ref"],
                 "secret_value": candidate["secret_value"],
                 "apps": [app_id],
                 "origins": [
                     {
                         "app_id": app_id,
-                        "env_var": candidate["env_var"],
+                        "secret_ref": candidate["secret_ref"],
                         "source_path": candidate["source_path"],
                     }
                 ],
@@ -274,77 +254,95 @@ def resolve_provider_values(candidates: list[dict[str, str]]) -> list[dict[str, 
     return planned_records
 
 
-def build_artifact(
-    ordered_apps: list[str],
-    planned_records: list[dict[str, object]],
-) -> str:
-    app_allowed_keys: OrderedDict[str, list[str]] = OrderedDict((app_id, []) for app_id in ordered_apps)
+def build_policy(key_id: str, app_ids: list[str]) -> dict[str, object]:
+    return {
+        "key_id": key_id,
+        "policy_id": f"draft-{key_id}",
+        "protocol": "http_rest",
+        "capability_class": "custom_rest",
+        "source": "env",
+        "target": {
+            "host": "replace-me.invalid",
+            "base_path": "/v1",
+        },
+        "auth": {
+            "scheme": "bearer",
+        },
+        "allow": {
+            "adapters": app_ids,
+            "methods": ["GET", "POST"],
+            "path_prefixes": ["/v1"],
+            "content_types": ["application/json"],
+            "max_body_bytes": 1048576,
+        },
+    }
 
+
+def build_manifest(planned_records: list[dict[str, object]]) -> dict[str, object]:
+    keys: list[dict[str, object]] = []
+    for record in planned_records:
+        app_ids = sorted(str(app_id) for app_id in record["apps"])
+        key_id = str(record["key_id"])
+        keys.append(
+            {
+                "key_id": key_id,
+                "provider": str(record["provider"]),
+                "secret_ref": str(record["secret_ref"]),
+                "adapters": app_ids,
+                "unique_vault": False,
+                "policy": build_policy(key_id, app_ids),
+            }
+        )
+    return {"keys": keys}
+
+
+def build_bootstrap_env(planned_records: list[dict[str, object]]) -> str:
     lines: list[str] = [
         "# Generated by scripts/subumbra-env-ingest.py",
-        "# WARNING: This file contains real API keys. Review, use for bootstrap, then shred/delete it.",
+        "# Review this file, use it for bootstrap, then shred/delete it.",
         "",
-        "# Cloudflare credentials required before bootstrap",
+        "# Cloudflare bootstrap credentials",
         "CF_API_TOKEN=REPLACE_ME",
         "CF_ACCOUNT_ID=REPLACE_ME",
         "CF_WORKER_NAME=subumbra-proxy",
         "TOKEN_TTL_DAYS=90",
         "",
-        "# Provider secrets and optional key_id overrides",
+        "# Provider secrets referenced by subumbra.json.proposed secret_ref values",
     ]
 
-    provider_records: dict[str, list[dict[str, object]]] = OrderedDict()
+    emitted: set[str] = set()
     for record in planned_records:
-        provider_records.setdefault(str(record["provider"]), []).append(record)
-
-    for provider, env_var, key_id_var in PROVIDER_OUTPUT_SPECS:
-        if provider not in provider_records:
+        secret_ref = str(record["secret_ref"])
+        if secret_ref in emitted:
             continue
-        for slot_idx, record in enumerate(provider_records[provider], start=1):
-            slot_env_var = env_var if slot_idx == 1 else f"{env_var}_{slot_idx}"
-            slot_key_id_var = key_id_var if slot_idx == 1 else f"{key_id_var}_{slot_idx}"
-            key_id = str(record["key_id"])
-            lines.extend(
-                [
-                    f"{slot_env_var}={record['secret_value']}",
-                    f"{slot_key_id_var}={key_id}",
-                    "",
-                ]
-            )
-            for app_id in record["apps"]:
-                if key_id not in app_allowed_keys[app_id]:
-                    app_allowed_keys[app_id].append(key_id)
+        emitted.add(secret_ref)
+        lines.append(f"{secret_ref}={record['secret_value']}")
 
     lines.extend(
         [
-            "# Adapter allowlists",
-            f"ADAPTER_IDS={','.join(ordered_apps)}",
+            "",
+            "# No structural bootstrap variables are emitted here.",
+            "# Review and edit subumbra.json.proposed for target.host, auth, protocol, and allow rules.",
         ]
     )
-    for app_id in ordered_apps:
-        lines.append(f"{normalize_adapter_id(app_id)}_ALLOWED_KEYS={','.join(app_allowed_keys[app_id])}")
-    lines.append("PROXY_ALLOWED_KEYS=")
-    lines.extend(
-        [
-            "",
-            "# SUBUMBRA_TOKEN_<APP> values are generated by bootstrap.",
-            "",
-        ]
-    )
-    return "\n".join(lines)
+    return "\n".join(lines) + "\n"
 
 
-def write_output(output_path: Path, content: str, force: bool) -> None:
-    if output_path.exists() and not force:
-        raise RuntimeError(f"output file '{output_path}' already exists; rerun with --force to overwrite")
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+def write_text_output(path: Path, content: str, force: bool) -> None:
+    if path.exists() and not force:
+        raise RuntimeError(f"output file '{path}' already exists; rerun with --force to overwrite")
+    path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(
-        "w", encoding="utf-8", dir=str(output_path.parent), delete=False, prefix=output_path.name + ".tmp."
+        "w", encoding="utf-8", dir=str(path.parent), delete=False, prefix=path.name + ".tmp."
     ) as tmp:
         tmp.write(content)
         tmp.flush()
         tmp_path = Path(tmp.name)
-    os.replace(tmp_path, output_path)
+    os.replace(tmp_path, path)
+
+
+def write_json_output(path: Path, payload: dict[str, object], force: bool) -> None:
+    write_text_output(path, json.dumps(payload, indent=2) + "\n", force)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -352,23 +350,25 @@ def main(argv: list[str] | None = None) -> int:
         args = parse_args(argv)
         ordered_apps, candidates = collect_sources(args.source, args.app)
         if not candidates:
-            raise RuntimeError("no supported provider secrets were detected across the provided source files")
+            raise RuntimeError("no candidate provider secret variables were detected across the provided source files")
         planned_records = resolve_provider_values(candidates)
-        artifact = build_artifact(ordered_apps, planned_records)
-        write_output(Path(args.output), artifact, args.force)
+        manifest = build_manifest(planned_records)
+        bootstrap_env = build_bootstrap_env(planned_records)
+
+        output_dir = Path(args.output)
+        manifest_path = output_dir / "subumbra.json.proposed"
+        env_path = output_dir / ".env.bootstrap.proposed"
+
+        write_json_output(manifest_path, manifest, args.force)
+        write_text_output(env_path, bootstrap_env, args.force)
+
         print(f"Processed {len(args.source)} source file(s).")
-        print(f"Detected {len(candidates)} provider secret mapping(s) across app inputs.")
-        print(f"Emitted {len(planned_records)} key record{'s' if len(planned_records) != 1 else ''}.")
-        for record in planned_records:
-            apps = ",".join(record["apps"])
-            duplicate_note = []
-            if record["duplicate_reused"]:
-                duplicate_note.append("reused duplicate")
-            if record["duplicate_created"]:
-                duplicate_note.append("created from duplicate")
-            note = f" ({'; '.join(duplicate_note)})" if duplicate_note else ""
-            print(f"  - {record['provider']} {record['key_id']} apps={apps}{note}")
-        print(f"Wrote reviewable bootstrap artifact: {args.output}")
+        print(f"Detected {len(candidates)} candidate secret mapping(s) across app inputs.")
+        print(f"Wrote {manifest_path}")
+        print(f"Wrote {env_path}")
+        print("Review the proposed manifest carefully before bootstrap:")
+        print("  - replace target.host and auth settings")
+        print("  - tighten protocol/capability_class/path_prefixes as needed")
         return 0
     except RuntimeError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

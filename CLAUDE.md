@@ -134,10 +134,11 @@ subumbra/
 1. Run bootstrap through the host wrapper:
    `./bootstrap.sh`
    For CI/automation: create `.env.bootstrap` first, then run the same wrapper.
-   App-owned imports use `IMPORT_PATH_<n>` plus required `IMPORT_APP_LABEL_<n>`.
+   The supported bootstrap path is manifest-driven: author `subumbra.json`,
+   then provide only the referenced secrets in `.env.bootstrap`.
 2. Bootstrap container:
-   - Reads keys from env (RAM only)
-   - Loads built-in provider `target_host` mappings and derives built-in `KNOWN_PROVIDERS` from root `providers.json`
+   - Reads manifest-declared secret refs from env (RAM only)
+   - Treats `policy.target.host` and `policy.auth` in `subumbra.json` as the routing/auth source of truth
    - Creates or reuses the provider-registry KV namespace and persists its namespace ID in `/app/data/kv-config.json`
    - Injects the `[[kv_namespaces]]` binding into the temporary deploy copy of `wrangler.toml`
    - Deploys CF Worker via wrangler
@@ -196,21 +197,10 @@ as legacy reference only and are not the current adapter hierarchy.
 - Returns: V3 record metadata including `provider`, `target_host`, `ciphertext`, `wrapped_dek`, `pub_key_fp`, `enc_version`, `policy_hash`, and `vault_instance`
 - Logs: every access attempt with timestamp
 
-## Supported Providers
-- anthropic (Claude models)
-- openai (GPT models)
-- groq (Llama, Mixtral)
-- deepseek (DeepSeek models)
-- cerebras
-- gemini
-- mistral
-- openrouter
-- together
-- xai
-- github
-- slack
-- sendgrid
-- Additional providers can be added via the live registry workflow (`--push-registry`) without making `worker/src/providers.json` the Worker's runtime authority.
+## Provider Declarations
+- Subumbra no longer ships a hardcoded provider-routing catalog as runtime/bootstrap authority.
+- Operators declare provider labels, `policy.target.host`, and `policy.auth` explicitly in `subumbra.json`.
+- The Worker remains generic: it validates `target.host` against embedded policy/key authority and executes auth by generic `bearer`, `basic`, `header`, or `query` policy semantics.
 
 ## Environment Variables
 
