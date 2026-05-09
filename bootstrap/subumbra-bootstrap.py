@@ -222,10 +222,29 @@ def _write_bootstrap_checkpoint(checkpoint: dict[str, Any]) -> None:
 
 
 def _delete_bootstrap_checkpoint() -> None:
+    if not CHECKPOINT_FILE.exists():
+        return
     try:
-        CHECKPOINT_FILE.unlink(missing_ok=True)
-    except OSError as exc:
-        die(f"Failed to delete bootstrap checkpoint: {exc}")
+        result = subprocess.run(
+            ["shred", "-u", str(CHECKPOINT_FILE)],
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        try:
+            CHECKPOINT_FILE.unlink(missing_ok=True)
+        except OSError as exc:
+            die(f"Failed to delete bootstrap checkpoint: {exc}")
+        return
+    except OSError:
+        try:
+            CHECKPOINT_FILE.unlink(missing_ok=True)
+        except OSError as exc:
+            die(f"Failed to delete bootstrap checkpoint: {exc}")
+        return
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip() or f"exit {result.returncode}"
+        die(f"Failed to shred bootstrap checkpoint: {detail}")
 
 
 def _checkpoint_entry_by_vault_instance(checkpoint: dict[str, Any], vault_instance: str) -> dict[str, Any] | None:
