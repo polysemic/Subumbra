@@ -38,6 +38,11 @@
             "application/json"
           ],
           "max_body_bytes": 2097152
+        },
+        "response": {
+          "deny_patterns": [
+            "api_key"
+          ]
         }
       }
     }
