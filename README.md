@@ -13,6 +13,7 @@ The supported integration model is now **app-owned installs**:
 - Subumbra core runs in `/opt/subumbra`
 - LiteLLM or another app runs in its own install
 - the app points at `subumbra-proxy`
+- bootstrap routing/auth authority lives in operator-authored `subumbra.json`
 
 ## Core Runtime Shape
 
@@ -59,6 +60,9 @@ supported auth slot.
 - Env ingestion in 43-6-1 supports multi-app deduplication under the current
   bootstrap contract, but richer same-provider multi-secret import support is
   deferred to a future round.
+- Built-in provider catalog authority is removed in the current manifest-era
+  flow. `provider` is an operator label; `policy.target.host` and `policy.auth`
+  are the routing/auth source of truth.
 
 ## Quick Start
 
