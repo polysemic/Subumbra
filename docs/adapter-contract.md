@@ -118,14 +118,18 @@ payload:
 }
 ```
 
-R48 activates optional request-side guardrails only:
+R48 activates optional request-side guardrails; R48-5 completes enforcement:
 
-- `intent.trust.allowed_initiators`
-- `intent.trust.allowed_content_sources`
+- `intent.trust.allowed_initiators` — if configured, request initiators must be in the allowlist
+- `intent.trust.allowed_content_sources` — if configured, content sources must be in the allowlist
+- `intent.policy_match` — if configured, `intent.source` must match the declared pattern
 
-Missing `intent` remains accepted by default in R48. A later round may add
-stricter opt-in blocking semantics, but that is not part of the current
-runtime contract.
+**If `intent.trust` is configured and non-empty, `intent` is required.**
+Requests that omit `intent` entirely are rejected with `intent_required` (403).
+
+If `intent.trust` is not configured, `intent` remains optional and omitting it
+has no effect. `intent.policy_match` alone does not make `intent` mandatory —
+it only enforces when `body.intent.source` is present.
 
 ### Transparent-Path `intent` Carrier
 
@@ -187,8 +191,12 @@ The Worker enforces these security invariants before any upstream request is mad
    `X-Subumbra-*` / `CF-Access-*` headers before the upstream fetch.
 
 8. **Streaming** — `POST /proxy` streams the Durable Object response body back
-   to the caller unchanged. Callers do not need to buffer the full upstream
-   response.
+   to the caller unchanged, except when `response.deny_patterns` is configured
+   and the response `Content-Type` is `application/json` or `text/plain`. In
+   those cases the Worker buffers the response, scans it, and either returns
+   the full body or a terse `response_deny_pattern_match` denial. `text/event-stream`
+   and all other content types are always streamed through without buffering.
+   Callers that do not configure `response.deny_patterns` experience no change.
 
 9. **Body-size enforcement** — `allow.max_body_bytes` is enforced against the
    UTF-8 byte length of the JSON-serialized outbound body.
@@ -221,6 +229,12 @@ All error responses use `Content-Type: application/json` with body
 | V2 `enc_version` (deprecated) | 410 |
 | Non-V3 `enc_version` or missing `wrapped_dek` | 400 |
 | Invalid JSON body | 400 |
+| `intent` absent when `intent.trust` is configured | 403 `intent_required` |
+| `intent.trust.allowed_initiators` mismatch | 403 `intent_disallowed_initiator` |
+| `intent.trust.allowed_content_sources` mismatch | 403 `intent_disallowed_content_source` |
+| `intent.source` does not match `intent.policy_match` | 403 `intent_disallowed_source` |
+| Response body matches a `response.deny_patterns` pattern | 403 `response_deny_pattern_match` |
+| Response body could not be read for scanning | 403 `response_read_error` |
 | Decryption failure (generic) | 500 |
 | RSA fingerprint mismatch | 500 |
 | CF Secrets not configured | 503 |
@@ -422,7 +436,12 @@ The `intent`, `response`, and `velocity` blocks are reserved in the schema. They
 must parse without error if present.
 
 - R48 activates request-side `intent.trust.*` guardrails.
-- Response-side `response.deny_patterns` enforcement is still deferred to R48-5.
+- R48-5 activates `intent.policy_match` enforcement and `response.deny_patterns`
+  scanning for buffered response types (`application/json`, `text/plain`).
+  Streaming responses (`text/event-stream` and all other types) pass through
+  unchanged; streaming-path response scanning is explicitly deferred.
+- `intent_required` is inferred: if `intent.trust` is configured and non-empty,
+  `intent` must be present in the request.
 - `velocity` remains reserved and not enforced at runtime.
 
 ```json

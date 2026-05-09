@@ -129,6 +129,7 @@ async function getRegistryEntry(env, keyId) {
     allow_content_types: Array.isArray(allow.content_types) ? allow.content_types : [],
     allow_max_body_bytes: typeof allow.max_body_bytes === "number" ? allow.max_body_bytes : null,
     intent: policy.intent && typeof policy.intent === "object" ? policy.intent : null,
+    deny_patterns: Array.isArray(policy.response?.deny_patterns) ? policy.response.deny_patterns : [],
   };
 }
 
@@ -964,6 +965,23 @@ async function handleProxy(request, env) {
   const allowedInitiators = policyTrust
     ? optionalStringArray(policyTrust.allowed_initiators)
     : null;
+  const allowedContentSources = policyTrust
+    ? optionalStringArray(policyTrust.allowed_content_sources)
+    : null;
+
+  if (
+    ((allowedInitiators && allowedInitiators.length > 0) ||
+     (allowedContentSources && allowedContentSources.length > 0)) &&
+    intentField === null
+  ) {
+    console.warn(
+      "subumbra: policy deny reason=intent_required adapter=%s key_id=%s",
+      auth.adapterId,
+      key_id,
+    );
+    return jsonError("intent_required", 403);
+  }
+
   const requestInitiators = intentTrust
     ? optionalStringArray(intentTrust.allowed_initiators)
     : null;
@@ -982,9 +1000,6 @@ async function handleProxy(request, env) {
     return jsonError("intent_disallowed_initiator", 403);
   }
 
-  const allowedContentSources = policyTrust
-    ? optionalStringArray(policyTrust.allowed_content_sources)
-    : null;
   const requestContentSources = intentTrust
     ? optionalStringArray(intentTrust.allowed_content_sources)
     : null;
@@ -1001,6 +1016,22 @@ async function handleProxy(request, env) {
       intentSource,
     );
     return jsonError("intent_disallowed_content_source", 403);
+  }
+
+  const policyMatch =
+    policyIntent && typeof policyIntent.policy_match === "string"
+      ? policyIntent.policy_match
+      : null;
+  if (policyMatch && intentSource) {
+    if (!new RegExp(policyMatch).test(intentSource)) {
+      console.warn(
+        "subumbra: policy deny reason=intent_disallowed_source adapter=%s key_id=%s source=%s",
+        auth.adapterId,
+        key_id,
+        intentSource,
+      );
+      return jsonError("intent_disallowed_source", 403);
+    }
   }
 
   // ── 3.5. Allow-block enforcement ─────────────────────────────────────────
@@ -1109,9 +1140,40 @@ async function handleProxy(request, env) {
     body: doPayload,
   });
 
-  // ── 7. Stream DO response back to caller ──────────────────────────────────
+  // ── 7. Scan or stream DO response back to caller ──────────────────────────
   const responseHeaders = new Headers(doResponse.headers);
   responseHeaders.set("X-Subumbra-Provider", registryEntry.provider_id);  // audit trail
+
+  const denyPatterns = registryEntry.deny_patterns;
+  const contentType = doResponse.headers.get("content-type") ?? "";
+  const shouldScan =
+    denyPatterns.length > 0 &&
+    (contentType.startsWith("application/json") || contentType.startsWith("text/plain"));
+
+  if (shouldScan) {
+    let responseBody;
+    try {
+      responseBody = await doResponse.text();
+    } catch (e) {
+      console.error("subumbra: response_read_error key_id=%s", key_id);
+      return jsonError("response_read_error", 403);
+    }
+    for (let i = 0; i < denyPatterns.length; i++) {
+      if (new RegExp(denyPatterns[i]).test(responseBody)) {
+        console.warn(
+          "subumbra: policy deny reason=response_deny_pattern_match adapter=%s key_id=%s pattern_index=%d",
+          auth.adapterId,
+          key_id,
+          i,
+        );
+        return jsonError("response_deny_pattern_match", 403);
+      }
+    }
+    return new Response(responseBody, {
+      status: doResponse.status,
+      headers: responseHeaders,
+    });
+  }
 
   return new Response(doResponse.body, {
     status: doResponse.status,
