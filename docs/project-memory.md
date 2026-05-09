@@ -53,6 +53,7 @@ them.
   contract.
 - Live provider validation has moved away from a purely bundled model; local
   repo metadata can still remain as operator/bootstrap seed material.
+- **Internal State Authority (R48-3)**: Day-2 management commands (`--push-registry`, `--provision`, `--rotate`) source all authority from internal "Fat Records" in `keys.json` instead of external manifests. Re-bootstrap is the only supported path for changing embedded authority fields.
 
 ---
 
@@ -108,6 +109,7 @@ them.
 - Full bootstrap now writes `/app/data/system-integrity.json`, and
   `scripts/subumbra-verify-deploy` compares that recorded deploy hash against
   the current live Cloudflare Worker content.
+- **Fat Records (R48-3)**: `keys.json` and `bootstrap-checkpoint.json` now store the full `policy` document, `adapters` list, and routing metadata (`auth_header`, `auth_prefix`, `template_name`) per key. All management commands verify that the embedded policy matches the `policy_hash` before publication.
 - The project expects a **project-local `.env` in the repo root**.
 - Fresh installs should use a dedicated checkout path such as `/opt/subumbra`
   rather than sharing a directory with unrelated services.

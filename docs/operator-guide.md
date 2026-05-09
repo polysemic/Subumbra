@@ -103,9 +103,31 @@ If a fresh bootstrap leaves a retryable checkpoint, repair a single missing key:
 ./bootstrap.sh --provision <key_id>
 ```
 
+`--provision` now reads the persisted checkpoint and internal key state. It does
+not require `subumbra.json` to remain on disk after bootstrap.
+
+If `--rotate`, `--push-registry`, or `--provision` reports missing embedded
+authority fields or an embedded policy mismatch, stop and repair the local state
+or re-run the full bootstrap. Those commands no longer reconstruct policy or
+adapter bindings from bootstrap-era inputs.
+
 ## 6. Registry Publish Notes
 
 Structured KV publication still uses the current `key:`, `policy:`, and
-`template:` records. If a manifest-era installation needs those entries
-republished, rerun the full bootstrap from the same checkout before using the
-registry publish helper.
+`template:` records:
+
+```bash
+./bootstrap.sh --push-registry
+```
+
+`--push-registry` now reads only from the persisted internal state under
+`data/`. It does not require `subumbra.json` after bootstrap completes.
+
+There is no longer a separate `--rotate-policy` workflow. If you change
+manifest policy, adapter bindings, routing metadata, or vault layout, re-run
+the full bootstrap and recreate the runtime services:
+
+```bash
+./bootstrap.sh
+docker compose up -d --force-recreate
+```
