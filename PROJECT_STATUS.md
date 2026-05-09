@@ -15,6 +15,7 @@ V2 Asymmetric Envelope Encryption (deployed, verified by all three council membe
 - App-owned integrations now use `subumbra-proxy` with adapter token as the app credential and the requested `key_id` carried in the `/t/<key_id>/...` path
 - The legacy raw-`key_id` transparent auth path has been removed
 - Worker-side provider validation and upstream routing policy now come from the live Cloudflare KV provider registry; provider-specific auth branches are removed from Worker/DO logic
+- Bootstrap/runtime provider authority is now manifest-owned on the active `r48-4` branch: `subumbra.json` `policy.target.host` and `policy.auth` drive routing/auth, while `providers.json` and `template:*` are no longer active bootstrap/runtime authority surfaces
 - V1 symmetric `MASTER_DECRYPTION_KEY` path fully removed from code
 - Current status of project is proof of concept with no userbase. No backward compatibility required or should be considered, unless required for functionality or security. This will be updated as the project grows into an MVP with a userbase.
 

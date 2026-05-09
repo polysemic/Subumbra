@@ -179,7 +179,6 @@ services:
       - subumbra_keys_data:/app/data
       # Mount worker source so bootstrap can deploy via wrangler
       - ./worker:/app/worker:ro
-      - ./providers.json:/app/providers.json:ro
       - ./subumbra.json:/app/subumbra.json:ro
     env_file:
       # required: false — wizard runs when file is absent (interactive mode)
