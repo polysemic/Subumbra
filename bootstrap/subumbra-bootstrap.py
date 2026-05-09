@@ -3228,12 +3228,19 @@ def main() -> None:
         )
         checkpoint_entry = checkpoint.get("keys", {}).get(key_id)
         if not isinstance(checkpoint_entry, dict) or checkpoint_entry.get("vault_instance") != vault_instance:
-            checkpoint_entry = _checkpoint_entry_by_vault_instance(checkpoint, vault_instance)
+            checkpoint_entry = None
         if isinstance(checkpoint_entry, dict):
             public_key_pem = checkpoint_entry.get("public_key_pem", "")
             pub_key_fp = checkpoint_entry.get("pub_key_fp", "")
             if not isinstance(public_key_pem, str) or not public_key_pem or not isinstance(pub_key_fp, str) or not pub_key_fp:
                 checkpoint_entry = None
+        if checkpoint_entry is None:
+            candidate_entry = _checkpoint_entry_by_vault_instance(checkpoint, vault_instance)
+            if isinstance(candidate_entry, dict):
+                public_key_pem = candidate_entry.get("public_key_pem", "")
+                pub_key_fp = candidate_entry.get("pub_key_fp", "")
+                if isinstance(public_key_pem, str) and public_key_pem and isinstance(pub_key_fp, str) and pub_key_fp:
+                    checkpoint_entry = candidate_entry
 
         if checkpoint_entry is None:
             existing_key_file = _public_key_file_for_key(key_id, vault_instance)
