@@ -2616,19 +2616,18 @@ def run_provision_key(target_key_id: str) -> None:
     if not isinstance(pub_key_fp, str):
         pub_key_fp = ""
     if not public_key_pem or not pub_key_fp:
-        shared_entry = _checkpoint_entry_by_vault_instance(checkpoint, vault_instance)
-        if isinstance(shared_entry, dict):
-            shared_public_key_pem = shared_entry.get("public_key_pem", "")
-            shared_pub_key_fp = shared_entry.get("pub_key_fp", "")
-            if isinstance(shared_public_key_pem, str) and shared_public_key_pem and isinstance(shared_pub_key_fp, str) and shared_pub_key_fp:
-                public_key_pem = shared_public_key_pem
-                pub_key_fp = shared_pub_key_fp
-    if not public_key_pem or not pub_key_fp:
-        step(f"Provisioning missing vault for {target_key_id}")
-        try:
-            public_key_pem, pub_key_fp, _created_at = call_setup_keygen(worker_url, setup_token, vault_instance)
-        except BootstrapFlowError as exc:
-            die(str(exc))
+        existing_key_file = _public_key_file_for_key(target_key_id, vault_instance)
+        if existing_key_file.exists():
+            step(f"Reading existing vault public key for {target_key_id} from {existing_key_file.name}")
+            public_key_pem = existing_key_file.read_text()
+            _pub_key_obj = _load_public_key_from_pem(public_key_pem)
+            pub_key_fp = public_key_fingerprint(_pub_key_obj)
+        else:
+            step(f"Provisioning missing vault for {target_key_id}")
+            try:
+                public_key_pem, pub_key_fp, _created_at = call_setup_keygen(worker_url, setup_token, vault_instance)
+            except BootstrapFlowError as exc:
+                die(str(exc))
     _store_checkpoint_entry(
         checkpoint,
         target_key_id,
