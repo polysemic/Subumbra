@@ -3099,6 +3099,7 @@ def main() -> None:
         allowed_keys_by_adapter,
         token_ttl_days=token_ttl_days,
     )
+    had_prior_kv_state = KV_CONFIG_FILE.exists()
     # ── Step 4: Phase 1 — deploy worker + push secrets ───────────────────
     # CRITICAL ORDER: remote secrets are pushed BEFORE keys.json is written.
     # If the deploy fails here, keys.json still holds the old blobs that match
@@ -3133,7 +3134,7 @@ def main() -> None:
             for key_id in api_keys.keys()
         }
     )
-    prior_kv_state = KV_CONFIG_FILE.exists()
+    prior_kv_state = had_prior_kv_state
     initialized_vault_instances: list[str] = []
     for vault_instance in candidate_vault_instances:
         try:
