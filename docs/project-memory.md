@@ -53,6 +53,10 @@ them.
   contract.
 - Live provider validation has moved away from a purely bundled model; local
   repo metadata can still remain as operator/bootstrap seed material.
+- **Signed provider templates (r51):** Bootstrap ships a release-signed catalog
+  under `/app/templates/` (`catalog.json` + `catalog.sig` + per-provider JSON).
+  A manifest key may use `"template": "<name>"` instead of an inline `policy`
+  object; bootstrap verifies signature and SHA-256 before expanding into policy.
 - **Internal State Authority (R48-3)**: Day-2 management commands (`--push-registry`, `--provision`, `--rotate`) source all authority from internal "Fat Records" in `keys.json` instead of external manifests. Re-bootstrap is the only supported path for changing embedded authority fields.
 - **Management Authority (R50)**: Worker management mutations now use a distinct `SUBUMBRA_MANAGEMENT_TOKEN`; browser/UI routes remain read-only, while pause/unpause writes happen through Worker `/manage/*` endpoints and durable audit rows in the existing vault DO.
 
@@ -86,7 +90,7 @@ them.
   is still deleted before bootstrap completes.
 - R45-3 moves runtime registry state off the monolithic
   `subumbra_registry_v1` blob and onto structured KV keys
-  (`policy:<id>`, `key:<id>`, `template:<name>`, `registry_version`).
+  (`policy:<id>`, `key:<id>`, `registry_version`).
 - R45-3 V3 records bind ciphertext with
   `subumbra:v3:<key_id>:<policy_hash>`, where `policy_hash` is computed from
   the baseline-bound policy object rather than the full policy document.

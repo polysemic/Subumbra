@@ -1,0 +1,6 @@
+{
+  "adapter_id": "bifrost",
+  "config_snippet_notes": "Configure Bifrost provider base_url to http://subumbra-proxy:8090/t/<key_id> paths per provider matrix.",
+  "suggested_allow_adapters": ["bifrost-app"],
+  "token_env_var": "BIFROST_SUBUMBRA_ADAPTER_TOKEN"
+}
