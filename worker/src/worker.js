@@ -130,6 +130,14 @@ async function getRegistryEntry(env, keyId) {
     allow_max_body_bytes: typeof allow.max_body_bytes === "number" ? allow.max_body_bytes : null,
     intent: policy.intent && typeof policy.intent === "object" ? policy.intent : null,
     deny_patterns: Array.isArray(policy.response?.deny_patterns) ? policy.response.deny_patterns : [],
+    velocity: policy.velocity && typeof policy.velocity === "object"
+      ? {
+          adapter_rpm: typeof policy.velocity.adapter_rpm === "number" ? policy.velocity.adapter_rpm : null,
+          key_rpm: typeof policy.velocity.key_rpm === "number" ? policy.velocity.key_rpm : null,
+          breaker_failures: typeof policy.velocity.breaker_failures === "number" ? policy.velocity.breaker_failures : null,
+          breaker_cooldown_seconds: typeof policy.velocity.breaker_cooldown_seconds === "number" ? policy.velocity.breaker_cooldown_seconds : null,
+        }
+      : null,
   };
 }
 
@@ -170,6 +178,21 @@ const VAULT_SCHEMA = `
     public_key_spki BLOB NOT NULL,
     pub_key_fp TEXT NOT NULL,
     created_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS velocity_counters (
+    scope TEXT NOT NULL,
+    adapter_id TEXT,
+    key_id TEXT,
+    window_start INTEGER NOT NULL,
+    count INTEGER NOT NULL,
+    PRIMARY KEY (scope, adapter_id, key_id, window_start)
+  );
+  CREATE TABLE IF NOT EXISTS circuit_breaker_state (
+    key_id TEXT PRIMARY KEY,
+    state TEXT NOT NULL,
+    consecutive_failures INTEGER NOT NULL,
+    opened_at INTEGER NOT NULL,
+    half_open_probe_active INTEGER NOT NULL
   );
 `;
 
@@ -532,6 +555,8 @@ export class SubumbraVault {
       authScheme,
       authHeaderName,
       authQueryParam,
+      adapterId,
+      velocity,
     } = payload;
 
     if (
@@ -544,6 +569,91 @@ export class SubumbraVault {
       !authScheme
     ) {
       return jsonError("missing required fields", 400);
+    }
+
+    // ── R49: velocity and circuit breaker pre-checks ──────────────────────
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const windowStart = Math.floor(nowSeconds / 60) * 60;
+    if (velocity && typeof velocity === "object") {
+      const effectiveAdapterId = adapterId ?? "";
+
+      if (typeof velocity.key_rpm === "number") {
+        const keyCountRows = this.state.storage.sql.exec(
+          "SELECT count FROM velocity_counters WHERE scope='key' AND adapter_id='' AND key_id=? AND window_start=?",
+          keyId, windowStart
+        ).toArray();
+        const keyCount = keyCountRows.length > 0 ? keyCountRows[0].count : 0;
+        if (keyCount >= velocity.key_rpm) {
+          console.warn(
+            "subumbra: policy deny reason=rate_limit_exceeded_key adapter=%s key_id=%s",
+            effectiveAdapterId, keyId
+          );
+          return jsonError("rate_limit_exceeded_key", 429);
+        }
+      }
+
+      if (typeof velocity.adapter_rpm === "number") {
+        const adapterCountRows = this.state.storage.sql.exec(
+          "SELECT count FROM velocity_counters WHERE scope='adapter' AND adapter_id=? AND key_id='' AND window_start=?",
+          effectiveAdapterId, windowStart
+        ).toArray();
+        const adapterCount = adapterCountRows.length > 0 ? adapterCountRows[0].count : 0;
+        if (adapterCount >= velocity.adapter_rpm) {
+          console.warn(
+            "subumbra: policy deny reason=rate_limit_exceeded_adapter adapter=%s key_id=%s",
+            effectiveAdapterId, keyId
+          );
+          return jsonError("rate_limit_exceeded_adapter", 429);
+        }
+      }
+
+      if (typeof velocity.breaker_failures === "number" && typeof velocity.breaker_cooldown_seconds === "number") {
+        const brkPreRows = this.state.storage.sql.exec(
+          "SELECT state, consecutive_failures, opened_at, half_open_probe_active FROM circuit_breaker_state WHERE key_id=?",
+          keyId
+        ).toArray();
+        if (brkPreRows.length > 0) {
+          const brk = brkPreRows[0];
+          if (brk.state === "open") {
+            if (nowSeconds - brk.opened_at < velocity.breaker_cooldown_seconds) {
+              console.warn(
+                "subumbra: policy deny reason=circuit_breaker_open adapter=%s key_id=%s",
+                effectiveAdapterId, keyId
+              );
+              return jsonError("circuit_breaker_open", 429);
+            }
+            this.state.storage.sql.exec(
+              "UPDATE circuit_breaker_state SET state='half_open', half_open_probe_active=1 WHERE key_id=?",
+              keyId
+            );
+            console.info("subumbra: circuit_breaker half_open probe admitted key_id=%s", keyId);
+          } else if (brk.state === "half_open" && brk.half_open_probe_active === 1) {
+            console.warn(
+              "subumbra: policy deny reason=circuit_breaker_open adapter=%s key_id=%s",
+              effectiveAdapterId, keyId
+            );
+            return jsonError("circuit_breaker_open", 429);
+          }
+        }
+      }
+
+      // Increment counters only for requests admitted for upstream execution
+      if (typeof velocity.key_rpm === "number") {
+        this.state.storage.sql.exec(
+          `INSERT INTO velocity_counters (scope, adapter_id, key_id, window_start, count)
+           VALUES ('key', '', ?, ?, 1)
+           ON CONFLICT (scope, adapter_id, key_id, window_start) DO UPDATE SET count = count + 1`,
+          keyId, windowStart
+        );
+      }
+      if (typeof velocity.adapter_rpm === "number") {
+        this.state.storage.sql.exec(
+          `INSERT INTO velocity_counters (scope, adapter_id, key_id, window_start, count)
+           VALUES ('adapter', ?, '', ?, 1)
+           ON CONFLICT (scope, adapter_id, key_id, window_start) DO UPDATE SET count = count + 1`,
+          effectiveAdapterId, windowStart
+        );
+      }
     }
 
     const custodyRow = this._loadCustodyRow();
@@ -599,7 +709,8 @@ export class SubumbraVault {
       return jsonError("unsupported auth scheme", 400);
     }
 
-    let upstreamResponse;
+    let upstreamResponse = null;
+    let fetchFailed = false;
     try {
       upstreamResponse = await fetch(cleanUrl.toString(), {
         method: method ?? "POST",
@@ -607,6 +718,80 @@ export class SubumbraVault {
         body: body != null ? JSON.stringify(body) : undefined,
       });
     } catch {
+      fetchFailed = true;
+    }
+
+    // ── R49: circuit breaker outcome recording ────────────────────────────
+    if (velocity && typeof velocity === "object" &&
+        typeof velocity.breaker_failures === "number" &&
+        typeof velocity.breaker_cooldown_seconds === "number") {
+      const effectiveAdapterId = adapterId ?? "";
+      const isTrackedFailure =
+        fetchFailed ||
+        (upstreamResponse !== null && (upstreamResponse.status === 401 || upstreamResponse.status >= 500));
+      const brkRows = this.state.storage.sql.exec(
+        "SELECT state, consecutive_failures FROM circuit_breaker_state WHERE key_id=?",
+        keyId
+      ).toArray();
+      const brkState = brkRows.length > 0 ? brkRows[0].state : "closed";
+      const brkFailures = brkRows.length > 0 ? brkRows[0].consecutive_failures : 0;
+
+      if (brkState === "closed") {
+        if (isTrackedFailure) {
+          const newFailures = brkFailures + 1;
+          if (newFailures >= velocity.breaker_failures) {
+            this.state.storage.sql.exec(
+              `INSERT INTO circuit_breaker_state (key_id, state, consecutive_failures, opened_at, half_open_probe_active)
+               VALUES (?, 'open', ?, ?, 0)
+               ON CONFLICT (key_id) DO UPDATE SET state='open', consecutive_failures=?, opened_at=?, half_open_probe_active=0`,
+              keyId, newFailures, nowSeconds, newFailures, nowSeconds
+            );
+            console.warn(
+              "subumbra: circuit_breaker opened key_id=%s consecutive_failures=%d",
+              keyId, newFailures
+            );
+          } else {
+            this.state.storage.sql.exec(
+              `INSERT INTO circuit_breaker_state (key_id, state, consecutive_failures, opened_at, half_open_probe_active)
+               VALUES (?, 'closed', ?, 0, 0)
+               ON CONFLICT (key_id) DO UPDATE SET consecutive_failures=?`,
+              keyId, newFailures, newFailures
+            );
+          }
+        } else if (upstreamResponse !== null &&
+                   upstreamResponse.status >= 200 && upstreamResponse.status < 300 &&
+                   brkFailures > 0) {
+          this.state.storage.sql.exec(
+            "UPDATE circuit_breaker_state SET consecutive_failures=0 WHERE key_id=?",
+            keyId
+          );
+        }
+        // non-failure non-2xx while closed: no change
+      } else if (brkState === "half_open") {
+        if (isTrackedFailure) {
+          const newFailures = Math.max(velocity.breaker_failures, brkFailures + 1);
+          this.state.storage.sql.exec(
+            "UPDATE circuit_breaker_state SET state='open', consecutive_failures=?, opened_at=?, half_open_probe_active=0 WHERE key_id=?",
+            newFailures, nowSeconds, keyId
+          );
+          console.warn(
+            "subumbra: circuit_breaker opened key_id=%s consecutive_failures=%d",
+            keyId, newFailures
+          );
+        } else {
+          this.state.storage.sql.exec(
+            "UPDATE circuit_breaker_state SET state='closed', consecutive_failures=0, half_open_probe_active=0 WHERE key_id=?",
+            keyId
+          );
+          console.info(
+            "subumbra: circuit_breaker closed adapter=%s key_id=%s",
+            effectiveAdapterId, keyId
+          );
+        }
+      }
+    }
+
+    if (fetchFailed) {
       return jsonError("upstream connection failed", 502);
     }
 
@@ -1281,6 +1466,8 @@ async function handleProxy(request, env) {
     authScheme: registryEntry.auth_scheme,
     authHeaderName: registryEntry.auth_header_name ?? null,
     authQueryParam: registryEntry.auth_query_param ?? null,
+    adapterId: auth.adapterId,
+    velocity: registryEntry.velocity,
   });
 
   const doResponse = await doStub.fetch(`https://do-internal${VAULT_EXECUTE_PATH}`, {
