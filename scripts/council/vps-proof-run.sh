@@ -462,7 +462,9 @@ fi
 case "$mode" in
     fresh-install)
         run_stage remote-install install_fresh_once
+        echo "diag:post-run_stage rc=$?" >> "${artifact_dir}/diag.txt" || true
         json_event "diag" "post-run_stage"
+        echo "diag:after-json_event-inside-case" >> "${artifact_dir}/diag.txt" || true
         ;;
     existing-stack)
         run_stage remote-update update_existing_stack
@@ -472,6 +474,7 @@ case "$mode" in
         exit 1
         ;;
 esac
+echo "diag:post-esac" >> "${artifact_dir}/diag.txt" || true
 json_event "diag" "post-esac"
 run_stage remote-verify verify_once
 run_stage remote-probes run_independent_probes
