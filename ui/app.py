@@ -15,11 +15,12 @@ from __future__ import annotations
 import hmac
 import logging
 import os
+import time
 from functools import wraps
 from datetime import datetime, timezone
 
 import httpx
-from flask import Flask, Response, jsonify, render_template, request
+from flask import Flask, Response, jsonify, render_template, request, stream_with_context
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Config
@@ -128,6 +129,24 @@ def index():
     return render_template("index.html")
 
 
+@app.get("/api/events")
+@_require_auth
+def api_events():
+    def generate():
+        try:
+            while True:
+                yield ": heartbeat\n\n"
+                time.sleep(30)
+        except (GeneratorExit, SystemExit):
+            return
+
+    headers = {
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+    }
+    return Response(stream_with_context(generate()), mimetype="text/event-stream", headers=headers)
+
+
 @app.get("/api/status")
 @_require_auth
 def api_status():
@@ -187,6 +206,22 @@ def api_status():
             "created_at": key.get("created_at", ""),
             "request_count": s.get("request_count", 0),
             "last_access": s.get("last_access"),
+            "policy_id": key.get("policy_id"),
+            "policy_hash": key.get("policy_hash"),
+            "vault_instance": key.get("vault_instance"),
+            "label": key.get("label"),
+            "revoked": key.get("revoked", False),
+            "paused": key.get("paused", False),
+            "capability_class": key.get("capability_class"),
+            "protocol": key.get("protocol"),
+            "auth_scheme": key.get("auth_scheme"),
+            "auth_header": key.get("auth_header"),
+            "auth_prefix": key.get("auth_prefix"),
+            "target_host": key.get("target_host"),
+            "base_path": key.get("base_path"),
+            "allow_adapters": key.get("allow_adapters", []),
+            "allow_methods": key.get("allow_methods", []),
+            "allow_path_prefixes": key.get("allow_path_prefixes", []),
         })
 
     # Two-pass stable sort: key_id secondary, newest last_access primary.
