@@ -235,6 +235,9 @@ All error responses use `Content-Type: application/json` with body
 | `intent.source` does not match `intent.policy_match` | 403 `intent_disallowed_source` |
 | Response body matches a `response.deny_patterns` pattern | 403 `response_deny_pattern_match` |
 | Response body could not be read for scanning | 403 `response_read_error` |
+| Per-key request-rate limit exceeded | 429 `rate_limit_exceeded_key` |
+| Per-adapter request-rate limit exceeded | 429 `rate_limit_exceeded_adapter` |
+| Circuit breaker open (upstream failure threshold reached) | 429 `circuit_breaker_open` |
 | Decryption failure (generic) | 500 |
 | RSA fingerprint mismatch | 500 |
 | CF Secrets not configured | 503 |
@@ -442,7 +445,7 @@ must parse without error if present.
   unchanged; streaming-path response scanning is explicitly deferred.
 - `intent_required` is inferred: if `intent.trust` is configured and non-empty,
   `intent` must be present in the request.
-- `velocity` remains reserved and not enforced at runtime.
+- R49 activates `velocity` enforcement. See **Velocity and Circuit Breakers** below.
 
 ```json
 "intent": {
@@ -455,8 +458,41 @@ must parse without error if present.
 "response": {
   "deny_patterns": ["<bare-substring>", ...]
 },
-"velocity": {}
+"velocity": {
+  "adapter_rpm": 60,
+  "key_rpm": 120,
+  "breaker_failures": 5,
+  "breaker_cooldown_seconds": 30
+}
 ```
+
+### Velocity and Circuit Breakers (R49)
+
+The `velocity` block enables request-rate enforcement and circuit-breaking per
+policy. All sub-fields are optional positive integers.
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `adapter_rpm` | integer > 0 | Max requests per 60-second window per adapter token |
+| `key_rpm` | integer > 0 | Max requests per 60-second window across all adapters for this key |
+| `breaker_failures` | integer > 0 | Consecutive tracked failures before circuit opens |
+| `breaker_cooldown_seconds` | integer > 0 | Seconds the circuit stays open before a half-open probe |
+
+**Counter semantics:** counts use 60-second tumbling windows. Requests count
+when admitted for upstream execution, not only on success.
+
+**Circuit breaker states:** `closed` (normal) → `open` (blocking) →
+`half_open` (one probe admitted) → `closed` (recovered).
+
+**Tracked failures** (increment consecutive failure count):
+- Transport error (502 upstream connection failed)
+- Upstream `401`
+- Upstream `5xx`
+
+Provider `429` is **not** a tracked failure in R49.
+
+**Enforcement point:** inside `SubumbraVault` Durable Object `_handleExecute`,
+before RSA decryption. Key limit is evaluated before adapter limit.
 
 #### Safe Pattern Vocabulary
 
