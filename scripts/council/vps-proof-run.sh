@@ -462,6 +462,7 @@ fi
 case "$mode" in
     fresh-install)
         run_stage remote-install install_fresh_once
+        echo "DIAG: run_stage remote-install returned $?" >&2
         ;;
     existing-stack)
         run_stage remote-update update_existing_stack
@@ -471,6 +472,8 @@ case "$mode" in
         exit 1
         ;;
 esac
+echo "DIAG: after esac mode=$mode" >&2
+json_event "diag" "after-esac"
 run_stage remote-verify verify_once
 run_stage remote-probes run_independent_probes
 overall="PASS"
