@@ -161,6 +161,7 @@ case "$mode" in
         compose_project="scr-${run_id//[^a-zA-Z0-9]/-}"
         compose_project="$(printf '%s' "$compose_project" | tr '[:upper:]' '[:lower:]')"
         worker_name="$compose_project"
+        workdir="" # Must be set by prepare_fresh_workspace
         ;;
     *)
         echo "ERROR: unsupported mode: $mode" >&2
@@ -172,7 +173,9 @@ json_event() {
     local stage="$1"
     local status="$2"
     local message="${3:-}"
-    python3 - "$timeline_file" "$stage" "$status" "$message" "$mode" <<'PY'
+    local _rc=0
+    python3 - "$timeline_file" "$stage" "$status" "$message" "$mode" \
+        2>>"${artifact_dir}/json-event-errors.log" <<'PY' || _rc=$?
 import json, sys, datetime
 path, stage, status, message, mode = sys.argv[1:6]
 event = {
@@ -187,6 +190,10 @@ with open(path, "a", encoding="utf-8") as fh:
     json.dump(event, fh)
     fh.write("\n")
 PY
+    if [[ "$_rc" -ne 0 ]]; then
+        echo "[json_event warn] python3 exit ${_rc} for ${stage}:${status}" \
+            >>"${artifact_dir}/json-event-errors.log" || true
+    fi
 }
 
 write_result() {
@@ -231,12 +238,13 @@ run_stage() {
     shift
     local log_file="${artifact_dir}/stage-${stage}.log"
     json_event "$stage" "start"
-    if ! "$@" >"$log_file" 2>&1; then
+    if ! "$@" >"$log_file" 2>&1 </dev/null; then
         failed_stage="$stage"
         json_event "$stage" "fail" "see $(basename "$log_file")"
         return 1
     fi
     json_event "$stage" "pass"
+    return 0
 }
 
 collect_logs() {
@@ -504,7 +512,7 @@ source "$cleanup_info"
     echo "mode=${mode:-unknown}"
     echo "cleanup_policy=${cleanup_policy:-unknown}"
     if [[ "${cleanup_policy:-}" == "remove-isolated-proof" ]]; then
-        if [[ -n "${workdir:-}" && -d "$workdir" ]]; then
+        if [[ -n "${workdir:-}" && -d "$workdir" && "$workdir" != "$repo" ]]; then
             (
                 cd "$workdir"
                 export COMPOSE_PROJECT_NAME="${compose_project:-}"
@@ -514,7 +522,7 @@ source "$cleanup_info"
             rm -rf "$workdir"
             echo "removed isolated workspace ${workdir}"
         else
-            echo "isolated workspace missing or already removed"
+            echo "isolated workspace missing, already removed, or PROTECTED (workdir == repo)"
         fi
         if [[ -n "${worker_name:-}" ]]; then
             echo "note: Cloudflare test worker ${worker_name} may require manual deletion"

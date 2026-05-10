@@ -296,6 +296,13 @@ def _write_public_key_file(path: Path, public_key_pem: str) -> None:
         die(f"Failed to write {path.name}: {exc}")
 
 
+def _delete_file_if_present(path: Path) -> None:
+    try:
+        path.unlink(missing_ok=True)
+    except OSError as exc:
+        die(f"Failed to delete {path}: {exc}")
+
+
 def _load_public_key_from_pem(public_key_pem: str):
     try:
         return serialization.load_pem_public_key(public_key_pem.encode("utf-8"))
@@ -408,6 +415,27 @@ def _sync_host_env_file(host_env_updates: dict[str, str]) -> None:
         info(f"Host env sync skipped — {HOST_ENV_FILE} is unavailable")
 
 
+def _read_env_file_value(path: Path, key: str) -> str:
+    if not path.exists() or not path.is_file():
+        return ""
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return ""
+    for raw in lines:
+        stripped = raw.strip()
+        if not stripped or stripped.startswith("#") or "=" not in raw:
+            continue
+        lhs, rhs = raw.split("=", 1)
+        if lhs.strip() != key:
+            continue
+        value = rhs.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        return value
+    return ""
+
+
 # Maps both Subumbra canonical env var names AND common standalone-app aliases
 # to their provider_id. Both sides must be supported so that migration from a
 # standard LiteLLM .env (which uses ANTHROPIC_API_KEY) and the CI path (which
@@ -517,16 +545,12 @@ def _is_safe_literal_pattern(body: str) -> bool:
 def _validate_safe_pattern(value: Any, source: str, field_name: str) -> None:
     if not isinstance(value, str):
         _policy_die(source, f"{field_name} must be a string")
-    if not (value.startswith("^") and value.endswith("$")):
-        _policy_die(source, f"{field_name} must be anchored with ^...$")
-    body = value[1:-1]
-    if _is_safe_literal_pattern(body):
+    if _is_safe_literal_pattern(value):
         return
-    if body.startswith("(") and body.endswith(")") and body.count("(") == 1 and body.count(")") == 1:
-        alternatives = body[1:-1].split("|")
-        if len(alternatives) >= 2 and all(_is_safe_literal_pattern(item) for item in alternatives):
-            return
-    _policy_die(source, f"{field_name} uses a pattern outside the safe vocabulary")
+    _policy_die(
+        source,
+        f'{field_name} must be a bare safe substring like "api_key"'
+    )
 
 
 def _normalize_policy_doc(doc: dict[str, Any], source: str) -> dict[str, Any]:
@@ -932,6 +956,31 @@ def _verify_embedded_policy_hash(record: dict[str, Any], key_id: str) -> None:
             f"Embedded policy mismatch for key_id {key_id!r}: stored policy_hash does not match embedded policy.\n"
             "  Repair the record or re-run full bootstrap."
         )
+
+
+def _load_manifest_repair_authority(target_key_id: str) -> dict[str, Any]:
+    if not MANIFEST_FILE.exists():
+        die(
+            f"bootstrap checkpoint is missing authority for key_id {target_key_id!r}, "
+            "and subumbra.json is unavailable.\n  Re-run full bootstrap."
+        )
+    for record in _load_manifest_records():
+        if record["key_id"] == target_key_id:
+            return {
+                "provider": record["provider"],
+                "target_host": record["target_host"],
+                "raw_secret": record["raw_secret"],
+                "vault_instance": _vault_instance_for_key(target_key_id, {target_key_id: record["unique_vault"]}),
+                "policy": record["policy"],
+                "adapters": list(record["adapters"]),
+                "auth_header": record["auth_header"],
+                "auth_prefix": record["auth_prefix"],
+                "template_name": record["provider"],
+            }
+    die(
+        f"bootstrap checkpoint is missing authority for key_id {target_key_id!r}, "
+        "and subumbra.json does not declare that key.\n  Re-run full bootstrap."
+    )
 
 
 def _build_structured_kv_entries(
@@ -2144,6 +2193,102 @@ def call_setup_keygen(worker_url: str, setup_token: str, vault_instance: str) ->
     return public_key_pem, pub_key_fp, created_at
 
 
+def _call_internal_vault_status(worker_url: str, setup_token: str, vault_instance: str) -> bool:
+    body = json.dumps({"vault_instance": vault_instance}, separators=(",", ":")).encode("utf-8")
+    last_http_error: urllib.error.HTTPError | None = None
+    max_attempts = 24
+    for attempt in range(1, max_attempts + 1):
+        req = urllib.request.Request(
+            f"{worker_url.rstrip('/')}/internal/vault-status",
+            data=body,
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {setup_token}",
+                "Content-Type": "application/json",
+                "User-Agent": "curl/8.5.0",
+            },
+        )
+        try:
+            with urllib.request.urlopen(req) as resp:
+                payload = json.loads(resp.read())
+            break
+        except urllib.error.HTTPError as exc:
+            last_http_error = exc
+            if exc.code in (401, 403, 503) and attempt < max_attempts:
+                info(
+                    "Cloudflare status token not visible yet; "
+                    f"retrying /internal/vault-status ({attempt}/{max_attempts})"
+                )
+                time.sleep(5)
+                continue
+            body_text = exc.read().decode("utf-8", errors="replace")
+            raise BootstrapFlowError(
+                f"Cloudflare vault status failed: HTTP {exc.code}\n"
+                f"--- response body ---\n{body_text}"
+            ) from exc
+        except Exception as exc:
+            raise BootstrapFlowError(f"Cloudflare vault status failed: {exc}") from exc
+    else:
+        if last_http_error is not None:
+            body_text = last_http_error.read().decode("utf-8", errors="replace")
+            raise BootstrapFlowError(
+                f"Cloudflare vault status failed after retry window: HTTP {last_http_error.code}\n"
+                f"--- response body ---\n{body_text}"
+            )
+        raise BootstrapFlowError("Cloudflare vault status failed after retry window")
+    initialized = payload.get("initialized")
+    if not isinstance(initialized, bool):
+        raise BootstrapFlowError("Cloudflare vault status returned an invalid response payload")
+    return initialized
+
+
+def _call_internal_vault_reset(worker_url: str, setup_token: str, vault_instance: str) -> None:
+    body = json.dumps({"vault_instance": vault_instance}, separators=(",", ":")).encode("utf-8")
+    last_http_error: urllib.error.HTTPError | None = None
+    max_attempts = 24
+    for attempt in range(1, max_attempts + 1):
+        req = urllib.request.Request(
+            f"{worker_url.rstrip('/')}/internal/vault-reset",
+            data=body,
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {setup_token}",
+                "Content-Type": "application/json",
+                "User-Agent": "curl/8.5.0",
+            },
+        )
+        try:
+            with urllib.request.urlopen(req) as resp:
+                payload = json.loads(resp.read())
+            break
+        except urllib.error.HTTPError as exc:
+            last_http_error = exc
+            if exc.code in (401, 403, 503) and attempt < max_attempts:
+                info(
+                    "Cloudflare reset token not visible yet; "
+                    f"retrying /internal/vault-reset ({attempt}/{max_attempts})"
+                )
+                time.sleep(5)
+                continue
+            body_text = exc.read().decode("utf-8", errors="replace")
+            raise BootstrapFlowError(
+                f"Cloudflare vault reset failed: HTTP {exc.code}\n"
+                f"--- response body ---\n{body_text}"
+            ) from exc
+        except Exception as exc:
+            raise BootstrapFlowError(f"Cloudflare vault reset failed: {exc}") from exc
+    else:
+        if last_http_error is not None:
+            body_text = last_http_error.read().decode("utf-8", errors="replace")
+            raise BootstrapFlowError(
+                f"Cloudflare vault reset failed after retry window: HTTP {last_http_error.code}\n"
+                f"--- response body ---\n{body_text}"
+            )
+        raise BootstrapFlowError("Cloudflare vault reset failed after retry window")
+    if payload.get("status") != "ok":
+        raise BootstrapFlowError("Cloudflare vault reset returned an invalid response payload")
+
+
 def call_internal_rotate(worker_url: str, setup_token: str, rotate_payload: dict[str, Any]) -> dict[str, Any]:
     last_http_error: urllib.error.HTTPError | None = None
     body = json.dumps(rotate_payload, separators=(",", ":")).encode("utf-8")
@@ -2195,6 +2340,44 @@ def call_internal_rotate(worker_url: str, setup_token: str, rotate_payload: dict
     if enc_version != 3:
         die("Cloudflare internal rotate returned invalid enc_version")
     return payload
+
+
+def _delete_kv_namespace_if_present(cf_creds: dict[str, str]) -> None:
+    if not KV_CONFIG_FILE.exists():
+        return
+    try:
+        payload = json.loads(KV_CONFIG_FILE.read_text())
+    except (json.JSONDecodeError, OSError):
+        payload = {}
+    namespace_id = str(payload.get("namespace_id", "")).strip() if isinstance(payload, dict) else ""
+    if not namespace_id:
+        return
+
+    base_url = (
+        "https://api.cloudflare.com/client/v4/accounts/"
+        f"{cf_creds['CF_ACCOUNT_ID']}/storage/kv/namespaces/{namespace_id}"
+    )
+    auth_headers = {
+        "Authorization": f"Bearer {cf_creds['CF_API_TOKEN']}",
+        "Content-Type": "application/json",
+    }
+    delete_req = urllib.request.Request(base_url, method="DELETE", headers=auth_headers)
+    try:
+        with urllib.request.urlopen(delete_req) as resp:
+            result = json.loads(resp.read())
+        if not result.get("success"):
+            die("Failed to delete provider-registry KV namespace")
+    except urllib.error.HTTPError as exc:
+        if exc.code != 404:
+            body_text = exc.read().decode("utf-8", errors="replace")
+            die(
+                f"Failed to delete provider-registry KV namespace: HTTP {exc.code}\n"
+                f"--- response body ---\n{body_text}"
+            )
+    except Exception as exc:
+        die(f"Failed to delete provider-registry KV namespace: {exc}")
+
+    _delete_file_if_present(KV_CONFIG_FILE)
 
 
 def _publish_structured_kv(
@@ -2568,9 +2751,6 @@ def run_provision_key(target_key_id: str) -> None:
     print(BANNER, flush=True)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-    if not CHECKPOINT_FILE.exists():
-        die("bootstrap-checkpoint.json not found — nothing to provision")
-
     try:
         existing_keys = json.loads(KEYS_FILE.read_text()) if KEYS_FILE.exists() else {}
     except (json.JSONDecodeError, OSError) as exc:
@@ -2580,34 +2760,64 @@ def run_provision_key(target_key_id: str) -> None:
 
     cf_creds = _get_push_registry_cf_creds()
     checkpoint = _load_bootstrap_checkpoint()
-    worker_url = str(checkpoint.get("worker_url", "")).strip()
-    setup_token = str(checkpoint.get("setup_token", "")).strip()
+    worker_url = str(checkpoint.get("worker_url", "")).strip() or _read_env_file_value(HOST_ENV_FILE, "CF_WORKER_URL")
+    setup_token = str(checkpoint.get("setup_token", "")).strip() or _read_env_file_value(HOST_ENV_FILE, "SUBUMBRA_SETUP_TOKEN")
     if not worker_url or not setup_token:
         die("bootstrap checkpoint is missing worker_url or setup_token")
     checkpoint_host_env_updates = checkpoint.get("host_env_updates", {})
     if checkpoint_host_env_updates and not isinstance(checkpoint_host_env_updates, dict):
         die("bootstrap checkpoint host_env_updates section is malformed")
     checkpoint_entry = checkpoint.get("keys", {}).get(target_key_id)
+    manifest_fallback = None
     if not isinstance(checkpoint_entry, dict):
-        die(
-            f"bootstrap checkpoint is missing authority for key_id {target_key_id!r}.\n"
-            "  Repair the checkpoint or re-run full bootstrap."
-        )
+        manifest_fallback = _load_manifest_repair_authority(target_key_id)
+        checkpoint_entry = {}
 
     provider = checkpoint_entry.get("provider")
     target_host = checkpoint_entry.get("target_host")
     raw = checkpoint_entry.get("raw_secret")
     vault_instance = checkpoint_entry.get("vault_instance")
+    auth_header = checkpoint_entry.get("auth_header", "")
+    auth_prefix = checkpoint_entry.get("auth_prefix", "")
+    template_name = str(checkpoint_entry.get("template_name", ""))
+
     if not isinstance(provider, str) or not provider:
-        die(f"bootstrap checkpoint key_id {target_key_id!r} is missing provider.\n  Repair the checkpoint or re-run full bootstrap.")
+        manifest_fallback = manifest_fallback or _load_manifest_repair_authority(target_key_id)
+        provider = manifest_fallback["provider"]
     if not isinstance(target_host, str) or not target_host:
-        die(f"bootstrap checkpoint key_id {target_key_id!r} is missing target_host.\n  Repair the checkpoint or re-run full bootstrap.")
+        manifest_fallback = manifest_fallback or _load_manifest_repair_authority(target_key_id)
+        target_host = manifest_fallback["target_host"]
     if not isinstance(raw, str) or not raw:
-        die(f"bootstrap checkpoint key_id {target_key_id!r} is missing raw_secret.\n  Repair the checkpoint or re-run full bootstrap.")
+        manifest_fallback = manifest_fallback or _load_manifest_repair_authority(target_key_id)
+        raw = manifest_fallback["raw_secret"]
     if not isinstance(vault_instance, str) or not vault_instance:
-        die(f"bootstrap checkpoint key_id {target_key_id!r} is missing vault_instance.\n  Repair the checkpoint or re-run full bootstrap.")
-    policy, adapters = _require_fat_record_fields(checkpoint_entry, target_key_id)
-    _verify_embedded_policy_hash(checkpoint_entry, target_key_id)
+        manifest_fallback = manifest_fallback or _load_manifest_repair_authority(target_key_id)
+        vault_instance = manifest_fallback["vault_instance"]
+
+    checkpoint_policy = checkpoint_entry.get("policy")
+    checkpoint_adapters = checkpoint_entry.get("adapters")
+    checkpoint_policy_hash = checkpoint_entry.get("policy_hash")
+    checkpoint_policy_id = checkpoint_entry.get("policy_id")
+    checkpoint_can_authorize = (
+        isinstance(checkpoint_policy, dict)
+        and isinstance(checkpoint_adapters, list)
+        and bool(checkpoint_adapters)
+        and all(isinstance(adapter_id, str) and adapter_id for adapter_id in checkpoint_adapters)
+        and isinstance(checkpoint_policy_hash, str)
+        and bool(checkpoint_policy_hash.strip())
+        and isinstance(checkpoint_policy_id, str)
+        and bool(checkpoint_policy_id.strip())
+    )
+    if checkpoint_can_authorize:
+        policy, adapters = _require_fat_record_fields(checkpoint_entry, target_key_id)
+        _verify_embedded_policy_hash(checkpoint_entry, target_key_id)
+    else:
+        manifest_fallback = manifest_fallback or _load_manifest_repair_authority(target_key_id)
+        policy = manifest_fallback["policy"]
+        adapters = manifest_fallback["adapters"]
+        auth_header = manifest_fallback["auth_header"]
+        auth_prefix = manifest_fallback["auth_prefix"]
+        template_name = manifest_fallback["template_name"]
 
     public_key_pem = checkpoint_entry.get("public_key_pem", "")
     pub_key_fp = checkpoint_entry.get("pub_key_fp", "")
@@ -2623,11 +2833,10 @@ def run_provision_key(target_key_id: str) -> None:
             _pub_key_obj = _load_public_key_from_pem(public_key_pem)
             pub_key_fp = public_key_fingerprint(_pub_key_obj)
         else:
-            step(f"Provisioning missing vault for {target_key_id}")
-            try:
-                public_key_pem, pub_key_fp, _created_at = call_setup_keygen(worker_url, setup_token, vault_instance)
-            except BootstrapFlowError as exc:
-                die(str(exc))
+            die(
+                f"Missing local public key for key_id {target_key_id!r}, and no reusable checkpoint key material is available.\n"
+                "  Re-run full bootstrap."
+            )
     _store_checkpoint_entry(
         checkpoint,
         target_key_id,
@@ -2639,9 +2848,9 @@ def run_provision_key(target_key_id: str) -> None:
         raw_secret=raw,
         policy=policy,
         adapters=adapters,
-        auth_header=checkpoint_entry.get("auth_header", ""),
-        auth_prefix=checkpoint_entry.get("auth_prefix", ""),
-        template_name=str(checkpoint_entry.get("template_name", "")),
+        auth_header=str(auth_header),
+        auth_prefix=str(auth_prefix),
+        template_name=template_name,
     )
 
     public_key_file = _public_key_file_for_key(target_key_id, vault_instance)
@@ -2890,6 +3099,7 @@ def main() -> None:
         allowed_keys_by_adapter,
         token_ttl_days=token_ttl_days,
     )
+    had_prior_kv_state = KV_CONFIG_FILE.exists()
     # ── Step 4: Phase 1 — deploy worker + push secrets ───────────────────
     # CRITICAL ORDER: remote secrets are pushed BEFORE keys.json is written.
     # If the deploy fails here, keys.json still holds the old blobs that match
@@ -2916,6 +3126,80 @@ def main() -> None:
     checkpoint["host_env_updates"] = dict(host_env_updates)
     _write_bootstrap_checkpoint(checkpoint)
     _sync_host_env_file(host_env_updates)
+
+    requested_nuke = "--nuke" in sys.argv
+    candidate_vault_instances = sorted(
+        {
+            _vault_instance_for_key(key_id, unique_key_flags)
+            for key_id in api_keys.keys()
+        }
+    )
+    prior_kv_state = had_prior_kv_state
+    initialized_vault_instances: list[str] = []
+    for vault_instance in candidate_vault_instances:
+        try:
+            if _call_internal_vault_status(worker_url, setup_token, vault_instance):
+                initialized_vault_instances.append(vault_instance)
+        except BootstrapFlowError as exc:
+            die(str(exc))
+
+    destructive_nuke = False
+    if prior_kv_state or initialized_vault_instances:
+        prompt_message = (
+            "Existing Cloudflare state detected "
+            f"(vaults: {', '.join(initialized_vault_instances) or 'none'}, "
+            f"kv_namespace: {'present' if prior_kv_state else 'absent'})."
+        )
+        if requested_nuke:
+            warn(prompt_message)
+            destructive_nuke = True
+        elif sys.stdin.isatty():
+            print("\n" + "─" * 70)
+            print(f"  {prompt_message}")
+            try:
+                confirm = input("  Nuke all detected Cloudflare state and continue? [y/N]: ").strip().lower()
+            except KeyboardInterrupt:
+                print("\n\nAborted. No changes written.", file=sys.stderr)
+                sys.exit(0)
+            if confirm != "y":
+                print("\nAborted. No changes written.")
+                sys.exit(0)
+            destructive_nuke = True
+        else:
+            die(
+                "Existing Cloudflare state detected, but no interactive confirmation path is available.\n"
+                "  Re-run interactively or pass --nuke."
+            )
+
+    if destructive_nuke:
+        step("Resetting detected Cloudflare state for fresh bootstrap")
+        for vault_instance in candidate_vault_instances:
+            try:
+                _call_internal_vault_reset(worker_url, setup_token, vault_instance)
+            except BootstrapFlowError as exc:
+                die(str(exc))
+            ok(f"Reset vault instance {vault_instance}")
+        _delete_kv_namespace_if_present(cf_creds)
+        ok("Deleted prior provider-registry KV namespace")
+        for key_id in api_keys.keys():
+            _delete_file_if_present(_public_key_file_for_key(key_id, _vault_instance_for_key(key_id, unique_key_flags)))
+        step("Re-deploying Worker after KV namespace reset")
+        worker_url = deploy_worker(
+            cf_creds,
+            adapter_tokens, subumbra_hmac_key,
+            setup_token,
+            provider_id_filter=bootstrapped_providers,
+        )
+        ok(f"Worker re-bound after reset: {worker_url}")
+        host_env_updates["CF_WORKER_URL"] = worker_url
+        checkpoint = {
+            "worker_url": worker_url,
+            "setup_token": setup_token,
+            "keys": {},
+            "host_env_updates": dict(host_env_updates),
+        }
+        _write_bootstrap_checkpoint(checkpoint)
+        ok("Cleared stale checkpoint and local public-key artifacts")
 
     # ── Step 5: Phase 2 — provision per-key vault public keys ────────────
     step("Provisioning per-key vault public keys")
@@ -2944,20 +3228,39 @@ def main() -> None:
         )
         checkpoint_entry = checkpoint.get("keys", {}).get(key_id)
         if not isinstance(checkpoint_entry, dict) or checkpoint_entry.get("vault_instance") != vault_instance:
-            checkpoint_entry = _checkpoint_entry_by_vault_instance(checkpoint, vault_instance)
+            checkpoint_entry = None
         if isinstance(checkpoint_entry, dict):
             public_key_pem = checkpoint_entry.get("public_key_pem", "")
             pub_key_fp = checkpoint_entry.get("pub_key_fp", "")
             if not isinstance(public_key_pem, str) or not public_key_pem or not isinstance(pub_key_fp, str) or not pub_key_fp:
                 checkpoint_entry = None
+        if checkpoint_entry is None:
+            candidate_entry = _checkpoint_entry_by_vault_instance(checkpoint, vault_instance)
+            if isinstance(candidate_entry, dict):
+                public_key_pem = candidate_entry.get("public_key_pem", "")
+                pub_key_fp = candidate_entry.get("pub_key_fp", "")
+                if isinstance(public_key_pem, str) and public_key_pem and isinstance(pub_key_fp, str) and pub_key_fp:
+                    checkpoint_entry = candidate_entry
 
         if checkpoint_entry is None:
-            try:
-                public_key_pem, pub_key_fp, _created_at = call_setup_keygen(worker_url, setup_token, vault_instance)
-            except BootstrapFlowError as exc:
-                phase2_failures.append((key_id, str(exc)))
-                warn(f"{key_id}: vault provisioning failed")
-                continue
+            existing_key_file = _public_key_file_for_key(key_id, vault_instance)
+            if not destructive_nuke and existing_key_file.exists():
+                step(f"Reusing existing vault public key for {key_id} from {existing_key_file.name}")
+                try:
+                    public_key_pem = existing_key_file.read_text()
+                    pub_key_obj = _load_public_key_from_pem(public_key_pem)
+                except OSError as exc:
+                    phase2_failures.append((key_id, f"failed to read existing public key: {exc}"))
+                    warn(f"{key_id}: failed to read existing public key")
+                    continue
+                pub_key_fp = public_key_fingerprint(pub_key_obj)
+            else:
+                try:
+                    public_key_pem, pub_key_fp, _created_at = call_setup_keygen(worker_url, setup_token, vault_instance)
+                except BootstrapFlowError as exc:
+                    phase2_failures.append((key_id, str(exc)))
+                    warn(f"{key_id}: vault provisioning failed")
+                    continue
             _store_checkpoint_entry(
                 checkpoint,
                 key_id,
@@ -3181,6 +3484,8 @@ if __name__ == "__main__":
     selected_modes = sum(flag in sys.argv for flag in ("--push-registry", "--rotate", "--provision"))
     if selected_modes > 1:
         die("--push-registry, --rotate, and --provision are mutually exclusive")
+    if "--nuke" in sys.argv and selected_modes > 0:
+        die("--nuke is supported only for full bootstrap")
     if "--push-registry" in sys.argv:
         run_push_registry()
     elif "--provision" in sys.argv:
