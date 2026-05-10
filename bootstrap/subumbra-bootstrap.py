@@ -68,6 +68,7 @@ from typing import Any, NoReturn
 
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -103,6 +104,18 @@ HOST_ENV_FILE   = Path("/app/host-env")
 WORKER_SRC      = Path("/app/worker")
 MANIFEST_FILE   = Path("/app/subumbra.json")
 KV_CONFIG_FILE = DATA_DIR / "kv-config.json"
+
+CATALOG_DIR = Path("/app/templates")
+CATALOG_JSON_FILE = CATALOG_DIR / "catalog.json"
+CATALOG_SIG_FILE = CATALOG_DIR / "catalog.sig"
+# 64-char hex encoding of the 32-byte Ed25519 release public key.
+# Update when rotating the release key; rebuild bootstrap image.
+CATALOG_RELEASE_PUBKEY_HEX: str = (
+    "724c0c5822745fcc9a0fa91839abe6bb2b63d86307e8c5f027270e6f591bf4bc"
+)
+
+_CATALOG_CACHE: dict[str, dict] | None = None
+
 STRUCTURED_KV_SCHEMA_VERSION = "1"
 
 ADAPTER_SCOPE_VARS: dict[str, str] = {
@@ -749,6 +762,119 @@ def _effective_manifest_adapters(adapters: list[str]) -> list[str]:
     return list(adapters) if adapters else ["subumbra-proxy"]
 
 
+def _load_and_verify_catalog() -> dict[str, dict]:
+    """Load catalog.json, verify Ed25519 signature and per-template SHA-256.
+    Returns dict mapping provider name → template dict. Fail-closed on any error."""
+    global _CATALOG_CACHE
+    if _CATALOG_CACHE is not None:
+        return _CATALOG_CACHE
+
+    if not CATALOG_JSON_FILE.exists():
+        die("Template catalog missing: /app/templates/catalog.json")
+    if not CATALOG_SIG_FILE.exists():
+        die("Template catalog signature missing: /app/templates/catalog.sig")
+
+    catalog_bytes = CATALOG_JSON_FILE.read_bytes()
+    sig_bytes = CATALOG_SIG_FILE.read_bytes()
+
+    try:
+        pub_raw = bytes.fromhex(CATALOG_RELEASE_PUBKEY_HEX)
+    except ValueError:
+        die("CATALOG_RELEASE_PUBKEY_HEX is not valid hex")
+    if len(pub_raw) != 32:
+        die("CATALOG_RELEASE_PUBKEY_HEX must encode exactly 32 bytes")
+
+    pub = Ed25519PublicKey.from_public_bytes(pub_raw)
+    try:
+        pub.verify(sig_bytes, catalog_bytes)
+    except Exception:
+        die("Template catalog signature verification failed")
+
+    try:
+        catalog_doc = json.loads(catalog_bytes)
+    except json.JSONDecodeError as exc:
+        die(f"Template catalog JSON is invalid: {exc}")
+
+    result: dict[str, dict] = {}
+
+    for entry in catalog_doc.get("providers", []):
+        name: str = entry["name"]
+        file_path = CATALOG_DIR / entry["file"]
+        expected_sha256: str = entry["sha256"]
+        if not file_path.exists():
+            die(f"Template file missing: {entry['file']}")
+        template_bytes = file_path.read_bytes()
+        if hashlib.sha256(template_bytes).hexdigest() != expected_sha256:
+            die(f"Template SHA-256 mismatch: {name}")
+        try:
+            result[name] = json.loads(template_bytes)
+        except json.JSONDecodeError as exc:
+            die(f"Template {name!r} JSON is invalid: {exc}")
+
+    for entry in catalog_doc.get("adapters", []):
+        name = entry["name"]
+        file_path = CATALOG_DIR / entry["file"]
+        expected_sha256 = entry["sha256"]
+        if not file_path.exists():
+            die(f"Adapter template file missing: {entry['file']}")
+        template_bytes = file_path.read_bytes()
+        if hashlib.sha256(template_bytes).hexdigest() != expected_sha256:
+            die(f"Template SHA-256 mismatch: adapter:{name}")
+
+    _CATALOG_CACHE = result
+    return _CATALOG_CACHE
+
+
+def _expand_template_into_policy(
+    template: dict[str, Any],
+    key_id: str,
+    policy_id: str,
+    effective_adapters: list[str],
+    operator_overrides: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Merge a verified provider template with operator-supplied fields.
+    Returns a policy dict ready for _normalize_policy_doc()."""
+    policy: dict[str, Any] = {}
+
+    for field in ("protocol", "capability_class"):
+        if field in template:
+            policy[field] = template[field]
+    if "target" in template:
+        policy["target"] = dict(template["target"])
+    if "auth" in template:
+        policy["auth"] = dict(template["auth"])
+
+    allow: dict[str, Any] = {}
+    if "allow" in template:
+        allow.update(template["allow"])
+    allow["adapters"] = effective_adapters
+    policy["allow"] = allow
+
+    for opt in ("response", "intent", "velocity", "deny"):
+        if opt in template:
+            policy[opt] = template[opt]
+
+    policy["key_id"] = key_id
+    policy["policy_id"] = policy_id
+    policy["source"] = "env"
+
+    if operator_overrides:
+        for k, v in operator_overrides.items():
+            if k in ("key_id", "source"):
+                continue
+            if k == "allow" and isinstance(v, dict):
+                for ak, av in v.items():
+                    if ak != "adapters":
+                        policy["allow"][ak] = av
+            else:
+                policy[k] = v
+        policy["key_id"] = key_id
+        policy["source"] = "env"
+        policy["allow"]["adapters"] = effective_adapters
+
+    return policy
+
+
 def _auth_metadata_from_policy(policy: dict[str, Any], source: str) -> tuple[str, str]:
     auth = policy.get("auth")
     if not isinstance(auth, dict):
@@ -773,10 +899,15 @@ def _normalize_manifest_record(record: Any, idx: int) -> dict[str, Any]:
     if not isinstance(record, dict):
         _manifest_die(f"{source} must be an object")
 
-    required = {"key_id", "provider", "secret_ref", "adapters", "unique_vault", "policy"}
+    required = {"key_id", "provider", "secret_ref", "adapters", "unique_vault"}
     missing = sorted(required - record.keys())
     if missing:
         _manifest_die(f"{source} missing required field(s): {', '.join(missing)}")
+
+    has_template = "template" in record
+    has_policy = "policy" in record
+    if not has_template and not has_policy:
+        _manifest_die(f"{source} must provide either 'template' or 'policy'")
 
     key_id = record.get("key_id")
     if not isinstance(key_id, str) or not KEY_ID_RE.fullmatch(key_id):
@@ -811,10 +942,26 @@ def _normalize_manifest_record(record: Any, idx: int) -> dict[str, Any]:
     if not isinstance(unique_vault, bool):
         _manifest_die(f"{source}.unique_vault must be true or false")
 
-    policy = record.get("policy")
-    if not isinstance(policy, dict):
-        _manifest_die(f"{source}.policy must be an object")
-    normalized_policy = _normalize_policy_doc(policy, f"{source}.policy")
+    template_name = record.get("template")
+    if template_name is not None:
+        if not isinstance(template_name, str) or not template_name:
+            _manifest_die(f"{source}.template must be a non-empty string")
+        catalog = _load_and_verify_catalog()
+        if template_name not in catalog:
+            _manifest_die(f"{source} template {template_name!r} not found in catalog")
+        operator_overrides = record.get("policy") if isinstance(record.get("policy"), dict) else None
+        policy_raw = _expand_template_into_policy(
+            template=catalog[template_name],
+            key_id=key_id,
+            policy_id=f"{template_name}-{key_id}",
+            effective_adapters=effective_adapters,
+            operator_overrides=operator_overrides,
+        )
+    else:
+        policy_raw = record.get("policy")
+        if not isinstance(policy_raw, dict):
+            _manifest_die(f"{source}.policy must be an object")
+    normalized_policy = _normalize_policy_doc(policy_raw, f"{source}.policy")
     if normalized_policy["key_id"] != key_id:
         _manifest_die(
             f"{source}.policy.key_id {normalized_policy['key_id']!r} does not match record key_id {key_id!r}"

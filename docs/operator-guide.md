@@ -22,14 +22,80 @@ Each manifest record declares:
 - `secret_ref`
 - `adapters`
 - `unique_vault`
-- `policy`
+- either `policy` (full inline policy object) **or** `template` (named catalog template), following the merge rules in the next section
 
 `secret_ref` names the environment variable that will hold the provider secret
 during bootstrap. The manifest itself should not contain plaintext secrets.
 `provider` is now an operator-declared label, not a built-in routing lookup key.
-Routing and auth authority come from `policy.target.host` and `policy.auth`.
+Routing and auth authority come from `policy.target.host` and `policy.auth`
+when using an inline policy, or from the expanded template plus optional
+operator overrides when using `template`.
 
-## 2. Create The Secret Bootstrap File
+## 2. Using Provider Templates
+
+Instead of an inline `policy` object, a record may set `"template": "<name>"`
+where `<name>` is one of the bundled provider templates:
+
+`anthropic`, `openai`, `groq`, `gemini`, `deepseek`, `mistral`, `openrouter`,
+`together`, `xai`, `github`, `slack`, `sendgrid`.
+
+Merge rules:
+
+1. The template supplies provider-determined fields (`protocol`, `capability_class`,
+   `target`, `auth`, default `allow` limits, and optional `response` / `intent` /
+   `velocity` / `deny`).
+2. The operator always supplies `key_id`, `secret_ref`, `adapters`, and
+   `unique_vault` on the manifest record. Bootstrap injects `allow.adapters`
+   from the manifest’s `adapters` list (after normalization); **`allow.adapters`
+   is never taken from the template** and cannot be overridden via an optional
+   inline `policy` fragment.
+3. An optional inline `"policy"` object may appear alongside `"template"` to
+   override any template field except `key_id`, `source`, and `allow.adapters`.
+
+Trust model and offline behavior:
+
+- The catalog (`catalog.json`) is signed with the project’s offline Ed25519
+  release key; the public key is pinned in `bootstrap/subumbra-bootstrap.py` as
+  `CATALOG_RELEASE_PUBKEY_HEX`. Bootstrap verifies the detached signature and
+  every listed template file’s SHA-256 before any template contributes to policy.
+- Templates ship inside the bootstrap container image under `/app/templates/`; no
+  network fetch of a catalog URL is performed.
+
+Minimal example using only a template:
+
+```json
+{
+  "key_id": "my-openai-key",
+  "provider": "openai",
+  "secret_ref": "OPENAI_KEY",
+  "adapters": ["my-proxy-token"],
+  "unique_vault": false,
+  "template": "openai"
+}
+```
+
+Example with partial override:
+
+```json
+{
+  "key_id": "my-openai-key",
+  "provider": "openai",
+  "secret_ref": "OPENAI_KEY",
+  "adapters": ["my-proxy-token"],
+  "unique_vault": false,
+  "template": "openai",
+  "policy": {
+    "allow": {
+      "max_body_bytes": 524288
+    }
+  }
+}
+```
+
+Adapter JSON files under `bootstrap/templates/adapters/` are signed for
+integrity and operator documentation; bootstrap does not expand them into policy.
+
+## 3. Create The Secret Bootstrap File
 
 Copy the example and fill in only secret values and bootstrap credentials:
 
@@ -49,7 +115,7 @@ Successful `./bootstrap.sh --provision <key_id>`, `--add-adapter`,
 the file so you can finish additional secure mutation steps; shred it manually
 when repairs are complete.
 
-## 3. Run Bootstrap
+## 4. Run Bootstrap
 
 ```bash
 ./bootstrap.sh
@@ -67,7 +133,7 @@ with `--nuke` if you truly want a fresh Cloudflare reset.
 If bootstrap stops before completion, fix the reported input error and rerun the
 full bootstrap from the same repo checkout.
 
-## 4. Recreate Runtime Services
+## 5. Recreate Runtime Services
 
 After a full bootstrap, recreate the local services so they load the generated
 runtime tokens and registry state:
@@ -91,7 +157,7 @@ curl -sS \
   http://127.0.0.1:10199/t/anthropic_litellm/v1/models
 ```
 
-## 5. Rotation And Repair
+## 6. Rotation And Repair
 
 Use the existing single-key rotation command when only a stored V3 secret value
 needs to change:
@@ -162,7 +228,7 @@ PY
 If you lose both the live Worker secret and the local `.env` copy, run a full
 bootstrap so the management authority is reissued coherently.
 
-## 6. Registry Publish Notes
+## 7. Registry Publish Notes
 
 Structured KV publication now uses only `key:` and `policy:` records plus the
 schema marker:
