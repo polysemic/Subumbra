@@ -46,6 +46,11 @@ and fresh sessions tend to miss.
 - When proof wrappers run over `ssh ... bash -s`, any non-interactive
   `docker compose run` step should redirect stdin away from the SSH script
   stream unless interactive input is intentionally required.
+- **R51 `verify-round.sh` / S1:** A green S1 line requires a template-backed key
+  in the manifest under test plus `VERIFY_TEMPLATE_KEY_ID`,
+  `VERIFY_ADAPTER_TOKEN`, and `VERIFY_KEYS_JSON` (per the round hook). Fresh-install
+  proofs that only use inline `policy` keys may classify S1 as harness/environmental
+  while still closing the round on PASS for structural scenarios.
 - Verification should be treated like a normal operator path first: if the
   documented install/bootstrap/update flow breaks, report that product-facing
   failure and stop instead of inventing expert-only workarounds.
