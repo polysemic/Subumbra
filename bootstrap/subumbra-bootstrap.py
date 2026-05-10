@@ -693,8 +693,15 @@ def _normalize_policy_doc(doc: dict[str, Any], source: str) -> dict[str, Any]:
                 _validate_safe_pattern(pattern, source, f"response.deny_patterns[{idx}]")
 
     velocity = doc.get("velocity")
-    if velocity is not None and not isinstance(velocity, dict):
-        _policy_die(source, "velocity must be an object")
+    if velocity is not None:
+        if not isinstance(velocity, dict):
+            _policy_die(source, "velocity must be an object")
+        _velocity_fields = {"adapter_rpm", "key_rpm", "breaker_failures", "breaker_cooldown_seconds"}
+        for _vk, _vv in velocity.items():
+            if _vk not in _velocity_fields:
+                _policy_die(source, f"velocity.{_vk} is not a recognized field")
+            if not isinstance(_vv, int) or _vv <= 0:
+                _policy_die(source, f"velocity.{_vk} must be a positive integer")
 
     return doc
 
