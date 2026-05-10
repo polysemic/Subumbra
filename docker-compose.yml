@@ -1,5 +1,3 @@
-name: subumbra
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Networks
 #   internal  — air-gapped, no outbound internet (subumbra-keys, ui, bootstrap)
