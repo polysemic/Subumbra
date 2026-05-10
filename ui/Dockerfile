@@ -14,5 +14,5 @@ USER ui
 
 EXPOSE 8080
 
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "--timeout", "30", \
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "--timeout", "90", \
      "--access-logfile", "-", "--error-logfile", "-", "app:app"]

@@ -8,6 +8,7 @@
 /* ── Constants ───────────────────────────────────────────────── */
 
 const SESSION_WARN_SECS = 60;
+const STATUS_POLL_MS = 30000;
 const PROVIDER_CLASS = {
   anthropic: "provider-anthropic",
   openai:    "provider-openai",
@@ -65,6 +66,23 @@ function providerClass(p) {
 
 function setAlert(el, visible) {
   el.classList.toggle("visible", visible);
+}
+
+function fmtBooleanLabel(value) {
+  return value ? "Yes" : "No";
+}
+
+function renderTagList(id, values, emptyLabel = "—") {
+  const el = $(id);
+  if (!el) return;
+  const items = Array.isArray(values) ? values.filter((value) => typeof value === "string" && value) : [];
+  if (!items.length) {
+    el.innerHTML = `<span class="kdm-tag">${esc(emptyLabel)}</span>`;
+    return;
+  }
+  el.innerHTML = items
+    .map((value) => `<span class="kdm-tag">${esc(value)}</span>`)
+    .join("");
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -197,8 +215,7 @@ async function loadStatus() {
   }
 }
 
-/* SSE connection — server pushes { event: "status", data: <json> }
-   whenever state changes (key added/rotated, health flip, new log entry).
+/* SSE connection — heartbeat-only in this round.
    EventSource auto-reconnects on drop.
    Backend endpoint: GET /api/events (text/event-stream) */
 function initEventSource() {
@@ -871,15 +888,23 @@ function openKeyDetail(keyId, provider) {
   $("kdm-created").textContent     = k.created_at   ? fmtTimestamp(k.created_at)  : "—";
   $("kdm-last-used").textContent   = k.last_access  ? fmtTimestamp(k.last_access) : "Never";
   $("kdm-req-count").textContent   = (k.request_count || 0).toLocaleString() + " requests";
+  $("kdm-paused").textContent      = fmtBooleanLabel(Boolean(k.paused));
+  $("kdm-revoked").textContent     = fmtBooleanLabel(Boolean(k.revoked));
   $("kdm-target-host").textContent = k.target_host  || "—";
   $("kdm-base-path").textContent   = k.base_path    || "/";
 
-  // Policy tab (read-only stubs from provider registry)
+  // Policy tab
   $("kdm-auth-scheme").textContent  = k.auth_scheme  || "header";
   $("kdm-auth-header").textContent  = k.auth_header  || "—";
   $("kdm-auth-prefix").textContent  = k.auth_prefix  || "—";
   $("kdm-protocol").textContent     = k.protocol     || "http_rest";
   $("kdm-policy-id").textContent    = k.policy_id    || "—";
+  $("kdm-policy-hash").textContent  = k.policy_hash  || "—";
+  $("kdm-capability-class").textContent = k.capability_class || "—";
+
+  renderTagList("kdm-allow-adapters", k.allow_adapters);
+  renderTagList("kdm-allow-methods", k.allow_methods);
+  renderTagList("kdm-allow-paths", k.allow_path_prefixes);
 
   // Schema preview — forward-compatible template
   const schema = {
@@ -940,4 +965,5 @@ function kdmSelectBind(btn, mode) {
 document.addEventListener("DOMContentLoaded", () => {
   loadStatus();      // immediate snapshot on load
   initEventSource(); // then switch to live push
+  window.setInterval(loadStatus, STATUS_POLL_MS);
 });
