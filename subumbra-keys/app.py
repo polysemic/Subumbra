@@ -470,12 +470,32 @@ def list_keys() -> tuple[Response, int]:
     payload = []
     with _stats_lock:
         for kid, meta in keys.items():
+            policy = meta.get("policy") or {}
+            auth = policy.get("auth") or {}
+            target = policy.get("target") or {}
+            allow = policy.get("allow") or {}
             payload.append({
                 "key_id": kid,
                 "provider": meta.get("provider", "unknown"),
                 "created_at": meta.get("created_at", ""),
                 "request_count": _request_counts.get(kid, 0),
                 "last_access": _last_access.get(kid, None),
+                "policy_id": meta.get("policy_id") or policy.get("policy_id"),
+                "policy_hash": meta.get("policy_hash"),
+                "vault_instance": meta.get("vault_instance"),
+                "label": meta.get("label"),
+                "revoked": bool(meta.get("revoked", False)),
+                "paused": bool(meta.get("paused", False)),
+                "capability_class": policy.get("capability_class"),
+                "protocol": policy.get("protocol"),
+                "auth_scheme": auth.get("scheme"),
+                "auth_header": auth.get("header_name"),
+                "auth_prefix": auth.get("prefix"),
+                "target_host": target.get("host") or meta.get("target_host"),
+                "base_path": target.get("base_path"),
+                "allow_adapters": allow.get("adapters", []),
+                "allow_methods": allow.get("methods", []),
+                "allow_path_prefixes": allow.get("path_prefixes", []),
             })
 
     _record_audit(
