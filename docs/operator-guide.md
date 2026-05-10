@@ -44,9 +44,10 @@ The bootstrap file is intentionally short:
 - optional bootstrap settings such as `TOKEN_TTL_DAYS`
 
 `./bootstrap.sh` shreds `.env.bootstrap` after a successful full bootstrap.
-Successful `./bootstrap.sh --provision <key_id>` runs intentionally retain the
-file so you can finish additional repair steps; shred it manually when repairs
-are complete.
+Successful `./bootstrap.sh --provision <key_id>`, `--add-adapter`,
+`--revoke-adapter`, or `--publish-policy <key_id>` runs intentionally retain
+the file so you can finish additional secure mutation steps; shred it manually
+when repairs are complete.
 
 ## 3. Run Bootstrap
 
@@ -99,14 +100,6 @@ needs to change:
 ./bootstrap.sh --rotate
 ```
 
-Use a full bootstrap whenever you change retained keys, adapter bindings,
-manifest policy, vault layout, or Cloudflare bootstrap state:
-
-```bash
-./bootstrap.sh
-docker compose up -d --force-recreate
-```
-
 If a fresh bootstrap leaves a retryable checkpoint, repair a single missing key:
 
 ```bash
@@ -118,10 +111,56 @@ not require a complete checkpoint record for the target key if `subumbra.json`
 and `.env.bootstrap` still provide the missing authority. If both the repair
 authority and the local public key are gone, rerun the full bootstrap instead.
 
-If `--rotate`, `--push-registry`, or `--provision` reports missing embedded
-authority fields or an embedded policy mismatch, stop and repair the local state
-or re-run the full bootstrap. Those commands no longer reconstruct policy or
-adapter bindings from bootstrap-era inputs.
+If `--rotate`, `--push-registry`, `--provision`, `--revoke-key`,
+`--add-adapter`, `--revoke-adapter`, or `--publish-policy` reports missing
+embedded authority fields or an embedded policy mismatch, stop and repair the
+local state or re-run the full bootstrap. Those commands no longer reconstruct
+policy or adapter bindings from bootstrap-era inputs.
+
+### Management Authority
+
+Bootstrap now generates and stores a separate management bearer token:
+
+- host env key: `SUBUMBRA_MANAGEMENT_TOKEN`
+- Worker secret: `SUBUMBRA_MANAGEMENT_TOKEN`
+
+Use that token only for Worker management routes such as pause/unpause. It is
+independent from adapter auth and should be treated like a privileged operator
+secret.
+
+If you need to rotate or recover it after bootstrap, overwrite the Worker
+secret and the host `.env` value together:
+
+```bash
+NEW_TOKEN="$(python3 - <<'PY'
+import secrets
+print(secrets.token_urlsafe(48))
+PY
+)"
+export NEW_TOKEN
+
+printf '%s\n' "$NEW_TOKEN" | wrangler secret put SUBUMBRA_MANAGEMENT_TOKEN --name "$CF_WORKER_NAME"
+python3 - <<'PY'
+from pathlib import Path
+path = Path(".env")
+lines = path.read_text().splitlines()
+needle = "SUBUMBRA_MANAGEMENT_TOKEN="
+replaced = False
+out = []
+for line in lines:
+    if line.startswith(needle):
+        out.append(needle + __import__("os").environ["NEW_TOKEN"])
+        replaced = True
+    else:
+        out.append(line)
+if not replaced:
+    out.append(needle + __import__("os").environ["NEW_TOKEN"])
+path.write_text("\n".join(out) + "\n")
+PY
+```
+
+If you lose both the live Worker secret and the local `.env` copy, run a full
+bootstrap so the management authority is reissued coherently.
 
 ## 6. Registry Publish Notes
 
@@ -133,7 +172,9 @@ schema marker:
 ```
 
 `--push-registry` now reads only from the persisted internal state under
-`data/`. It does not require `subumbra.json` after bootstrap completes.
+`data/`. It does not require `subumbra.json` after bootstrap completes, and it
+must preserve an already-live `paused: true` flag on any structured `key:<id>`
+entry instead of clearing it during republish.
 
 Before `./bootstrap.sh --push-registry`, rewrite any legacy anchored
 `response.deny_patterns` values such as `^test$` to bare substring literals
@@ -144,9 +185,39 @@ Bootstrap no longer reads routing or auth defaults from `providers.json`. If a
 manifest record omits or misstates `policy.target.host` or `policy.auth`, the
 bootstrap run fails closed and must be corrected in `subumbra.json`.
 
-There is no longer a separate `--rotate-policy` workflow. If you change
-manifest policy, adapter bindings, routing metadata, or vault layout, re-run
-the full bootstrap and recreate the runtime services:
+There is no longer a separate `--rotate-policy` workflow. Day-2 command
+coverage is now:
+
+```bash
+./bootstrap.sh --push-registry
+./bootstrap.sh --provision <key_id>
+./bootstrap.sh --revoke-key <key_id>
+./bootstrap.sh --add-adapter <key_id> <adapter_id>
+./bootstrap.sh --revoke-adapter <key_id> <adapter_id>
+./bootstrap.sh --publish-policy <key_id>
+./bootstrap.sh --rotate
+```
+
+- `--revoke-key` marks the fat record as revoked, deletes the live `key:<id>`
+  KV entry, and future `--push-registry` runs skip revoked records so the key
+  does not resurrect.
+- `--add-adapter` and `--revoke-adapter` are secure hybrid mutations: they use
+  the local V3 record plus plaintext authority from `subumbra.json` /
+  `.env.bootstrap`, re-encrypt, rewrite `keys.json`, and republish KV.
+- `--publish-policy` has two branches:
+  - non-baseline update for `intent`, `velocity`, or `response.deny_patterns`
+    only: update fat-record policy and republish with no re-encryption
+  - baseline update touching `allow.*`, `target.host`, or `auth.*`: re-encrypt
+    and republish
+
+Pause/unpause is the one Worker-native write path in this round. After a
+successful `/manage/key/pause` or `/manage/key/unpause`, allow up to 90 seconds
+for worst-case Cloudflare KV propagation before treating a stale proxy result as
+a failure.
+
+If you change routing metadata or broader retained bootstrap state beyond those
+day-2 command boundaries, re-run the full bootstrap and recreate the runtime
+services:
 
 ```bash
 ./bootstrap.sh

@@ -17,6 +17,7 @@
  *
  * CF Secrets consumed:
  *   SUBUMBRA_ADAPTER_TOKENS — JSON array of adapter tokens, set by bootstrap
+ *   SUBUMBRA_MANAGEMENT_TOKEN — management bearer token, set by bootstrap
  *   SUBUMBRA_SETUP_TOKEN    — transient setup token, set by bootstrap
  */
 
@@ -118,6 +119,7 @@ async function getRegistryEntry(env, keyId) {
     policy_hash: keyEntry.policy_hash,
     target_host: keyEntry.target_host,
     provider_id: keyEntry.provider,
+    paused: keyEntry.paused === true,
     auth_scheme: typeof policyAuth.scheme === "string" ? policyAuth.scheme : "bearer",
     auth_header_name:
       typeof policyAuth.header_name === "string" ? policyAuth.header_name : null,
@@ -171,6 +173,7 @@ const VAULT_STATUS_PATH = "/status";
 const VAULT_EXECUTE_PATH = "/execute";
 const VAULT_ROTATE_PATH = "/rotate";
 const VAULT_RESET_PATH = "/reset";
+const VAULT_MANAGEMENT_AUDIT_PATH = "/management-audit";
 const VAULT_SCHEMA = `
   CREATE TABLE IF NOT EXISTS custody (
     id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -193,6 +196,14 @@ const VAULT_SCHEMA = `
     consecutive_failures INTEGER NOT NULL,
     opened_at INTEGER NOT NULL,
     half_open_probe_active INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS management_audit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts TEXT NOT NULL,
+    operation TEXT NOT NULL,
+    key_id TEXT,
+    actor_token_prefix TEXT NOT NULL,
+    result TEXT NOT NULL
   );
 `;
 
@@ -337,6 +348,10 @@ function parseBearerToken(request) {
   return match ? match[1] : "";
 }
 
+function tokenPrefix(token) {
+  return token.slice(0, 8);
+}
+
 function bytesToHex(bytes) {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
@@ -392,6 +407,10 @@ export class SubumbraVault {
 
     if (url.pathname === VAULT_RESET_PATH) {
       return this._handleReset(request);
+    }
+
+    if (url.pathname === VAULT_MANAGEMENT_AUDIT_PATH) {
+      return this._handleManagementAudit(request);
     }
 
     return jsonError("not found", 404);
@@ -938,6 +957,70 @@ export class SubumbraVault {
       return jsonError("reset failed", 500);
     }
   }
+
+  async _handleManagementAudit(request) {
+    const bearerToken = parseBearerToken(request);
+    if (!bearerToken) {
+      console.warn("subumbra: internal management audit rejected (missing bearer token)");
+      return jsonError("unauthorized", 401);
+    }
+
+    const expectedToken = this.env.SUBUMBRA_MANAGEMENT_TOKEN ?? "";
+    const tokenOk = await timingSafeEqual(bearerToken, expectedToken);
+    if (!tokenOk) {
+      console.warn("subumbra: internal management audit rejected (invalid bearer token)");
+      return jsonError("forbidden", 403);
+    }
+
+    let payload;
+    try {
+      payload = await request.json();
+    } catch {
+      return jsonError("invalid JSON body", 400);
+    }
+
+    if (payload && payload.action === "list") {
+      const rows = this.state.storage.sql.exec(
+        "SELECT id, ts, operation, key_id, actor_token_prefix, result FROM management_audit ORDER BY id ASC"
+      ).toArray();
+      return new Response(JSON.stringify({ rows }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    const {
+      operation,
+      key_id: keyId = null,
+      actor_token_prefix: actorTokenPrefix,
+      result,
+    } = payload ?? {};
+    if (
+      typeof operation !== "string" ||
+      !operation ||
+      (keyId !== null && (typeof keyId !== "string" || !keyId)) ||
+      typeof actorTokenPrefix !== "string" ||
+      !actorTokenPrefix ||
+      typeof result !== "string" ||
+      !result
+    ) {
+      return jsonError("missing required fields", 400);
+    }
+
+    this.state.storage.sql.exec(
+      "INSERT INTO management_audit (ts, operation, key_id, actor_token_prefix, result) VALUES (?, ?, ?, ?, ?)",
+      new Date().toISOString(),
+      operation,
+      keyId,
+      actorTokenPrefix,
+      result,
+    );
+
+    return new Response(JSON.stringify({ status: "ok" }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -948,6 +1031,7 @@ export default {
   /**
    * @param {Request}         request
    * @param {{ SUBUMBRA_ADAPTER_TOKENS: string,
+   *           SUBUMBRA_MANAGEMENT_TOKEN?: string,
    *           SUBUMBRA_VAULT: DurableObjectNamespace,
    *           PROVIDER_REGISTRY_KV: KVNamespace,
    *           SUBUMBRA_SETUP_TOKEN?: string }} env
@@ -982,6 +1066,18 @@ export default {
 
     if (request.method === "POST" && url.pathname === "/internal/vault-reset") {
       return handleInternalVaultReset(request, env);
+    }
+
+    if (request.method === "POST" && url.pathname === "/internal/management-audit") {
+      return handleInternalManagementAudit(request, env);
+    }
+
+    if (request.method === "POST" && url.pathname === "/manage/key/pause") {
+      return handleManagePauseToggle(request, env, true);
+    }
+
+    if (request.method === "POST" && url.pathname === "/manage/key/unpause") {
+      return handleManagePauseToggle(request, env, false);
     }
 
     // ── POST /proxy ─────────────────────────────────────────────────────────
@@ -1136,6 +1232,87 @@ async function handleInternalVaultReset(request, env) {
   }
 }
 
+async function handleInternalManagementAudit(request, env) {
+  const parsed = await parseVaultInstancePayload(request);
+  if (parsed.error) {
+    return parsed.error;
+  }
+
+  try {
+    if (!env.SUBUMBRA_VAULT) {
+      throw new Error("vault binding missing");
+    }
+    const vault = getVaultStub(env, parsed.vaultInstance);
+    return await vault.fetch(`https://do-internal${VAULT_MANAGEMENT_AUDIT_PATH}`, {
+      method: "POST",
+      headers: {
+        Authorization: request.headers.get("Authorization") ?? "",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ action: "list" }),
+    });
+  } catch {
+    console.error("subumbra: internal management audit unavailable");
+    return jsonError("vault unavailable", 503);
+  }
+}
+
+async function handleManagePauseToggle(request, env, paused) {
+  const managementAuth = await authorizeManagementRequest(request, env);
+  if (!managementAuth.ok) {
+    return managementAuth.response;
+  }
+
+  if (!env.PROVIDER_REGISTRY_KV) {
+    console.error("subumbra: worker bindings not configured (run bootstrap)");
+    return jsonError("worker not configured", 503);
+  }
+
+  let payload;
+  try {
+    payload = await request.json();
+  } catch {
+    return jsonError("invalid JSON body", 400);
+  }
+  if (!payload || typeof payload.key_id !== "string" || !payload.key_id) {
+    return jsonError("missing required fields", 400);
+  }
+
+  const keyName = `key:${payload.key_id}`;
+  const currentRaw = await env.PROVIDER_REGISTRY_KV.get(keyName);
+  if (!currentRaw) {
+    return jsonError("key not found", 404);
+  }
+
+  let keyEntry;
+  try {
+    keyEntry = parseStructuredRegistryJson(currentRaw, keyName);
+  } catch (err) {
+    console.error("subumbra: management mutation failed — invalid key entry %s", keyName);
+    return jsonError("worker not configured", 503);
+  }
+
+  keyEntry.paused = paused;
+  await env.PROVIDER_REGISTRY_KV.put(keyName, JSON.stringify(keyEntry));
+  try {
+    await writeManagementAudit(env, {
+      operation: paused ? "pause_key" : "unpause_key",
+      key_id: payload.key_id,
+      actor_token_prefix: managementAuth.actorTokenPrefix,
+      result: "success",
+    });
+  } catch {
+    await env.PROVIDER_REGISTRY_KV.put(keyName, currentRaw);
+    console.error("subumbra: management audit write failed key_id=%s", payload.key_id);
+    return jsonError("vault unavailable", 503);
+  }
+
+  return new Response(
+    JSON.stringify({ status: "ok", key_id: payload.key_id, paused }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  );
+}
+
 async function authorizeRequest(request, env) {
   if (!env.SUBUMBRA_ADAPTER_TOKENS) {
     console.error("subumbra: worker bindings not configured (run bootstrap)");
@@ -1158,6 +1335,54 @@ async function authorizeRequest(request, env) {
   }
 
   return { ok: true, adapterId };
+}
+
+async function authorizeManagementRequest(request, env) {
+  const expectedToken = env.SUBUMBRA_MANAGEMENT_TOKEN ?? "";
+  if (!expectedToken) {
+    console.error("subumbra: management auth unavailable (run bootstrap)");
+    return { ok: false, response: jsonError("worker not configured", 503) };
+  }
+
+  const bearerToken = parseBearerToken(request);
+  if (!bearerToken) {
+    console.warn("subumbra: unauthorized management request");
+    return { ok: false, response: jsonError("unauthorized", 401) };
+  }
+
+  const tokenOk = await timingSafeEqual(bearerToken, expectedToken);
+  if (!tokenOk) {
+    console.warn("subumbra: forbidden management request");
+    return { ok: false, response: jsonError("forbidden", 403) };
+  }
+
+  return {
+    ok: true,
+    actorTokenPrefix: tokenPrefix(bearerToken),
+  };
+}
+
+async function writeManagementAudit(env, payload, vaultInstance = VAULT_INSTANCE_NAME) {
+  if (!env.SUBUMBRA_VAULT) {
+    throw new Error("vault binding missing");
+  }
+  const bearerToken = env.SUBUMBRA_MANAGEMENT_TOKEN ?? "";
+  if (!bearerToken) {
+    throw new Error("management token missing");
+  }
+
+  const vault = getVaultStub(env, vaultInstance);
+  const response = await vault.fetch(`https://do-internal${VAULT_MANAGEMENT_AUDIT_PATH}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${bearerToken}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    throw new Error(`management audit write failed: HTTP ${response.status}`);
+  }
 }
 
 async function handleAuthPing(request, env) {
@@ -1273,6 +1498,10 @@ async function handleProxy(request, env) {
       console.error("subumbra: structured registry validation failed:", err.message);
     }
     return jsonError("worker not configured", 503);
+  }
+  if (registryEntry.paused) {
+    console.warn("subumbra: policy deny reason=key_paused adapter=%s key_id=%s", auth.adapterId, key_id);
+    return jsonError("key_paused", 403);
   }
   if (provider !== registryEntry.provider_id) {
     console.warn(

@@ -329,6 +329,7 @@ def _build_runtime_env_lines(
     allowed_keys_by_adapter: dict[str, list[str]],
     adapter_tokens: dict[str, str],
     subumbra_hmac_key: str,
+    management_token: str,
     worker_url: str,
     primary_pub_key_fp: str,
 ) -> list[str]:
@@ -340,6 +341,7 @@ def _build_runtime_env_lines(
         f"UI_ALLOWED_KEYS={','.join(allowed_keys_by_adapter['subumbra-ui'])}",
         f"SUBUMBRA_TOKEN_PROXY={adapter_tokens['subumbra-proxy']}",
         f"SUBUMBRA_TOKEN_UI={adapter_tokens['subumbra-ui']}",
+        f"SUBUMBRA_MANAGEMENT_TOKEN={management_token}",
     ]
     if "subumbra-probe" in allowed_keys_by_adapter:
         runtime_env_lines.append(
@@ -370,6 +372,7 @@ def _build_host_env_updates(
     allowed_keys_by_adapter: dict[str, list[str]],
     adapter_tokens: dict[str, str],
     subumbra_hmac_key: str,
+    management_token: str,
     worker_url: str,
     setup_token: str,
 ) -> dict[str, str]:
@@ -379,6 +382,7 @@ def _build_host_env_updates(
         "UI_ALLOWED_KEYS": ",".join(allowed_keys_by_adapter["subumbra-ui"]),
         "SUBUMBRA_TOKEN_PROXY": adapter_tokens["subumbra-proxy"],
         "SUBUMBRA_TOKEN_UI": adapter_tokens["subumbra-ui"],
+        "SUBUMBRA_MANAGEMENT_TOKEN": management_token,
         "SUBUMBRA_HMAC_KEY": subumbra_hmac_key,
         "CF_WORKER_URL": worker_url,
         "SUBUMBRA_SETUP_TOKEN": setup_token,
@@ -990,13 +994,21 @@ def _load_manifest_repair_authority(target_key_id: str) -> dict[str, Any]:
     )
 
 
+def _is_revoked_record(record: dict[str, Any]) -> bool:
+    return record.get("revoked") is True
+
+
 def _build_structured_kv_entries(
     keys_payload: dict[str, dict[str, Any]],
+    existing_live_key_entries: dict[str, dict[str, Any]] | None = None,
 ) -> list[dict[str, str]]:
     entries: list[dict[str, str]] = []
     published_policy_ids: set[str] = set()
 
     for key_id, record in sorted(keys_payload.items()):
+        if _is_revoked_record(record):
+            info(f"Skipping revoked record during structured publish: {key_id}")
+            continue
         policy, _adapters = _require_fat_record_fields(record, key_id)
         _verify_embedded_policy_hash(record, key_id)
         provider_id = record["provider"]
@@ -1014,6 +1026,10 @@ def _build_structured_kv_entries(
             "created_at": record["created_at"],
             "label": record["label"],
         }
+        existing_live_entry = (existing_live_key_entries or {}).get(key_id)
+        if isinstance(existing_live_entry, dict) and existing_live_entry.get("paused") is True:
+            key_entry["paused"] = True
+            info(f"Preserving paused flag during structured publish: {key_id}")
         entries.append({"key": f"key:{key_id}", "value": json.dumps(key_entry, separators=(",", ":"))})
 
         policy_id = policy["policy_id"]
@@ -1027,6 +1043,90 @@ def _build_structured_kv_entries(
             published_policy_ids.add(policy_id)
 
     return entries
+
+
+def _kv_value_url(cf_creds: dict[str, str], namespace_id: str, key_name: str) -> str:
+    quoted_key = urllib.parse.quote(key_name, safe="")
+    return (
+        "https://api.cloudflare.com/client/v4/accounts/"
+        f"{cf_creds['CF_ACCOUNT_ID']}/storage/kv/namespaces/{namespace_id}/values/{quoted_key}"
+    )
+
+
+def _kv_auth_headers(cf_creds: dict[str, str]) -> dict[str, str]:
+    return {
+        "Authorization": f"Bearer {cf_creds['CF_API_TOKEN']}",
+        "Content-Type": "application/json",
+    }
+
+
+def _kv_get_json_value(cf_creds: dict[str, str], namespace_id: str, key_name: str) -> dict[str, Any] | None:
+    request = urllib.request.Request(_kv_value_url(cf_creds, namespace_id, key_name), headers=_kv_auth_headers(cf_creds))
+    try:
+        with urllib.request.urlopen(request) as resp:
+            payload = resp.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return None
+        body_text = exc.read().decode("utf-8", errors="replace")
+        die(
+            f"Failed to read structured KV key {key_name!r}: HTTP {exc.code}\n"
+            f"--- response body ---\n{body_text}"
+        )
+    except Exception as exc:
+        die(f"Failed to read structured KV key {key_name!r}: {exc}")
+
+    try:
+        parsed = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        die(f"Structured KV key {key_name!r} returned invalid JSON: {exc}")
+    if not isinstance(parsed, dict):
+        die(f"Structured KV key {key_name!r} returned invalid schema")
+    return parsed
+
+
+def _kv_wait_for_json_value(
+    cf_creds: dict[str, str],
+    namespace_id: str,
+    key_name: str,
+    *,
+    max_attempts: int = 18,
+    delay_seconds: int = 5,
+) -> dict[str, Any]:
+    for attempt in range(1, max_attempts + 1):
+        parsed = _kv_get_json_value(cf_creds, namespace_id, key_name)
+        if parsed is not None:
+            return parsed
+        if attempt < max_attempts:
+            info(
+                f"Structured KV key {key_name!r} not visible yet; "
+                f"retrying ({attempt}/{max_attempts})"
+            )
+            time.sleep(delay_seconds)
+    die(f"Structured KV key {key_name!r} did not become visible after publication")
+
+
+def _kv_delete_key(cf_creds: dict[str, str], namespace_id: str, key_name: str) -> None:
+    request = urllib.request.Request(
+        _kv_value_url(cf_creds, namespace_id, key_name),
+        method="DELETE",
+        headers=_kv_auth_headers(cf_creds),
+    )
+    try:
+        with urllib.request.urlopen(request) as resp:
+            body = json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return
+        body_text = exc.read().decode("utf-8", errors="replace")
+        die(
+            f"Failed to delete structured KV key {key_name!r}: HTTP {exc.code}\n"
+            f"--- response body ---\n{body_text}"
+        )
+    except Exception as exc:
+        die(f"Failed to delete structured KV key {key_name!r}: {exc}")
+    if not body.get("success"):
+        die(f"Failed to delete structured KV key {key_name!r}")
 
 
 def _resolve_target_host(provider: str, *, prompt_if_missing: bool) -> str:
@@ -1642,6 +1742,7 @@ def _build_fat_record(
     vault_instance: str,
     created_at: str,
     label: str,
+    revoked: bool = False,
 ) -> dict[str, Any]:
     return {
         "key_id": key_id,
@@ -1658,6 +1759,7 @@ def _build_fat_record(
         "vault_instance": vault_instance,
         "created_at": created_at,
         "label": label,
+        "revoked": revoked,
     }
 
 
@@ -1744,7 +1846,7 @@ def _get_push_registry_cf_creds() -> dict[str, str]:
         }
 
     if not sys.stdin.isatty():
-        die("Missing CF_API_TOKEN / CF_ACCOUNT_ID / CF_WORKER_NAME for --push-registry")
+        die("Missing CF_API_TOKEN / CF_ACCOUNT_ID / CF_WORKER_NAME for day-2 management command")
 
     while True:
         cf_token = getpass.getpass("  Cloudflare API token: ").strip()
@@ -2393,7 +2495,14 @@ def _publish_structured_kv(
 ) -> None:
     namespace_id = _create_or_reuse_kv_namespace(cf_creds)
     env = _wrangler_env(cf_creds)
-    entries = _build_structured_kv_entries(keys_payload)
+    existing_live_key_entries: dict[str, dict[str, Any]] = {}
+    for key_id, record in sorted(keys_payload.items()):
+        if _is_revoked_record(record):
+            continue
+        live_entry = _kv_get_json_value(cf_creds, namespace_id, f"key:{key_id}")
+        if isinstance(live_entry, dict):
+            existing_live_key_entries[key_id] = live_entry
+    entries = _build_structured_kv_entries(keys_payload, existing_live_key_entries)
     if not entries:
         die("No structured KV entries compiled for publication")
 
@@ -2420,17 +2529,8 @@ def _publish_structured_kv(
         sample_key_entry = next(entry for entry in entries if entry["key"].startswith("key:"))
         sample_policy_entry = next(entry for entry in entries if entry["key"].startswith("policy:"))
 
-        for sample in (sample_key_entry, sample_policy_entry):
-            _run(
-                [
-                    "wrangler", "kv", "key", "get",
-                    sample["key"],
-                    "--namespace-id", namespace_id,
-                    "--remote",
-                ],
-                cwd=work_dir,
-                env=env,
-            )
+        _kv_wait_for_json_value(cf_creds, namespace_id, sample_key_entry["key"])
+        _kv_wait_for_json_value(cf_creds, namespace_id, sample_policy_entry["key"])
 
         _run(
             [
@@ -2449,6 +2549,7 @@ def deploy_worker(
     cf_creds: dict[str, str],
     adapter_tokens: dict[str, str],
     subumbra_hmac_key: str,
+    management_token: str,
     setup_token: str,
     provider_id_filter: "set[str] | None" = None,
 ) -> str:
@@ -2463,7 +2564,8 @@ def deploy_worker(
       5. wrangler secret delete WORKER_KEY_FINGERPRINT (legacy cleanup, best-effort)
       6. wrangler secret put SUBUMBRA_ADAPTER_TOKENS
       7. wrangler secret put SUBUMBRA_HMAC_KEY
-      8. wrangler secret put SUBUMBRA_SETUP_TOKEN
+      8. wrangler secret put SUBUMBRA_MANAGEMENT_TOKEN
+      9. wrangler secret put SUBUMBRA_SETUP_TOKEN
     """
     if not WORKER_SRC.exists():
         die(
@@ -2552,6 +2654,16 @@ def deploy_worker(
         )
         ok("SUBUMBRA_HMAC_KEY pushed")
 
+        step("Pushing SUBUMBRA_MANAGEMENT_TOKEN to CF Secrets")
+        _run(
+            ["wrangler", "secret", "put", "SUBUMBRA_MANAGEMENT_TOKEN",
+             "--name", worker_name],
+            cwd=work_dir,
+            env=env,
+            input_text=management_token + "\n",
+        )
+        ok("SUBUMBRA_MANAGEMENT_TOKEN pushed")
+
         # ── push transient SUBUMBRA_SETUP_TOKEN ──────────────────────────────
         step("Pushing transient SUBUMBRA_SETUP_TOKEN to CF Secrets")
         _run(
@@ -2592,6 +2704,251 @@ def run_push_registry() -> None:
     except SystemExit:
         die("structured publish aborted before registry_version update")
     ok("Structured KV publication complete")
+
+
+def _load_keys_payload_or_die() -> dict[str, dict[str, Any]]:
+    if not KEYS_FILE.exists():
+        die("keys.json not found — run a full bootstrap first.")
+    try:
+        payload = json.loads(KEYS_FILE.read_text())
+    except (json.JSONDecodeError, OSError) as exc:
+        die(f"Cannot read keys.json: {exc}")
+    if not isinstance(payload, dict):
+        die("keys.json is malformed")
+    return payload
+
+
+def _require_existing_active_record(keys_payload: dict[str, dict[str, Any]], key_id: str) -> dict[str, Any]:
+    if key_id not in keys_payload:
+        die(f"key_id {key_id!r} not found in keys.json")
+    record = keys_payload[key_id]
+    if not isinstance(record, dict):
+        die(f"keys.json record {key_id!r} is malformed")
+    if _is_revoked_record(record):
+        die(f"key_id {key_id!r} is already revoked")
+    if record.get("enc_version") != 3:
+        die(f"{key_id!r} is not an existing V3 record. Re-run full bootstrap.")
+    _require_fat_record_fields(record, key_id)
+    _verify_embedded_policy_hash(record, key_id)
+    return record
+
+
+def _load_existing_public_key_for_record(key_id: str, record: dict[str, Any]) -> tuple[str, Any, str]:
+    vault_instance = str(record.get("vault_instance", "")).strip()
+    if not vault_instance:
+        die(f"keys.json record {key_id!r} missing vault_instance")
+    public_key_file = _public_key_file_for_key(key_id, vault_instance)
+    if not public_key_file.exists():
+        die(
+            f"Public key file not found at {public_key_file}\n"
+            f"  Re-run full bootstrap before mutating {key_id!r}."
+        )
+    try:
+        pub_key = serialization.load_pem_public_key(public_key_file.read_bytes())
+    except Exception as exc:
+        die(f"Failed to load {public_key_file.name}: {exc}")
+    pub_key_fp = public_key_fingerprint(pub_key)
+    if pub_key_fp != record.get("pub_key_fp"):
+        die(
+            f"Public key fingerprint mismatch for key_id {key_id!r}\n"
+            f"  stored:   {record.get('pub_key_fp')}\n"
+            f"  computed: {pub_key_fp}"
+        )
+    return vault_instance, pub_key, pub_key_fp
+
+
+def _rewrite_v3_record_from_plaintext(
+    *,
+    key_id: str,
+    existing_record: dict[str, Any],
+    raw_secret: str,
+    policy: dict[str, Any],
+    adapters: list[str],
+) -> dict[str, Any]:
+    provider = str(existing_record.get("provider", "")).strip()
+    if not provider:
+        die(f"keys.json record {key_id!r} missing provider")
+    target_host = str(policy.get("target", {}).get("host", "")).strip()
+    if not target_host:
+        die(f"policy for {key_id!r} is missing target.host")
+    vault_instance, pub_key, pub_key_fp = _load_existing_public_key_for_record(key_id, existing_record)
+    policy_hash = compute_policy_hash(policy)
+    now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    dek = os.urandom(32)
+    ciphertext = encrypt_api_key_v3(dek, raw_secret, key_id, policy_hash)
+    wrapped_dek = wrap_dek(pub_key, dek)
+    del dek
+    return _build_fat_record(
+        key_id=key_id,
+        provider=provider,
+        target_host=target_host,
+        pub_key_fp=pub_key_fp,
+        wrapped_dek=wrapped_dek,
+        ciphertext=ciphertext,
+        policy=policy,
+        policy_hash=policy_hash,
+        adapters=adapters,
+        vault_instance=vault_instance,
+        created_at=now_iso,
+        label=str(existing_record.get("label", key_id)),
+        revoked=False,
+    )
+
+
+def _update_record_policy_without_reencrypt(
+    *,
+    key_id: str,
+    existing_record: dict[str, Any],
+    policy: dict[str, Any],
+    adapters: list[str],
+) -> dict[str, Any]:
+    new_policy_hash = compute_policy_hash(policy)
+    if new_policy_hash != existing_record.get("policy_hash"):
+        die(
+            f"--publish-policy baseline change detected for key_id {key_id!r}; "
+            "re-encryption path required."
+        )
+    updated = dict(existing_record)
+    updated["policy_id"] = policy["policy_id"]
+    updated["policy_hash"] = new_policy_hash
+    updated["policy"] = policy
+    updated["adapters"] = list(adapters)
+    updated["target_host"] = policy["target"]["host"]
+    updated["revoked"] = False
+    return updated
+
+
+def _publish_after_local_record_update(cf_creds: dict[str, str], keys_payload: dict[str, dict[str, Any]]) -> None:
+    step("Publishing structured KV entries")
+    try:
+        _publish_structured_kv(cf_creds, keys_payload)
+    except SystemExit:
+        die("structured publish aborted before registry_version update")
+    ok("Structured KV publication complete")
+
+
+def _load_management_manifest_authority(key_id: str, expected_provider: str | None = None) -> dict[str, Any]:
+    authority = _load_manifest_repair_authority(key_id)
+    provider = authority["provider"]
+    if expected_provider and provider != expected_provider:
+        die(
+            f"Manifest provider mismatch for key_id {key_id!r}: expected {expected_provider!r}, "
+            f"found {provider!r}."
+        )
+    return authority
+
+
+def run_revoke_key(target_key_id: str) -> None:
+    cf_creds = _get_push_registry_cf_creds()
+    keys_payload = _load_keys_payload_or_die()
+    record = _require_existing_active_record(keys_payload, target_key_id)
+    revoked_record = dict(record)
+    revoked_record["revoked"] = True
+    keys_payload[target_key_id] = revoked_record
+
+    step(f"Marking {target_key_id} as revoked in keys.json")
+    _write_keys_payload(keys_payload)
+    ok(f"Revocation marker persisted for {target_key_id}")
+
+    namespace_id = _create_or_reuse_kv_namespace(cf_creds)
+    step(f"Deleting live structured KV key:{target_key_id}")
+    _kv_delete_key(cf_creds, namespace_id, f"key:{target_key_id}")
+    ok(f"Deleted live key:{target_key_id}")
+
+    policy_id = str(record.get("policy_id", "")).strip()
+    if policy_id:
+        orphaned = True
+        for key_id, candidate in keys_payload.items():
+            if key_id == target_key_id or _is_revoked_record(candidate):
+                continue
+            if candidate.get("policy_id") == policy_id:
+                orphaned = False
+                break
+        if orphaned:
+            step(f"Deleting orphaned structured KV policy:{policy_id}")
+            _kv_delete_key(cf_creds, namespace_id, f"policy:{policy_id}")
+            ok(f"Deleted orphaned policy:{policy_id}")
+
+
+def _mutate_adapter_binding(target_key_id: str, adapter_id: str, *, add: bool) -> None:
+    cf_creds = _get_push_registry_cf_creds()
+    keys_payload = _load_keys_payload_or_die()
+    existing_record = _require_existing_active_record(keys_payload, target_key_id)
+    authority = _load_management_manifest_authority(target_key_id, str(existing_record.get("provider", "")))
+    raw_secret = authority["raw_secret"]
+
+    policy = json.loads(json.dumps(existing_record["policy"]))
+    current_adapters = _policy_adapter_ids(policy)
+    if add:
+        if adapter_id not in current_adapters:
+            current_adapters.append(adapter_id)
+    else:
+        if adapter_id not in current_adapters:
+            die(f"adapter_id {adapter_id!r} is not currently bound to key_id {target_key_id!r}")
+        current_adapters = [candidate for candidate in current_adapters if candidate != adapter_id]
+        if not current_adapters:
+            die(f"adapter mutation would leave key_id {target_key_id!r} with no allowed adapters")
+
+    policy["allow"]["adapters"] = sorted(current_adapters)
+    adapters = list(policy["allow"]["adapters"])
+    step(
+        f"{'Adding' if add else 'Revoking'} adapter binding via re-encryption path "
+        f"for key_id {target_key_id}"
+    )
+    info("policy-hash-baseline mutation detected — re-encryption required")
+    keys_payload[target_key_id] = _rewrite_v3_record_from_plaintext(
+        key_id=target_key_id,
+        existing_record=existing_record,
+        raw_secret=raw_secret,
+        policy=policy,
+        adapters=adapters,
+    )
+    _write_keys_payload(keys_payload)
+    ok(f"Updated {target_key_id} in keys.json")
+    _publish_after_local_record_update(cf_creds, keys_payload)
+
+
+def run_add_adapter(target_key_id: str, adapter_id: str) -> None:
+    _mutate_adapter_binding(target_key_id, adapter_id, add=True)
+
+
+def run_revoke_adapter(target_key_id: str, adapter_id: str) -> None:
+    _mutate_adapter_binding(target_key_id, adapter_id, add=False)
+
+
+def run_publish_policy(target_key_id: str) -> None:
+    cf_creds = _get_push_registry_cf_creds()
+    keys_payload = _load_keys_payload_or_die()
+    existing_record = _require_existing_active_record(keys_payload, target_key_id)
+    authority = _load_management_manifest_authority(target_key_id, str(existing_record.get("provider", "")))
+    new_policy = authority["policy"]
+    new_adapters = authority["adapters"]
+    new_policy_hash = compute_policy_hash(new_policy)
+    old_policy_hash = str(existing_record.get("policy_hash", "")).strip()
+
+    if new_policy_hash == old_policy_hash:
+        step(f"Publishing non-baseline policy update for key_id {target_key_id}")
+        info("publish-policy branch: non-baseline update path")
+        keys_payload[target_key_id] = _update_record_policy_without_reencrypt(
+            key_id=target_key_id,
+            existing_record=existing_record,
+            policy=new_policy,
+            adapters=new_adapters,
+        )
+    else:
+        step(f"Publishing baseline policy update for key_id {target_key_id}")
+        info("publish-policy branch: baseline re-encryption path")
+        keys_payload[target_key_id] = _rewrite_v3_record_from_plaintext(
+            key_id=target_key_id,
+            existing_record=existing_record,
+            raw_secret=authority["raw_secret"],
+            policy=new_policy,
+            adapters=new_adapters,
+        )
+
+    _write_keys_payload(keys_payload)
+    ok(f"Updated policy for {target_key_id} in keys.json")
+    _publish_after_local_record_update(cf_creds, keys_payload)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -3089,6 +3446,7 @@ def main() -> None:
         if adapter_id not in adapter_tokens:
             adapter_tokens[adapter_id] = secrets.token_hex(32)
     subumbra_hmac_key = secrets.token_hex(32)   # 64-char hex
+    management_token = secrets.token_urlsafe(48)
     ok("SUBUMBRA_TOKEN_PROXY generated (proxy transport / compatibility mode)")
     ok("SUBUMBRA_TOKEN_UI generated")
     if "subumbra-probe" in adapter_tokens:
@@ -3099,6 +3457,7 @@ def main() -> None:
         if adapter_id not in BUILTIN_ADAPTER_IDS:
             ok(f"SUBUMBRA_TOKEN_{_normalize_adapter_id(adapter_id)} generated")
     ok("SUBUMBRA_HMAC_KEY generated")
+    ok("SUBUMBRA_MANAGEMENT_TOKEN generated")
     setup_token = secrets.token_urlsafe(48)
     ok("SUBUMBRA_SETUP_TOKEN generated")
     adapter_registry = _build_adapter_registry(
@@ -3115,6 +3474,7 @@ def main() -> None:
     worker_url = deploy_worker(
         cf_creds,
         adapter_tokens, subumbra_hmac_key,
+        management_token,
         setup_token,
         provider_id_filter=bootstrapped_providers,
     )
@@ -3127,6 +3487,7 @@ def main() -> None:
         allowed_keys_by_adapter=allowed_keys_by_adapter,
         adapter_tokens=adapter_tokens,
         subumbra_hmac_key=subumbra_hmac_key,
+        management_token=management_token,
         worker_url=worker_url,
         setup_token=setup_token,
     )
@@ -3194,6 +3555,7 @@ def main() -> None:
         worker_url = deploy_worker(
             cf_creds,
             adapter_tokens, subumbra_hmac_key,
+            management_token,
             setup_token,
             provider_id_filter=bootstrapped_providers,
         )
@@ -3394,6 +3756,7 @@ def main() -> None:
         allowed_keys_by_adapter=allowed_keys_by_adapter,
         adapter_tokens=adapter_tokens,
         subumbra_hmac_key=subumbra_hmac_key,
+        management_token=management_token,
         worker_url=worker_url,
         primary_pub_key_fp=primary_pub_key_fp,
     )
@@ -3411,6 +3774,8 @@ def main() -> None:
     for adapter_id in list(adapter_tokens):
         adapter_tokens[adapter_id] = "\x00" * len(adapter_tokens[adapter_id])
     del adapter_tokens
+    management_token = "\x00" * len(management_token)
+    del management_token
     setup_token = "\x00" * len(setup_token)
     del setup_token
     # Zero raw API key values (tuples are immutable but we can overwrite the dict)
@@ -3479,7 +3844,11 @@ def main() -> None:
     Shared key:    {PUBLIC_KEY_FILE}
     Fingerprint:   {primary_pub_key_fp or "(unique-vault only run)"}
     Per-key rotate: existing V3 records only via docker compose --profile bootstrap run --rm -it bootstrap --rotate
-    Policy/routing/adapter changes: full bootstrap required
+    Pause/unpause: Worker management API via SUBUMBRA_MANAGEMENT_TOKEN
+    Revoke key:    ./bootstrap.sh --revoke-key <key_id>
+    Adapter edit:  ./bootstrap.sh --add-adapter <key_id> <adapter_id>
+                   ./bootstrap.sh --revoke-adapter <key_id> <adapter_id>
+    Policy publish: ./bootstrap.sh --publish-policy <key_id>
     Targeted repair: ./bootstrap.sh --provision <key_id>
     V2 migration:  full bootstrap required
 """))
@@ -3488,13 +3857,50 @@ def main() -> None:
 if __name__ == "__main__":
     if "--rotate-policy" in sys.argv:
         die("--rotate-policy has been removed. Re-run full bootstrap for policy, routing, or adapter-binding changes.")
-    selected_modes = sum(flag in sys.argv for flag in ("--push-registry", "--rotate", "--provision"))
+    mode_flags = (
+        "--push-registry",
+        "--rotate",
+        "--provision",
+        "--revoke-key",
+        "--add-adapter",
+        "--revoke-adapter",
+        "--publish-policy",
+    )
+    selected_modes = sum(flag in sys.argv for flag in mode_flags)
     if selected_modes > 1:
-        die("--push-registry, --rotate, and --provision are mutually exclusive")
+        die(", ".join(mode_flags) + " are mutually exclusive")
     if "--nuke" in sys.argv and selected_modes > 0:
         die("--nuke is supported only for full bootstrap")
     if "--push-registry" in sys.argv:
         run_push_registry()
+    elif "--revoke-key" in sys.argv:
+        try:
+            target_key_id = sys.argv[sys.argv.index("--revoke-key") + 1]
+        except IndexError:
+            die("--revoke-key requires <key_id>")
+        run_revoke_key(target_key_id)
+    elif "--add-adapter" in sys.argv:
+        try:
+            idx = sys.argv.index("--add-adapter")
+            target_key_id = sys.argv[idx + 1]
+            adapter_id = sys.argv[idx + 2]
+        except IndexError:
+            die("--add-adapter requires <key_id> <adapter_id>")
+        run_add_adapter(target_key_id, adapter_id)
+    elif "--revoke-adapter" in sys.argv:
+        try:
+            idx = sys.argv.index("--revoke-adapter")
+            target_key_id = sys.argv[idx + 1]
+            adapter_id = sys.argv[idx + 2]
+        except IndexError:
+            die("--revoke-adapter requires <key_id> <adapter_id>")
+        run_revoke_adapter(target_key_id, adapter_id)
+    elif "--publish-policy" in sys.argv:
+        try:
+            target_key_id = sys.argv[sys.argv.index("--publish-policy") + 1]
+        except IndexError:
+            die("--publish-policy requires <key_id>")
+        run_publish_policy(target_key_id)
     elif "--provision" in sys.argv:
         try:
             target_key_id = sys.argv[sys.argv.index("--provision") + 1]

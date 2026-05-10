@@ -69,7 +69,7 @@ else
         bootstrap "$@" </dev/null
 fi
 
-if [[ -f "$bootstrap_file" && "$mode" != "--provision" ]]; then
+if [[ -f "$bootstrap_file" && "$mode" != "--provision" && "$mode" != "--add-adapter" && "$mode" != "--revoke-adapter" && "$mode" != "--publish-policy" ]]; then
     if command -v shred >/dev/null 2>&1; then
         shred -u "$bootstrap_file"
     else
@@ -86,6 +86,6 @@ with open(path, "r+b") as fh:
 os.remove(path)
 PY
     fi
-elif [[ -f "$bootstrap_file" && "$mode" == "--provision" ]]; then
-    echo "WARNING: .env.bootstrap retained after --provision for additional repair steps. Shred it manually when repairs are complete." >&2
+elif [[ -f "$bootstrap_file" && ( "$mode" == "--provision" || "$mode" == "--add-adapter" || "$mode" == "--revoke-adapter" || "$mode" == "--publish-policy" ) ]]; then
+    echo "WARNING: .env.bootstrap retained after $mode for additional secure mutation steps. Shred it manually when repairs are complete." >&2
 fi

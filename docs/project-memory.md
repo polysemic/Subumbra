@@ -54,6 +54,7 @@ them.
 - Live provider validation has moved away from a purely bundled model; local
   repo metadata can still remain as operator/bootstrap seed material.
 - **Internal State Authority (R48-3)**: Day-2 management commands (`--push-registry`, `--provision`, `--rotate`) source all authority from internal "Fat Records" in `keys.json` instead of external manifests. Re-bootstrap is the only supported path for changing embedded authority fields.
+- **Management Authority (R50)**: Worker management mutations now use a distinct `SUBUMBRA_MANAGEMENT_TOKEN`; browser/UI routes remain read-only, while pause/unpause writes happen through Worker `/manage/*` endpoints and durable audit rows in the existing vault DO.
 
 ---
 
@@ -110,6 +111,8 @@ them.
   `scripts/subumbra-verify-deploy` compares that recorded deploy hash against
   the current live Cloudflare Worker content.
 - **Fat Records (R48-3)**: `keys.json` and `bootstrap-checkpoint.json` now store the full `policy` document, `adapters` list, and routing metadata (`auth_header`, `auth_prefix`, `template_name`) per key. All management commands verify that the embedded policy matches the `policy_hash` before publication.
+- **Paused-State Durability (R50)**: live `key:<id>` structured KV entries may now carry `paused: true`, Worker runtime denies those keys with `key_paused`, and `--push-registry` must preserve that live paused flag instead of clearing it from rebuilt KV entries.
+- **Propagation Ceiling (R50)**: management pause/unpause proofs should allow for up to 90 seconds of worst-case Cloudflare KV propagation before declaring failure on a stale read path.
 - The project expects a **project-local `.env` in the repo root**.
 - Fresh installs should use a dedicated checkout path such as `/opt/subumbra`
   rather than sharing a directory with unrelated services.
