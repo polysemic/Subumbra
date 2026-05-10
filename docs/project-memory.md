@@ -86,7 +86,7 @@ them.
   is still deleted before bootstrap completes.
 - R45-3 moves runtime registry state off the monolithic
   `subumbra_registry_v1` blob and onto structured KV keys
-  (`policy:<id>`, `key:<id>`, `template:<name>`, `registry_version`).
+  (`policy:<id>`, `key:<id>`, `registry_version`).
 - R45-3 V3 records bind ciphertext with
   `subumbra:v3:<key_id>:<policy_hash>`, where `policy_hash` is computed from
   the baseline-bound policy object rather than the full policy document.

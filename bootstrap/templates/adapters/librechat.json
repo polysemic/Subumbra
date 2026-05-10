@@ -1,0 +1,6 @@
+{
+  "adapter_id": "librechat",
+  "config_snippet_notes": "Set LibreChat endpoint baseURL to http://subumbra-proxy:8090/t/<key_id>/... per provider (see docs/apps/librechat/).",
+  "suggested_allow_adapters": ["librechat-app"],
+  "token_env_var": "LIBRECHAT_SUBUMBRA_ADAPTER_TOKEN"
+}
