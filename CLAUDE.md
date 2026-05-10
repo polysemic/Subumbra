@@ -195,6 +195,7 @@ as legacy reference only and are not the current adapter hierarchy.
 - Binds to Docker internal network only
 - Validates: X-Subumbra-Token header
 - Returns: V3 record metadata including `provider`, `target_host`, `ciphertext`, `wrapped_dek`, `pub_key_fp`, `enc_version`, `policy_hash`, and `vault_instance`
+- Dashboard list/read path now also exposes read-only policy metadata (`policy_id`, `policy_hash`, auth metadata, target/base-path, capability class, and allowlist adapter/method/path data) without returning ciphertext, wrapped DEKs, fingerprints, or raw policy blobs
 - Logs: every access attempt with timestamp
 
 ## Provider Declarations
@@ -240,6 +241,9 @@ CF_ACCESS_CLIENT_SECRET=<from CF Access dashboard>
 - Request count per key  
 - Health status of subumbra-keys container
 - Recent request log (provider, timestamp, status)
+- Read-only visibility into V3 policy metadata including `policy_id`, `policy_hash`, capability class, auth scheme, and per-key allowlist relationships
+- Operator-facing labels that distinguish locked policy/binding data from metadata or state that may become editable later
+- Heartbeat-only `/api/events` plus 30-second `/api/status` polling fallback for dashboard freshness
 
 ## Build Order
 1. docker-compose.yml skeleton

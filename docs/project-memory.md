@@ -116,6 +116,8 @@ them.
   the current live Cloudflare Worker content.
 - **Fat Records (R48-3)**: `keys.json` and `bootstrap-checkpoint.json` now store the full `policy` document, `adapters` list, and routing metadata (`auth_header`, `auth_prefix`, `template_name`) per key. All management commands verify that the embedded policy matches the `policy_hash` before publication.
 - **Paused-State Durability (R50)**: live `key:<id>` structured KV entries may now carry `paused: true`, Worker runtime denies those keys with `key_paused`, and `--push-registry` must preserve that live paused flag instead of clearing it from rebuilt KV entries.
+- **Read-Only Policy UI (R52)**: the dashboard read path now surfaces per-key V3 metadata from `subumbra-keys` through `/api/status`, including `policy_id`, `policy_hash`, `capability_class`, auth metadata, target host/base path, and allowlist adapter/method/path data, while still excluding ciphertext, wrapped DEKs, fingerprints, and raw policy blobs.
+- **Dashboard Freshness (R52)**: the promoted UI now serves the local dashboard bundle at `/`, uses heartbeat-only `/api/events` SSE for connection visibility, and keeps a 30-second `/api/status` polling fallback so operators still get updates even though this round does not implement server-side event fan-out.
 - **Propagation Ceiling (R50)**: management pause/unpause proofs should allow for up to 90 seconds of worst-case Cloudflare KV propagation before declaring failure on a stale read path.
 - The project expects a **project-local `.env` in the repo root**.
 - Fresh installs should use a dedicated checkout path such as `/opt/subumbra`
