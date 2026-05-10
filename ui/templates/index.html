@@ -6,8 +6,8 @@
   <meta name="referrer" content="no-referrer">
   <meta http-equiv="X-Content-Type-Options" content="nosniff">
   <title>Subumbra Dashboard</title>
-  <link rel="stylesheet" href="template.css?v=3">
-  <link rel="stylesheet" href="main.css?v=5">
+  <link rel="stylesheet" href="{{ url_for('static', filename='template.css') }}?v=3">
+  <link rel="stylesheet" href="{{ url_for('static', filename='main.css') }}?v=5">
 </head>
 <body>
 
@@ -519,6 +519,6 @@
     </div>
   </div>
 
-  <script src="dashboard.js?v=2"></script>
+  <script src="{{ url_for('static', filename='dashboard.js') }}?v=2"></script>
 </body>
 </html>

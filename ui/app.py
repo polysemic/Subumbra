@@ -36,7 +36,7 @@ UI_PASSWORD = os.environ.get("UI_PASSWORD", "")
 # Flask app
 # ─────────────────────────────────────────────────────────────────────────────
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder="templates", static_folder="templates", static_url_path="/static")
 log = logging.getLogger("subumbra-ui")
 
 logging.basicConfig(
