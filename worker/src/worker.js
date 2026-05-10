@@ -159,8 +159,10 @@ const HOP_BY_HOP_HEADERS = new Set([
 
 const VAULT_INSTANCE_NAME = "vault";
 const VAULT_SETUP_PATH = "/setup-keygen";
+const VAULT_STATUS_PATH = "/status";
 const VAULT_EXECUTE_PATH = "/execute";
 const VAULT_ROTATE_PATH = "/rotate";
+const VAULT_RESET_PATH = "/reset";
 const VAULT_SCHEMA = `
   CREATE TABLE IF NOT EXISTS custody (
     id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -353,12 +355,20 @@ export class SubumbraVault {
       return this._handleSetupKeygen(request);
     }
 
+    if (url.pathname === VAULT_STATUS_PATH) {
+      return this._handleStatus(request);
+    }
+
     if (url.pathname === VAULT_EXECUTE_PATH) {
       return this._handleExecute(request);
     }
 
     if (url.pathname === VAULT_ROTATE_PATH) {
       return this._handleRotate(request);
+    }
+
+    if (url.pathname === VAULT_RESET_PATH) {
+      return this._handleReset(request);
     }
 
     return jsonError("not found", 404);
@@ -472,6 +482,32 @@ export class SubumbraVault {
       console.error("subumbra: vault setup keygen internal error");
       return jsonError("setup failed", 500);
     }
+  }
+
+  async _handleStatus(request) {
+    const bearerToken = parseBearerToken(request);
+    if (!bearerToken) {
+      console.warn("subumbra: internal status rejected (missing bearer token)");
+      return jsonError("unauthorized", 401);
+    }
+
+    const expectedToken = this.env.SUBUMBRA_SETUP_TOKEN ?? "";
+    const tokenOk = await timingSafeEqual(bearerToken, expectedToken);
+    if (!tokenOk) {
+      console.warn("subumbra: internal status rejected (invalid bearer token)");
+      return jsonError("forbidden", 403);
+    }
+
+    const vaultInstance = request.headers.get("X-Subumbra-Vault-Instance") ?? VAULT_INSTANCE_NAME;
+    const initialized = this._loadCustodyRow() !== null;
+    return new Response(JSON.stringify({
+      status: "ok",
+      vault_instance: vaultInstance,
+      initialized,
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
   }
 
   async _handleExecute(request) {
@@ -685,6 +721,38 @@ export class SubumbraVault {
       headers: { "content-type": "application/json" },
     });
   }
+
+  async _handleReset(request) {
+    const bearerToken = parseBearerToken(request);
+    if (!bearerToken) {
+      console.warn("subumbra: internal reset rejected (missing bearer token)");
+      return jsonError("unauthorized", 401);
+    }
+
+    const expectedToken = this.env.SUBUMBRA_SETUP_TOKEN ?? "";
+    const tokenOk = await timingSafeEqual(bearerToken, expectedToken);
+    if (!tokenOk) {
+      console.warn("subumbra: internal reset rejected (invalid bearer token)");
+      return jsonError("forbidden", 403);
+    }
+
+    const vaultInstance = request.headers.get("X-Subumbra-Vault-Instance") ?? VAULT_INSTANCE_NAME;
+    try {
+      await this.state.storage.deleteAll();
+      this._cachedPrivateKey = null;
+      console.info("subumbra: internal reset complete vault_instance=%s", vaultInstance);
+      return new Response(JSON.stringify({
+        status: "ok",
+        vault_instance: vaultInstance,
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    } catch {
+      console.error("subumbra: internal reset failed vault_instance=%s", vaultInstance);
+      return jsonError("reset failed", 500);
+    }
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -721,6 +789,14 @@ export default {
 
     if (request.method === "POST" && url.pathname === "/internal/rotate") {
       return handleInternalRotate(request, env);
+    }
+
+    if (request.method === "POST" && url.pathname === "/internal/vault-status") {
+      return handleInternalVaultStatus(request, env);
+    }
+
+    if (request.method === "POST" && url.pathname === "/internal/vault-reset") {
+      return handleInternalVaultReset(request, env);
     }
 
     // ── POST /proxy ─────────────────────────────────────────────────────────
@@ -798,6 +874,79 @@ async function handleInternalRotate(request, env) {
     });
   } catch {
     console.error("subumbra: internal rotate vault unavailable");
+    return jsonError("vault unavailable", 503);
+  }
+}
+
+async function parseVaultInstancePayload(request) {
+  let payloadText;
+  try {
+    payloadText = await request.text();
+  } catch {
+    return { error: jsonError("invalid JSON body", 400) };
+  }
+
+  let vaultInstance = VAULT_INSTANCE_NAME;
+  if (payloadText.trim() !== "") {
+    let payload;
+    try {
+      payload = JSON.parse(payloadText);
+    } catch {
+      return { error: jsonError("invalid JSON body", 400) };
+    }
+    if (!payload || typeof payload.vault_instance !== "string" || !payload.vault_instance) {
+      return { error: jsonError("missing or invalid field: vault_instance", 400) };
+    }
+    vaultInstance = payload.vault_instance;
+  }
+
+  return { payloadText, vaultInstance };
+}
+
+async function handleInternalVaultStatus(request, env) {
+  const parsed = await parseVaultInstancePayload(request);
+  if (parsed.error) {
+    return parsed.error;
+  }
+
+  try {
+    if (!env.SUBUMBRA_VAULT) {
+      throw new Error("vault binding missing");
+    }
+    const vault = getVaultStub(env, parsed.vaultInstance);
+    return await vault.fetch(`https://do-internal${VAULT_STATUS_PATH}`, {
+      method: "POST",
+      headers: {
+        Authorization: request.headers.get("Authorization") ?? "",
+        "X-Subumbra-Vault-Instance": parsed.vaultInstance,
+      },
+    });
+  } catch {
+    console.error("subumbra: internal vault status unavailable");
+    return jsonError("vault unavailable", 503);
+  }
+}
+
+async function handleInternalVaultReset(request, env) {
+  const parsed = await parseVaultInstancePayload(request);
+  if (parsed.error) {
+    return parsed.error;
+  }
+
+  try {
+    if (!env.SUBUMBRA_VAULT) {
+      throw new Error("vault binding missing");
+    }
+    const vault = getVaultStub(env, parsed.vaultInstance);
+    return await vault.fetch(`https://do-internal${VAULT_RESET_PATH}`, {
+      method: "POST",
+      headers: {
+        Authorization: request.headers.get("Authorization") ?? "",
+        "X-Subumbra-Vault-Instance": parsed.vaultInstance,
+      },
+    });
+  } catch {
+    console.error("subumbra: internal vault reset unavailable");
     return jsonError("vault unavailable", 503);
   }
 }
@@ -1159,7 +1308,7 @@ async function handleProxy(request, env) {
       return jsonError("response_read_error", 403);
     }
     for (let i = 0; i < denyPatterns.length; i++) {
-      if (new RegExp(denyPatterns[i]).test(responseBody)) {
+      if (responseBody.includes(denyPatterns[i])) {
         console.warn(
           "subumbra: policy deny reason=response_deny_pattern_match adapter=%s key_id=%s pattern_index=%d",
           auth.adapterId,
