@@ -3,7 +3,7 @@
 *Shared workflow memory for fresh council sessions. This file captures how the
 three-amigos process works in practice, beyond the raw prompt templates.*
 
-This is not a replacement for `council/COUNCIL.md` or `council/COUNCIL_PROMPT.md`.
+This is not a replacement for `council/COUNCIL.md` or `council/COUNCIL_PROMPT_v2.md`.
 It exists to preserve the working habits that long-running chats tend to learn
 and fresh sessions tend to miss.
 
@@ -112,7 +112,7 @@ deeper proof instead of more opinion.
 For a new council session, the shortest reliable reset path is usually:
 
 1. `council/COUNCIL.md`
-2. `council/COUNCIL_PROMPT.md`
+2. `council/COUNCIL_PROMPT_v2.md`
 3. `PROJECT_STATUS.md`
 4. `CLAUDE.md`
 5. this file
