@@ -5,7 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description"
-    content="Subumbra — Zero-trust API key broker. Your keys never touch your servers in plaintext.">
+    content="Subumbra — split-trust API key broker. No plaintext key storage on your servers after bootstrap; transient decrypt authority runs in Cloudflare.">
   <meta name="referrer" content="no-referrer">
   <title>Subumbra — Zero-Trust API Key Broker</title>
   <style>
@@ -1198,13 +1198,14 @@
           </div>
           <h1 class="hero-title">
             Your API keys<br>
-            never touch<br>
+            stop living on<br>
             <span class="accent">your servers.</span>
           </h1>
           <p class="hero-body">
-            Subumbra is a zero-trust key broker. Encrypted blobs live on your
-            infrastructure. Decryption authority lives in Cloudflare. Neither
-            side alone can recover your keys.
+            Subumbra is a split-trust key broker. Encrypted blobs live on your
+            infrastructure, while transient decryption authority runs in
+            Cloudflare during live upstream handling. Cloudflare deploy
+            authority remains part of the trust boundary.
           </p>
           <div class="hero-actions">
             <a href="https://github.com/polysemic/Subumbra" class="btn-primary">Deploy with Docker ↗</a>
@@ -1236,7 +1237,7 @@
               <div class="arch-box blue-tint">
                 <div class="arch-box-label">subumbra-keys</div>
                 <div class="arch-box-name">Encrypted envelope store</div>
-                <div class="arch-box-sub">Your VPS · Docker internal only · no plaintext keys</div>
+                <div class="arch-box-sub">Your VPS · Docker internal only · no plaintext key storage after bootstrap</div>
                 <div class="arch-tags">
                   <span class="arch-tag tag-green">ciphertext + wrapped DEK only</span>
                 </div>
@@ -1513,8 +1514,8 @@
     <div class="wrap">
       <div class="cta-box">
         <h2 class="cta-title">Ready to stop trusting your servers with secrets?</h2>
-        <p class="cta-body">Self-hosted, open source, deployable in minutes. Your infrastructure. Your control. Zero
-          plaintext at rest.</p>
+        <p class="cta-body">Self-hosted, open source, deployable in minutes. Your infrastructure. Your control. No
+          plaintext key storage on your servers after bootstrap.</p>
         <div class="cta-actions">
           <a href="https://github.com/polysemic/Subumbra" class="btn-primary">View on GitHub ↗</a>
           <a href="/docs" class="btn-secondary">Read the docs</a>
@@ -1532,8 +1533,8 @@
       <div class="footer-inner">
         <div>
           <div class="footer-brand">Sub<span>umbra</span></div>
-          <p class="footer-tagline">Zero-trust API key broker. Encrypted blobs on your servers. Decrypt authority on
-            Cloudflare. Neither side alone is enough.</p>
+          <p class="footer-tagline">Split-trust API key broker. Encrypted blobs on your servers. Transient decrypt
+            authority in Cloudflare. Cloudflare deploy authority remains in the trust boundary.</p>
         </div>
         <div>
           <div class="footer-col-title">Project</div>
