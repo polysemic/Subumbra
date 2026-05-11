@@ -187,6 +187,21 @@ curl -sS \
   http://127.0.0.1:10199/t/anthropic_litellm/v1/models
 ```
 
+## UI Authentication
+
+The Subumbra UI supports two authentication modes:
+
+| Mode | When to use | Configuration |
+|------|-------------|---------------|
+| **CF Tunnel + CF Access** (recommended) | You route the UI through a Cloudflare Tunnel | Leave `UI_USERNAME` and `UI_PASSWORD` unset. CF Access enforces authentication at the edge. |
+| **HTTP Basic Auth** | You access the UI directly without a CF Tunnel | Set both `UI_USERNAME` and `UI_PASSWORD` in `.env`. |
+
+### Switching modes
+
+- **CF Access mode:** ensure `UI_USERNAME` and `UI_PASSWORD` are absent or empty in `.env`. The UI starts with one info log and accepts all requests without local auth.
+- **Basic Auth mode:** set both `UI_USERNAME` and `UI_PASSWORD` in `.env`, then restart the UI container. Brute-force rate limiting (5 failures per 60-second window per IP) applies.
+- **Partial configuration is an error:** if `UI_USERNAME` is set but `UI_PASSWORD` is absent (or vice versa), the UI container will not start.
+
 ## 6. Rotation And Repair
 
 Use the existing single-key rotation command when only a stored V3 secret value
