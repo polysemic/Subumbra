@@ -261,6 +261,16 @@ def _init_audit_db() -> sqlite3.Connection | None:
 
 _audit_conn = _init_audit_db()
 
+if _audit_conn is not None:
+    _rows = _audit_conn.execute(
+        "SELECT key_id, COUNT(*) as cnt, MAX(timestamp) as last "
+        "FROM audit_events WHERE endpoint = 'get_key' AND verdict = 'allow' "
+        "GROUP BY key_id"
+    ).fetchall()
+    for _row in _rows:
+        _request_counts[_row[0]] = _row[1]
+        _last_access[_row[0]] = _row[2]
+
 
 def _record_audit(
     *,
@@ -498,14 +508,6 @@ def list_keys() -> tuple[Response, int]:
                 "allow_path_prefixes": allow.get("path_prefixes", []),
             })
 
-    _record_audit(
-        adapter_id=adapter["adapter_id"],
-        key_id=None,
-        endpoint="list_keys",
-        verdict="allow",
-        reason_code="allowed",
-        remote=remote,
-    )
     return jsonify({"keys": payload}), 200
 
 

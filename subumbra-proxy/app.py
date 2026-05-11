@@ -439,8 +439,8 @@ async def get_worker_auth_status() -> str:
 
 @app.get("/health")
 async def health():
-    await get_worker_auth_status()
-    return {"status": "ok"}
+    worker_auth = await get_worker_auth_status()
+    return {"status": "ok", "worker_auth": worker_auth}
 
 
 
