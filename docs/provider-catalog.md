@@ -1,36 +1,19 @@
-# Subumbra Provider Catalog
+# Provider Example Requests
 
-*Round 26 operator reference for the explicit sidecar.*
+*Operator reference for common providers brokered through Subumbra.*
 
-## Sidecar Request Contract
+Subumbra does not ship a hardcoded provider catalog. Operators declare each
+provider's routing and auth in `subumbra.json` (see `subumbra.example.json`).
+The examples below show typical `curl` requests through `subumbra-proxy` once a
+provider is declared and a key is bootstrapped. Replace `<your_*_key_id>` and
+`<your_adapter_token>` with the values from your `.env` and manifest.
 
-Every app-facing sidecar request now uses the secure transparent contract:
+For the full adapter contract see `docs/adapter-contract.md`. For provider
+template shortcuts see `docs/operator-guide.md`.
 
-- send the adapter token in `Authorization` or `X-API-Key`
-- put the requested `key_id` in the first path segment after `/t/`
-- append the provider-specific upstream path after that
+---
 
-Callers must **not** include the provider authorization header. The
-Worker/Durable Object injects provider auth from the subumbra record.
-
-## Providers
-
-### anthropic
-
-- `provider_id`: `anthropic`
-- `target_url` example: `https://api.anthropic.com/v1/messages`
-- required caller headers:
-  - `content-type: application/json`
-  - `anthropic-version: 2023-06-01`
-- `body` example:
-
-```json
-{
-  "model": "claude-3-5-haiku-latest",
-  "max_tokens": 16,
-  "messages": [{"role": "user", "content": "Say test"}]
-}
-```
+## anthropic
 
 ```bash
 curl -s -X POST http://localhost:10199/t/<your_anthropic_key_id>/v1/messages \
@@ -40,21 +23,7 @@ curl -s -X POST http://localhost:10199/t/<your_anthropic_key_id>/v1/messages \
   -d '{"model":"claude-3-5-haiku-latest","max_tokens":16,"messages":[{"role":"user","content":"Say test"}]}'
 ```
 
-### openai
-
-- `provider_id`: `openai`
-- `target_url` example: `https://api.openai.com/v1/chat/completions`
-- required caller headers:
-  - `content-type: application/json`
-- `body` example:
-
-```json
-{
-  "model": "gpt-4o-mini",
-  "messages": [{"role": "user", "content": "Say test"}],
-  "max_tokens": 16
-}
-```
+## openai
 
 ```bash
 curl -s -X POST http://localhost:10199/t/<your_openai_key_id>/v1/chat/completions \
@@ -63,21 +32,7 @@ curl -s -X POST http://localhost:10199/t/<your_openai_key_id>/v1/chat/completion
   -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"Say test"}],"max_tokens":16}'
 ```
 
-### groq
-
-- `provider_id`: `groq`
-- `target_url` example: `https://api.groq.com/openai/v1/chat/completions`
-- required caller headers:
-  - `content-type: application/json`
-- `body` example:
-
-```json
-{
-  "model": "llama-3.1-8b-instant",
-  "messages": [{"role": "user", "content": "Say test"}],
-  "max_tokens": 16
-}
-```
+## groq
 
 ```bash
 curl -s -X POST http://localhost:10199/t/<your_groq_key_id>/openai/v1/chat/completions \
@@ -86,21 +41,7 @@ curl -s -X POST http://localhost:10199/t/<your_groq_key_id>/openai/v1/chat/compl
   -d '{"model":"llama-3.1-8b-instant","messages":[{"role":"user","content":"Say test"}],"max_tokens":16}'
 ```
 
-### deepseek
-
-- `provider_id`: `deepseek`
-- `target_url` example: `https://api.deepseek.com/v1/chat/completions`
-- required caller headers:
-  - `content-type: application/json`
-- `body` example:
-
-```json
-{
-  "model": "deepseek-chat",
-  "messages": [{"role": "user", "content": "Say test"}],
-  "max_tokens": 16
-}
-```
+## deepseek
 
 ```bash
 curl -s -X POST http://localhost:10199/t/<your_deepseek_key_id>/v1/chat/completions \
@@ -109,19 +50,9 @@ curl -s -X POST http://localhost:10199/t/<your_deepseek_key_id>/v1/chat/completi
   -d '{"model":"deepseek-chat","messages":[{"role":"user","content":"Say test"}],"max_tokens":16}'
 ```
 
-### github
+## github
 
-- `provider_id`: `github`
-- `target_url` example: `https://api.github.com/user`
-- required caller headers:
-  - `accept: application/vnd.github+json`
-  - `x-github-api-version: 2022-11-28`
-  - `user-agent: <your-app-name>` — GitHub rejects requests with no User-Agent with HTTP 403
-- `body` example:
-
-```json
-null
-```
+GitHub requires a `User-Agent` header (HTTP 403 without it).
 
 ```bash
 curl -s http://localhost:10199/t/<your_github_key_id>/user \
@@ -131,17 +62,7 @@ curl -s http://localhost:10199/t/<your_github_key_id>/user \
   -H "User-Agent: subumbra-proxy/1.0"
 ```
 
-### slack
-
-- `provider_id`: `slack`
-- `target_url` example: `https://slack.com/api/auth.test`
-- required caller headers:
-  - `content-type: application/json`
-- `body` example:
-
-```json
-{}
-```
+## slack
 
 ```bash
 curl -s -X POST http://localhost:10199/t/<your_slack_key_id>/api/auth.test \
@@ -150,17 +71,7 @@ curl -s -X POST http://localhost:10199/t/<your_slack_key_id>/api/auth.test \
   -d '{}'
 ```
 
-### sendgrid
-
-- `provider_id`: `sendgrid`
-- `target_url` example: `https://api.sendgrid.com/v3/scopes`
-- required caller headers:
-  - `content-type: application/json`
-- `body` example:
-
-```json
-null
-```
+## sendgrid
 
 ```bash
 curl -s http://localhost:10199/t/<your_sendgrid_key_id>/v3/scopes \

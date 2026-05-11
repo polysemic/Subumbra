@@ -1,25 +1,17 @@
 # PROJECT_STATUS
 *Current state — updated 2026-05-11*
-*Rounds 1–43.6, 43-6-3, 43-6-4-1, 43-6-4-2, and 43-6-4-bootstrap-ux closed. See `council/COUNCIL.md` for round history and current status.*
 
 ---
 
 ## Architecture
 
-V2 Asymmetric Envelope Encryption (deployed, verified by all three council members).
+V3 Asymmetric Envelope Encryption (deployed, all three council verifiers PASS).
 
-- RSA-4096 key pair: public key on host, private key in Cloudflare Durable Object custody
-- Per-record AES-256-GCM DEKs wrapped by RSA public key
-- AAD binding: `subumbra:v2:<key_id>`
-- Offline per-key rotation via `--rotate` (no CF interaction)
-- App-owned integrations now use `subumbra-proxy` with adapter token as the app credential and the requested `key_id` carried in the `/t/<key_id>/...` path
-- The legacy raw-`key_id` transparent auth path has been removed
-- Worker-side provider validation and upstream routing policy now come from the live Cloudflare KV provider registry; provider-specific auth branches are removed from Worker/DO logic
-- Bootstrap/runtime provider authority is now manifest-owned: `subumbra.json` `policy.target.host` and `policy.auth` drive routing/auth, while `providers.json` and `template:*` are no longer active bootstrap/runtime authority surfaces
-- V1 symmetric `MASTER_DECRYPTION_KEY` path fully removed from code
-- Current status of project is proof of concept with no userbase. No backward compatibility required or should be considered, unless required for functionality or security. This will be updated as the project grows into an MVP with a userbase.
-
-See `council/closed/round-6-7-envelope-encryption/` for the full verification record.
+- Asymmetric hybrid envelope: RSA-4096 wraps a per-record AES-256-GCM DEK; neither side can decrypt alone
+- AAD binding: `subumbra:v3:<key_id>:<policy_hash>` prevents ciphertext transplant and policy replay
+- Private key in CF Durable Object SQLite custody (non-extractable); public key on host for offline rotation
+- Manifest-owned provider authority: operators declare routing, auth, and capability in `subumbra.json`; no hardcoded catalog at runtime
+- V1 symmetric `MASTER_DECRYPTION_KEY` path fully removed; V2 records hard-rejected by Worker
 
 ---
 
@@ -52,24 +44,22 @@ Deferred by council consensus. Acceptable for current single-operator POC deploy
 |----|-------------|-----------|
 | MEDIUM-1 | Python memory scrubbing is best-effort; `bytearray` zeroing does not prevent copies in `os.environ` or immutable `str` objects | No code fix possible in CPython |
 | MEDIUM-5 | `/health` leaks `keys_loaded` count unauthenticated | Acceptable on Docker internal network with no host exposure |
-| MEDIUM-7 | `/api/status` unauthenticated | Bound to `127.0.0.1:6563` (localhost only); add basic auth before multi-user |
 | G-MEDIUM-3 | CF Worker buffers full body with no size limit (128 MB CF cap) | Low risk for small-team internal use |
 | AUDIT-RETENTION | SQLite audit trail is durable across restarts and row growth is capped by `AUDIT_MAX_ROWS`, but retention is still local only with no archival/export path | Accepted as current local-ops limit |
 | CRITICAL-3 | CF Access header strip enforced at Worker edge only | Accepted as architectural constraint (Worker is version-controlled) |
 | DEV-AUDIT | `npm audit` vulnerabilities in wrangler dev tooling | Dev-only; never deployed to CF production |
 | DASH-COUNT | Occasional missing entries in dashboard request log | Root cause not yet investigated |
 | DASH-FLICKER | Recent Requests table briefly shows fewer entries on some poll cycles | UI polling race; entries return on next poll |
-| PROVIDER-COUPLING | App-owned integrations still maintain their own model/provider declarations outside the core stack (for example `litellm/config.yaml`) | Full multi-adapter generalization remains a later round |
-| TTL-EXPIRY-ONLY | subumbra-keys TTL prevents new record fetches after token expiry but does not remove Worker-side token authority. Replay of previously captured records plus a stolen token remains possible until re-bootstrap rotates Worker-side token state | Intentionally deferred beyond Round 30 |
-| NONCE-STORE | Historical `subumbra-keys` `nonce_store_failure reason=nonce_store_error` reports were not reproduced in Round 44.5.1 under the current WAL + `busy_timeout` stack (12 concurrent signed key fetches) | Keep as a watch item; only reopen source changes if a current reproducer returns |
+| PROVIDER-COUPLING | App-owned integrations still maintain their own model/provider declarations outside the core stack | Full multi-adapter generalization remains a later round |
+| TTL-EXPIRY-ONLY | subumbra-keys TTL prevents new record fetches after token expiry but does not remove Worker-side token authority | Intentionally deferred beyond Round 30 |
+| NONCE-STORE | `nonce_store_failure reason=nonce_store_error` reports were not reproduced in Round 44.5.1 under the current WAL + `busy_timeout` stack | Watch item only |
 
 ---
 
 ## Open Questions
 
 **1. CRITICAL-3 — ACCEPTED**
-CF Access header strip is enforced at Worker edge only. Strip is prominently commented
-in both `custom_callbacks.py` and `worker.js`. Accepted as architectural constraint.
+CF Access header strip is enforced at Worker edge only. Accepted as architectural constraint.
 
 **2. LiteLLM image pin**
 Current pin: `main-latest@sha256:7c311546c25e7bb6e8cafede9fcd3d0d622ac636b5c9418befaa32e85dfb0186`
@@ -77,133 +67,73 @@ Current pin: `main-latest@sha256:7c311546c25e7bb6e8cafede9fcd3d0d622ac636b5c9418
 
 ---
 
-## Roadmap Arc (Rounds 34-36)
+## Round History
 
-This arc focuses on evolving Subumbra from a static, bundled configuration into a flexible, operator-managed system. Approved 2026-04-09 in [provider-adapter-flexibility-roadmap.md](/home/eric/git/Subumbra/council/approved/provider-adapter-flexibility-roadmap.md).
+| Round | Closed | Summary |
+|-------|--------|---------|
+| R1–R33 | pre-2026-04-09 | Foundation: symmetric encryption, Flask/FastAPI services, Docker networking, CF Worker basics, envelope encryption (R6.7), early app-owned integration experiments. See `council/archive/approved-pre-r34/`. |
+| R34 | 2026-04-10 | Provider flexibility: built-in provider catalog expanded to 10 providers |
+| R35 | 2026-04-10 | Adapter flexibility: arbitrary named adapters replace 4 hardcoded apps |
+| R36 | 2026-04-11 | Live provider registry: provider validation moved to Cloudflare KV |
+| R38 | 2026-04-11 | System review: doc truth-alignment and bootstrap reliability |
+| R39 | 2026-04-11 | POC deployment hardening: Worker health visibility, runbook, optional localhost auth |
+| R40 | 2026-04-11 | Broader decoupling and security hardening baseline |
+| R41 | 2026-04-11 | Real app validation arc |
+| R41.7 | — | Standalone LiteLLM runtime fix |
+| R42 | — | Operator hardening for standalone integrations (superseded by R42.2/R42.3) |
+| R42.2 | — | Runtime auth reconciliation and worker-auth validation |
+| R42.3 | — | App-owned integration model and standalone LiteLLM example established |
+| R43.1 | — | OpenWebUI app-owned validation |
+| R43.2 | — | AnythingLLM app-owned validation |
+| R43-5 | — | LibreChat direct Subumbra integration |
+| R43-5-1 | — | LibreChat in-place takeover proof |
+| R43-6 | — | Provider matrix + UI switching guides; all 9 providers across 5 apps |
+| R43-6-1 | — | Env ingestion + Alpha 0.0.1 polish |
+| R43-6-2 | — | Identity routing: per-app adapter-token secure routing |
+| R43-6-3 | — | Multi-key same-provider ingestion |
+| R43-6-4-1 | 2026-04-29 | Proxy lockdown: legacy raw-`key_id` transparent auth removed |
+| R43-6-4-2 | 2026-04-29 | Probe role decoupling: `subumbra-probe` now optional |
+| R43-6-4-UX | 2026-04-29 | Bootstrap UX cleanup: env-aware defaults, multi-key prompts |
+| R44-1 | 2026-04-30 | Security quick wins: strict `pub_key_fp` enforcement, generic decryption failures |
+| R44-2 | 2026-04-30 | Decrypt moved into existing `SubumbraProxy` DO |
+| R44-3 | 2026-05-01 | CF-side key generation; SQLite-backed `SubumbraVault` DO private-key custody |
+| R44-4 | 2026-05-01 | Bootstrap Docker finalization; `post-bootstrap.sh` retired; `bootstrap.sh` owns host flow |
+| R44-5-1 | 2026-05-01 | Code cleanup: retired `post-bootstrap.sh` refs, public docs contract alignment |
+| R44-5-3 | 2026-05-02 | `handleSetupKeygen` fails closed with structured `503` when vault binding unavailable |
+| R44-5-4 | 2026-05-02 | `SubumbraVault` constructor degradation caught; Worker `/health` reports `vault_configured` |
+| R44-5-5 | 2026-05-03 | Pre-R45 hardening: KV namespace ID re-validation against live CF account |
+| R44-5-6 | 2026-05-03 | Final doc compaction pass; six resolved cleanup sections archived |
+| R44-6 | 2026-05-03 | Doc cleanup: adapter-token and `SubumbraVault` contract truth-aligned across public docs |
+| R45 | 2026-05-03 | Structure upgrade planning: five-round REST foundation arc approved |
+| R45-1 | 2026-05-03 | Policy schema, threat model, structured KV decision, V3 `policy_hash` binding |
+| R45-2 | 2026-05-03 | Bootstrap policy ingestion, policy-less refusal, Worker code pinning, `system-integrity.json` |
+| R45-3 | 2026-05-04 | V3 AAD binding, structured KV publication (`policy:<id>`, `key:<id>`, `registry_version`) |
+| R45-4 | 2026-05-04 | Worker REST enforcement: adapter/method/path/content-type/body-size; two Gemini-found bugs fixed |
+| R46 | 2026-05-07 | Alpha app identity and rotation: per-app adapter binding, V3-only rotation |
+| R46.5 | 2026-05-07 | Vault granularity: shared vault default + opt-in per-key isolated vault |
+| R47 | 2026-05-08 | Runtime contract cleanup: legacy `SubumbraProxy` removed, non-root runtime, staged bootstrap pipeline |
+| R48 | 2026-05-08 | Intent attestation: `intent.trust` guardrails active; response-side `deny_patterns` deferred to R48-5 |
+| R48-1 | 2026-05-08 | Config manifest unification arc planning |
+| R48-2 | 2026-05-08 | Manifest ingest: `subumbra.json` as single bootstrap input; `IMPORT_PATH_*` retired |
+| R48-3 | 2026-05-09 | Internal state authority: day-2 commands run from embedded record state |
+| R48-4 | 2026-05-09 | Provider catalog removal: `subumbra.json` policy owns all routing/auth declarations |
+| R48-5 | 2026-05-09 | Response enforcement: `deny_patterns` active for buffered `application/json`/`text/plain` |
+| R48-6 | 2026-05-10 | Bootstrap UX: nuke-and-pave, shared-vault reuse, `keys_data` volume rename |
+| R49 | 2026-05-10 | Velocity limits and circuit breakers: `adapter_rpm`, `key_rpm`, `breaker_*` manifest fields |
+| R50 | 2026-05-10 | Management API: pause/unpause, `SUBUMBRA_MANAGEMENT_TOKEN`, durable audit rows |
+| R51 | 2026-05-10 | Signed provider template catalog: Ed25519-signed `catalog.json`, `"template"` manifest key |
+| R52 | 2026-05-10 | Read-only policy UI refresh: V3 policy metadata in dashboard, heartbeat-only `/api/events` |
+| R53 | 2026-05-11 | Recovery, authority lifecycle, and alpha release gate; `subumbra-verify-deploy` host-first |
+| R54 | 2026-05-11 | Secure UI hardening: Basic Auth, per-IP rate limiting, fail-closed, static asset closure |
+| R55 | 2026-05-11 | Worker health signal (`worker_auth`), CF Access UI mode, audit hygiene, stats persistence |
+| **R56** | *in progress* | Stale pruning: doc cleanup, cleanup.md compaction, pre-R34 archive |
 
-- **Round 34: Provider Flexibility (Closed 2026-04-10)**  
-  **Focus**: Built-in provider catalog expansion on the current architecture.  
-  **Goal**: Add Cerebras, Gemini, Mistral, OpenRouter, Together, and xAI as bootstrapable LiteLLM providers.  
-  **Outcome**: Closed with official proof plus six-provider end-to-end verification; the built-in AI provider set now covers 10 providers on the current architecture.
-
-- **Round 35: Adapter Flexibility (Closed 2026-04-10)**  
-  **Focus**: Identity/Token generalization across bootstrap and runtime.  
-  **Goal**: Move from 4 hardcoded apps to arbitrary named adapters.  
-  **Outcome**: Closed with official multi-verifier PASS; bootstrap, post-bootstrap, and proof capture now support additive custom adapters such as Open WebUI or Portkey without changing the core runtime architecture.
-
-- **Round 36: Live Provider Registry (Closed 2026-04-11)**  
-  **Focus**: KV-backed Worker registry.  
-  **Goal**: Move allowlist to Cloudflare KV.  
-  **Outcome**: Closed with verification PASS. Provider validation now comes from a live Cloudflare KV registry, `--push-registry` republishes without a Worker redeploy, custom provider metadata persists in `/app/data/custom-providers.json`, and Worker-side hostname/provider validation remains fail-closed.
-
-**Cross-round invariants**:
-- Split-decrypt boundary remains intact.
-- No durable decrypt power on operator-controlled hosts.
-- Worker-side hostname/provider validation must remain fail-closed.
-
-- **Round 38: System Review (Closed 2026-04-11)**  
-  **Focus**: Documentation truth-alignment and bootstrap reliability.  
-  **Goal**: Sync README.md, CLAUDE.md, and docker-compose.yml with current post-Round 36 architecture; triage wrangler secret race conditions.  
-  **Outcome**: Closed with verification PASS. Public and operator docs now correctly describe the 13+ supported providers, the live KV registry model, and the subumbra-proxy sidecar. Bootstrap race condition identified as transient/environmental.
-
-- **Round 39: POC Deployment Hardening (Closed 2026-04-11)**  
-  **Focus**: Deployment readiness for the current POC.  
-  **Goal**: Add end-to-end Worker health visibility, clarify recovery/runbook paths, optionally tighten the localhost UI surface, and clean up the duplicate Round 38 entry.  
-  **Outcome**: Closed with verification PASS. The dashboard now surfaces independent Worker reachability, README points operators to the authority-recovery runbook, optional minimal Basic Auth can protect the localhost UI, and the duplicate Round 38 status entry was removed.
-
-## Recent Round Status
-
-- **Round 40 — Broader Decoupling And Security Hardening** (Closed): protocol and integration hardening baseline completed.
-- **Round 41 — Real App Validation** (Closed): app-validation arc completed through the 41.x cleanup and verification sequence.
-- **Round 41.7 — Standalone LiteLLM Runtime Fix** (Closed): resolved through the 42.x standalone and app-owned integration follow-up work.
-- **Round 42 — Operator Hardening For Standalone Integrations** (Closed, superseded): follow-on work was absorbed by Rounds 42.2 and 42.3.
-- **Round 42.2 — Runtime Auth Reconciliation** (Closed): runtime auth recovery and worker-auth validation completed.
-- **Round 42.3 — App-Owned Integrations** (Closed): app-owned integration model and standalone LiteLLM example established as the supported path.
-- **Round 43.1 — OpenWebUI App-Owned Validation** (Closed): standalone OpenWebUI is now a proven app-owned integration with env-authoritative proxy routing, LiteLLM aggregator proof, zero-restart rotation, and fail-closed negative validation.
-- **Round 43.2 — AnythingLLM App-Owned Validation** (Closed): standalone AnythingLLM is now a proven app-owned integration with chat, embeddings, zero-restart rotation, and fail-closed negative validation through the proxy.
-- **Round 43-5 — LibreChat Direct Subumbra Integration** (Closed): LibreChat is now a proven app-owned integration with staged-and-promoted install docs, routed OpenAI-compatible chat proof, model discovery via `models.fetch`, and fail-closed invalid-key verification.
-- **Round 43-5-1 — LibreChat Takeover** (Closed): existing LibreChat installs are now proven for in-place takeover onto the supported Subumbra path with login continuity, conversation continuity, routed chat success, invalid-key fail-closed behavior, and restore proof.
-- **Round 43-6 — Provider Matrix + UI Switching Guides** (Closed): all 9 providers tested across OpenWebUI, AnythingLLM, LibreChat, Bifrost, and N8N. Provider matrix, per-app switching guides, README updates, and N8N workflow JSONs promoted to `docs/`.
-- **Round 43-6-1 — Env Ingestion + Alpha 0.0.1 Polish** (Closed): multi-app env ingestion, shared-key deduplication, alpha versioning, and promoted provider-matrix templates are now in place under the current single-provider-key bootstrap contract.
-- **Round 43-6-2 — Identity Routing** (Closed): `subumbra-proxy` now enforces per-app secure routing with app-token identity, path-based `key_id` extraction, downstream token forwarding, secure-mode `403` passthrough, and transitional legacy pseudo-key compatibility.
-- **Round 43-6-3 — Richer Same-Provider Multi-Key Ingestion** (Closed): multi-key same-provider import support now exists in both bootstrap automation and env-ingest planning under the secure transparent contract.
-- **Round 43-6-4-1 — Proxy Lockdown** (Closed 2026-04-29): removed legacy raw-`key_id` transparent auth, requires adapter-token identity on `/t`, empties generated `PROXY_ALLOWED_KEYS`, retires `/v1/request` as a supported app-facing sidecar surface, and aligns the promoted app docs to the secure transparent contract.
-- **Round 43-6-4-2 — Probe Role Decoupling** (Closed 2026-04-29): `subumbra-probe` is now optional by default, bootstrap/post-bootstrap/reset no longer require probe provisioning, and install/testing docs now frame probe as optional direct Worker-path diagnostics rather than baseline runtime.
-- **Round 43-6-4-Bootstrap-UX — Operator Bootstrap UX Cleanup** (Closed 2026-04-29): bootstrap now uses an env-aware Worker-name default, clearer multi-key/app-label prompts, per-key summary lines, numbered allowed-key selection, and clearer optional probe wording. `docs/subumbra-install.md` now separates interactive wizard and `.env.bootstrap` automation walkthroughs.
-- **Round 44-1 — Security Quick Wins** (Closed 2026-04-30): strict `pub_key_fp` enforcement is now fail-closed, caller-visible fingerprint mismatch detail is removed, and Worker/docs comments are aligned with the current plaintext boundary.
-- **Round 44-2 — Decrypt In Existing DO** (Closed 2026-04-30): the decrypt execution boundary now lives in the existing `SubumbraProxy` Durable Object, the Worker→DO hop carries the encrypted envelope instead of plaintext `apiKey`, and public `/proxy` validation/error behavior remains unchanged.
-- **Round 44-3 — CF-Side Key Generation And Custody** (Closed 2026-05-01): bootstrap now uses one-shot Cloudflare `/setup/keygen`, the SQLite-backed `SubumbraVault` DO holds persistent private-key custody, active `/proxy` execution routes through the named vault instance, and offline `public_key.pem` rotation remains intact.
-- **Round 44-4 — Bootstrap Docker Finalization** (Closed 2026-05-01): `bootstrap.sh` now owns the host-side bootstrap flow, repo-local `.env` is finalized directly during bootstrap, `post-bootstrap.sh` is retired to a deprecation shim, and automation-mode app imports support explicit `IMPORT_PATH_<n>` / `IMPORT_APP_LABEL_<n>` inputs including the Gemini `GOOGLE_API_KEY` alias.
-- **Round 44-5-1 — Code Cleanup Alpha Blockers** (Closed 2026-05-01): retired `post-bootstrap.sh` references are removed from the scoped runtime/docs surfaces, public adapter-token and vault-custody docs/config now match the live contract, provider-registry publish/read naming is aligned on `subumbra_registry_v1`, `/stats` and `/audit` deny-paths now audit symmetrically, proxy fetch errors stay generic, probe headers honor optional CF Access env, and the historical nonce-store issue was not reproduced on the current WAL + `busy_timeout` stack.
-- **Round 44-5-3 — Code Cleanup Scope-Lock Follow-Up** (Closed 2026-05-02): `handleSetupKeygen` now fails closed with a structured `503` when the setup vault binding is unavailable, Worker-local no-vault proof coverage exists, and the round-local verification hook proves unchanged auth/initialized behavior plus bootstrap-helper visibility of the terse JSON failure.
-- **Round 44-5-4 — Code Cleanup Final Prune/Archive Pass** (Closed 2026-05-02): `SubumbraVault` constructor degradation is now caught and surfaced as a structured `503`, Worker `/health` now reports stateless `vault_configured` readiness, and setup-keygen internal failures log fixed strings only. Live Cloudflare verification passed against the deployed Worker.
-- **Round 44-5-5 — Pre-R45 Operational Hardening** (Closed 2026-05-03): bootstrap now re-validates saved `kv-config.json` namespace IDs against the active Cloudflare account before falling back to the existing title-scan/create path, repo-local `.env` persists `SUBUMBRA_SETUP_TOKEN` for operator reference after bootstrap, and independent live-Cloudflare verification passed all four proof scenarios.
-- **Round 44-5-6 — Final Doc Compaction Pass** (Closed 2026-05-03): live council/status docs were compacted by moving six resolved cleanup sections into `council/archive/cleanup.md`, removing consumed Round 44.5/44.6 synthesis-marker ballast from `council/cleanup.md` and `PROJECT_STATUS.md`, and sanitizing `council/COUNCIL.md` for the post-44.5 archival state.
-- **Round 44-6 — Doc Cleanup** (Closed 2026-05-03): release-facing docs now reflect the adapter-token + `SubumbraVault` contract across the website, `CLAUDE.md`, install/operator guides, and harness docs; the misleading testbed shredding claim and the Cerebras example mismatch were also corrected.
-- **Round 45 — Structure Upgrade Planning** (Closed 2026-05-03): the council locked a five-round universal REST foundation arc, staged `council/r45-1-policy-schema/` through `council/r45-5-rest-auth-proofs/`, and created `council/rTBD-structure-upgrade/` as the deferred post-R45 scoping folder.
-- **Round 45-1 — Policy Schema, Threat Model, And Storage Decision** (Closed 2026-05-03): the R45 policy schema, rejection rules, reserved `intent`/`response`/`velocity` blocks, safe pattern vocabulary, V3 `policy_hash` binding rule, structured KV key-shape contract, and R45 threat model are now documented; the round-local verifier passed independently for both Claude and Gemini.
-- **Round 45-2 — Bootstrap Policy Ingestion And Worker Code Pinning** (Closed 2026-05-03): bootstrap now accepts optional `SUBUMBRA_POLICY_PATH`, imported secrets require matching policy documents, built-in direct secrets retain a narrow in-memory auto-compat path for continuity, bootstrap writes `system-integrity.json`, `scripts/subumbra-verify-deploy` checks live Worker drift, and proxy request logs now emit `target_host` / `target_path` instead of raw `target_url`.
-- **Round 45-3 — V3 Binding And Structured KV Publication** (Closed 2026-05-04): bootstrap now writes V3 records with `policy_id` / baseline-bound `policy_hash`, publishes structured KV entries (`policy:<id>`, `key:<id>`, `template:<name>`, `registry_version`), Worker reads structured KV instead of `subumbra_registry_v1`, and `--rotate-policy` re-encrypts through the Worker without host plaintext recovery.
-- **Round 45-4 — Worker REST Enforcement Foundation** (Closed 2026-05-04): `SUBUMBRA_ADAPTER_TOKENS` now carries `{id, token}` objects so the Worker resolves adapter identity from the authenticated token; `getRegistryEntry` returns the full `allow` block; `handleProxy` enforces adapter scope, method, path prefix, content-type, and body size for V3 records (V2 grace path skips all allow-block checks); `authorization`, `x-api-key`, and `x-api-key-id` stripped by `HOP_BY_HOP_HEADERS`; structural `intent` metadata logged when present. Two code bugs found and fixed by Gemini: CT enforcement bypass when proxy sends null body (committed `20d5061`), bootstrap DO cold-start 503 not retried (committed `37d59c7`). Council fixture remediation: `policies.json` in correct format, `bootstrap-overlay.env` uses `SUBUMBRA_POLICY_PATH` + key slots 3/4/5, `verify-round.sh` V6 does active fixture rewrite via `cryptography`, DNS readiness poll added. Clean-run proof `codexremed-20260504T215118`: V1–V8 all PASS. All C1–C10 diff checks PASS.
-- **Round TBD — Path-To-Alpha Arc Planning** (Closed 2026-05-06): the council approved and staged the post-R45 alpha-hardening arc. Council-local kickoff folders now exist for `r46-alpha-app-identity-rotation`, `r46-5-vault-granularity`, `r47-runtime-contract-cleanup`, `r48-intent-response-enforcement`, `r49-velocity-circuit-breakers`, `r50-management-api`, `r51-signed-template-catalog`, `r52-readonly-policy-ui`, and `r53-alpha-release-gate`. The round made no source-code changes; Opus and Gemini verification both passed.
-- **Round 46 — Alpha App Identity And Rotation** (Closed 2026-05-07): bootstrap now binds direct-provider secrets per app with required per-key `*_ADAPTERS` inputs, explicit compatibility mode, and app-specific `SUBUMBRA_TOKEN_<APP>` outputs; proxy request-time Worker calls now forward the caller adapter token so Worker `allow.adapters` enforcement reflects the real app identity; bootstrap authority moved to root `providers.json`; `--rotate` / `--rotate-policy` are now V3-only with full re-bootstrap as the documented V2 migration path; the tracked operator/app docs now match the V3 app-token contract; official fresh-install VPS proof passed at `claude-vps-20260507T180730Z` on SHA `4196033`.
-- **Round 47 — Runtime Contract Cleanup** (Closed 2026-05-08): legacy `SubumbraProxy` class and `decryptV2` logic fully removed; moved to non-root (UID 10001) runtime user in `subumbra-proxy`; implemented byte-accurate (UTF-8) request body size enforcement; hardened health/logging surfaces; completed the staged 4-phase bootstrap pipeline with per-key sharded vault routing and checkpointed recovery; official fresh-install VPS proof passed at `gemini-vps-20260508T031738Z` with only a deferred verification-harness portability caveat.
-- **Round 48 — Intent Attestation And Response Policy Enforcement** (Closed 2026-05-08): request-side `intent.trust` guardrails are now active on the Worker/runtime path, `subumbra-proxy` transparently carries `intent` via `X-Subumbra-Intent-*` headers, bootstrap validates `intent.trust` string arrays, and the docs now reflect that missing `intent` remains accepted by default while response-side `deny_patterns` enforcement stays deferred to R48-5. Live existing-stack VPS proof passed at `claude-vps-20260508T052054Z` and `gemini-vps-20260508T052651Z`.
-- **Round 48-1 — Config Manifest Unification Arc Planning** (Closed 2026-05-08): the council approved a three-round operator-config simplification arc. `r48-2-manifest-ingest`, `r48-3-internal-state-authority`, and `r48-4-provider-catalog-removal` are now staged as the implementation sequence. The planning round made no source-code changes; it closed on council consensus and local scaffolding only.
-- **Round 48-2 — Manifest Ingest** (Closed 2026-05-08): bootstrap now supports manifest-era intake from repo-root `subumbra.json`, `.env.bootstrap.example` is secret-only, `bootstrap.sh` no longer mounts `SUBUMBRA_POLICY_PATH` or `IMPORT_PATH_*`, `run_push_registry()` now fails closed for manifest-era installs, and the operator guide plus checked-in `subumbra.example.json` now reflect the single-manifest flow. Fresh-install verifier proof passed at `codex-vps-20260508T211232Z` and `gemini-vps-20260508T214755Z` on SHA `b50facd`.
-- **Round 48-3 — Internal State Authority** (Closed 2026-05-09): persisted V3 records and bootstrap checkpoint entries now carry embedded policy and adapter authority for day-2 commands; `--push-registry` and `--provision` now run from internal state without `subumbra.json`; `--rotate-policy` and reconstruction-only helper paths are removed; fixup verification passed after hardening checkpoint disposal and fresh-install pre-bootstrap failure handling. Verifier proof passed at `claude-vps-20260508T231902Z`, `gemini-vps-20260508T233305Z`, `claude-vps-20260509T002641Z`, and `gemini-vps-20260509T005723Z`.
-- **Round 48-4 — Provider Catalog Removal** (Closed 2026-05-08): bootstrap/runtime hardcoded provider authority is removed for the supported manifest flow; `subumbra.json` policy data now owns routing/auth declarations; `template:*` KV publication/fetching and `template_name` coupling are removed; env-ingest now emits `subumbra.json.proposed` plus secret-only `.env.bootstrap.proposed`; repo-root `providers.json` and Worker-side `providers.json` are deleted. Verifier proof passed at `claude-vps-20260509T035744Z` on SHA `91f4069`.
-- **Round 48-5 — Response Enforcement** (Closed 2026-05-09): `response.deny_patterns` scanning is now active for buffered `application/json`/`text/plain` responses; `intent.trust` enforcement (`intent_required`, `intent_disallowed_initiator`, `intent_disallowed_source`) and `intent.policy_match` source gating are now active in the Worker; `docs/adapter-contract.md` updated with intent field description, streaming guarantee buffering exception, six-row error table, and reserved-block activation note; `CLAUDE.md` threat table updated with response-side exfiltration row. Live existing-stack VPS proof passed at `claude-vps-20260509T165837Z` on SHA `715d215`. Fixup commits `343a34c` (`run_provision_key()` existing-vault PEM fallback) and `f1c1141` (`subumbra.example.json` mandatory field alignment) both passed three-way verification-2 review, closing the round and staging the follow-on bootstrap UX / regex-policy cleanup in `r48-6-bootstrap-ux`.
-- **Round 48-6 — Bootstrap UX** (Closed 2026-05-10): full bootstrap now supports authenticated nuke-and-pave of existing Cloudflare vault/KV state, full-bootstrap prompting/fail-closed behavior, shared-vault key reuse outside destructive mode, manifest-backed `--provision` fallback, safe bare-substring `response.deny_patterns`, and the compose volume rename to `keys_data`. Verification harness defects prevented a clean scripted PASS record, but the round was remediated and closed on direct live operator proof: successful manual isolated fresh bootstrap, successful isolated `--nuke` rerun after removing the top-level Compose project pin, successful live `/opt/subumbra` `./bootstrap.sh --nuke`, fresh token fan-out into LiteLLM/Bifrost/AnythingLLM/LibreChat/Open WebUI, and successful routed traffic through the live proxy on 2026-05-10. Open WebUI was also added to the local manifest adapter set for the next formal publish cycle.
-- **Round 49 — Velocity Limits And Circuit Breakers** (Closed 2026-05-10): runtime `velocity` enforcement is now live in the existing `SubumbraVault` DO with manifest-driven `adapter_rpm`, `key_rpm`, `breaker_failures`, and `breaker_cooldown_seconds`; new deny reasons `rate_limit_exceeded_adapter`, `rate_limit_exceeded_key`, and `circuit_breaker_open` are now active and documented. Live proof confirmed adapter RPM, key RPM, 60-second window recovery, and breaker-open behavior after a full re-bootstrap rewrote `anthropic_prod` to a deterministic unreachable host target. The round closed on Gemini PASS plus Codex/Claude functional confirmation, with the remaining Scenario 5 half-open close proof gap recorded as a non-blocking verifier-shape issue in `council/cleanup.md`.
-- **Round 50 — Management API** (Closed 2026-05-10): bootstrap now emits a distinct `SUBUMBRA_MANAGEMENT_TOKEN`; Worker `/manage/key/pause` and `/manage/key/unpause` mutate live structured `key:<id>` entries; paused keys fail closed with `key_paused`; the existing vault DO stores durable `management_audit` rows; `--push-registry` preserves live paused state; and the secure hybrid CLI path now covers `--revoke-key`, `--add-adapter`, `--revoke-adapter`, and `--publish-policy`. Fresh-install verifier proof passed all 9 scenarios at `gemini-vps-20260510T193314Z` on SHA `73b6ad4`.
-- **Round r51-signed-template-catalog — Signed Provider Template Catalog** (Closed 2026-05-10): image-bundled `bootstrap/templates/` with Ed25519-signed `catalog.json` and per-file SHA-256 verification; manifest keys may use `"template": "<provider>"` plus optional partial `policy` overrides; `scripts/sign-catalog.py` for maintainer signing; `docs/operator-guide.md` documents template usage; structured KV remains `key:*` and `policy:*` only. Independent VPS verification: **PASS** — Claude `claude-vps-20260510T204919Z`, Gemini `gemini-vps-20260510T205724Z` on SHA `b49e5ff` (S1 classified harness/environmental; core scenarios S2–S5 and scope items PASS).
-- **Round r52-readonly-policy-ui — Read-Only Policy UI Refresh** (Closed 2026-05-10): the dashboard now exposes read-only V3 policy metadata through `subumbra-keys -> ui /api/status`, serves the promoted local UI bundle at `/`, keeps `/api/events` heartbeat-only with a 30-second `/api/status` polling fallback, and continues rejecting UI write paths. Independent VPS verification: **PASS** — Claude `claude-vps-20260510T222026Z` and Gemini `gemini-vps-20260510T222818Z` on SHA `46ef8bd` (Claude probe-script issue classified harness-only; scripted proof and Gemini verification both PASS).
-- **Round r53-alpha-release-gate — Recovery, Authority Lifecycle, And Alpha Release Gate** (Closed 2026-05-11): `scripts/subumbra-verify-deploy` now supports host-first integrity lookup with live `subumbra-keys` container fallback plus explicit `--keys-container` / `--container-integrity-path` overrides; operator/install docs now state the supported recovery path, `CF_API_TOKEN` lifecycle, setup-token transience, and deploy-integrity invocation; README and website trust-boundary wording now match the implemented split-trust Cloudflare model; and the generic/GitHub REST guides are now explicitly marked experimental instead of shipping as `[Full guide TBD]` stubs. Independent verification: Gemini **PASS** at `gemini-vps-20260511T035427Z` and Claude `HARNESS_ISSUE` at `claude-vps-20260511T033503Z` (hook credential/port/string assumptions; product file checks PASS) on SHA `281ecec`.
-- **Round r54-secure-ui — Secure UI Hardening** (Closed 2026-05-11): the shipped UI now fails closed unless `UI_USERNAME` / `UI_PASSWORD` are configured, applies per-IP auth-failure rate limiting plus `X-Frame-Options` / `X-Content-Type-Options` / `Referrer-Policy`, serves static assets from `ui/static/` instead of exposing template files under `/static/`, and removes the stale Add Key / Rotate Key browser write-path controls from the shipped UI bundle. Live `/opt/subumbra` manual verification confirmed authenticated root `200`, unauthenticated root `401`, SSE auth gating, static-template closure, stale write-path removal, and `429` lockout behavior on SHA `4df9dc9`; the remaining generic `verify.sh` `P9.5` failure was accepted as a harness mismatch because the baseline still assumes unauthenticated `GET /api/status -> 200`.
-- **Round r55-ui-ops — Worker Health Signal, Auth Model, Audit Hygiene, Stats Persistence, Doc Corrections** (Closed 2026-05-11): proxy `/health` now emits `worker_auth`; the UI now supports CF Access mode with fail-closed partial credential handling and an early no-auth bypass ahead of local rate-limit state; `docker-compose.yml` now treats UI auth vars as optional-default env inputs; `subumbra-keys` rebuilds per-key request stats from `audit.db` on startup and no longer writes redundant `list_keys allow` audit rows; and the UI-auth / `worker_auth` documentation set is now truth-aligned. Independent verification: Gemini **PASS** at `gemini-vps-20260511T173130Z`, while Claude (`claude-vps-20260511T170007Z`) and Codex (`codex-vps-20260511T174819Z`) both closed with `HARNESS_ISSUE` due to the round-local S4 rate-limit expectation and probe-script policy drift; all three verifiers marked the approved product-scope items PASS on SHA `0e177b1`.
-- **Round 46.5 — Vault Granularity Decision** (Closed 2026-05-07): the council approved an Alpha mixed-vault direction: shared vault remains the default, while per-key unique vaults become an opt-in path via `UNIQUE_KEY_<key_id>=true/false`. The round made no runtime source changes; it finalized `decision.md`, documented the Cloudflare platform caveat around in-memory isolation claims, and unblocked R47 with the approved mixed-vault planning scope.
+---
 
 ## Path Forward
 
-Immediate follow-up sequence — targeting 0.0.1 Alpha:
-
-1. **Post-r53 Alpha Gate Follow-Up**
-   With **r53-alpha-release-gate** now closed, the next immediate follow-up is to clear the remaining alpha-gate verification friction before tagging or broadening release claims.
-   - High-priority environment follow-up: investigate why the live VPS `system-integrity.json` hash no longer matches the current Cloudflare Worker deployment, since `scripts/subumbra-verify-deploy` now correctly reports drift on the existing environment.
-   - High-priority harness follow-up: make fresh-install proof capture pass operator-supplied `CF_API_TOKEN` into round hooks, honor dynamic `SUBUMBRA_PROXY_HOST_PORT`, and avoid brittle exact-substring doc assertions that break on HTML whitespace.
-   - **R51 council deferrals (medium / recon-gated):** optional Management API integration for template/catalog updates; richer operator defaults when `scripts/subumbra-env-ingest.py` aligns with the signed catalog; network-pulled or community-submitted templates remain explicitly out of scope until a dedicated round.
-2. **Post-r54 Secure UI Harness Follow-Up**
-   With **r54-secure-ui** now closed on accepted manual verification, the next UI-adjacent follow-up should make the generic verification harness auth-aware for secured UI deployments.
-   - High-priority harness follow-up: update generic `verify.sh` / `preflight.sh` expectations so secure-UI rounds do not treat unauthenticated `GET /api/status -> 401` as a product failure when the approved plan intentionally auth-gates the UI.
-3. **Post-r48-4 manifest-era cleanup**
-   The approved config-manifest unification implementation arc (`r48-2` through `r48-4`) is now closed.
-   - High-priority follow-up investigation: `r48-3` manifest-less `--provision` currently persists transient plaintext `raw_secret` in `bootstrap-checkpoint.json` so later repair can re-encrypt a missing key without `subumbra.json`. The council accepted this as the short-term path, but a future remediation round should define whether to keep that exception, require operator re-supply, or replace it with a different secret-recovery contract that restores the RAM-only invariant.
-4. **Bootstrap hardening follow-up**
-   Future rounds should keep Cloudflare KV namespace mutation on the hardened bootstrap helper path and continue auditing non-interactive `docker compose run` entrypoints for SSH/stdin safety so fresh-install proof capture remains reliable.
-5. **Verification harness portability cleanup**
-   Consolidate round-local proof hooks around operator-first failure handling, reduce assumptions about host-installed tools, and make Wrangler dry-run behavior deterministic under read-only workspace mounts. R50 `verify-round.sh` ran bootstrap internally and hardcoded proxy port 10199, making it incompatible with `vps-proof-run.sh` fresh-install mode; future fresh-install hooks must strip the bootstrap block and use `${SUBUMBRA_PROXY_HOST_PORT:-10199}` (see `council/cleanup.md`).
-6. **Nonce-store watch item**
-   Reproduce `subumbra-keys` `nonce_store_failure reason=nonce_store_error` on the current stack before attempting further source changes; Round 44.5.1 did not reproduce it under concurrent signed key fetches.
-7. **Round 44 Security Arc (Approved sequence)**
-   The council planning round in `council/closed/round-44-security-review/` converged on a four-round implementation arc:
-   - `council/closed/round-44-1-security-quick-wins/` — closed 2026-04-30; strict `pub_key_fp` enforcement, generic decryption failures, and truth-aligned Worker/docs comments
-   - `council/closed/round-44-2-decrypt-in-existing-do/` — closed 2026-04-30; decrypt now runs inside the existing `SubumbraProxy` DO, and the Worker→DO hop keeps the original encrypted envelope intact
-   - `council/closed/round-44-3-cf-keygen-custody/` — closed 2026-05-01; CF-side key generation and custody landed in the SQLite-backed `SubumbraVault` DO while preserving offline no-restart rotation
-   - `council/closed/round-44-4-bootstrap-docker-finalization/` — closed 2026-05-01; bootstrap is now host-wrapper driven, `post-bootstrap.sh` is retired, and Docker-only env finalization is the documented flow
-   - Future high-priority follow-up: define backup/export/recovery policy for CF-generated vault keys before broader production-facing deployment claims
-8. **Round 44.5 cleanup arc** — Complete. Rounds 44-5-1 through 44-5-6 all
-   closed; see Recent Round Status above for per-round summaries.
-9. **Round 45 Structure Upgrade Arc (Approved sequence)**
-   The council planning round in `council/closed/r45-structure-upgrade/` converged on a five-round implementation arc:
-   - `council/closed/r45-1-policy-schema/` — closed 2026-05-03; policy schema, threat model, structured KV decision, and V3 binding contract are now documented and verified
-   - `council/closed/r45-2-bootstrap-policy-ingestion/` — closed 2026-05-03; policy-aware bootstrap ingestion, policy-less refusal, Worker code pinning, and URL logging normalization
-   - `council/closed/r45-3-v3-binding-kv-publication/` — closed 2026-05-04; V3 `policy_hash` binding, structured KV publication, DO-mediated `--rotate-policy`, and one-round V2 grace bridge
-   - `council/closed/r45-4-worker-rest-enforcement/` — closed 2026-05-04; Worker-side adapter/method/path/content-type/body-size enforcement, structural `intent` logging, V2 grace path; two code bugs found and fixed by Gemini (CT enforcement bypass, bootstrap DO cold-start 503); all V1–V8 scenarios pass in clean-run proof
-   - `council/r45-5-rest-auth-proofs/` — generic auth schemes, GitHub REST + Stripe test-mode + custom header-auth proof, and V2 removal
-   - Deferred follow-on staging: `council/rTBD-structure-upgrade/` for post-R45 topics such as intent/response enforcement, rate limiting, management API, UI follow-ons, webhook verification, raw-body expansion, `git_https`, and D1 re-evaluation if needed
-
-Guiding note:
-- Language transitions from **POC** to **0.0.1 Alpha** as the Round 43 arc closes.
-- Prioritize deployment/testing readiness first, then the hardening needed for credible live testing, then real-app validation.
-- Treat broader universality as part of the hardening path, not as a post-validation cleanup step.
+1. **R57 — Code prune**: remove dead code identified in pre-ship security review — `NON_LLM_BUILTIN_PROVIDERS` / `OPENAI_COMPATIBLE_BUILTIN_PROVIDERS`, `_run_import_screen`, `call_internal_rotate()` (`bootstrap/subumbra-bootstrap.py:2299`), `POST /internal/management-audit` route disposition, `worker/test-local.sh` and `ui/templates/index.html.bak` hygiene artifacts.
+2. **R58 — Operator tuning**: expose and document polling/health intervals (proxy worker-auth TTL, Docker healthchecks, UI `/api/status` poll, SSE heartbeat); add Docker log rotation; align `scripts/fresh-start.sh` and `docs/subumbra-developer.md` to current `keys_data` volume name.
+3. **R59 — Rate-limit hardening**: revisit Basic Auth rate-limit model; current in-memory `_auth_failures` deque is per-gunicorn-worker and cannot reliably trigger a `429` under `--workers 2`; dedicated runtime/auth-hardening round.
+4. **Bootstrap checkpoint security**: document operator obligations for interrupted bootstrap (treat `keys_data` volume as sensitive; wipe after failure); optional product hardening (encrypt checkpoint or narrow crash window to RAM-only resume).
+5. **Verification harness portability**: consolidate fresh-install proof hooks around operator-first failure handling, dynamic `SUBUMBRA_PROXY_HOST_PORT`, and auth-aware preflight for secure-UI deployments.
