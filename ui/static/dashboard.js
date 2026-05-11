@@ -32,7 +32,8 @@ function esc(s) {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function fmtTimestamp(iso) {
@@ -276,7 +277,7 @@ function renderKeysGrid(keys) {
     const relTime = k.last_access ? fmtRelative(k.last_access) : null;
     const created = k.created_at  ? fmtTimestamp(k.created_at) : "—";
     return `
-<article class="key-card" onclick="openKeyDetail('${esc(k.key_id)}','${esc(k.provider)}')">
+<article class="key-card" data-key-id="${esc(k.key_id)}" data-provider="${esc(k.provider)}">
   <span class="provider-badge ${esc(pClass)}">${esc(k.provider)}</span>
   <div class="key-card-body">
     <div class="key-card-info">
@@ -300,7 +301,7 @@ function renderKeysList(keys) {
     const pClass  = providerClass(k.provider);
     const relTime = k.last_access ? fmtRelative(k.last_access) : null;
     return `
-<div class="key-row" onclick="openKeyDetail('${esc(k.key_id)}','${esc(k.provider)}')">
+<div class="key-row" data-key-id="${esc(k.key_id)}" data-provider="${esc(k.provider)}">
   <span class="provider-badge ${esc(pClass)}">${esc(k.provider)}</span>
   <div>
     <div class="key-row-id">${esc(k.key_id)}</div>
@@ -421,4 +422,10 @@ document.addEventListener("DOMContentLoaded", () => {
   loadStatus();      // immediate snapshot on load
   initEventSource(); // then switch to live push
   window.setInterval(loadStatus, STATUS_POLL_MS);
+
+  document.addEventListener("click", (e) => {
+    const card = e.target.closest("[data-key-id]");
+    if (!card) return;
+    openKeyDetail(card.dataset.keyId, card.dataset.provider);
+  });
 });

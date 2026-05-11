@@ -516,21 +516,6 @@ POLICY_CAPABILITY_CLASSES = {
 POLICY_SOURCES = {"env", "import_path"}
 POLICY_AUTH_SCHEMES = {"bearer", "basic", "header", "query"}
 POLICY_ALLOWED_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE"}
-NON_LLM_BUILTIN_PROVIDERS = {"slack", "sendgrid"}
-OPENAI_COMPATIBLE_BUILTIN_PROVIDERS = {
-    "openai",
-    "groq",
-    "deepseek",
-    "cerebras",
-    "gemini",
-    "mistral",
-    "openrouter",
-    "together",
-    "xai",
-    "github",
-}
-
-
 def _load_policy_path_from_env() -> str:
     return os.environ.get("SUBUMBRA_POLICY_PATH", "").strip()
 
@@ -1276,14 +1261,6 @@ def _kv_delete_key(cf_creds: dict[str, str], namespace_id: str, key_name: str) -
         die(f"Failed to delete structured KV key {key_name!r}")
 
 
-def _resolve_target_host(provider: str, *, prompt_if_missing: bool) -> str:
-    _automation_fail(
-        f"No manifest-owned target.host found for provider {provider!r}.\n"
-        "  Provider catalog host resolution is no longer supported.\n"
-        "  Declare routing explicitly in subumbra.json policy.target.host."
-    )
-
-
 def _parse_allowed_keys_csv(raw: str) -> list[str]:
     if not raw.strip():
         return []
@@ -1411,33 +1388,6 @@ def _prompt_key_adapter_ids(key_id: str, declared_adapter_ids: list[str]) -> lis
             print("  ✗  Invalid adapter selection. Please try again.\n")
 
 
-def _collect_automation_imports() -> list[tuple[str, str]]:
-    imports: list[tuple[str, str]] = []
-    indices: list[int] = []
-    for key in os.environ:
-        match = re.fullmatch(r"IMPORT_PATH_(\d+)", key)
-        if match:
-            indices.append(int(match.group(1)))
-
-    for idx in sorted(set(indices)):
-        path = os.environ.get(f"IMPORT_PATH_{idx}", "").strip()
-        if not path:
-            continue
-        label = os.environ.get(f"IMPORT_APP_LABEL_{idx}", "").strip().lower()
-        if not label:
-            _automation_fail(
-                f"Automation mode: IMPORT_APP_LABEL_{idx} is required when IMPORT_PATH_{idx} is set"
-            )
-        if not ADAPTER_ID_RE.fullmatch(label):
-            _automation_fail(
-                f"Automation mode: invalid IMPORT_APP_LABEL_{idx} value {label!r}\n"
-                "  App/label must match ^[a-z0-9][a-z0-9_-]{0,61}[a-z0-9]$"
-            )
-        imports.append((path, label))
-
-    return imports
-
-
 def _upsert_env_file(path: Path, updates: dict[str, str]) -> None:
     existing_lines = path.read_text(encoding="utf-8").splitlines()
     remaining = dict(updates)
@@ -1496,94 +1446,6 @@ def _prompt_duplicate_secret_action(provider: str, existing_key_id: str) -> bool
         if choice in {"n", "no"}:
             return True
         print("     Please answer 'y' to reuse or 'n' to create a new record.")
-
-
-def _run_import_screen(
-    api_keys: dict[str, tuple[str, str, str, str, str]],
-    existing_keys: dict,
-) -> tuple[dict[str, tuple[str, str, str, str, str]], list[str]]:
-    """
-    Interactive import loop: operator specifies one or more .env file paths,
-    wizard detects provider keys, operator confirms each, keys are added to
-    api_keys. Operator may re-run the loop for multiple files.
-
-    Returns updated api_keys plus shred_paths.
-    """
-    shred_paths: list[str] = []
-    policy_index = _load_policy_index()
-
-    while True:
-        print("\n" + "─" * 70)
-        print("  Import from .env file")
-        print("  (In-container path — mount host files with -v /opt/...:/host_...:ro)")
-        print("─" * 70)
-        path = input("  Path to .env file (or Enter to skip): ").strip()
-        if not path:
-            break
-
-        detected = _parse_env_file(path)
-
-        if not detected:
-            print(f"  ✗  No recognised provider keys found in {path}.")
-            print("     (App-internal secrets like LITELLM_MASTER_KEY are excluded by design.)")
-            print("     File will NOT be shredded. Add keys manually below if needed.")
-            another = input("\n  Import from another file? [y/N]: ").strip().lower()
-            if another != "y":
-                break
-            continue
-
-        print(f"\n  Detected {len(detected)} provider key(s):")
-        for env_var, provider_id, raw_value in detected:
-            print(f"    {env_var:22s} → {provider_id:12s} ({len(raw_value)} chars)")
-
-        confirm = input("\n  Import these keys? [y/N]: ").strip().lower()
-        if confirm != "y":
-            print("  Skipped. File will NOT be shredded.")
-            another = input("\n  Import from another file? [y/N]: ").strip().lower()
-            if another != "y":
-                break
-            continue
-
-        app_label = _prompt_app_label("\n  App/label for keys from this file: ")
-        for env_var, provider_id, raw_value in detected:
-            target_host = _resolve_target_host(provider_id, prompt_if_missing=False)
-            provider_entry = BUILTIN_PROVIDER_BY_ID[provider_id]
-            auth_header = provider_entry["auth_header"]
-            auth_prefix = provider_entry["auth_prefix"]
-            duplicate_key_id = _find_duplicate_secret_key_id(api_keys, provider_id, raw_value)
-            if duplicate_key_id is not None:
-                create_new = _prompt_duplicate_secret_action(provider_id, duplicate_key_id)
-                if not create_new:
-                    ok(f"{provider_id:12s}  →  reusing {duplicate_key_id}  (from {env_var}, key hidden)")
-                    continue
-
-            key_id = _next_generated_key_id(provider_id, app_label, api_keys, existing_keys)
-            try:
-                _require_import_policy(key_id, policy_index, path)
-            except AutomationInputError as exc:
-                print(f"  ✗  {exc}")
-                print("     File will NOT be shredded and no record will be created.")
-                another = input("\n  Import from another file? [y/N]: ").strip().lower()
-                if another != "y":
-                    return api_keys, shred_paths
-                break
-            api_keys[key_id] = (provider_id, target_host, auth_header, auth_prefix, raw_value)
-            ok(f"{provider_id:12s}  →  {key_id}  (from {env_var}, key hidden)")
-        else:
-            shred_confirm = input(
-                f"\n  Shred source file {path} after bootstrap completes? [y/N]: "
-            ).strip().lower()
-            if shred_confirm == "y":
-                shred_paths.append(path)
-                print(f"  ✓ {path} queued for shredding after successful bootstrap.")
-            else:
-                print(f"  Skipped shredding. Raw keys remain in {path}.")
-
-            another = input("\n  Import from another file? [y/N]: ").strip().lower()
-            if another != "y":
-                break
-
-    return api_keys, shred_paths
 
 
 def _key_id_env_var_name(secret_env_var: str) -> str:
@@ -2543,59 +2405,6 @@ def _call_internal_vault_reset(worker_url: str, setup_token: str, vault_instance
         raise BootstrapFlowError("Cloudflare vault reset failed after retry window")
     if payload.get("status") != "ok":
         raise BootstrapFlowError("Cloudflare vault reset returned an invalid response payload")
-
-
-def call_internal_rotate(worker_url: str, setup_token: str, rotate_payload: dict[str, Any]) -> dict[str, Any]:
-    last_http_error: urllib.error.HTTPError | None = None
-    body = json.dumps(rotate_payload, separators=(",", ":")).encode("utf-8")
-    _MAX_ROTATE_ATTEMPTS = 24
-    for attempt in range(1, _MAX_ROTATE_ATTEMPTS + 1):
-        req = urllib.request.Request(
-            f"{worker_url.rstrip('/')}/internal/rotate",
-            data=body,
-            method="POST",
-            headers={
-                "Authorization": f"Bearer {setup_token}",
-                "Content-Type": "application/json",
-                "User-Agent": "curl/8.5.0",
-            },
-        )
-        try:
-            with urllib.request.urlopen(req) as resp:
-                payload = json.loads(resp.read())
-            break
-        except urllib.error.HTTPError as exc:
-            last_http_error = exc
-            if exc.code in (401, 403) and attempt < _MAX_ROTATE_ATTEMPTS:
-                info(
-                    "Cloudflare rotate token not visible yet; "
-                    f"retrying /internal/rotate ({attempt}/{_MAX_ROTATE_ATTEMPTS})"
-                )
-                time.sleep(5)
-                continue
-            body_text = exc.read().decode("utf-8", errors="replace")
-            die(
-                f"Cloudflare internal rotate failed: HTTP {exc.code}\n"
-                f"--- response body ---\n{body_text}"
-            )
-        except Exception as exc:
-            die(f"Cloudflare internal rotate failed: {exc}")
-    else:
-        if last_http_error is not None:
-            body_text = last_http_error.read().decode("utf-8", errors="replace")
-            die(
-                f"Cloudflare internal rotate failed after retry window: HTTP {last_http_error.code}\n"
-                f"--- response body ---\n{body_text}"
-            )
-        die("Cloudflare internal rotate failed after retry window")
-
-    ciphertext = payload.get("ciphertext")
-    enc_version = payload.get("enc_version")
-    if not isinstance(ciphertext, str) or not ciphertext:
-        die("Cloudflare internal rotate returned invalid ciphertext")
-    if enc_version != 3:
-        die("Cloudflare internal rotate returned invalid enc_version")
-    return payload
 
 
 def _delete_kv_namespace_if_present(cf_creds: dict[str, str]) -> None:
