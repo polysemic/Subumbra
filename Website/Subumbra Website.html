@@ -1220,7 +1220,7 @@
           <div class="arch-box">
             <div class="arch-box-label">Your application</div>
             <div class="arch-box-name">LiteLLM · OpenWebUI · AnythingLLM · LibreChat · any app</div>
-            <div class="arch-box-sub">Uses an adapter token · carries key_id in the /t/... path</div>
+            <!-- <div class="arch-box-sub">Uses an adapter token · carries key_id in the /t/... path</div> -->
           </div>
 
           <!-- Arrow: App → proxy → encrypted record fetch -->
@@ -1237,7 +1237,7 @@
               <div class="arch-box blue-tint">
                 <div class="arch-box-label">subumbra-keys</div>
                 <div class="arch-box-name">Encrypted envelope store</div>
-                <div class="arch-box-sub">Your VPS · Docker internal only · no plaintext key storage after bootstrap</div>
+                <!-- <div class="arch-box-sub">Your VPS · Docker internal only · no plaintext key storage after bootstrap</div> -->
                 <div class="arch-tags">
                   <span class="arch-tag tag-green">ciphertext + wrapped DEK only</span>
                 </div>
@@ -1251,11 +1251,11 @@
               <div class="arch-box orange-tint">
                 <div class="arch-box-label">Cloudflare Worker</div>
                 <div class="arch-box-name">Policy gate &amp; verifier</div>
-                <div class="arch-box-sub">Validates adapter scope · provider host · key fingerprint</div>
+                <!-- <div class="arch-box-sub">Validates adapter scope · provider host · key fingerprint</div> -->
                 <div class="arch-tags">
                   <span class="arch-tag tag-cyan">private key in SubumbraVault DO</span>
                 </div>
-                <div class="arch-audit">✓ every call logged to audit</div>
+                <!-- <div class="arch-audit">✓ every call logged to audit</div> -->
               </div>
               <div class="arch-do-mini-arrow">
                 <div class="arch-do-arrow-line"></div>
@@ -1270,7 +1270,7 @@
           <div class="arch-box purple-tint">
             <div class="arch-box-label">Durable Object · one per request · isolated</div>
             <div class="arch-box-name">Ephemeral Decrypt Runtime</div>
-            <div class="arch-box-sub">Unwraps DEK · decrypts provider key · calls API · streams response</div>
+            <!-- <div class="arch-box-sub">Unwraps DEK · decrypts provider key · calls API · streams response</div> -->
             <div class="arch-tags">
               <span class="arch-tag tag-purple">~100ms memory</span>
               <span class="arch-tag tag-red">then destroyed</span>
@@ -1288,7 +1288,7 @@
           <div class="arch-box">
             <div class="arch-box-label">API Provider</div>
             <div class="arch-box-name">Anthropic · OpenAI · Groq · 10+ more</div>
-            <div class="arch-box-sub">Receives real key for ~100ms · never stored anywhere</div>
+            <!-- <div class="arch-box-sub">Receives real key for ~100ms · never stored anywhere</div> -->
             <div class="arch-tags">
               <span class="arch-tag tag-red">zero at-rest exposure</span>
             </div>

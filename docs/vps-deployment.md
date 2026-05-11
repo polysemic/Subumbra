@@ -269,6 +269,121 @@ Keep your current session open and test login again from a second terminal.
 
 ---
 
+## 6.5 Add Swap And Optional zram
+
+Many small VPS plans ship with no swap configured at all. That works until a
+few services spike at once, then memory pressure becomes much more painful than
+it needs to be.
+
+Recommended baseline:
+
+- add a real swapfile on disk
+- optionally add `zram` for compressed RAM-backed swap
+- keep both modest; they are safety cushions, not substitutes for enough RAM
+
+Check the current state first:
+
+```bash
+swapon --show
+grep -E '^(MemTotal|MemAvailable|SwapTotal|SwapFree):' /proc/meminfo
+ls /dev/zram* 2>/dev/null || true
+```
+
+### Add a 4 GB swapfile
+
+On a typical `4-8 GB` VPS, a `4G` swapfile is a reasonable starting point.
+If the host is very small, `2G` is also fine.
+
+```bash
+sudo fallocate -l 4G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+swapon --show
+free -h
+```
+
+If `fallocate` is unavailable or not supported by the underlying filesystem:
+
+```bash
+sudo dd if=/dev/zero of=/swapfile bs=1M count=4096 status=progress
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+```
+
+### Tune swappiness for a server
+
+This keeps swap available without making the kernel overly eager to push active
+working memory out to disk.
+
+```bash
+printf 'vm.swappiness=10\nvm.vfs_cache_pressure=50\n' | \
+  sudo tee /etc/sysctl.d/99-memory-tuning.conf
+sudo sysctl --system
+```
+
+### Optional: add zram
+
+`zram` gives the kernel a compressed in-memory swap device before it reaches
+disk-backed swap. It can help absorb brief spikes and reduce worst-case stalls
+on smaller VPS hosts.
+
+Only use this if the host kernel actually provides the `zram` module.
+Check first:
+
+```bash
+modinfo zram
+```
+
+If that command reports that the module is missing, skip `zram` on this VPS
+and keep the disk swapfile only.
+
+Install the package:
+
+```bash
+sudo apt update
+sudo apt install -y zram-tools
+```
+
+Edit:
+
+```text
+/etc/default/zramswap
+```
+
+Recommended baseline:
+
+```ini
+ALGO=zstd
+PERCENT=25
+PRIORITY=100
+```
+
+Then enable it:
+
+```bash
+sudo systemctl enable --now zramswap.service
+swapon --show
+```
+
+Notes:
+
+- `PRIORITY=100` makes `zram` preferred over the disk swapfile, which is what
+  most operators want.
+- If the VPS already has provider-managed swap or an existing `zram`
+  configuration, update that setup instead of stacking duplicate swap layers.
+- If `systemctl status zramswap.service` fails with a message like
+  `modprobe: FATAL: Module zram not found`, remove or disable `zram-tools` and
+  rely on the swapfile instead.
+- If the host starts thrashing under sustained load, that is a capacity signal.
+  Swap and `zram` help smooth spikes, but they do not replace adding RAM or
+  shutting down unneeded services.
+
+---
+
 ## 7. Configure UFW
 
 Even if the server will later use Cloudflare Tunnel, `ufw` is still worth
