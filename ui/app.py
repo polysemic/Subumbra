@@ -52,9 +52,11 @@ logging.basicConfig(
 
 if not SUBUMBRA_ACCESS_TOKEN:
     logging.warning("subumbra-ui: SUBUMBRA_ACCESS_TOKEN not set — dashboard will show errors")
-if not UI_USERNAME or not UI_PASSWORD:
-    log.error("ui: UI auth requires both UI_USERNAME and UI_PASSWORD")
+if UI_USERNAME and not UI_PASSWORD:
+    log.error("ui: UI_USERNAME set but UI_PASSWORD is missing")
     sys.exit(1)
+elif not UI_USERNAME:
+    log.info("ui: no Basic Auth configured — expecting CF Access or localhost-only deployment")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # HTTP client (shared, connection-pooled)
@@ -88,6 +90,8 @@ def _subumbra_get(path: str) -> tuple[dict | list | None, str | None]:
 def _require_auth(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
+        if not UI_USERNAME:
+            return view(*args, **kwargs)
         remote = request.remote_addr or "unknown"
         attempts = _auth_failures[remote]
         now = time.time()

@@ -112,6 +112,15 @@ subumbra/
   design removes plaintext-at-rest on the VPS, not Cloudflare from the model.
 - Proxy health now reports Worker-auth state via `worker_auth: ok|stale|unreachable`.
 
+## UI Authentication
+
+The Subumbra UI supports two authentication modes:
+
+| Mode | When to use | Configuration |
+|------|-------------|---------------|
+| `CF Tunnel + CF Access` (recommended) | You route the UI through a Cloudflare Tunnel | Leave `UI_USERNAME` and `UI_PASSWORD` unset. CF Access enforces authentication at the edge. |
+| `HTTP Basic Auth` | You access the UI directly without a CF Tunnel | Set both `UI_USERNAME` and `UI_PASSWORD` in `.env`. |
+
 ## Next Docs
 
 - [docs/subumbra-install.md](docs/subumbra-install.md)
