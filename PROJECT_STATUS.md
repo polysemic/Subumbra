@@ -1,5 +1,5 @@
 # PROJECT_STATUS
-*Current state — updated 2026-05-10*
+*Current state — updated 2026-05-11*
 *Rounds 1–43.6, 43-6-3, 43-6-4-1, 43-6-4-2, and 43-6-4-bootstrap-ux closed. See `council/COUNCIL.md` for round history and current status.*
 
 ---
@@ -159,14 +159,17 @@ This arc focuses on evolving Subumbra from a static, bundled configuration into 
 - **Round 50 — Management API** (Closed 2026-05-10): bootstrap now emits a distinct `SUBUMBRA_MANAGEMENT_TOKEN`; Worker `/manage/key/pause` and `/manage/key/unpause` mutate live structured `key:<id>` entries; paused keys fail closed with `key_paused`; the existing vault DO stores durable `management_audit` rows; `--push-registry` preserves live paused state; and the secure hybrid CLI path now covers `--revoke-key`, `--add-adapter`, `--revoke-adapter`, and `--publish-policy`. Fresh-install verifier proof passed all 9 scenarios at `gemini-vps-20260510T193314Z` on SHA `73b6ad4`.
 - **Round r51-signed-template-catalog — Signed Provider Template Catalog** (Closed 2026-05-10): image-bundled `bootstrap/templates/` with Ed25519-signed `catalog.json` and per-file SHA-256 verification; manifest keys may use `"template": "<provider>"` plus optional partial `policy` overrides; `scripts/sign-catalog.py` for maintainer signing; `docs/operator-guide.md` documents template usage; structured KV remains `key:*` and `policy:*` only. Independent VPS verification: **PASS** — Claude `claude-vps-20260510T204919Z`, Gemini `gemini-vps-20260510T205724Z` on SHA `b49e5ff` (S1 classified harness/environmental; core scenarios S2–S5 and scope items PASS).
 - **Round r52-readonly-policy-ui — Read-Only Policy UI Refresh** (Closed 2026-05-10): the dashboard now exposes read-only V3 policy metadata through `subumbra-keys -> ui /api/status`, serves the promoted local UI bundle at `/`, keeps `/api/events` heartbeat-only with a 30-second `/api/status` polling fallback, and continues rejecting UI write paths. Independent VPS verification: **PASS** — Claude `claude-vps-20260510T222026Z` and Gemini `gemini-vps-20260510T222818Z` on SHA `46ef8bd` (Claude probe-script issue classified harness-only; scripted proof and Gemini verification both PASS).
+- **Round r53-alpha-release-gate — Recovery, Authority Lifecycle, And Alpha Release Gate** (Closed 2026-05-11): `scripts/subumbra-verify-deploy` now supports host-first integrity lookup with live `subumbra-keys` container fallback plus explicit `--keys-container` / `--container-integrity-path` overrides; operator/install docs now state the supported recovery path, `CF_API_TOKEN` lifecycle, setup-token transience, and deploy-integrity invocation; README and website trust-boundary wording now match the implemented split-trust Cloudflare model; and the generic/GitHub REST guides are now explicitly marked experimental instead of shipping as `[Full guide TBD]` stubs. Independent verification: Gemini **PASS** at `gemini-vps-20260511T035427Z` and Claude `HARNESS_ISSUE` at `claude-vps-20260511T033503Z` (hook credential/port/string assumptions; product file checks PASS) on SHA `281ecec`.
 - **Round 46.5 — Vault Granularity Decision** (Closed 2026-05-07): the council approved an Alpha mixed-vault direction: shared vault remains the default, while per-key unique vaults become an opt-in path via `UNIQUE_KEY_<key_id>=true/false`. The round made no runtime source changes; it finalized `decision.md`, documented the Cloudflare platform caveat around in-memory isolation claims, and unblocked R47 with the approved mixed-vault planning scope.
 
 ## Path Forward
 
 Immediate follow-up sequence — targeting 0.0.1 Alpha:
 
-1. **Rounds 53+ — Remaining Alpha Hardening Arc**
-   With R48-5, R48-6, R49, R50, **r51-signed-template-catalog**, and **r52-readonly-policy-ui** now closed, continue with the alpha release/recovery gate (`r53`) as staged by `council/approved/rTBD-structure-upgrade.md`.
+1. **Post-r53 Alpha Gate Follow-Up**
+   With **r53-alpha-release-gate** now closed, the next immediate follow-up is to clear the remaining alpha-gate verification friction before tagging or broadening release claims.
+   - High-priority environment follow-up: investigate why the live VPS `system-integrity.json` hash no longer matches the current Cloudflare Worker deployment, since `scripts/subumbra-verify-deploy` now correctly reports drift on the existing environment.
+   - High-priority harness follow-up: make fresh-install proof capture pass operator-supplied `CF_API_TOKEN` into round hooks, honor dynamic `SUBUMBRA_PROXY_HOST_PORT`, and avoid brittle exact-substring doc assertions that break on HTML whitespace.
    - **R51 council deferrals (medium / recon-gated):** optional Management API integration for template/catalog updates; richer operator defaults when `scripts/subumbra-env-ingest.py` aligns with the signed catalog; network-pulled or community-submitted templates remain explicitly out of scope until a dedicated round.
 2. **Post-r48-4 manifest-era cleanup**
    The approved config-manifest unification implementation arc (`r48-2` through `r48-4`) is now closed.
