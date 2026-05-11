@@ -72,12 +72,19 @@ bundled_litellm_present() {
 
 poll_ui() {
     local headers body status subumbra_keys_error
+    local ui_user ui_pass ui_auth_args=()
     headers="$(mktemp)"
     body="$(mktemp)"
     trap 'rm -f "$headers" "$body"' RETURN
 
+    ui_user="$(grep '^UI_USERNAME=' .env 2>/dev/null | cut -d= -f2- || true)"
+    ui_pass="$(grep '^UI_PASSWORD=' .env 2>/dev/null | cut -d= -f2- || true)"
+    if [[ -n "$ui_user" && -n "$ui_pass" ]]; then
+        ui_auth_args=(-u "${ui_user}:${ui_pass}")
+    fi
+
     while :; do
-        if curl -sS -D "$headers" -o "$body" http://127.0.0.1:6563/api/status >/dev/null 2>&1; then
+        if curl -sS -D "$headers" -o "$body" "${ui_auth_args[@]}" http://127.0.0.1:6563/api/status >/dev/null 2>&1; then
             status="$(awk 'toupper($1) ~ /^HTTP\// {code=$2} END {print code}' "$headers")"
             if [[ "$status" =~ ^2[0-9][0-9]$ ]]; then
                 subumbra_keys_error="$(
