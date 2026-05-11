@@ -160,6 +160,7 @@ This arc focuses on evolving Subumbra from a static, bundled configuration into 
 - **Round r51-signed-template-catalog — Signed Provider Template Catalog** (Closed 2026-05-10): image-bundled `bootstrap/templates/` with Ed25519-signed `catalog.json` and per-file SHA-256 verification; manifest keys may use `"template": "<provider>"` plus optional partial `policy` overrides; `scripts/sign-catalog.py` for maintainer signing; `docs/operator-guide.md` documents template usage; structured KV remains `key:*` and `policy:*` only. Independent VPS verification: **PASS** — Claude `claude-vps-20260510T204919Z`, Gemini `gemini-vps-20260510T205724Z` on SHA `b49e5ff` (S1 classified harness/environmental; core scenarios S2–S5 and scope items PASS).
 - **Round r52-readonly-policy-ui — Read-Only Policy UI Refresh** (Closed 2026-05-10): the dashboard now exposes read-only V3 policy metadata through `subumbra-keys -> ui /api/status`, serves the promoted local UI bundle at `/`, keeps `/api/events` heartbeat-only with a 30-second `/api/status` polling fallback, and continues rejecting UI write paths. Independent VPS verification: **PASS** — Claude `claude-vps-20260510T222026Z` and Gemini `gemini-vps-20260510T222818Z` on SHA `46ef8bd` (Claude probe-script issue classified harness-only; scripted proof and Gemini verification both PASS).
 - **Round r53-alpha-release-gate — Recovery, Authority Lifecycle, And Alpha Release Gate** (Closed 2026-05-11): `scripts/subumbra-verify-deploy` now supports host-first integrity lookup with live `subumbra-keys` container fallback plus explicit `--keys-container` / `--container-integrity-path` overrides; operator/install docs now state the supported recovery path, `CF_API_TOKEN` lifecycle, setup-token transience, and deploy-integrity invocation; README and website trust-boundary wording now match the implemented split-trust Cloudflare model; and the generic/GitHub REST guides are now explicitly marked experimental instead of shipping as `[Full guide TBD]` stubs. Independent verification: Gemini **PASS** at `gemini-vps-20260511T035427Z` and Claude `HARNESS_ISSUE` at `claude-vps-20260511T033503Z` (hook credential/port/string assumptions; product file checks PASS) on SHA `281ecec`.
+- **Round r54-secure-ui — Secure UI Hardening** (Closed 2026-05-11): the shipped UI now fails closed unless `UI_USERNAME` / `UI_PASSWORD` are configured, applies per-IP auth-failure rate limiting plus `X-Frame-Options` / `X-Content-Type-Options` / `Referrer-Policy`, serves static assets from `ui/static/` instead of exposing template files under `/static/`, and removes the stale Add Key / Rotate Key browser write-path controls from the shipped UI bundle. Live `/opt/subumbra` manual verification confirmed authenticated root `200`, unauthenticated root `401`, SSE auth gating, static-template closure, stale write-path removal, and `429` lockout behavior on SHA `4df9dc9`; the remaining generic `verify.sh` `P9.5` failure was accepted as a harness mismatch because the baseline still assumes unauthenticated `GET /api/status -> 200`.
 - **Round 46.5 — Vault Granularity Decision** (Closed 2026-05-07): the council approved an Alpha mixed-vault direction: shared vault remains the default, while per-key unique vaults become an opt-in path via `UNIQUE_KEY_<key_id>=true/false`. The round made no runtime source changes; it finalized `decision.md`, documented the Cloudflare platform caveat around in-memory isolation claims, and unblocked R47 with the approved mixed-vault planning scope.
 
 ## Path Forward
@@ -171,25 +172,28 @@ Immediate follow-up sequence — targeting 0.0.1 Alpha:
    - High-priority environment follow-up: investigate why the live VPS `system-integrity.json` hash no longer matches the current Cloudflare Worker deployment, since `scripts/subumbra-verify-deploy` now correctly reports drift on the existing environment.
    - High-priority harness follow-up: make fresh-install proof capture pass operator-supplied `CF_API_TOKEN` into round hooks, honor dynamic `SUBUMBRA_PROXY_HOST_PORT`, and avoid brittle exact-substring doc assertions that break on HTML whitespace.
    - **R51 council deferrals (medium / recon-gated):** optional Management API integration for template/catalog updates; richer operator defaults when `scripts/subumbra-env-ingest.py` aligns with the signed catalog; network-pulled or community-submitted templates remain explicitly out of scope until a dedicated round.
-2. **Post-r48-4 manifest-era cleanup**
+2. **Post-r54 Secure UI Harness Follow-Up**
+   With **r54-secure-ui** now closed on accepted manual verification, the next UI-adjacent follow-up should make the generic verification harness auth-aware for secured UI deployments.
+   - High-priority harness follow-up: update generic `verify.sh` / `preflight.sh` expectations so secure-UI rounds do not treat unauthenticated `GET /api/status -> 401` as a product failure when the approved plan intentionally auth-gates the UI.
+3. **Post-r48-4 manifest-era cleanup**
    The approved config-manifest unification implementation arc (`r48-2` through `r48-4`) is now closed.
    - High-priority follow-up investigation: `r48-3` manifest-less `--provision` currently persists transient plaintext `raw_secret` in `bootstrap-checkpoint.json` so later repair can re-encrypt a missing key without `subumbra.json`. The council accepted this as the short-term path, but a future remediation round should define whether to keep that exception, require operator re-supply, or replace it with a different secret-recovery contract that restores the RAM-only invariant.
-3. **Bootstrap hardening follow-up**
+4. **Bootstrap hardening follow-up**
    Future rounds should keep Cloudflare KV namespace mutation on the hardened bootstrap helper path and continue auditing non-interactive `docker compose run` entrypoints for SSH/stdin safety so fresh-install proof capture remains reliable.
-4. **Verification harness portability cleanup**
+5. **Verification harness portability cleanup**
    Consolidate round-local proof hooks around operator-first failure handling, reduce assumptions about host-installed tools, and make Wrangler dry-run behavior deterministic under read-only workspace mounts. R50 `verify-round.sh` ran bootstrap internally and hardcoded proxy port 10199, making it incompatible with `vps-proof-run.sh` fresh-install mode; future fresh-install hooks must strip the bootstrap block and use `${SUBUMBRA_PROXY_HOST_PORT:-10199}` (see `council/cleanup.md`).
-5. **Nonce-store watch item**
+6. **Nonce-store watch item**
    Reproduce `subumbra-keys` `nonce_store_failure reason=nonce_store_error` on the current stack before attempting further source changes; Round 44.5.1 did not reproduce it under concurrent signed key fetches.
-6. **Round 44 Security Arc (Approved sequence)**
+7. **Round 44 Security Arc (Approved sequence)**
    The council planning round in `council/closed/round-44-security-review/` converged on a four-round implementation arc:
    - `council/closed/round-44-1-security-quick-wins/` — closed 2026-04-30; strict `pub_key_fp` enforcement, generic decryption failures, and truth-aligned Worker/docs comments
    - `council/closed/round-44-2-decrypt-in-existing-do/` — closed 2026-04-30; decrypt now runs inside the existing `SubumbraProxy` DO, and the Worker→DO hop keeps the original encrypted envelope intact
    - `council/closed/round-44-3-cf-keygen-custody/` — closed 2026-05-01; CF-side key generation and custody landed in the SQLite-backed `SubumbraVault` DO while preserving offline no-restart rotation
    - `council/closed/round-44-4-bootstrap-docker-finalization/` — closed 2026-05-01; bootstrap is now host-wrapper driven, `post-bootstrap.sh` is retired, and Docker-only env finalization is the documented flow
    - Future high-priority follow-up: define backup/export/recovery policy for CF-generated vault keys before broader production-facing deployment claims
-6. **Round 44.5 cleanup arc** — Complete. Rounds 44-5-1 through 44-5-6 all
+8. **Round 44.5 cleanup arc** — Complete. Rounds 44-5-1 through 44-5-6 all
    closed; see Recent Round Status above for per-round summaries.
-7. **Round 45 Structure Upgrade Arc (Approved sequence)**
+9. **Round 45 Structure Upgrade Arc (Approved sequence)**
    The council planning round in `council/closed/r45-structure-upgrade/` converged on a five-round implementation arc:
    - `council/closed/r45-1-policy-schema/` — closed 2026-05-03; policy schema, threat model, structured KV decision, and V3 binding contract are now documented and verified
    - `council/closed/r45-2-bootstrap-policy-ingestion/` — closed 2026-05-03; policy-aware bootstrap ingestion, policy-less refusal, Worker code pinning, and URL logging normalization

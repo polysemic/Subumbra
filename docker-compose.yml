@@ -90,6 +90,8 @@ services:
       SUBUMBRA_ACCESS_TOKEN: ${SUBUMBRA_TOKEN_UI}
       SUBUMBRA_KEYS_URL: http://subumbra-keys:9090
       CF_WORKER_URL: ${CF_WORKER_URL}
+      UI_USERNAME: ${UI_USERNAME}
+      UI_PASSWORD: ${UI_PASSWORD}
     depends_on:
       subumbra-keys:
         condition: service_healthy

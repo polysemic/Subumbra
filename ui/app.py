@@ -12,9 +12,11 @@ Routes:
 
 from __future__ import annotations
 
+from collections import defaultdict, deque
 import hmac
 import logging
 import os
+import sys
 import time
 from functools import wraps
 from datetime import datetime, timezone
@@ -31,12 +33,15 @@ SUBUMBRA_ACCESS_TOKEN = os.environ.get("SUBUMBRA_ACCESS_TOKEN", "")
 SUBUMBRA_PROXY_URL = os.environ.get("SUBUMBRA_PROXY_URL", "http://subumbra-proxy:8090").rstrip("/")
 UI_USERNAME = os.environ.get("UI_USERNAME", "")
 UI_PASSWORD = os.environ.get("UI_PASSWORD", "")
+AUTH_WINDOW_SECONDS = 60
+AUTH_FAILURE_THRESHOLD = 5
+_auth_failures: defaultdict[str, deque[float]] = defaultdict(deque)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Flask app
 # ─────────────────────────────────────────────────────────────────────────────
 
-app = Flask(__name__, template_folder="templates", static_folder="templates", static_url_path="/static")
+app = Flask(__name__, template_folder="templates", static_folder="static", static_url_path="/static")
 log = logging.getLogger("subumbra-ui")
 
 logging.basicConfig(
@@ -47,8 +52,9 @@ logging.basicConfig(
 
 if not SUBUMBRA_ACCESS_TOKEN:
     logging.warning("subumbra-ui: SUBUMBRA_ACCESS_TOKEN not set — dashboard will show errors")
-if not UI_USERNAME:
-    log.info("ui: UI auth not configured; running unauthenticated (localhost only)")
+if not UI_USERNAME or not UI_PASSWORD:
+    log.error("ui: UI auth requires both UI_USERNAME and UI_PASSWORD")
+    sys.exit(1)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # HTTP client (shared, connection-pooled)
@@ -82,20 +88,29 @@ def _subumbra_get(path: str) -> tuple[dict | list | None, str | None]:
 def _require_auth(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
-        if not UI_USERNAME:
-            return view(*args, **kwargs)
+        remote = request.remote_addr or "unknown"
+        attempts = _auth_failures[remote]
+        now = time.time()
+        while attempts and now - attempts[0] > AUTH_WINDOW_SECONDS:
+            attempts.popleft()
+        if len(attempts) >= AUTH_FAILURE_THRESHOLD:
+            log.warning("ui: rate limit reached remote=%s", remote)
+            return Response("Too Many Requests", 429)
 
         auth = request.authorization
         if not auth:
-            log.warning("ui: auth failed remote=%s", request.remote_addr)
+            attempts.append(now)
+            log.warning("ui: auth failed remote=%s", remote)
             return Response("Unauthorized", 401, {"WWW-Authenticate": 'Basic realm="Subumbra"'})
 
         user_ok = hmac.compare_digest(auth.username or "", UI_USERNAME)
         pass_ok = hmac.compare_digest(auth.password or "", UI_PASSWORD)
         if not (user_ok and pass_ok):
-            log.warning("ui: auth failed remote=%s", request.remote_addr)
+            attempts.append(now)
+            log.warning("ui: auth failed remote=%s", remote)
             return Response("Unauthorized", 401, {"WWW-Authenticate": 'Basic realm="Subumbra"'})
 
+        attempts.clear()
         return view(*args, **kwargs)
 
     return wrapped
@@ -117,6 +132,14 @@ def _proxy_get(path: str) -> tuple[dict | list | None, str | None]:
 # ─────────────────────────────────────────────────────────────────────────────
 # Routes
 # ─────────────────────────────────────────────────────────────────────────────
+
+
+@app.after_request
+def add_security_headers(response):
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
 
 @app.get("/health")
 def health():
