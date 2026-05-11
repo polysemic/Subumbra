@@ -102,11 +102,14 @@ subumbra/
 
 ## Key Properties
 
-- Real provider keys never live in plaintext on your VPS after bootstrap.
+- Real provider keys do not remain in plaintext on your VPS after bootstrap.
 - `subumbra-keys` stores ciphertext, wrapped DEKs, and metadata only.
 - Cloudflare generates and stores the RSA private key inside the vault DO, and
   keeps runtime auth material in Worker secrets.
-- Neither side alone can reconstruct provider keys.
+- Provider plaintext exists transiently inside Cloudflare Worker / Durable
+  Object execution while a live upstream request is being handled.
+- Cloudflare deploy authority remains part of the trust boundary; the split
+  design removes plaintext-at-rest on the VPS, not Cloudflare from the model.
 - Proxy health now reports Worker-auth state via `worker_auth: ok|stale|unreachable`.
 
 ## Next Docs

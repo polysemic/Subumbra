@@ -109,6 +109,18 @@ The bootstrap file is intentionally short:
 - Cloudflare bootstrap credentials
 - optional bootstrap settings such as `TOKEN_TTL_DAYS`
 
+Cloudflare authority lifecycle at this stage:
+
+- `CF_API_TOKEN` is bootstrap, deploy, and deploy-integrity authority. It is
+  intentionally **not** retained in runtime `.env`, so you must re-supply it
+  for later Cloudflare-backed day-2 operations such as
+  `scripts/subumbra-verify-deploy`.
+- `SUBUMBRA_SETUP_TOKEN` is the one-shot bootstrap authority for
+  `/setup/keygen`. After a successful full bootstrap, the Worker rejects that
+  route even if you still have a host-side reference copy.
+- `SUBUMBRA_MANAGEMENT_TOKEN` is the continuing Worker management bearer for
+  `/manage/key/pause` and `/manage/key/unpause`.
+
 `./bootstrap.sh` shreds `.env.bootstrap` after a successful full bootstrap.
 Successful `./bootstrap.sh --provision <key_id>`, `--add-adapter`,
 `--revoke-adapter`, or `--publish-policy <key_id>` runs intentionally retain
@@ -132,6 +144,24 @@ with `--nuke` if you truly want a fresh Cloudflare reset.
 
 If bootstrap stops before completion, fix the reported input error and rerun the
 full bootstrap from the same repo checkout.
+
+## 4.5 Recovery And Vault Loss
+
+Subumbra does **not** provide a VPS-local vault backup that can recreate the
+Cloudflare-side decrypt authority by itself. If Cloudflare-side vault custody
+is lost and you initialize a brand-new vault state, ciphertext produced under
+the previous vault state cannot be decrypted by that new state.
+
+The supported recovery path is:
+
+1. keep the original operator inputs (`subumbra.json` plus `.env.bootstrap`)
+2. re-run a full bootstrap to provision fresh Cloudflare-side custody
+3. recreate the runtime services so they load the new runtime state
+
+Cloudflare may offer Durable Object restore or PITR features at the platform
+level, but this guide does **not** claim that they are enabled for your account.
+Treat them as external recovery options you must verify independently before
+depending on them.
 
 ## 5. Recreate Runtime Services
 
@@ -227,6 +257,24 @@ PY
 
 If you lose both the live Worker secret and the local `.env` copy, run a full
 bootstrap so the management authority is reissued coherently.
+
+### Deploy Integrity Verification
+
+`scripts/subumbra-verify-deploy` compares the recorded Worker bundle hash
+against the live Cloudflare deployment. Supply Cloudflare authority at runtime:
+
+```bash
+export CF_API_TOKEN=...
+export CF_ACCOUNT_ID="$(sed -n 's/^CF_ACCOUNT_ID=//p' .env)"
+export CF_WORKER_NAME="$(sed -n 's/^CF_WORKER_NAME=//p' .env)"
+./scripts/subumbra-verify-deploy
+```
+
+The helper first checks the requested `--integrity-file` on the host. If that
+path does not exist, it falls back to reading
+`/app/data/system-integrity.json` from the live `subumbra-keys` container. Use
+`--keys-container` or `--container-integrity-path` only if your install uses
+non-default names.
 
 ## 7. Registry Publish Notes
 
