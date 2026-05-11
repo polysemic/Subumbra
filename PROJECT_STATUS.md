@@ -126,7 +126,7 @@ Current pin: `main-latest@sha256:7c311546c25e7bb6e8cafede9fcd3d0d622ac636b5c9418
 | R53 | 2026-05-11 | Recovery, authority lifecycle, and alpha release gate; `subumbra-verify-deploy` host-first |
 | R54 | 2026-05-11 | Secure UI hardening: Basic Auth, per-IP rate limiting, fail-closed, static asset closure |
 | R55 | 2026-05-11 | Worker health signal (`worker_auth`), CF Access UI mode, audit hygiene, stats persistence |
-| **R56** | *in progress* | Stale pruning: doc cleanup, cleanup.md compaction, pre-R34 archive |
+| R56 | 2026-05-11 | Stale pruning: doc cleanup, cleanup.md compaction, pre-R34 archive |
 
 ---
 
