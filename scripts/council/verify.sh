@@ -62,6 +62,8 @@ fi
 worker_url="$(grep '^CF_WORKER_URL=' .env | cut -d= -f2- || true)"
 cf_access_client_id="${CF_ACCESS_CLIENT_ID:-$(grep '^CF_ACCESS_CLIENT_ID=' .env | cut -d= -f2- || true)}"
 cf_access_client_secret="${CF_ACCESS_CLIENT_SECRET:-$(grep '^CF_ACCESS_CLIENT_SECRET=' .env | cut -d= -f2- || true)}"
+ui_username="$(grep '^UI_USERNAME=' .env | cut -d= -f2- || true)"
+ui_password="$(grep '^UI_PASSWORD=' .env | cut -d= -f2- || true)"
 
 if [[ -z "$worker_url" ]]; then
     echo "ERROR: CF_WORKER_URL not found in .env" >&2
@@ -208,12 +210,19 @@ fi
 
 # --- Baseline: P9.5 — UI status ---
 
+ui_args=()
+ui_recorded_auth=""
+if [[ -n "$ui_username" && -n "$ui_password" ]]; then
+    ui_args+=(-u "${ui_username}:${ui_password}")
+    ui_recorded_auth=" -u '${ui_username}:<redacted>'"
+fi
 run_curl_capture \
     GET \
-    http://127.0.0.1:6563/api/status
+    http://127.0.0.1:6563/api/status \
+    "${ui_args[@]}"
 write_artifact \
     "${artifact_dir}/p9-5-ui-status.txt" \
-    "curl --compressed -sS -N -D - -o - -X GET http://127.0.0.1:6563/api/status"
+    "curl --compressed -sS -N -D - -o - -X GET${ui_recorded_auth} http://127.0.0.1:6563/api/status"
 exit_codes[p9_5]="$capture_exit"
 if [[ "$capture_exit" -eq 0 && "$capture_status" == "200" ]] && grep -q '"subumbra_keys_healthy"' "$capture_body"; then
     results[p9_5]="PASS"
