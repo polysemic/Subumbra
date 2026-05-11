@@ -217,6 +217,23 @@ If a fresh bootstrap leaves a retryable checkpoint, repair a single missing key:
 ./bootstrap.sh --provision <key_id>
 ```
 
+> **Bootstrap checkpoint sensitivity.** When bootstrap is interrupted mid-run,
+> it writes `bootstrap-checkpoint.json` to the data volume (`subumbra_keys_data`).
+> This file contains plaintext provider secrets (`raw_secret` fields) for any
+> keys that were processed before the interruption. It is created with mode
+> `0o600` and is automatically deleted after a successful bootstrap completes.
+>
+> If bootstrap fails and you do not immediately re-run to completion:
+>
+> - Treat `bootstrap-checkpoint.json` as a sensitive credential file.
+> - Manually delete it before leaving the host unattended:
+>   ```bash
+>   docker run --rm -v subumbra_keys_data:/data alpine sh -c "rm -f /data/bootstrap-checkpoint.json"
+>   ```
+> - Full-disk encryption (FDE) on the VPS host is recommended if you rely on
+>   resumable bootstrap across reboots, to bound exposure of the checkpoint file.
+> - Do not copy or back up the checkpoint file.
+
 `--provision` now reads the persisted checkpoint and internal key state. It does
 not require a complete checkpoint record for the target key if `subumbra.json`
 and `.env.bootstrap` still provide the missing authority. If both the repair

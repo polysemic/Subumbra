@@ -1068,10 +1068,6 @@ export default {
       return handleInternalVaultReset(request, env);
     }
 
-    if (request.method === "POST" && url.pathname === "/internal/management-audit") {
-      return handleInternalManagementAudit(request, env);
-    }
-
     if (request.method === "POST" && url.pathname === "/manage/key/pause") {
       return handleManagePauseToggle(request, env, true);
     }
@@ -1228,31 +1224,6 @@ async function handleInternalVaultReset(request, env) {
     });
   } catch {
     console.error("subumbra: internal vault reset unavailable");
-    return jsonError("vault unavailable", 503);
-  }
-}
-
-async function handleInternalManagementAudit(request, env) {
-  const parsed = await parseVaultInstancePayload(request);
-  if (parsed.error) {
-    return parsed.error;
-  }
-
-  try {
-    if (!env.SUBUMBRA_VAULT) {
-      throw new Error("vault binding missing");
-    }
-    const vault = getVaultStub(env, parsed.vaultInstance);
-    return await vault.fetch(`https://do-internal${VAULT_MANAGEMENT_AUDIT_PATH}`, {
-      method: "POST",
-      headers: {
-        Authorization: request.headers.get("Authorization") ?? "",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({ action: "list" }),
-    });
-  } catch {
-    console.error("subumbra: internal management audit unavailable");
     return jsonError("vault unavailable", 503);
   }
 }
