@@ -69,6 +69,8 @@ You need:
 The interactive bootstrap wizard prompts for these values. Treat
 `CF_API_TOKEN` as bootstrap/deploy authority for Worker, KV, and secret
 changes; keep it separate from any persistent runtime secrets you enable later.
+Runtime `.env` does **not** retain `CF_API_TOKEN`, so you must re-supply it for
+later Cloudflare-backed day-2 operations such as deploy-integrity verification.
 
 ## 5. Run Bootstrap
 
@@ -130,6 +132,9 @@ the container. The automation path does not start an interactive wizard.
 `./bootstrap.sh` shreds `.env.bootstrap` after a successful full bootstrap.
 `./bootstrap.sh --provision <key_id>` intentionally does **not** shred it so
 you can complete additional repair steps; shred it manually after repairs.
+After a successful full bootstrap, the Worker-side `SUBUMBRA_SETUP_TOKEN`
+bootstrap authority is revoked; any host-side copy should be treated as a
+reference record, not a reusable live credential.
 
 ## 6. Verify Generated Runtime Values
 
@@ -203,6 +208,17 @@ curl -sS http://127.0.0.1:6563/api/status
 ```
 
 Both health endpoints now return a minimal `{"status":"ok"}` body.
+
+For deploy-integrity verification after install, export `CF_API_TOKEN`,
+`CF_ACCOUNT_ID`, and `CF_WORKER_NAME`, then run
+`./scripts/subumbra-verify-deploy` from the repo root. See the
+[operator guide](/home/eric/git/Subumbra/docs/operator-guide.md) for the exact
+day-2 command and recovery notes.
+
+If you lose Cloudflare-side vault custody, the supported recovery path is a
+full re-bootstrap with the original `subumbra.json` and `.env.bootstrap`
+inputs. See the recovery section in the
+[operator guide](/home/eric/git/Subumbra/docs/operator-guide.md).
 
 ## 9. Standalone LiteLLM
 

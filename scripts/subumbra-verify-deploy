@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 import os
+import subprocess
 import sys
 import urllib.error
 import urllib.request
@@ -16,6 +17,8 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_INTEGRITY_FILE = Path(os.environ.get("DATA_DIR", "/app/data")) / "system-integrity.json"
+DEFAULT_KEYS_CONTAINER = "subumbra-keys"
+DEFAULT_CONTAINER_INTEGRITY_PATH = "/app/data/system-integrity.json"
 
 
 def die(message: str, exit_code: int = 1) -> "NoReturn":
@@ -135,11 +138,9 @@ def live_worker_hash(creds: dict[str, str]) -> str:
     return hashlib.sha256(extract_hash_bytes(body, content_type)).hexdigest()
 
 
-def load_integrity(path: Path) -> dict[str, Any]:
+def parse_integrity_payload(raw_text: str) -> dict[str, Any]:
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        die(f"integrity artifact not found: {path}")
+        payload = json.loads(raw_text)
     except json.JSONDecodeError as exc:
         die(f"integrity artifact invalid JSON: {exc}")
     if not isinstance(payload, dict):
@@ -150,15 +151,50 @@ def load_integrity(path: Path) -> dict[str, Any]:
     return payload
 
 
+def load_integrity(path: Path, keys_container: str, container_path: str) -> dict[str, Any]:
+    if path.exists():
+        return parse_integrity_payload(path.read_text(encoding="utf-8"))
+    try:
+        result = subprocess.run(
+            ["docker", "exec", keys_container, "cat", container_path],
+            capture_output=True,
+            check=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        die(
+            "integrity artifact not found on host "
+            f"({path}) and docker is unavailable for container fallback "
+            f"({keys_container}:{container_path})"
+        )
+    except subprocess.CalledProcessError as exc:
+        detail = exc.stderr.strip() or exc.stdout.strip() or f"exit {exc.returncode}"
+        die(
+            "integrity artifact not found on host "
+            f"({path}) and container fallback failed "
+            f"({keys_container}:{container_path}): {detail}"
+        )
+    return parse_integrity_payload(result.stdout)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--integrity-file", default=str(DEFAULT_INTEGRITY_FILE))
+    parser.add_argument("--keys-container", default=DEFAULT_KEYS_CONTAINER)
+    parser.add_argument(
+        "--container-integrity-path",
+        default=DEFAULT_CONTAINER_INTEGRITY_PATH,
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    integrity = load_integrity(Path(args.integrity_file))
+    integrity = load_integrity(
+        Path(args.integrity_file),
+        args.keys_container,
+        args.container_integrity_path,
+    )
     creds = resolve_credentials()
     live_hash = live_worker_hash(creds)
     expected_hash = integrity["bundle_sha256"]
