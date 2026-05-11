@@ -149,7 +149,7 @@ subumbra/
    - For each key: generates random 32-byte DEK, wraps DEK with the returned RSA public key, encrypts API key with AES-256-GCM using AAD `subumbra:v3:<key_id>:<policy_hash>`
    - Writes V3 records (ciphertext + wrapped_dek + pub_key_fp + enc_version + policy_hash + vault_instance) to subumbra-keys volume
    - Writes `public_key.pem` for shared vault and `public_key_<key_id>.pem` for unique vaults
-   - Publishes the initial `subumbra_registry_v1` entry to Cloudflare KV
+   - Publishes structured KV entries (`policy:<id>`, `key:<id>`, `registry_version`) to Cloudflare KV via `wrangler kv bulk put`
    - Supports targeted repair via `./bootstrap.sh --provision <key_id>` when a key-specific provisioning step fails
    - Deletes transient `SUBUMBRA_SETUP_TOKEN` and legacy `MASTER_DECRYPTION_KEY` / `WORKER_PRIVATE_KEY` / `WORKER_KEY_FINGERPRINT` secrets after successful completion
    - Exits

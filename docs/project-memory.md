@@ -85,9 +85,10 @@ them.
   runtime bring-up do not require probe provisioning.
 - `bootstrap.sh` now runs on the host, mounts repo-local `.env` into the
   bootstrap container, and shreds `.env.bootstrap` after a successful run.
-- The repo-local `.env` now retains `SUBUMBRA_SETUP_TOKEN` as an operator
-  reference after bootstrap, even though the transient Cloudflare Worker secret
-  is still deleted before bootstrap completes.
+- The repo-local `.env` retains `SUBUMBRA_SETUP_TOKEN` as an operator reference
+  value after bootstrap completes. The corresponding transient Cloudflare Worker
+  secret is deleted by bootstrap before it exits; `.env`'s `SUBUMBRA_SETUP_TOKEN`
+  value is therefore stale and does not authenticate to Cloudflare after bootstrap.
 - R45-3 moves runtime registry state off the monolithic
   `subumbra_registry_v1` blob and onto structured KV keys
   (`policy:<id>`, `key:<id>`, `registry_version`).
@@ -109,8 +110,10 @@ them.
   `allowed_initiators` and `allowed_content_sources`, but missing `intent`
   still remains accepted by default. Response-side `response.deny_patterns`
   enforcement is still deferred beyond R48.
-- Automation-mode app imports use `IMPORT_PATH_<n>` plus required
-  `IMPORT_APP_LABEL_<n>` entries in `.env.bootstrap`.
+- Automation-mode bootstrap is manifest-driven: author `subumbra.json` and
+  provide only the referenced secrets in `.env.bootstrap`. The legacy
+  `IMPORT_PATH_<n>` / `IMPORT_APP_LABEL_<n>` wizard-era input slots are no
+  longer used in the primary path (removed in R48-2).
 - Full bootstrap now writes `/app/data/system-integrity.json`, and
   `scripts/subumbra-verify-deploy` compares that recorded deploy hash against
   the current live Cloudflare Worker content.
