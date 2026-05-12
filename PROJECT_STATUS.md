@@ -129,12 +129,13 @@ Current pin: `main-latest@sha256:7c311546c25e7bb6e8cafede9fcd3d0d622ac636b5c9418
 | R56 | 2026-05-11 | Stale pruning: doc cleanup, cleanup.md compaction, pre-R34 archive |
 | R57 | 2026-05-11 | System cleanup: dead-code prune (6 bootstrap symbols, management-audit route), hygiene artifacts, SEC-1 doc, SEC-3 JS hardening |
 | R58 | 2026-05-12 | Operator tuning: documented cadence/SEC-4, Compose log rotation on proxy/probe/bootstrap, volume migration doc accuracy, tombstone annotations only, removed `litellm/custom_callbacks.py` |
+| R59 | 2026-05-12 | Rate-limit hardening: unified Basic Auth failure counting under `--workers 1 --threads 4` Gunicorn model; documented thread-pool and IP masking semantics |
 
 ---
 
 ## Path Forward
 
-1. **R59 — Rate-limit hardening**: revisit Basic Auth rate-limit model; current in-memory `_auth_failures` deque is per-gunicorn-worker and cannot reliably trigger a `429` under `--workers 2`; dedicated runtime/auth-hardening round.
-2. **Verification harness — Worker deploy gap**: existing-stack proof mode (`update_existing_stack`) does not call `wrangler deploy` after `docker compose up`; any round modifying `worker/src/worker.js` requires a separate manual deploy step with CF credentials. Consider adding `--deploy-worker` flag or a `council/{round}/deploy-worker.sh` hook.
+1. **Verification harness — Worker deploy gap**: existing-stack proof mode (`update_existing_stack`) does not call `wrangler deploy` after `docker compose up`; any round modifying `worker/src/worker.js` requires a separate manual deploy step with CF credentials. Consider adding `--deploy-worker` flag or a `council/{round}/deploy-worker.sh` hook.
+2. **UI Basic Auth rate limit — Option C follow-on (deferred):** R59 implemented Dockerfile-only single-worker Gunicorn (`--workers 1 --threads 4`). A future round may still be needed if operators require a durable shared counter (SQLite on an existing volume), trusted reverse-proxy IP semantics, or other models explicitly deferred in R59 `deferred.md`.
 3. **Bootstrap tombstone stubs**: `run_interactive_wizard()` and `_load_env_fallback()` in `bootstrap/subumbra-bootstrap.py` are tombstoned stubs (call `die()`/`_automation_fail()` immediately) but remain reachable from `main()`. Not dead code but candidates for tombstone-cleanup round.
 4. **Verification harness portability**: consolidate fresh-install proof hooks around operator-first failure handling, dynamic `SUBUMBRA_PROXY_HOST_PORT`, and auth-aware preflight for secure-UI deployments.
