@@ -446,6 +446,35 @@ def _read_env_file_value(path: Path, key: str) -> str:
     return ""
 
 
+def _infer_cf_worker_name_from_worker_url(url: str) -> str:
+    """Best-effort worker script name from a Workers *.workers.dev URL."""
+    url = url.strip()
+    if not url:
+        return ""
+    try:
+        host = (urllib.parse.urlparse(url).hostname or "").strip().lower()
+    except Exception:
+        return ""
+    if not host:
+        return ""
+    labels = host.split(".")
+    if len(labels) >= 2 and labels[-2] == "workers" and labels[-1] == "dev":
+        return labels[0] or ""
+    return ""
+
+
+def _resolved_cf_worker_name_from_operator_context() -> str:
+    """Resolve Worker script name for day-2 / defaults: env, then host .env, then CF_WORKER_URL."""
+    w = os.environ.get("CF_WORKER_NAME", "").strip()
+    if w:
+        return w
+    w = _read_env_file_value(HOST_ENV_FILE, "CF_WORKER_NAME").strip()
+    if w:
+        return w
+    url = _read_env_file_value(HOST_ENV_FILE, "CF_WORKER_URL").strip()
+    return _infer_cf_worker_name_from_worker_url(url)
+
+
 # Maps both Subumbra canonical env var names AND common standalone-app aliases
 # to their provider_id. Both sides must be supported so that migration from a
 # standard LiteLLM .env (which uses ANTHROPIC_API_KEY) and the CI path (which
@@ -1826,8 +1855,12 @@ def _has_env_credentials() -> bool:
 
 
 def _has_cf_credentials() -> bool:
-    required = ("CF_API_TOKEN", "CF_ACCOUNT_ID", "CF_WORKER_NAME")
-    return all(os.environ.get(name, "").strip() for name in required)
+    required = ("CF_API_TOKEN", "CF_ACCOUNT_ID")
+    if not all(os.environ.get(name, "").strip() for name in required):
+        return False
+    if not _resolved_cf_worker_name_from_operator_context():
+        return False
+    return True
 
 
 def _choose_bootstrap_mode() -> bool:
@@ -1878,36 +1911,40 @@ def _get_push_registry_cf_creds() -> dict[str, str]:
         return {
             "CF_API_TOKEN": os.environ["CF_API_TOKEN"].strip(),
             "CF_ACCOUNT_ID": os.environ["CF_ACCOUNT_ID"].strip(),
-            "CF_WORKER_NAME": os.environ["CF_WORKER_NAME"].strip(),
+            "CF_WORKER_NAME": _resolved_cf_worker_name_from_operator_context(),
         }
 
     if not sys.stdin.isatty():
         die(
-            "Missing CF_API_TOKEN / CF_ACCOUNT_ID / CF_WORKER_NAME for day-2 management command.\n"
-            "  Export those variables, or run from an interactive terminal so the script can prompt "
-            "(use: ./bootstrap.sh <command> — the host wrapper allocates a TTY for day-2 commands).\n"
-            "  For non-interactive CI, inject CF credentials into the bootstrap container environment."
+            "Missing Cloudflare credentials for day-2 management.\n"
+            "  Set CF_API_TOKEN and CF_ACCOUNT_ID in the environment (or use interactive ./bootstrap.sh).\n"
+            "  Set CF_WORKER_NAME in the repo .env (host mount), or set CF_WORKER_URL to a *.workers.dev URL "
+            "so the worker name can be inferred — day-2 commands do not prompt for the worker name.\n"
+            "  For non-interactive CI, inject CF_API_TOKEN, CF_ACCOUNT_ID, and CF_WORKER_NAME into the container."
         )
 
-    while True:
-        cf_token = _prompt_hidden_line("Cloudflare API token")
-        if cf_token:
-            break
-        print("  ✗  API token cannot be empty.\n")
-    while True:
-        cf_account_id = _prompt_hidden_line("Cloudflare account ID")
-        if cf_account_id:
-            break
-        print("  ✗  Account ID cannot be empty.\n")
-    while True:
-        print(
-            "  Cloudflare Worker name (shown as you type; not a secret):",
-            flush=True,
+    cf_token = os.environ.get("CF_API_TOKEN", "").strip()
+    if not cf_token:
+        while True:
+            cf_token = _prompt_hidden_line("Cloudflare API token")
+            if cf_token:
+                break
+            print("  ✗  API token cannot be empty.\n")
+    cf_account_id = os.environ.get("CF_ACCOUNT_ID", "").strip()
+    if not cf_account_id:
+        while True:
+            cf_account_id = _prompt_hidden_line("Cloudflare account ID")
+            if cf_account_id:
+                break
+            print("  ✗  Account ID cannot be empty.\n")
+    cf_worker_name = _resolved_cf_worker_name_from_operator_context()
+    if not cf_worker_name:
+        die(
+            "CF_WORKER_NAME could not be resolved from the environment, "
+            f"{HOST_ENV_FILE}, or CF_WORKER_URL.\n"
+            "  Add e.g. CF_WORKER_NAME=subumbra-proxy (or your deployed name) to the repo .env and retry."
         )
-        cf_worker_name = input("  > ").strip()
-        if cf_worker_name:
-            break
-        print("  ✗  Worker name cannot be empty.\n")
+    info(f"Using Cloudflare Worker name {cf_worker_name!r} from .env / environment (not prompted).")
     return {
         "CF_API_TOKEN":   cf_token,
         "CF_ACCOUNT_ID":  cf_account_id,
@@ -1965,7 +2002,7 @@ def _load_manifest_bootstrap() -> tuple[
     if missing_cf:
         die(f"Missing required Cloudflare bootstrap credential(s): {', '.join(missing_cf)}")
     cf_creds["CF_WORKER_NAME"] = (
-        os.environ.get("CF_WORKER_NAME", "").strip() or "subumbra-proxy"
+        _resolved_cf_worker_name_from_operator_context() or "subumbra-proxy"
     )
 
     declared_adapter_ids: list[str] = []
@@ -2087,12 +2124,19 @@ def run_interactive_wizard(
             if cf_account_id:
                 break
             print("  ✗  Account ID cannot be empty.\n")
+
+    suggested = _resolved_cf_worker_name_from_operator_context()
+    default_worker = suggested or "subumbra-proxy"
+    if suggested:
+        info(f"Current Worker name from .env / CF_WORKER_URL: {suggested!r}")
+    else:
+        info("No CF_WORKER_NAME or inferable CF_WORKER_URL in .env — default Worker name is subumbra-proxy")
     print(
-        "  Cloudflare Worker name (shown as you type; not a secret) [subumbra-proxy]:",
+        f"  Cloudflare Worker name [default: {default_worker}] — press Enter to use default, or type a new name:",
         flush=True,
     )
     cf_worker_raw = input("  > ").strip()
-    cf_worker_name = cf_worker_raw or "subumbra-proxy"
+    cf_worker_name = cf_worker_raw or default_worker
     cf_creds = {
         "CF_API_TOKEN": cf_token,
         "CF_ACCOUNT_ID": cf_account_id,
