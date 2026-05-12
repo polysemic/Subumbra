@@ -8,6 +8,7 @@
 /* ── Constants ───────────────────────────────────────────────── */
 
 const SESSION_WARN_SECS = 60;
+// Dashboard /api/status poll interval (ms). See docs/operator-guide.md "Heartbeat, polling, and health cadence".
 const STATUS_POLL_MS = 30000;
 const PROVIDER_CLASS = {
   anthropic: "provider-anthropic",
