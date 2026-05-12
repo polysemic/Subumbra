@@ -131,6 +131,7 @@ them.
 - **Log rotation (R58):** `subumbra-proxy`, `subumbra-probe`, and `bootstrap` use Docker `json-file` logging with `max-size: 50m` and `max-file: 3` (same pattern as other stack services).
 - **Volume migration naming (R58):** Operator docs use host/project volume name `subumbra_keys_data` for `docker volume create` / migration examples; in-container mount remains `keys_data:/app/data` per Compose.
 - **Legacy callback artifact:** `litellm/custom_callbacks.py` was removed in R58; callback-era behavior is reference-only in prose docs.
+- **Harness existing-stack (R60):** `scripts/council/vps-proof-run.sh` may auto-export `SUBUMBRA_PROXY_HOST_PORT` from `docker compose port subumbra-proxy 8090` after `docker compose up` when the value is unset; operators may pass **`--deploy-worker`** with a non-empty **`CF_API_TOKEN`** for an optional Wrangler deploy on that path (fail-closed if the flag is set without a token). **`scripts/council/verify.sh`** P9.5 records **SKIP** (non-failing) when **`SUBUMBRA_UI_CONTAINER`** is set, instead of host-curling the UI port. Round hooks that call `verify.sh` for the same round should set **`VERIFY_SKIP_ROUND_HOOK=1`** to avoid re-entrant `verify-round.sh` invocation.
 
 ---
 
