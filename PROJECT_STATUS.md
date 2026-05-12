@@ -1,5 +1,5 @@
 # PROJECT_STATUS
-*Current state — updated 2026-05-12 (R62 interactive bootstrap — implementation on branch; verifier pending)*
+*Current state — updated 2026-05-12 (R62 interactive bootstrap — CLOSED)*
 
 ---
 
@@ -132,12 +132,12 @@ Current pin: `main-latest@sha256:7c311546c25e7bb6e8cafede9fcd3d0d622ac636b5c9418
 | R59 | 2026-05-12 | Rate-limit hardening: unified Basic Auth failure counting under `--workers 1 --threads 4` Gunicorn model; documented thread-pool and IP masking semantics |
 | R60 | 2026-05-12 (CLOSED) | Harness improvements: `--deploy-worker` flag for automated existing-stack updates, dynamic proxy port resolution, and mode-aware P9.5 skipping |
 | R61 | 2026-05-12 (CLOSED) | Bootstrap: remove plaintext `bootstrap-checkpoint.json` path; defer `secret_ref` resolution until post-deploy encrypt; phase-1 `call_setup_keygen` per vault; `run_provision_key` uses manifest + host env only; fail-closed host env sync; operator recovery docs. Verified `fresh-install` VPS proof `codex-vps-20260512T174950Z`. |
-| R62 | — | Interactive manifest bootstrap wizard (RAM `_WIZARD_SECRETS`, 8-tuple `main()` unpack, post-wizard policy tail removed); round hook `verify-round.sh`; **verifier pending** |
+| R62 | 2026-05-12 (CLOSED) | Interactive manifest bootstrap wizard (RAM `_WIZARD_SECRETS`, 8-tuple `main()` unpack, post-wizard policy tail removed); round hook `verify-round.sh`. Council close-out: Claude VPS proof **PASS** (`claude-vps-20260512T191443Z`); formal `codex-verification.md` / `gemini-verification.md` not on file (process note in `council/cleanup.md`); Gemini isolated `fresh-install` proof **FAIL** at `remote-install` — not treated as product regression vs static gates. |
 
 ---
 
 ## Path Forward
 
-1. **R62 — Interactive bootstrap wizard:** Restored manifest-era **`run_interactive_wizard`** (RAM-only prompts, `_WIZARD_SECRETS` + `_resolve_manifest_secret` cache-first), removed post-wizard `SUBUMBRA_POLICY_PATH` / `UNIQUE_KEY_*` tail for the wizard path; **`council/r62-interactive-bootstrap/verify-round.sh`** static gate. **Council verification pending** before close-out.
+1. **Post-R62 follow-on (non-blocking):** Subsequent commits on `r62-interactive-bootstrap` may include operator UX (Node 22 bootstrap image, `./bootstrap.sh --upgrade`, TTY/day-2 CF + `secret_ref` resolution, banner/docs) — outside the frozen R62 approved diff boundary; track via normal PR review to `main`.
 2. **Harness noise**: `SUBUMBRA_TOKEN_PROBE` unset warning in `docker compose port` and other non-critical harness logs.
 3. **Harness cleanup (deferred from R60):** `VERIFY_MODE` is still exported by `vps-proof-run.sh` but not read by `verify.sh`; isolated mode continues to key off `SUBUMBRA_UI_CONTAINER`. A small follow-on round may wire an explicit mode string or remove the dead env forward.
