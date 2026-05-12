@@ -47,7 +47,6 @@ import logging
 import os
 import sqlite3
 import time
-from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -147,7 +146,6 @@ SUBUMBRA_ADAPTER_REGISTRY: dict[str, dict] = _load_adapter_registry(os.environ["
 SUBUMBRA_HMAC_KEY: bytes = os.environ["SUBUMBRA_HMAC_KEY"].encode()
 
 TIMESTAMP_TOLERANCE: int = 30   # seconds; adjust down for tighter replay window
-LOG_RING_SIZE: int = 200        # recent request log kept in memory
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Logging
@@ -173,13 +171,10 @@ if _expired_at_startup:
     )
 
 # ─────────────────────────────────────────────────────────────────────────────
-# In-memory stats and audit
+# Stats (SQLite-backed) and audit
 # ─────────────────────────────────────────────────────────────────────────────
 
 _stats_lock = Lock()
-_request_counts: dict[str, int] = defaultdict(int)
-_last_access: dict[str, str] = {}
-_recent_log: deque[dict] = deque(maxlen=LOG_RING_SIZE)
 _audit_write_count: int = 0
 _audit_prune_logged: bool = False
 _nonce_write_count: int = 0
@@ -261,15 +256,51 @@ def _init_audit_db() -> sqlite3.Connection | None:
 
 _audit_conn = _init_audit_db()
 
-if _audit_conn is not None:
-    _rows = _audit_conn.execute(
-        "SELECT key_id, COUNT(*) as cnt, MAX(timestamp) as last "
-        "FROM audit_events WHERE endpoint = 'get_key' AND verdict = 'allow' "
-        "GROUP BY key_id"
+
+def _sqlite_per_key_usage_map() -> dict[str, tuple[int, str | None]]:
+    """
+    Per-key request_count and last_access from audit_events only.
+    Counts rows with non-null key_id (matches historical _record_audit increment rule).
+    """
+    if _audit_conn is None:
+        return {}
+    rows = _audit_conn.execute(
+        """
+        SELECT key_id, COUNT(*) AS cnt, MAX(timestamp) AS last_ts
+        FROM audit_events
+        WHERE key_id IS NOT NULL
+        GROUP BY key_id
+        """
     ).fetchall()
-    for _row in _rows:
-        _request_counts[_row[0]] = _row[1]
-        _last_access[_row[0]] = _row[2]
+    return {str(row[0]): (int(row[1]), row[2]) for row in rows}
+
+
+def _sqlite_recent_log_last50() -> list[dict]:
+    """Last 50 audit rows, oldest-first within the window (matches former deque order)."""
+    if _audit_conn is None:
+        return []
+    rows = _audit_conn.execute(
+        """
+        SELECT timestamp, adapter_id, endpoint, key_id, verdict, reason_code, remote
+        FROM audit_events
+        ORDER BY id DESC
+        LIMIT 50
+        """
+    ).fetchall()
+    recent: list[dict] = [
+        {
+            "timestamp": r[0],
+            "adapter_id": r[1],
+            "endpoint": r[2],
+            "key_id": r[3],
+            "verdict": r[4],
+            "reason_code": r[5],
+            "remote": r[6],
+        }
+        for r in rows
+    ]
+    recent.reverse()
+    return recent
 
 
 def _record_audit(
@@ -282,22 +313,8 @@ def _record_audit(
     remote: str,
 ) -> None:
     ts = _now_iso()
-    event = {
-        "timestamp": ts,
-        "adapter_id": adapter_id,
-        "endpoint": endpoint,
-        "key_id": key_id,
-        "verdict": verdict,
-        "reason_code": reason_code,
-        "remote": remote,
-    }
 
     with _stats_lock:
-        if key_id is not None:
-            _request_counts[key_id] += 1
-            _last_access[key_id] = ts
-        _recent_log.append(event)
-
         if _audit_conn is not None:
             global _audit_write_count, _audit_prune_logged
             try:
@@ -477,36 +494,42 @@ def list_keys() -> tuple[Response, int]:
         return _err("forbidden", 403)
 
     keys = _load_keys()
+    try:
+        usage = _sqlite_per_key_usage_map()
+    except sqlite3.Error as exc:
+        log.warning("stats_read_error endpoint=list_keys error=%s", exc)
+        return _err("audit unavailable", 503)
+
     payload = []
-    with _stats_lock:
-        for kid, meta in keys.items():
-            policy = meta.get("policy") or {}
-            auth = policy.get("auth") or {}
-            target = policy.get("target") or {}
-            allow = policy.get("allow") or {}
-            payload.append({
-                "key_id": kid,
-                "provider": meta.get("provider", "unknown"),
-                "created_at": meta.get("created_at", ""),
-                "request_count": _request_counts.get(kid, 0),
-                "last_access": _last_access.get(kid, None),
-                "policy_id": meta.get("policy_id") or policy.get("policy_id"),
-                "policy_hash": meta.get("policy_hash"),
-                "vault_instance": meta.get("vault_instance"),
-                "label": meta.get("label"),
-                "revoked": bool(meta.get("revoked", False)),
-                "paused": bool(meta.get("paused", False)),
-                "capability_class": policy.get("capability_class"),
-                "protocol": policy.get("protocol"),
-                "auth_scheme": auth.get("scheme"),
-                "auth_header": auth.get("header_name"),
-                "auth_prefix": auth.get("prefix"),
-                "target_host": target.get("host") or meta.get("target_host"),
-                "base_path": target.get("base_path"),
-                "allow_adapters": allow.get("adapters", []),
-                "allow_methods": allow.get("methods", []),
-                "allow_path_prefixes": allow.get("path_prefixes", []),
-            })
+    for kid, meta in keys.items():
+        policy = meta.get("policy") or {}
+        auth = policy.get("auth") or {}
+        target = policy.get("target") or {}
+        allow = policy.get("allow") or {}
+        cnt, last_ts = usage.get(kid, (0, None))
+        payload.append({
+            "key_id": kid,
+            "provider": meta.get("provider", "unknown"),
+            "created_at": meta.get("created_at", ""),
+            "request_count": cnt,
+            "last_access": last_ts,
+            "policy_id": meta.get("policy_id") or policy.get("policy_id"),
+            "policy_hash": meta.get("policy_hash"),
+            "vault_instance": meta.get("vault_instance"),
+            "label": meta.get("label"),
+            "revoked": bool(meta.get("revoked", False)),
+            "paused": bool(meta.get("paused", False)),
+            "capability_class": policy.get("capability_class"),
+            "protocol": policy.get("protocol"),
+            "auth_scheme": auth.get("scheme"),
+            "auth_header": auth.get("header_name"),
+            "auth_prefix": auth.get("prefix"),
+            "target_host": target.get("host") or meta.get("target_host"),
+            "base_path": target.get("base_path"),
+            "allow_adapters": allow.get("adapters", []),
+            "allow_methods": allow.get("methods", []),
+            "allow_path_prefixes": allow.get("path_prefixes", []),
+        })
 
     return jsonify({"keys": payload}), 200
 
@@ -668,20 +691,24 @@ def stats() -> tuple[Response, int]:
         )
         return _err("forbidden", 403)
 
-    with _stats_lock:
-        per_key = [
-            {
-                "key_id": kid,
-                "request_count": cnt,
-                "last_access": _last_access.get(kid),
-            }
-            for kid, cnt in _request_counts.items()
-        ]
-        recent = list(_recent_log)
+    if _audit_conn is None:
+        return _err("audit unavailable", 503)
+
+    try:
+        usage = _sqlite_per_key_usage_map()
+        recent = _sqlite_recent_log_last50()
+    except sqlite3.Error as exc:
+        log.warning("stats_read_error endpoint=stats error=%s", exc)
+        return _err("audit unavailable", 503)
+
+    per_key = [
+        {"key_id": kid, "request_count": cnt, "last_access": last_ts}
+        for kid, (cnt, last_ts) in usage.items()
+    ]
 
     return jsonify({
         "per_key": per_key,
-        "recent_log": recent[-50:],
+        "recent_log": recent,
         "timestamp": _now_iso(),
     }), 200
 
