@@ -122,7 +122,7 @@ services:
       - internal
       - external
     environment:
-      SUBUMBRA_ACCESS_TOKEN: ${SUBUMBRA_TOKEN_PROBE}
+      SUBUMBRA_ACCESS_TOKEN: ${SUBUMBRA_TOKEN_PROBE:-}
       SUBUMBRA_HMAC_KEY: ${SUBUMBRA_HMAC_KEY}
       SUBUMBRA_KEYS_URL: http://subumbra-keys:9090
       CF_WORKER_URL: ${CF_WORKER_URL}
