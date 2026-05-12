@@ -64,7 +64,7 @@ subumbra/
 ├── .env.example                 ← full runtime env shape and optional values
 ├── .gitignore                   ← never commit real keys
 ├── README.md
-├── bootstrap.sh                 ← host wrapper: mounts .env, passes import files, shreds bootstrap input
+├── bootstrap.sh                 ← host wrapper: mounts .env, compose up after full bootstrap, `--upgrade`, shreds bootstrap input
 │
 ├── bootstrap/                   ← one-shot key generation container
 │   ├── Dockerfile
@@ -152,7 +152,7 @@ subumbra/
    - Supports targeted repair via `./bootstrap.sh --provision <key_id>` when a key-specific provisioning step fails
    - Deletes transient `SUBUMBRA_SETUP_TOKEN` and legacy `MASTER_DECRYPTION_KEY` / `WORKER_PRIVATE_KEY` / `WORKER_KEY_FINGERPRINT` secrets after successful completion
    - Exits
-3. `bootstrap.sh` writes runtime env values directly into repo-local `.env` and shreds `.env.bootstrap` after success
+3. `bootstrap.sh` writes runtime env values into repo-local `.env`, shreds `.env.bootstrap` after success, runs `docker compose up -d --force-recreate`, and prints an adapter / key_id summary. For image-only updates without re-bootstrap, use `./bootstrap.sh --upgrade`.
 4. Real keys existed only in RAM, never written to disk
 
 ### Per-Key Rotation (offline)
@@ -266,7 +266,7 @@ For any new or changed flow, briefly state:
 - Unit: encrypt → store → fetch → decrypt round trip
 - Integration: full flow with test API key
 - CF Worker: wrangler dev for local testing
-- Docker: `./bootstrap.sh` then `docker compose up -d --force-recreate`
+- Docker: `./bootstrap.sh` (ends with stack recreate + adapter summary) or `./bootstrap.sh --upgrade` after pulling code
 
 ## Notes
 - Python 3.12+ for all Python components

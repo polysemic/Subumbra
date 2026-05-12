@@ -176,10 +176,29 @@ single-key rotation. The Cloudflare-side private key never lands on the VPS.
 
 ## 7. Start The Core Stack
 
+After a successful `./bootstrap.sh` or `./bootstrap.sh --nuke`, the host wrapper
+already runs `docker compose up -d --force-recreate` and prints an adapter token
+/ `key_id` summary from `.env`. If you skipped the wrapper or need to restart
+services only:
+
 ```bash
 docker compose up -d --force-recreate
 docker compose ps
 ```
+
+### Image-only updates (no re-bootstrap)
+
+After `git pull` (or equivalent), rebuild runtime and bootstrap images and
+recreate containers without touching Docker volumes:
+
+```bash
+./bootstrap.sh --upgrade
+```
+
+This does **not** run Cloudflare bootstrap, rotate keys, or change `.env`
+(except that running containers pick up the current `.env` from disk). Optional
+`subumbra-probe` / `cloudflared` use Compose profiles — rebuild or restart those
+separately if you use them (see comments in `docker-compose.yml`).
 
 Expected services:
 
