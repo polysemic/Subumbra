@@ -177,11 +177,19 @@ when repairs are complete.
 
 ## 4. Run Bootstrap
 
+**Interactive vs automation:** With a TTY and **no** complete unattended credential set
+(`CF_API_TOKEN`, `CF_ACCOUNT_ID`, and `subumbra.json` all present in the bootstrap
+environment), bootstrap runs the **manifest wizard**: it reads `subumbra.json`,
+prompts for Cloudflare credentials and each `secret_ref` (hidden TTY reads; RAM only),
+then continues the same deploy → keygen → encrypt pipeline as automation. With
+`.env.bootstrap` populated for every `secret_ref`, use a **non-interactive** compose
+run (`./bootstrap.sh` without a TTY, or with stdin closed) so secrets load from the file.
+
 ```bash
 ./bootstrap.sh
 ```
 
-Bootstrap reads `subumbra.json`, resolves the referenced secret values from
+Automation path: bootstrap reads `subumbra.json`, resolves the referenced secret values from
 `.env.bootstrap`, deploys the Worker, encrypts the retained keys, and writes the
 runtime state under `data/`.
 
@@ -294,6 +302,13 @@ embedded authority fields or an embedded policy mismatch, stop and repair the
 local state or re-run the full bootstrap. Those commands no longer reconstruct
 policy or adapter bindings from bootstrap-era inputs.
 
+Run these **from an interactive shell** (or export `CF_API_TOKEN` and
+`CF_ACCOUNT_ID`) so `./bootstrap.sh` can allocate a TTY and prompt for those
+values when they are not in the environment. **`CF_WORKER_NAME`** (or a
+`CF_WORKER_URL` to a `*.workers.dev` host from which the name is inferred) must
+live in the repo **`.env`** for day-2 commands — the worker name is **not**
+prompted, so operations always target the deployed Worker from your last bootstrap.
+
 ### Management Authority
 
 Bootstrap now generates and stores a separate management bearer token:
@@ -394,11 +409,16 @@ coverage is now:
 ```
 
 - `--revoke-key` marks the fat record as revoked, deletes the live `key:<id>`
-  KV entry, and future `--push-registry` runs skip revoked records so the key
-  does not resurrect.
+  KV entry (unless you pass `--offline`), and future `--push-registry` runs skip
+  revoked records so the key does not resurrect. **`--offline`** updates
+  `keys.json` only (no Cloudflare); then re-run the same command **without**
+  `--offline` to delete KV entries once credentials are available. If the key is
+  already revoked locally, a second run without `--offline` performs **KV-only**
+  cleanup.
 - `--add-adapter` and `--revoke-adapter` are secure hybrid mutations: they use
-  the local V3 record plus plaintext authority from `subumbra.json` /
-  `.env.bootstrap`, re-encrypt, rewrite `keys.json`, and republish KV.
+  the local V3 record plus the manifest `secret_ref` plaintext (from the process
+  environment, the repo `.env` host mount, or a one-time interactive prompt when
+  you use a TTY), re-encrypt, rewrite `keys.json`, and republish KV.
 - `--publish-policy` has two branches:
   - non-baseline update for `intent`, `velocity`, or `response.deny_patterns`
     only: update fat-record policy and republish with no re-encryption
@@ -416,8 +436,11 @@ services:
 
 ```bash
 ./bootstrap.sh
-docker compose up -d --force-recreate
 ```
+
+On success the host wrapper also runs `docker compose up -d --force-recreate`
+and prints an adapter summary. For code-only refreshes without re-bootstrap,
+use `./bootstrap.sh --upgrade`.
 
 ### Existing volume migration
 

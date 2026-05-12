@@ -79,8 +79,7 @@ them.
 - Bootstrap now accepts optional `SUBUMBRA_POLICY_PATH` input for policy-backed
   bootstrap ingestion, while built-in direct-provider secrets retain a narrow
   in-memory auto-compat fallback when no explicit policy entry is supplied.
-- The interactive bootstrap wizard is now manual RAM-only entry; machine-readable
-  env-driven input belongs to automation mode rather than an in-wizard import prompt.
+- **R62 (CLOSED 2026-05-12):** Interactive bootstrap is again a first-class **manifest-era** TTY path when `.env.bootstrap` is absent: `run_interactive_wizard` loads `subumbra.json`, prompts for CF + per-`secret_ref` secrets into RAM (`_WIZARD_SECRETS`), and returns the same credential bundle shape as automation; `_resolve_manifest_secret` consults that cache before `os.environ`.
 - `subumbra-probe` is an optional diagnostic profile now; baseline bootstrap and
   runtime bring-up do not require probe provisioning.
 - `bootstrap.sh` now runs on the host, mounts repo-local `.env` into the

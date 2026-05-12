@@ -79,8 +79,7 @@ and fresh sessions tend to miss.
   `isolated-mode-no-host-port`. For **nested** self-tests (e.g. `verify-round.sh`
   invoking `verify.sh` for the same round), set **`VERIFY_SKIP_ROUND_HOOK=1`**
   so round hooks are not re-entered.
-- Closeout should capture minor non-blocking cleanup in `council/cleanup.md`
-  rather than reopening finished rounds.
+- **R62 `verify-round.sh` (CLOSED 2026-05-12):** Static checks on `bootstrap/subumbra-bootstrap.py` (8-tuple wizard unpack, `_WIZARD_SECRETS` + `_resolve_manifest_secret` order, Step 10 scrub) plus optional host `curl` proxy `/health` when port reachable; full TTY wizard smoke remains operator/harness outside the hook. Approved plan + close-out: `council/approved/r62-interactive-bootstrap.md`; archive: `council/closed/r62-interactive-bootstrap/`.
 
 ---
 

@@ -1,19 +1,24 @@
 #!/usr/bin/env python3
 """
-subumbra-bootstrap — V2 Asymmetric Envelope Encryption & Deployment.
+subumbra-bootstrap — manifest-era V3 envelope encryption & deployment.
 
-Usage (interactive — primary):
-    ./bootstrap.sh
+Usage (interactive — TTY, no .env.bootstrap):
+  ./bootstrap.sh
+  Requires subumbra.json on the bootstrap mount; Cloudflare and provider secrets
+  are prompted via hidden TTY reads (clear labels; no password echo) and held in RAM
+  (including an
+  in-process secret cache), not written to disk as plaintext.
 
-Usage (automation / CI — requires .env.bootstrap with all credentials):
-    ./bootstrap.sh
+Usage (automation / CI — requires .env.bootstrap with referenced secrets):
+  ./bootstrap.sh
 
 Single-key rotation (no Cloudflare interaction):
-    docker compose --profile bootstrap run --rm -it bootstrap --rotate
+  ./bootstrap.sh --rotate
 
 What it does (full bootstrap, in order):
-  1. Detects mode: headless env-var fallback (CI) or, in a TTY, prompts when
-     environment credentials are already present
+  1. Detects mode: automation when CF token + account + subumbra.json are all
+     present in the environment; otherwise interactive manifest wizard (TTY) or
+     structured errors when non-interactive
   2. Collects CF credentials + provider API keys (RAM only — never written to disk)
   3. Warns if keys.json already exists (rotation mode) and identifies any
      keys that will be removed because they are absent from this session
@@ -46,7 +51,6 @@ ROTATION NOTE (--rotate mode):
 from __future__ import annotations
 
 import gc
-import getpass
 import hashlib
 import json
 import os
@@ -56,6 +60,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import termios
+import tty
 import textwrap
 import time
 import urllib.error
@@ -77,18 +83,16 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 BANNER = """
 ╔══════════════════════════════════════════════════════════════════╗
-║       Subumbra Bootstrap — V2 Envelope Encryption                ║
+║       Subumbra Bootstrap — manifest-era V3 encryption            ║
 ║  API keys exist in RAM only.  Nothing sensitive is written.      ║
 ║                                                                  ║
-║  Full:     docker compose --profile bootstrap run --rm -it       ║
-║  Rotate:   ... run --rm -it bootstrap --rotate                   ║
-║  CI/auto:  docker compose --profile bootstrap run --rm           ║
+║  Full / nuke:   ./bootstrap.sh   (host uses -it when interactive)║
+║  Rotate:        ./bootstrap.sh --rotate                          ║
+║  CI / auto:   ./bootstrap.sh + host .env.bootstrap secrets       ║
+║  Day-2 / KV:   ./bootstrap.sh --push-registry, --provision, …    ║
+║  Image update:  ./bootstrap.sh --upgrade                         ║
 ╚══════════════════════════════════════════════════════════════════╝
 """
-
-# Known providers for the numbered wizard menu.
-# Format: (provider_label, env_var_name_for_CI_fallback)
-# This is derived from the shared built-in provider registry.
 
 # key_id validation: lowercase alphanumeric + underscores + hyphens, 3-64 chars
 KEY_ID_RE = re.compile(r'^[a-z0-9][a-z0-9_-]{2,63}$')
@@ -104,6 +108,9 @@ HOST_ENV_FILE   = Path("/app/host-env")
 WORKER_SRC      = Path("/app/worker")
 MANIFEST_FILE   = Path("/app/subumbra.json")
 KV_CONFIG_FILE = DATA_DIR / "kv-config.json"
+
+# RAM-only secrets collected in interactive wizard mode (never written to disk here).
+_WIZARD_SECRETS: dict[str, str] = {}
 
 CATALOG_DIR = Path("/app/templates")
 CATALOG_JSON_FILE = CATALOG_DIR / "catalog.json"
@@ -145,6 +152,52 @@ def warn(msg: str) -> None:
 def die(msg: str) -> NoReturn:
     print(f"\n✗  ERROR: {msg}\n", file=sys.stderr, flush=True)
     sys.exit(1)
+
+
+def _prompt_hidden_line(what: str) -> str:
+    """Read one sensitive line without local echo using /dev/tty + termios.
+
+    Prints ``Please enter your {what}:`` before reading (no generic password warning).
+    """
+    print(f"  Please enter your {what}:", flush=True)
+    try:
+        tty_in = open("/dev/tty", "rb", buffering=0)
+    except OSError:
+        die(
+            "Cannot open /dev/tty for hidden input. Run with a TTY, e.g. "
+            "`./bootstrap.sh` from an interactive shell (the host wrapper uses `docker compose run -it`)."
+        )
+
+    fd = tty_in.fileno()
+    old = termios.tcgetattr(fd)
+    try:
+        tty.setcbreak(fd)
+        data = bytearray()
+        while True:
+            ch = tty_in.read(1)
+            if not ch:
+                break
+            b = ch[0]
+            if b in (10, 13):
+                break
+            if b in (8, 127):
+                if data:
+                    data.pop()
+                    sys.stdout.write("\b \b")
+                    sys.stdout.flush()
+                continue
+            if b == 3:
+                raise KeyboardInterrupt
+            if 32 <= b <= 126 or b >= 128:
+                data.append(b)
+                sys.stdout.write("*")
+                sys.stdout.flush()
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        tty_in.close()
+    sys.stdout.write("\n")
+    sys.stdout.flush()
+    return data.decode("utf-8", errors="replace").strip()
 
 
 class BootstrapFlowError(RuntimeError):
@@ -391,6 +444,35 @@ def _read_env_file_value(path: Path, key: str) -> str:
             value = value[1:-1]
         return value
     return ""
+
+
+def _infer_cf_worker_name_from_worker_url(url: str) -> str:
+    """Best-effort worker script name from a Workers *.workers.dev URL."""
+    url = url.strip()
+    if not url:
+        return ""
+    try:
+        host = (urllib.parse.urlparse(url).hostname or "").strip().lower()
+    except Exception:
+        return ""
+    if not host:
+        return ""
+    labels = host.split(".")
+    if len(labels) >= 2 and labels[-2] == "workers" and labels[-1] == "dev":
+        return labels[0] or ""
+    return ""
+
+
+def _resolved_cf_worker_name_from_operator_context() -> str:
+    """Resolve Worker script name for day-2 / defaults: env, then host .env, then CF_WORKER_URL."""
+    w = os.environ.get("CF_WORKER_NAME", "").strip()
+    if w:
+        return w
+    w = _read_env_file_value(HOST_ENV_FILE, "CF_WORKER_NAME").strip()
+    if w:
+        return w
+    url = _read_env_file_value(HOST_ENV_FILE, "CF_WORKER_URL").strip()
+    return _infer_cf_worker_name_from_worker_url(url)
 
 
 # Maps both Subumbra canonical env var names AND common standalone-app aliases
@@ -677,10 +759,32 @@ def _load_policy_index() -> dict[str, dict[str, Any]]:
 def _resolve_manifest_secret(secret_ref: str) -> str:
     if not isinstance(secret_ref, str) or not secret_ref.strip():
         _manifest_die("secret_ref must be a non-empty string")
+    cached = _WIZARD_SECRETS.get(secret_ref, "").strip()
+    if cached:
+        return cached
     resolved = os.environ.get(secret_ref, "").strip()
-    if not resolved:
-        _manifest_die(f"secret_ref {secret_ref!r} is missing or empty in the bootstrap environment")
-    return resolved
+    if resolved:
+        return resolved
+    file_val = _read_env_file_value(HOST_ENV_FILE, secret_ref).strip()
+    if file_val:
+        return file_val
+    if sys.stdin.isatty():
+        warn(
+            f"secret_ref {secret_ref!r} is not in the process environment or repo .env — "
+            "enter the provider secret once for this command (RAM only; bootstrap does not write it to disk)."
+        )
+        value = _prompt_hidden_line(
+            f"provider secret / API key for manifest secret_ref {secret_ref!r}"
+        )
+        if not value:
+            _manifest_die(f"secret_ref {secret_ref!r} cannot be empty")
+        _WIZARD_SECRETS[secret_ref] = value
+        return value
+    _manifest_die(
+        f"secret_ref {secret_ref!r} is missing or empty — set {secret_ref} in the environment "
+        f"(e.g. `.env.bootstrap` loaded by docker compose), add {secret_ref}=... to the repo `.env` "
+        "host mount, or run `./bootstrap.sh` day-2 commands from an interactive terminal so bootstrap can prompt."
+    )
 
 
 def _effective_manifest_adapters(adapters: list[str]) -> list[str]:
@@ -1770,8 +1874,12 @@ def _has_env_credentials() -> bool:
 
 
 def _has_cf_credentials() -> bool:
-    required = ("CF_API_TOKEN", "CF_ACCOUNT_ID", "CF_WORKER_NAME")
-    return all(os.environ.get(name, "").strip() for name in required)
+    required = ("CF_API_TOKEN", "CF_ACCOUNT_ID")
+    if not all(os.environ.get(name, "").strip() for name in required):
+        return False
+    if not _resolved_cf_worker_name_from_operator_context():
+        return False
+    return True
 
 
 def _choose_bootstrap_mode() -> bool:
@@ -1822,27 +1930,40 @@ def _get_push_registry_cf_creds() -> dict[str, str]:
         return {
             "CF_API_TOKEN": os.environ["CF_API_TOKEN"].strip(),
             "CF_ACCOUNT_ID": os.environ["CF_ACCOUNT_ID"].strip(),
-            "CF_WORKER_NAME": os.environ["CF_WORKER_NAME"].strip(),
+            "CF_WORKER_NAME": _resolved_cf_worker_name_from_operator_context(),
         }
 
     if not sys.stdin.isatty():
-        die("Missing CF_API_TOKEN / CF_ACCOUNT_ID / CF_WORKER_NAME for day-2 management command")
+        die(
+            "Missing Cloudflare credentials for day-2 management.\n"
+            "  Set CF_API_TOKEN and CF_ACCOUNT_ID in the environment (or use interactive ./bootstrap.sh).\n"
+            "  Set CF_WORKER_NAME in the repo .env (host mount), or set CF_WORKER_URL to a *.workers.dev URL "
+            "so the worker name can be inferred — day-2 commands do not prompt for the worker name.\n"
+            "  For non-interactive CI, inject CF_API_TOKEN, CF_ACCOUNT_ID, and CF_WORKER_NAME into the container."
+        )
 
-    while True:
-        cf_token = getpass.getpass("  Cloudflare API token: ").strip()
-        if cf_token:
-            break
-        print("  ✗  API token cannot be empty.\n")
-    while True:
-        cf_account_id = input("  Cloudflare account ID: ").strip()
-        if cf_account_id:
-            break
-        print("  ✗  Account ID cannot be empty.\n")
-    while True:
-        cf_worker_name = input("  Cloudflare Worker name: ").strip()
-        if cf_worker_name:
-            break
-        print("  ✗  Worker name cannot be empty.\n")
+    cf_token = os.environ.get("CF_API_TOKEN", "").strip()
+    if not cf_token:
+        while True:
+            cf_token = _prompt_hidden_line("Cloudflare API token")
+            if cf_token:
+                break
+            print("  ✗  API token cannot be empty.\n")
+    cf_account_id = os.environ.get("CF_ACCOUNT_ID", "").strip()
+    if not cf_account_id:
+        while True:
+            cf_account_id = _prompt_hidden_line("Cloudflare account ID")
+            if cf_account_id:
+                break
+            print("  ✗  Account ID cannot be empty.\n")
+    cf_worker_name = _resolved_cf_worker_name_from_operator_context()
+    if not cf_worker_name:
+        die(
+            "CF_WORKER_NAME could not be resolved from the environment, "
+            f"{HOST_ENV_FILE}, or CF_WORKER_URL.\n"
+            "  Add e.g. CF_WORKER_NAME=subumbra-proxy (or your deployed name) to the repo .env and retry."
+        )
+    info(f"Using Cloudflare Worker name {cf_worker_name!r} from .env / environment (not prompted).")
     return {
         "CF_API_TOKEN":   cf_token,
         "CF_ACCOUNT_ID":  cf_account_id,
@@ -1900,7 +2021,7 @@ def _load_manifest_bootstrap() -> tuple[
     if missing_cf:
         die(f"Missing required Cloudflare bootstrap credential(s): {', '.join(missing_cf)}")
     cf_creds["CF_WORKER_NAME"] = (
-        os.environ.get("CF_WORKER_NAME", "").strip() or "subumbra-proxy"
+        _resolved_cf_worker_name_from_operator_context() or "subumbra-proxy"
     )
 
     declared_adapter_ids: list[str] = []
@@ -1976,12 +2097,10 @@ def _load_env_fallback(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Interactive wizard
+# Interactive wizard (manifest-era, RAM-only)
 # ─────────────────────────────────────────────────────────────────────────────
 
-# ── TOMBSTONED (R58): interactive catalog-era wizard ───────────────────────
-# `run_interactive_wizard` only calls `die(...)`. `main()` still reaches this when wizard mode is
-# selected so the failure message points operators at manifest-based bootstrap.
+
 def run_interactive_wizard(
     existing_keys: dict,
 ) -> tuple[
@@ -1990,15 +2109,146 @@ def run_interactive_wizard(
     dict[str, list[str]],
     dict[str, list[str]],
     int,
+    dict[str, bool],
+    dict[str, dict[str, Any]],
     list[str],
 ]:
     """
-    Interactive catalog-era bootstrap is no longer supported after provider catalog removal.
+    Interactive manifest bootstrap: collect Cloudflare credentials and per-key
+    secrets in RAM, bind adapters, and return the same logical credential bundle
+    as _load_manifest_bootstrap plus an empty shred_paths list.
     """
-    die(
-        "Interactive provider-catalog bootstrap is no longer supported.\n"
-        "  Author subumbra.json with explicit provider labels, policy.target.host, and policy.auth,\n"
-        "  then rerun bootstrap in manifest mode."
+    global _WIZARD_SECRETS
+
+    if existing_keys:
+        info(
+            f"Existing encrypted keys on disk: {len(existing_keys)} record(s) "
+            "— rotation rules apply after this session."
+        )
+
+    _WIZARD_SECRETS.clear()
+
+    step("Interactive manifest wizard — Cloudflare credentials")
+    cf_token = os.environ.get("CF_API_TOKEN", "").strip()
+    if not cf_token:
+        while True:
+            cf_token = _prompt_hidden_line("Cloudflare API token")
+            if cf_token:
+                break
+            print("  ✗  API token cannot be empty.\n")
+    cf_account_id = os.environ.get("CF_ACCOUNT_ID", "").strip()
+    if not cf_account_id:
+        while True:
+            cf_account_id = _prompt_hidden_line("Cloudflare account ID")
+            if cf_account_id:
+                break
+            print("  ✗  Account ID cannot be empty.\n")
+
+    suggested = _resolved_cf_worker_name_from_operator_context()
+    default_worker = suggested or "subumbra-proxy"
+    if suggested:
+        info(f"Current Worker name from .env / CF_WORKER_URL: {suggested!r}")
+    else:
+        info("No CF_WORKER_NAME or inferable CF_WORKER_URL in .env — default Worker name is subumbra-proxy")
+    print(
+        f"  Cloudflare Worker name [default: {default_worker}] — press Enter to use default, or type a new name:",
+        flush=True,
+    )
+    cf_worker_raw = input("  > ").strip()
+    cf_worker_name = cf_worker_raw or default_worker
+    cf_creds = {
+        "CF_API_TOKEN": cf_token,
+        "CF_ACCOUNT_ID": cf_account_id,
+        "CF_WORKER_NAME": cf_worker_name,
+    }
+    ok("Cloudflare credentials captured (values not printed)")
+
+    step("Loading manifest records from subumbra.json")
+    records = _load_manifest_records()
+    ok(f"Found {len(records)} manifest key record(s)")
+
+    step("Per-key provider secrets (RAM only; not echoed)")
+    accepted: list[dict[str, Any]] = []
+    for record in records:
+        key_id = record["key_id"]
+        provider = record["provider"]
+        secret_ref = record["secret_ref"]
+        if os.environ.get(secret_ref, "").strip():
+            ok(f"{key_id}: using existing bootstrap environment for {secret_ref!r}")
+            accepted.append(record)
+            continue
+        print(f"\n  Key: {key_id!r}  provider={provider!r}  secret_ref={secret_ref!r}")
+        choice = input("  Provision a secret for this key in this session? [Y/n]: ").strip().lower()
+        if choice in ("n", "no"):
+            info(f"Skipped {key_id!r} — no secret collected for this session.")
+            continue
+        while True:
+            secret_a = _prompt_hidden_line(
+                f"secret or API key for key_id {key_id!r} ({secret_ref!r})"
+            )
+            if not secret_a:
+                print("  ✗  Secret cannot be empty.\n")
+                continue
+            secret_b = _prompt_hidden_line(
+                f"same secret again to confirm for key_id {key_id!r}"
+            )
+            if secret_a != secret_b:
+                print("  ✗  Secrets do not match. Try again.\n")
+                continue
+            _WIZARD_SECRETS[secret_ref] = secret_a
+            accepted.append(record)
+            ok(f"Secret captured for {key_id!r}")
+            break
+
+    if not accepted:
+        die("No keys with resolvable secrets for this session. Aborted.")
+
+    seen_declared: set[str] = set()
+    api_keys: dict[str, tuple[str, str, str, str, str]] = {}
+    key_adapters_by_key_id: dict[str, list[str]] = {}
+    policy_by_key_id: dict[str, dict[str, Any]] = {}
+    unique_key_flags: dict[str, bool] = {}
+    allowed_keys_by_adapter: dict[str, list[str]] = {
+        "subumbra-proxy": [],
+        "subumbra-ui": [],
+    }
+
+    for rec in accepted:
+        for adapter_id in rec["adapters"]:
+            if adapter_id in seen_declared:
+                continue
+            seen_declared.add(adapter_id)
+            allowed_keys_by_adapter[adapter_id] = []
+
+    for rec in accepted:
+        kid = rec["key_id"]
+        api_keys[kid] = (
+            rec["provider"],
+            rec["target_host"],
+            rec["auth_header"],
+            rec["auth_prefix"],
+            rec["secret_ref"],
+        )
+        policy_by_key_id[kid] = rec["policy"]
+        unique_key_flags[kid] = rec["unique_vault"]
+        _bind_key_to_adapters(
+            kid,
+            rec["adapters"],
+            key_adapters_by_key_id=key_adapters_by_key_id,
+            allowed_keys_by_adapter=allowed_keys_by_adapter,
+        )
+
+    token_ttl_days = _parse_token_ttl_days(os.environ.get("TOKEN_TTL_DAYS", ""))
+    shred_paths: list[str] = []
+    return (
+        api_keys,
+        cf_creds,
+        allowed_keys_by_adapter,
+        key_adapters_by_key_id,
+        token_ttl_days,
+        unique_key_flags,
+        policy_by_key_id,
+        shred_paths,
     )
 
 
@@ -2772,8 +3022,26 @@ def _load_management_manifest_authority(key_id: str, expected_provider: str | No
 
 
 def run_revoke_key(target_key_id: str) -> None:
-    cf_creds = _get_push_registry_cf_creds()
+    offline = "--offline" in sys.argv
     keys_payload = _load_keys_payload_or_die()
+    if target_key_id not in keys_payload:
+        die(f"key_id {target_key_id!r} not found in keys.json")
+    stored = keys_payload[target_key_id]
+    if not isinstance(stored, dict):
+        die(f"keys.json record {target_key_id!r} is malformed")
+
+    if _is_revoked_record(stored):
+        if offline:
+            die(
+                f"key_id {target_key_id!r} is already revoked in keys.json.\n"
+                "  Omit --offline and re-run with Cloudflare credentials to delete live KV entries only."
+            )
+        cf_creds = _get_push_registry_cf_creds()
+        step(f"{target_key_id} already revoked locally — deleting Worker KV entries only")
+        _delete_revoked_key_kv_entries(cf_creds, keys_payload, target_key_id, stored)
+        ok("KV sync complete for revoked key")
+        return
+
     record = _require_existing_active_record(keys_payload, target_key_id)
     revoked_record = dict(record)
     revoked_record["revoked"] = True
@@ -2783,6 +3051,24 @@ def run_revoke_key(target_key_id: str) -> None:
     _write_keys_payload(keys_payload)
     ok(f"Revocation marker persisted for {target_key_id}")
 
+    if offline:
+        warn(
+            "Offline revoke: keys.json only. Worker KV may still list this key until you run the same "
+            "command without --offline (Cloudflare credentials) to delete key:* / policy:* entries."
+        )
+        info("subumbra-keys will refuse fetches for this key_id while revoked=true is set.")
+        return
+
+    cf_creds = _get_push_registry_cf_creds()
+    _delete_revoked_key_kv_entries(cf_creds, keys_payload, target_key_id, record)
+
+
+def _delete_revoked_key_kv_entries(
+    cf_creds: dict[str, str],
+    keys_payload: dict[str, dict[str, Any]],
+    target_key_id: str,
+    record: dict[str, Any],
+) -> None:
     namespace_id = _create_or_reuse_kv_namespace(cf_creds)
     step(f"Deleting live structured KV key:{target_key_id}")
     _kv_delete_key(cf_creds, namespace_id, f"key:{target_key_id}")
@@ -2992,11 +3278,11 @@ def run_rotate_wizard() -> None:
 
     # ── 4. Get new API key ───────────────────────────────────────────────
     while True:
-        new_key = getpass.getpass(f"\n  New API key for {key_id} (hidden): ").strip()
+        new_key = _prompt_hidden_line(f"new API key for {key_id!r}")
         if not new_key:
             print("  ✗  API key cannot be empty.")
             continue
-        confirm_key = getpass.getpass(f"  Confirm new API key (hidden): ").strip()
+        confirm_key = _prompt_hidden_line(f"same new API key again to confirm for {key_id!r}")
         if new_key != confirm_key:
             print("  ✗  Keys do not match. Try again.")
             continue
@@ -3197,23 +3483,21 @@ def main() -> None:
         else:
             step("Interactive wizard — no credentials found in environment")
     if use_wizard:
-        # Tombstoned catalog-era wizard path; `run_interactive_wizard` calls `die(...)` immediately.
+        # Interactive manifest wizard returns the same credential bundle shape as automation.
         try:
-            api_keys, cf_creds, allowed_keys_by_adapter, key_adapters_by_key_id, token_ttl_days, shred_paths = run_interactive_wizard(existing_keys)
+            (
+                api_keys,
+                cf_creds,
+                allowed_keys_by_adapter,
+                key_adapters_by_key_id,
+                token_ttl_days,
+                unique_key_flags,
+                policy_by_key_id,
+                shred_paths,
+            ) = run_interactive_wizard(existing_keys)
         except KeyboardInterrupt:
             print("\n\nAborted. No changes written.", file=sys.stderr)
             sys.exit(0)
-        policy_index = _load_policy_index()
-        policy_by_key_id: dict[str, dict[str, Any]] = {}
-        for key_id, (provider, target_host, _auth_header, _auth_prefix, _secret_ref) in api_keys.items():
-            policy_by_key_id[key_id] = _resolve_policy_for_key(
-                key_id,
-                provider,
-                target_host,
-                policy_index,
-                key_adapters_by_key_id[key_id],
-            )
-        unique_key_flags = _load_unique_key_flags(list(api_keys.keys()))
     if not use_wizard:
         shred_paths = []
         if not MANIFEST_FILE.exists():
@@ -3613,6 +3897,10 @@ def main() -> None:
         n = raw_lengths.get(k, len(secret_ref))
         api_keys[k] = (provider, target_host, auth_header, auth_prefix, "\x00" * n)
     del api_keys
+    for _wk in list(_WIZARD_SECRETS):
+        _wv = _WIZARD_SECRETS[_wk]
+        _WIZARD_SECRETS[_wk] = "\x00" * len(_wv)
+    _WIZARD_SECRETS.clear()
     del allowed_keys_by_adapter
     del cf_creds
     gc.collect()
@@ -3681,18 +3969,20 @@ def main() -> None:
   V3 envelope encryption active:
     Shared key:    {PUBLIC_KEY_FILE}
     Fingerprint:   {primary_pub_key_fp or "(unique-vault only run)"}
-    Per-key rotate: existing V3 records only via docker compose --profile bootstrap run --rm -it bootstrap --rotate
+    Per-key rotate: existing V3 records only via ./bootstrap.sh --rotate
     Pause/unpause: Worker management API via SUBUMBRA_MANAGEMENT_TOKEN
-    Revoke key:    ./bootstrap.sh --revoke-key <key_id>
+    Revoke key:    ./bootstrap.sh --revoke-key <key_id> [--offline]
+                   (--offline: keys.json only; then re-run without --offline for KV delete)
     Adapter edit:  ./bootstrap.sh --add-adapter <key_id> <adapter_id>
                    ./bootstrap.sh --revoke-adapter <key_id> <adapter_id>
     Policy publish: ./bootstrap.sh --publish-policy <key_id>
     Targeted repair: ./bootstrap.sh --provision <key_id>
-    V2 migration:  full bootstrap required
 """))
 
 
 if __name__ == "__main__":
+    if "--offline" in sys.argv and "--revoke-key" not in sys.argv:
+        die("--offline is only supported together with --revoke-key")
     if "--rotate-policy" in sys.argv:
         die("--rotate-policy has been removed. Re-run full bootstrap for policy, routing, or adapter-binding changes.")
     mode_flags = (
