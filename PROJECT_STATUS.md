@@ -137,6 +137,6 @@ Current pin: `main-latest@sha256:7c311546c25e7bb6e8cafede9fcd3d0d622ac636b5c9418
 
 ## Path Forward
 
-1. **Bootstrap tombstone stubs**: `run_interactive_wizard()` and `_load_env_fallback()` in `bootstrap/subumbra-bootstrap.py` are tombstoned stubs (call `die()`/`_automation_fail()` immediately) but remain reachable from `main()`. Not dead code but candidates for tombstone-cleanup round.
+1. **R62 — Interactive bootstrap wizard (operator priority):** Replace the tombstoned `run_interactive_wizard()` path with a restored **RAM-only**, first-class walkthrough: manifest-owned policy/routing authority, no plaintext resume files (R61 baseline), parity with post-R61 automation phases (deploy → phase-1 keygen → encrypt). `_load_env_fallback()` remains legacy tombstone unless scope explicitly revives it.
 2. **Harness noise**: `SUBUMBRA_TOKEN_PROBE` unset warning in `docker compose port` and other non-critical harness logs.
 3. **Harness cleanup (deferred from R60):** `VERIFY_MODE` is still exported by `vps-proof-run.sh` but not read by `verify.sh`; isolated mode continues to key off `SUBUMBRA_UI_CONTAINER`. A small follow-on round may wire an explicit mode string or remove the dead env forward.
