@@ -1,5 +1,5 @@
 # PROJECT_STATUS
-*Current state — updated 2026-05-11*
+*Current state — updated 2026-05-12*
 
 ---
 
@@ -128,13 +128,13 @@ Current pin: `main-latest@sha256:7c311546c25e7bb6e8cafede9fcd3d0d622ac636b5c9418
 | R55 | 2026-05-11 | Worker health signal (`worker_auth`), CF Access UI mode, audit hygiene, stats persistence |
 | R56 | 2026-05-11 | Stale pruning: doc cleanup, cleanup.md compaction, pre-R34 archive |
 | R57 | 2026-05-11 | System cleanup: dead-code prune (6 bootstrap symbols, management-audit route), hygiene artifacts, SEC-1 doc, SEC-3 JS hardening |
+| R58 | 2026-05-12 | Operator tuning: documented cadence/SEC-4, Compose log rotation on proxy/probe/bootstrap, volume migration doc accuracy, tombstone annotations only, removed `litellm/custom_callbacks.py` |
 
 ---
 
 ## Path Forward
 
-1. **R58 — Operator tuning**: expose and document polling/health intervals (proxy worker-auth TTL, Docker healthchecks, UI `/api/status` poll, SSE heartbeat); add Docker log rotation; align `scripts/fresh-start.sh` and `docs/subumbra-developer.md` to current `keys_data` volume name.
-2. **R59 — Rate-limit hardening**: revisit Basic Auth rate-limit model; current in-memory `_auth_failures` deque is per-gunicorn-worker and cannot reliably trigger a `429` under `--workers 2`; dedicated runtime/auth-hardening round.
-3. **Verification harness — Worker deploy gap**: existing-stack proof mode (`update_existing_stack`) does not call `wrangler deploy` after `docker compose up`; any round modifying `worker/src/worker.js` requires a separate manual deploy step with CF credentials. Consider adding `--deploy-worker` flag or a `council/{round}/deploy-worker.sh` hook.
-4. **Bootstrap tombstone stubs**: `run_interactive_wizard()` and `_load_env_fallback()` in `bootstrap/subumbra-bootstrap.py` are tombstoned stubs (call `die()`/`_automation_fail()` immediately) but remain reachable from `main()`. Not dead code but candidates for tombstone-cleanup round.
-5. **Verification harness portability**: consolidate fresh-install proof hooks around operator-first failure handling, dynamic `SUBUMBRA_PROXY_HOST_PORT`, and auth-aware preflight for secure-UI deployments.
+1. **R59 — Rate-limit hardening**: revisit Basic Auth rate-limit model; current in-memory `_auth_failures` deque is per-gunicorn-worker and cannot reliably trigger a `429` under `--workers 2`; dedicated runtime/auth-hardening round.
+2. **Verification harness — Worker deploy gap**: existing-stack proof mode (`update_existing_stack`) does not call `wrangler deploy` after `docker compose up`; any round modifying `worker/src/worker.js` requires a separate manual deploy step with CF credentials. Consider adding `--deploy-worker` flag or a `council/{round}/deploy-worker.sh` hook.
+3. **Bootstrap tombstone stubs**: `run_interactive_wizard()` and `_load_env_fallback()` in `bootstrap/subumbra-bootstrap.py` are tombstoned stubs (call `die()`/`_automation_fail()` immediately) but remain reachable from `main()`. Not dead code but candidates for tombstone-cleanup round.
+4. **Verification harness portability**: consolidate fresh-install proof hooks around operator-first failure handling, dynamic `SUBUMBRA_PROXY_HOST_PORT`, and auth-aware preflight for secure-UI deployments.
