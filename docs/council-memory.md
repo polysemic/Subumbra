@@ -40,6 +40,10 @@ and fresh sessions tend to miss.
   `subumbra-keys`, scans `/app/data` for a fixed canary substring (must be
   absent), curls proxy `/health`, and statically checks `run_rotate_wizard` for
   checkpoint symbols — it does not run bootstrap or compose bring-up.
+  **Close-out (2026-05-12):** Scenario B must capture **stdout only** from the
+  canary `docker compose exec` (do not merge Compose stderr into
+  `canary-grep.txt` — avoids false FAIL on `SUBUMBRA_TOKEN_PROBE` warnings).
+  Official `fresh-install` PASS: `codex-vps-20260512T174950Z`.
 - Treat `/opt/subumbra` as the canonical operator checkout during VPS work.
   Bundle/staging fallback is exception-only and must use a one-off `~/`
   sibling path without deleting, replacing, emptying, or repurposing
