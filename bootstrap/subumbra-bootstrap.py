@@ -5,7 +5,8 @@ subumbra-bootstrap — V2 Asymmetric Envelope Encryption & Deployment.
 Usage (interactive — TTY, no .env.bootstrap):
   ./bootstrap.sh
   Requires subumbra.json on the bootstrap mount; Cloudflare and provider secrets
-  are prompted via getpass / short prompts and held in RAM (including an
+  are prompted via hidden TTY reads (clear labels; no password echo) and held in RAM
+  (including an
   in-process secret cache), not written to disk as plaintext.
 
 Usage (automation / CI — requires .env.bootstrap with referenced secrets):
@@ -50,7 +51,6 @@ ROTATION NOTE (--rotate mode):
 from __future__ import annotations
 
 import gc
-import getpass
 import hashlib
 import json
 import os
@@ -60,6 +60,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import termios
+import tty
 import textwrap
 import time
 import urllib.error
@@ -148,6 +150,52 @@ def warn(msg: str) -> None:
 def die(msg: str) -> NoReturn:
     print(f"\n✗  ERROR: {msg}\n", file=sys.stderr, flush=True)
     sys.exit(1)
+
+
+def _prompt_hidden_line(what: str) -> str:
+    """Read one sensitive line without local echo using /dev/tty + termios.
+
+    Prints ``Please enter your {what}:`` before reading (no generic password warning).
+    """
+    print(f"  Please enter your {what}:", flush=True)
+    try:
+        tty_in = open("/dev/tty", "rb", buffering=0)
+    except OSError:
+        die(
+            "Cannot open /dev/tty for hidden input. Run with a TTY, e.g. "
+            "`docker compose --profile bootstrap run --rm -it bootstrap`."
+        )
+
+    fd = tty_in.fileno()
+    old = termios.tcgetattr(fd)
+    try:
+        tty.setcbreak(fd)
+        data = bytearray()
+        while True:
+            ch = tty_in.read(1)
+            if not ch:
+                break
+            b = ch[0]
+            if b in (10, 13):
+                break
+            if b in (8, 127):
+                if data:
+                    data.pop()
+                    sys.stdout.write("\b \b")
+                    sys.stdout.flush()
+                continue
+            if b == 3:
+                raise KeyboardInterrupt
+            if 32 <= b <= 126 or b >= 128:
+                data.append(b)
+                sys.stdout.write("*")
+                sys.stdout.flush()
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        tty_in.close()
+    sys.stdout.write("\n")
+    sys.stdout.flush()
+    return data.decode("utf-8", errors="replace").strip()
 
 
 class BootstrapFlowError(RuntimeError):
@@ -1835,17 +1883,21 @@ def _get_push_registry_cf_creds() -> dict[str, str]:
         die("Missing CF_API_TOKEN / CF_ACCOUNT_ID / CF_WORKER_NAME for day-2 management command")
 
     while True:
-        cf_token = getpass.getpass("  Cloudflare API token: ").strip()
+        cf_token = _prompt_hidden_line("Cloudflare API token")
         if cf_token:
             break
         print("  ✗  API token cannot be empty.\n")
     while True:
-        cf_account_id = input("  Cloudflare account ID: ").strip()
+        cf_account_id = _prompt_hidden_line("Cloudflare account ID")
         if cf_account_id:
             break
         print("  ✗  Account ID cannot be empty.\n")
     while True:
-        cf_worker_name = input("  Cloudflare Worker name: ").strip()
+        print(
+            "  Cloudflare Worker name (shown as you type; not a secret):",
+            flush=True,
+        )
+        cf_worker_name = input("  > ").strip()
         if cf_worker_name:
             break
         print("  ✗  Worker name cannot be empty.\n")
@@ -2017,18 +2069,22 @@ def run_interactive_wizard(
     cf_token = os.environ.get("CF_API_TOKEN", "").strip()
     if not cf_token:
         while True:
-            cf_token = getpass.getpass("  Cloudflare API token: ").strip()
+            cf_token = _prompt_hidden_line("Cloudflare API token")
             if cf_token:
                 break
             print("  ✗  API token cannot be empty.\n")
     cf_account_id = os.environ.get("CF_ACCOUNT_ID", "").strip()
     if not cf_account_id:
         while True:
-            cf_account_id = input("  Cloudflare account ID: ").strip()
+            cf_account_id = _prompt_hidden_line("Cloudflare account ID")
             if cf_account_id:
                 break
             print("  ✗  Account ID cannot be empty.\n")
-    cf_worker_raw = input("  Cloudflare Worker name [subumbra-proxy]: ").strip()
+    print(
+        "  Cloudflare Worker name (shown as you type; not a secret) [subumbra-proxy]:",
+        flush=True,
+    )
+    cf_worker_raw = input("  > ").strip()
     cf_worker_name = cf_worker_raw or "subumbra-proxy"
     cf_creds = {
         "CF_API_TOKEN": cf_token,
@@ -2057,11 +2113,15 @@ def run_interactive_wizard(
             info(f"Skipped {key_id!r} — no secret collected for this session.")
             continue
         while True:
-            secret_a = getpass.getpass("  Secret: ").strip()
+            secret_a = _prompt_hidden_line(
+                f"secret or API key for key_id {key_id!r} ({secret_ref!r})"
+            )
             if not secret_a:
                 print("  ✗  Secret cannot be empty.\n")
                 continue
-            secret_b = getpass.getpass("  Confirm secret: ").strip()
+            secret_b = _prompt_hidden_line(
+                f"same secret again to confirm for key_id {key_id!r}"
+            )
             if secret_a != secret_b:
                 print("  ✗  Secrets do not match. Try again.\n")
                 continue
@@ -3112,11 +3172,11 @@ def run_rotate_wizard() -> None:
 
     # ── 4. Get new API key ───────────────────────────────────────────────
     while True:
-        new_key = getpass.getpass(f"\n  New API key for {key_id} (hidden): ").strip()
+        new_key = _prompt_hidden_line(f"new API key for {key_id!r}")
         if not new_key:
             print("  ✗  API key cannot be empty.")
             continue
-        confirm_key = getpass.getpass(f"  Confirm new API key (hidden): ").strip()
+        confirm_key = _prompt_hidden_line(f"same new API key again to confirm for {key_id!r}")
         if new_key != confirm_key:
             print("  ✗  Keys do not match. Try again.")
             continue
