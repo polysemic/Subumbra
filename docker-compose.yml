@@ -111,6 +111,11 @@ services:
       context: ./subumbra-probe
       dockerfile: Dockerfile
     container_name: subumbra-probe
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
     profiles:
       - probe
     networks:
@@ -133,6 +138,11 @@ services:
       context: ./subumbra-proxy
       dockerfile: Dockerfile
     container_name: subumbra-proxy
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
     restart: unless-stopped
     networks:
       - internal
@@ -171,6 +181,11 @@ services:
       context: ./bootstrap
       dockerfile: Dockerfile
     container_name: subumbra-bootstrap
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
     profiles:
       - bootstrap
     networks:

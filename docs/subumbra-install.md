@@ -180,15 +180,20 @@ Expected services:
 ### Existing volume migration
 
 If you already have data in Docker's older doubled volume name, migrate it once
-before switching to the renamed `keys_data` volume:
+into the Compose-backed host volume (default project name `subumbra` →
+`subumbra_keys_data`):
 
 ```bash
-docker volume create keys_data
+docker volume create subumbra_keys_data
 docker run --rm \
   -v subumbra_subumbra_keys_data:/from \
-  -v keys_data:/to \
+  -v subumbra_keys_data:/to \
   alpine:3.21 sh -c "cp -a /from/. /to/"
 ```
+
+After migration and `docker compose up`, you may remove the stale
+`subumbra_subumbra_keys_data` volume **only** after confirming the stack is
+healthy and data is present under the new volume.
 
 Port exposure:
 
@@ -204,10 +209,16 @@ export CF_WORKER_URL="$(sed -n 's/^CF_WORKER_URL=//p' .env)"
 docker compose ps
 curl -sS "$CF_WORKER_URL/health"
 curl -sS http://127.0.0.1:10199/health
+# With UI Basic Auth enabled (`UI_USERNAME` + `UI_PASSWORD` in `.env`), unauthenticated
+# `GET /api/status` returns HTTP 401. With both unset (CF Access / default), local
+# `curl` may return HTTP 200 because `_require_auth` only enforces Basic when configured.
 curl -sS http://127.0.0.1:6563/api/status
 ```
 
-Both health endpoints now return a minimal `{"status":"ok"}` body.
+The Worker `curl` target and `subumbra-keys` `/health` return a minimal
+`{"status":"ok"}` body. **`subumbra-proxy` `/health`** additionally returns
+`worker_auth` (`ok`, `stale`, or `unreachable`) describing the last Worker
+auth-ping result — see `docs/operator-guide.md` ("Heartbeat, polling, and health cadence").
 
 For deploy-integrity verification after install, export `CF_API_TOKEN`,
 `CF_ACCOUNT_ID`, and `CF_WORKER_NAME`, then run

@@ -7,6 +7,37 @@ This guide covers the supported Round 1 operator flow:
 3. run `./bootstrap.sh`
 4. recreate the runtime services
 
+## Heartbeat, polling, and health cadence
+
+These defaults are **not** env-tunable in the current release; they exist so
+operators know how “fresh” health signals can be and how often Docker probes
+run.
+
+| Item | Value | Source |
+|------|-------|--------|
+| Proxy Worker auth cache TTL | `60` s | `subumbra-proxy/app.py` (`WORKER_AUTH_OK_TTL_SECONDS`) |
+| Proxy Worker auth-ping HTTP timeout | `2.0` s | `subumbra-proxy/app.py` (`WORKER_AUTH_TIMEOUT_SECONDS`) |
+| Dashboard `/api/status` poll | `30000` ms (30 s) | `ui/static/dashboard.js` (`STATUS_POLL_MS`) |
+| Dashboard SSE `/api/events` heartbeat | `30` s between comment frames | `ui/app.py` (`time.sleep(30)` in `api_events`) |
+| `subumbra-keys` Compose healthcheck | `interval: 30s`, `timeout: 5s`, `retries: 5`, `start_period: 10s` | `docker-compose.yml` under `subumbra-keys` → `healthcheck:` (lines ~61–66) |
+| `subumbra-ui` Compose healthcheck | `interval: 30s`, `timeout: 5s`, `retries: 3` | `docker-compose.yml` under `subumbra-ui` → `healthcheck:` (lines ~99–103) |
+| `subumbra-proxy` Compose healthcheck | `interval: 30s`, `timeout: 5s`, `retries: 3` | `docker-compose.yml` under `subumbra-proxy` → `healthcheck:` (lines ~164–168) |
+
+**Proxy `/health`:** returns JSON including `worker_auth` (`ok`, `stale`, or
+`unreachable`) in addition to `status`. See install verification docs.
+
+## SEC-4 — Container environment and process visibility
+
+Docker Compose injects runtime secrets from your host `.env` into **container
+environment variables** (`SUBUMBRA_ADAPTER_REGISTRY`, `SUBUMBRA_HMAC_KEY`,
+`SUBUMBRA_TOKEN_*`, etc., as declared in `docker-compose.yml`). Any process
+running **inside** a container can read those values from its environment.
+
+**Mitigations (operator):** restrict host `.env` permissions (e.g. `600`), keep
+images minimal, avoid ad-hoc `docker exec` in production, and treat container
+filesystem + memory as in-scope for anyone who can run workloads beside Subumbra
+services on the same host.
+
 ## 1. Create The Manifest
 
 Start from the checked-in example:
@@ -373,12 +404,17 @@ docker compose up -d --force-recreate
 ### Existing volume migration
 
 If your VPS already uses Docker's doubled legacy volume name, migrate it once
-before recreating the stack:
+into the Compose-backed host volume (default project name `subumbra` →
+`subumbra_keys_data`) before recreating the stack:
 
 ```bash
-docker volume create keys_data
+docker volume create subumbra_keys_data
 docker run --rm \
   -v subumbra_subumbra_keys_data:/from \
-  -v keys_data:/to \
+  -v subumbra_keys_data:/to \
   alpine:3.21 sh -c "cp -a /from/. /to/"
 ```
+
+After migration and `docker compose up`, you may remove the stale
+`subumbra_subumbra_keys_data` volume **only** after confirming the stack is
+healthy and data is present under the new volume.
