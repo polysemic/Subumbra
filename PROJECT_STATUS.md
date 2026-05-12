@@ -1,5 +1,5 @@
 # PROJECT_STATUS
-*Current state — updated 2026-05-12 (R61 bootstrap-checkpoint in flight)*
+*Current state — updated 2026-05-12 (R61 bootstrap-checkpoint CLOSED)*
 
 ---
 
@@ -131,7 +131,7 @@ Current pin: `main-latest@sha256:7c311546c25e7bb6e8cafede9fcd3d0d622ac636b5c9418
 | R58 | 2026-05-12 | Operator tuning: documented cadence/SEC-4, Compose log rotation on proxy/probe/bootstrap, volume migration doc accuracy, tombstone annotations only, removed `litellm/custom_callbacks.py` |
 | R59 | 2026-05-12 | Rate-limit hardening: unified Basic Auth failure counting under `--workers 1 --threads 4` Gunicorn model; documented thread-pool and IP masking semantics |
 | R60 | 2026-05-12 (CLOSED) | Harness improvements: `--deploy-worker` flag for automated existing-stack updates, dynamic proxy port resolution, and mode-aware P9.5 skipping |
-| R61 | 2026-05-12 (OPEN) | Bootstrap: remove plaintext `bootstrap-checkpoint.json` path; defer `secret_ref` resolution until post-deploy encrypt; phase-1 `call_setup_keygen` per vault; `run_provision_key` uses manifest + host env only; fail-closed host env sync; operator recovery docs |
+| R61 | 2026-05-12 (CLOSED) | Bootstrap: remove plaintext `bootstrap-checkpoint.json` path; defer `secret_ref` resolution until post-deploy encrypt; phase-1 `call_setup_keygen` per vault; `run_provision_key` uses manifest + host env only; fail-closed host env sync; operator recovery docs. Verified `fresh-install` VPS proof `codex-vps-20260512T174950Z`. |
 
 ---
 
