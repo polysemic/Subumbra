@@ -141,6 +141,17 @@ Fallback:
 AGENT=<llm> ./scripts/council/verify.sh <round-dir-name>
 ```
 
+**`vps-proof-run.sh` (live VPS):** optional **`--deploy-worker`** runs Wrangler
+deploy from the bootstrap image after `docker compose up` in **existing-stack**
+mode; requires **`CF_API_TOKEN`** in the invoking shell (forwarded to the
+remote session). If **`SUBUMBRA_PROXY_HOST_PORT`** is unset after an
+existing-stack update, the harness may set it from
+`docker compose port subumbra-proxy 8090` (numeric port only). When
+**`SUBUMBRA_UI_CONTAINER`** is set (isolated proof), **`verify.sh` P9.5** skips
+the host UI URL and records **SKIP** (`isolated-mode-no-host-port`). Nested
+harness self-tests set **`VERIFY_SKIP_ROUND_HOOK=1`** so `verify.sh` does not
+re-enter `verify-round.sh` for the same round.
+
 Round-local `council/<round>/verify-round.sh` hooks remain local-only files.
 Copy them into the VPS checkout or staging path before proof capture when the
 remote checkout does not already have the round folder contents you need.
