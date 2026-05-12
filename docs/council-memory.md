@@ -57,6 +57,10 @@ and fresh sessions tend to miss.
 - If a proof failure is clearly harness-only, stop once the pattern is clear
   and classify it as a harness issue instead of burning repeated retries on the
   same tooling gap.
+- **R58 `verify-round.sh` V2:** For UI `/api/status`, expect **401** when the
+  `subumbra-ui` container has non-empty `UI_USERNAME` (Basic Auth enabled) and
+  **200** when Basic Auth is not configured — matches product and avoids false
+  FAIL on open local dashboards.
 - Closeout should capture minor non-blocking cleanup in `council/cleanup.md`
   rather than reopening finished rounds.
 
