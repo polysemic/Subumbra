@@ -64,7 +64,7 @@ import urllib.request
 from base64 import b64encode
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import Any, Iterable, NoReturn
 
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives import hashes, serialization
@@ -200,36 +200,15 @@ def _public_key_file_for_key(key_id: str, vault_instance: str) -> Path:
     return DATA_DIR / f"public_key_{key_id}.pem"
 
 
-def _load_bootstrap_checkpoint() -> dict[str, Any]:
-    if not CHECKPOINT_FILE.exists():
-        return {"worker_url": "", "setup_token": "", "keys": {}, "host_env_updates": {}}
-    try:
-        checkpoint = json.loads(CHECKPOINT_FILE.read_text())
-    except (json.JSONDecodeError, OSError) as exc:
-        die(f"Cannot read bootstrap checkpoint: {exc}")
-    if not isinstance(checkpoint, dict):
-        die("bootstrap checkpoint is malformed")
-    checkpoint.setdefault("worker_url", "")
-    checkpoint.setdefault("setup_token", "")
-    checkpoint.setdefault("keys", {})
-    checkpoint.setdefault("host_env_updates", {})
-    if not isinstance(checkpoint["keys"], dict):
-        die("bootstrap checkpoint keys section is malformed")
-    if not isinstance(checkpoint["host_env_updates"], dict):
-        die("bootstrap checkpoint host_env_updates section is malformed")
-    return checkpoint
-
-
-def _write_bootstrap_checkpoint(checkpoint: dict[str, Any]) -> None:
-    tmp_file = CHECKPOINT_FILE.with_suffix(".json.tmp")
-    try:
-        fd = os.open(str(tmp_file), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as fh:
-            json.dump(checkpoint, fh, indent=2)
-            fh.write("\n")
-        os.replace(str(tmp_file), str(CHECKPOINT_FILE))
-    except OSError as exc:
-        die(f"Failed to write bootstrap checkpoint: {exc}")
+def _representative_key_id_for_vault_instance(
+    key_ids: Iterable[str],
+    unique_key_flags: dict[str, bool],
+    vault_instance: str,
+) -> str | None:
+    for key_id in sorted(key_ids):
+        if _vault_instance_for_key(key_id, unique_key_flags) == vault_instance:
+            return key_id
+    return None
 
 
 def _delete_bootstrap_checkpoint() -> None:
@@ -256,48 +235,6 @@ def _delete_bootstrap_checkpoint() -> None:
     if result.returncode != 0:
         detail = result.stderr.strip() or result.stdout.strip() or f"exit {result.returncode}"
         die(f"Failed to shred bootstrap checkpoint: {detail}")
-
-
-def _checkpoint_entry_by_vault_instance(checkpoint: dict[str, Any], vault_instance: str) -> dict[str, Any] | None:
-    for entry in checkpoint.get("keys", {}).values():
-        if isinstance(entry, dict) and entry.get("vault_instance") == vault_instance:
-            return entry
-    return None
-
-
-def _store_checkpoint_entry(
-    checkpoint: dict[str, Any],
-    key_id: str,
-    *,
-    vault_instance: str,
-    public_key_pem: str,
-    pub_key_fp: str,
-    provider: str,
-    target_host: str,
-    raw_secret: str,
-    policy: dict[str, Any],
-    adapters: list[str],
-    auth_header: str,
-    auth_prefix: str,
-    template_name: str,
-) -> None:
-    checkpoint.setdefault("keys", {})
-    checkpoint["keys"][key_id] = {
-        "vault_instance": vault_instance,
-        "public_key_pem": public_key_pem,
-        "pub_key_fp": pub_key_fp,
-        "provider": provider,
-        "target_host": target_host,
-        "raw_secret": raw_secret,
-        "policy": policy,
-        "policy_id": policy["policy_id"],
-        "policy_hash": compute_policy_hash(policy),
-        "adapters": list(adapters),
-        "auth_header": auth_header,
-        "auth_prefix": auth_prefix,
-        "template_name": template_name,
-    }
-    _write_bootstrap_checkpoint(checkpoint)
 
 
 def _write_public_key_file(path: Path, public_key_pem: str) -> None:
@@ -429,7 +366,10 @@ def _sync_host_env_file(host_env_updates: dict[str, str]) -> None:
             die(f"Failed to update host env file {HOST_ENV_FILE}: {exc}")
         ok(f"Repo-local env updated via {HOST_ENV_FILE}")
     else:
-        info(f"Host env sync skipped — {HOST_ENV_FILE} is unavailable")
+        die(
+            f"Host env file {HOST_ENV_FILE} is missing or not a regular file.\n"
+            "  Bootstrap must bind-mount the repo-root .env at that path so runtime tokens can be written."
+        )
 
 
 def _read_env_file_value(path: Path, key: str) -> str:
@@ -905,7 +845,6 @@ def _normalize_manifest_record(record: Any, idx: int) -> dict[str, Any]:
     secret_ref = record.get("secret_ref")
     if not isinstance(secret_ref, str) or not secret_ref.strip():
         _manifest_die(f"{source}.secret_ref must be a non-empty string")
-    raw_secret = _resolve_manifest_secret(secret_ref)
 
     adapters = record.get("adapters")
     if not isinstance(adapters, list):
@@ -963,7 +902,6 @@ def _normalize_manifest_record(record: Any, idx: int) -> dict[str, Any]:
         "key_id": key_id,
         "provider": provider,
         "secret_ref": secret_ref,
-        "raw_secret": raw_secret,
         "adapters": normalized_adapters,
         "effective_adapters": effective_adapters,
         "unique_vault": unique_vault,
@@ -1003,6 +941,39 @@ def _load_manifest_records() -> list[dict[str, Any]]:
         seen_key_ids.add(key_id)
         normalized_records.append(normalized)
     return normalized_records
+
+
+def _load_manifest_key_ids_only() -> set[str]:
+    if not MANIFEST_FILE.exists():
+        _manifest_die(f"required manifest file is missing at {MANIFEST_FILE}")
+    if not MANIFEST_FILE.is_file():
+        _manifest_die(f"{MANIFEST_FILE} is not a regular file")
+
+    try:
+        payload = json.loads(MANIFEST_FILE.read_text(encoding="utf-8"))
+    except OSError as exc:
+        _manifest_die(f"unreadable manifest: {exc}")
+    except json.JSONDecodeError as exc:
+        _manifest_die(f"invalid JSON: {exc}")
+
+    if not isinstance(payload, dict):
+        _manifest_die("top-level value must be an object")
+    records = payload.get("keys")
+    if not isinstance(records, list) or not records:
+        _manifest_die("top-level 'keys' must be a non-empty array")
+
+    key_ids: set[str] = set()
+    for idx, record in enumerate(records):
+        source = f"subumbra.json.keys[{idx}]"
+        if not isinstance(record, dict):
+            _manifest_die(f"{source} must be an object")
+        key_id = record.get("key_id")
+        if not isinstance(key_id, str) or not KEY_ID_RE.fullmatch(key_id):
+            _manifest_die(f"{source}.key_id is invalid")
+        if key_id in key_ids:
+            _manifest_die(f"duplicate key_id {key_id!r}")
+        key_ids.add(key_id)
+    return key_ids
 
 
 def _binding_policy_id(key_id: str, allowed_adapters: list[str]) -> str:
@@ -1104,15 +1075,15 @@ def _verify_embedded_policy_hash(record: dict[str, Any], key_id: str) -> None:
 def _load_manifest_repair_authority(target_key_id: str) -> dict[str, Any]:
     if not MANIFEST_FILE.exists():
         die(
-            f"bootstrap checkpoint is missing authority for key_id {target_key_id!r}, "
-            "and subumbra.json is unavailable.\n  Re-run full bootstrap."
+            f"Cannot repair key_id {target_key_id!r}: subumbra.json is unavailable.\n"
+            "  Re-run full bootstrap with a manifest that declares this key."
         )
     for record in _load_manifest_records():
         if record["key_id"] == target_key_id:
             return {
                 "provider": record["provider"],
                 "target_host": record["target_host"],
-                "raw_secret": record["raw_secret"],
+                "raw_secret": _resolve_manifest_secret(record["secret_ref"]),
                 "vault_instance": _vault_instance_for_key(target_key_id, {target_key_id: record["unique_vault"]}),
                 "policy": record["policy"],
                 "adapters": list(record["adapters"]),
@@ -1121,8 +1092,8 @@ def _load_manifest_repair_authority(target_key_id: str) -> dict[str, Any]:
                 "template_name": record["provider"],
             }
     die(
-        f"bootstrap checkpoint is missing authority for key_id {target_key_id!r}, "
-        "and subumbra.json does not declare that key.\n  Re-run full bootstrap."
+        f"Cannot repair key_id {target_key_id!r}: subumbra.json does not declare that key.\n"
+        "  Re-run full bootstrap or add the key to the manifest."
     )
 
 
@@ -1958,7 +1929,7 @@ def _load_manifest_bootstrap() -> tuple[
             record["target_host"],
             record["auth_header"],
             record["auth_prefix"],
-            record["raw_secret"],
+            record["secret_ref"],
         )
         policy_by_key_id[key_id] = record["policy"]
         unique_key_flags[key_id] = record["unique_vault"]
@@ -3085,110 +3056,36 @@ def run_provision_key(target_key_id: str) -> None:
         die(f"{target_key_id!r} already exists in keys.json — no targeted repair needed")
 
     cf_creds = _get_push_registry_cf_creds()
-    checkpoint = _load_bootstrap_checkpoint()
-    worker_url = str(checkpoint.get("worker_url", "")).strip() or _read_env_file_value(HOST_ENV_FILE, "CF_WORKER_URL")
-    setup_token = str(checkpoint.get("setup_token", "")).strip() or _read_env_file_value(HOST_ENV_FILE, "SUBUMBRA_SETUP_TOKEN")
+    worker_url = _read_env_file_value(HOST_ENV_FILE, "CF_WORKER_URL").strip()
+    setup_token = _read_env_file_value(HOST_ENV_FILE, "SUBUMBRA_SETUP_TOKEN").strip()
     if not worker_url or not setup_token:
-        die("bootstrap checkpoint is missing worker_url or setup_token")
-    checkpoint_host_env_updates = checkpoint.get("host_env_updates", {})
-    if checkpoint_host_env_updates and not isinstance(checkpoint_host_env_updates, dict):
-        die("bootstrap checkpoint host_env_updates section is malformed")
-    checkpoint_entry = checkpoint.get("keys", {}).get(target_key_id)
-    manifest_fallback = None
-    if not isinstance(checkpoint_entry, dict):
-        manifest_fallback = _load_manifest_repair_authority(target_key_id)
-        checkpoint_entry = {}
+        die(
+            "Cannot repair a missing key without a live Worker URL and setup token.\n"
+            f"  Set CF_WORKER_URL and SUBUMBRA_SETUP_TOKEN in {HOST_ENV_FILE} (repo bind-mount).\n"
+            "  These values come from the last bootstrap or your operator secrets store."
+        )
 
-    provider = checkpoint_entry.get("provider")
-    target_host = checkpoint_entry.get("target_host")
-    raw = checkpoint_entry.get("raw_secret")
-    vault_instance = checkpoint_entry.get("vault_instance")
-    auth_header = checkpoint_entry.get("auth_header", "")
-    auth_prefix = checkpoint_entry.get("auth_prefix", "")
-    template_name = str(checkpoint_entry.get("template_name", ""))
-
-    if not isinstance(provider, str) or not provider:
-        manifest_fallback = manifest_fallback or _load_manifest_repair_authority(target_key_id)
-        provider = manifest_fallback["provider"]
-    if not isinstance(target_host, str) or not target_host:
-        manifest_fallback = manifest_fallback or _load_manifest_repair_authority(target_key_id)
-        target_host = manifest_fallback["target_host"]
-    if not isinstance(raw, str) or not raw:
-        manifest_fallback = manifest_fallback or _load_manifest_repair_authority(target_key_id)
-        raw = manifest_fallback["raw_secret"]
-    if not isinstance(vault_instance, str) or not vault_instance:
-        manifest_fallback = manifest_fallback or _load_manifest_repair_authority(target_key_id)
-        vault_instance = manifest_fallback["vault_instance"]
-
-    checkpoint_policy = checkpoint_entry.get("policy")
-    checkpoint_adapters = checkpoint_entry.get("adapters")
-    checkpoint_policy_hash = checkpoint_entry.get("policy_hash")
-    checkpoint_policy_id = checkpoint_entry.get("policy_id")
-    checkpoint_can_authorize = (
-        isinstance(checkpoint_policy, dict)
-        and isinstance(checkpoint_adapters, list)
-        and bool(checkpoint_adapters)
-        and all(isinstance(adapter_id, str) and adapter_id for adapter_id in checkpoint_adapters)
-        and isinstance(checkpoint_policy_hash, str)
-        and bool(checkpoint_policy_hash.strip())
-        and isinstance(checkpoint_policy_id, str)
-        and bool(checkpoint_policy_id.strip())
-    )
-    if checkpoint_can_authorize:
-        policy, adapters = _require_fat_record_fields(checkpoint_entry, target_key_id)
-        _verify_embedded_policy_hash(checkpoint_entry, target_key_id)
-    else:
-        manifest_fallback = manifest_fallback or _load_manifest_repair_authority(target_key_id)
-        policy = manifest_fallback["policy"]
-        adapters = manifest_fallback["adapters"]
-        auth_header = manifest_fallback["auth_header"]
-        auth_prefix = manifest_fallback["auth_prefix"]
-        template_name = manifest_fallback["template_name"]
-
-    public_key_pem = checkpoint_entry.get("public_key_pem", "")
-    pub_key_fp = checkpoint_entry.get("pub_key_fp", "")
-    if not isinstance(public_key_pem, str):
-        public_key_pem = ""
-    if not isinstance(pub_key_fp, str):
-        pub_key_fp = ""
-    if not public_key_pem or not pub_key_fp:
-        existing_key_file = _public_key_file_for_key(target_key_id, vault_instance)
-        if existing_key_file.exists():
-            step(f"Reading existing vault public key for {target_key_id} from {existing_key_file.name}")
-            public_key_pem = existing_key_file.read_text()
-            _pub_key_obj = _load_public_key_from_pem(public_key_pem)
-            pub_key_fp = public_key_fingerprint(_pub_key_obj)
-        else:
-            die(
-                f"Missing local public key for key_id {target_key_id!r}, and no reusable checkpoint key material is available.\n"
-                "  Re-run full bootstrap."
-            )
-    _store_checkpoint_entry(
-        checkpoint,
-        target_key_id,
-        vault_instance=vault_instance,
-        public_key_pem=public_key_pem,
-        pub_key_fp=pub_key_fp,
-        provider=provider,
-        target_host=target_host,
-        raw_secret=raw,
-        policy=policy,
-        adapters=adapters,
-        auth_header=str(auth_header),
-        auth_prefix=str(auth_prefix),
-        template_name=template_name,
-    )
+    authority = _load_manifest_repair_authority(target_key_id)
+    provider = authority["provider"]
+    target_host = authority["target_host"]
+    raw = authority["raw_secret"]
+    vault_instance = authority["vault_instance"]
+    policy = authority["policy"]
+    adapters = authority["adapters"]
 
     public_key_file = _public_key_file_for_key(target_key_id, vault_instance)
-    _write_public_key_file(public_key_file, public_key_pem)
-    pub_key = _load_public_key_from_pem(public_key_pem)
-    computed_fp = public_key_fingerprint(pub_key)
-    if computed_fp != pub_key_fp:
+    if not public_key_file.exists():
         die(
-            "Bootstrap checkpoint public key fingerprint mismatch\n"
-            f"  stored:   {pub_key_fp}\n"
-            f"  computed: {computed_fp}"
+            f"Missing local public key for key_id {target_key_id!r}.\n"
+            "  Ensure vault keygen completed (public_key*.pem on the data volume) "
+            "or re-run full bootstrap."
         )
+    step(f"Reading existing vault public key for {target_key_id} from {public_key_file.name}")
+    public_key_pem = public_key_file.read_text()
+    pub_key = _load_public_key_from_pem(public_key_pem)
+    pub_key_fp = public_key_fingerprint(pub_key)
+
+    _write_public_key_file(public_key_file, public_key_pem)
 
     policy_hash = compute_policy_hash(policy)
     now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -3227,24 +3124,19 @@ def run_provision_key(target_key_id: str) -> None:
         die("structured publish aborted before registry_version update")
     ok("Structured KV publication complete")
 
-    if checkpoint_host_env_updates:
-        checkpoint_host_env_updates["SUBUMBRA_SETUP_TOKEN"] = setup_token
-        checkpoint["host_env_updates"] = checkpoint_host_env_updates
-        _write_bootstrap_checkpoint(checkpoint)
-        _sync_host_env_file(checkpoint_host_env_updates)
-
-    expected_key_ids = set(checkpoint.get("keys", {}).keys())
+    expected_key_ids = _load_manifest_key_ids_only()
     if expected_key_ids and expected_key_ids.issubset(set(existing_keys.keys())):
         step("Deleting transient SUBUMBRA_SETUP_TOKEN from CF Secrets")
         _delete_worker_secret(cf_creds, "SUBUMBRA_SETUP_TOKEN")
-        if checkpoint_host_env_updates:
-            checkpoint_host_env_updates["SUBUMBRA_SETUP_TOKEN"] = ""
-            checkpoint["host_env_updates"] = checkpoint_host_env_updates
-            _sync_host_env_file(checkpoint_host_env_updates)
+        _sync_host_env_file({"SUBUMBRA_SETUP_TOKEN": ""})
         _delete_bootstrap_checkpoint()
-        ok("All requested keys are present — checkpoint cleared")
+        ok("All manifest keys are present in keys.json — setup token cleared from CF and host env")
     else:
-        warn("Other missing keys remain — bootstrap checkpoint preserved")
+        missing = expected_key_ids - set(existing_keys.keys())
+        warn(
+            "Other manifest keys are still missing from keys.json; "
+            f"SUBUMBRA_SETUP_TOKEN retained (missing: {', '.join(sorted(missing))})."
+        )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -3255,6 +3147,11 @@ def main() -> None:
     print(BANNER, flush=True)
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+    had_checkpoint = CHECKPOINT_FILE.exists()
+    _delete_bootstrap_checkpoint()
+    if had_checkpoint:
+        ok(f"Removed stale bootstrap checkpoint at {CHECKPOINT_FILE}")
 
     # Load existing keys for rotation mode checks (needed before wizard)
     now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -3308,7 +3205,7 @@ def main() -> None:
             sys.exit(0)
         policy_index = _load_policy_index()
         policy_by_key_id: dict[str, dict[str, Any]] = {}
-        for key_id, (provider, target_host, _auth_header, _auth_prefix, _raw) in api_keys.items():
+        for key_id, (provider, target_host, _auth_header, _auth_prefix, _secret_ref) in api_keys.items():
             policy_by_key_id[key_id] = _resolve_policy_for_key(
                 key_id,
                 provider,
@@ -3322,7 +3219,7 @@ def main() -> None:
         if not MANIFEST_FILE.exists():
             policy_index = _load_policy_index()
             policy_by_key_id = {}
-            for key_id, (provider, target_host, _auth_header, _auth_prefix, _raw) in api_keys.items():
+            for key_id, (provider, target_host, _auth_header, _auth_prefix, _secret_ref) in api_keys.items():
                 policy_by_key_id[key_id] = _resolve_policy_for_key(
                     key_id,
                     provider,
@@ -3374,7 +3271,7 @@ def main() -> None:
         print(f"    Account: {masked}\n")
 
         print("  Keys to encrypt:")
-        for kid, (provider, _target_host, _auth_header, _auth_prefix, _raw) in api_keys.items():
+        for kid, (provider, _target_host, _auth_header, _auth_prefix, _secret_ref) in api_keys.items():
             print(f"    {kid:30s} → {provider:12s} → {_binding_label(key_adapters_by_key_id[kid])}")
 
         if keys_to_remove:
@@ -3443,9 +3340,6 @@ def main() -> None:
         provider_id_filter=bootstrapped_providers,
     )
     ok(f"Worker URL: {worker_url}")
-    checkpoint = _load_bootstrap_checkpoint()
-    checkpoint["worker_url"] = worker_url
-    checkpoint["setup_token"] = setup_token
     host_env_updates = _build_host_env_updates(
         adapter_registry=adapter_registry,
         allowed_keys_by_adapter=allowed_keys_by_adapter,
@@ -3455,8 +3349,6 @@ def main() -> None:
         worker_url=worker_url,
         setup_token=setup_token,
     )
-    checkpoint["host_env_updates"] = dict(host_env_updates)
-    _write_bootstrap_checkpoint(checkpoint)
     _sync_host_env_file(host_env_updates)
 
     requested_nuke = "--nuke" in sys.argv
@@ -3525,121 +3417,89 @@ def main() -> None:
         )
         ok(f"Worker re-bound after reset: {worker_url}")
         host_env_updates["CF_WORKER_URL"] = worker_url
-        checkpoint = {
-            "worker_url": worker_url,
-            "setup_token": setup_token,
-            "keys": {},
-            "host_env_updates": dict(host_env_updates),
-        }
-        _write_bootstrap_checkpoint(checkpoint)
-        ok("Cleared stale checkpoint and local public-key artifacts")
+        _sync_host_env_file(host_env_updates)
+        ok("Cleared local public-key artifacts after CF reset")
 
-    # ── Step 5: Phase 2 — provision per-key vault public keys ────────────
+    # ── Step 5a: Phase 1 — /setup/keygen per vault instance (before secrets) ─
+    step("Phase 1 — vault /setup/keygen (per vault instance)")
+    phase1_failures: list[tuple[str, str]] = []
+    public_keys_by_vault_instance: dict[str, Any] = {}
+
+    for vault_instance in candidate_vault_instances:
+        rep_key = _representative_key_id_for_vault_instance(api_keys.keys(), unique_key_flags, vault_instance)
+        if rep_key is None:
+            msg = "no manifest key maps to this vault_instance"
+            phase1_failures.append((vault_instance, msg))
+            warn(f"{vault_instance}: {msg}")
+            continue
+        public_key_file = _public_key_file_for_key(rep_key, vault_instance)
+        try:
+            if not destructive_nuke and public_key_file.exists():
+                step(
+                    f"Reusing existing vault public key for {vault_instance} "
+                    f"from {public_key_file.name}"
+                )
+                public_key_pem = public_key_file.read_text()
+                pub_key = _load_public_key_from_pem(public_key_pem)
+            else:
+                public_key_pem, pub_key_fp, _created_at = call_setup_keygen(
+                    worker_url, setup_token, vault_instance
+                )
+                _write_public_key_file(public_key_file, public_key_pem)
+                pub_key = _load_public_key_from_pem(public_key_pem)
+                computed_fp = public_key_fingerprint(pub_key)
+                if computed_fp != pub_key_fp:
+                    die(
+                        "Cloudflare setup keygen returned inconsistent fingerprint\n"
+                        f"  returned: {pub_key_fp}\n"
+                        f"  computed: {computed_fp}"
+                    )
+        except BootstrapFlowError as exc:
+            phase1_failures.append((vault_instance, str(exc)))
+            warn(f"{vault_instance}: vault keygen failed")
+            continue
+        except OSError as exc:
+            phase1_failures.append((vault_instance, f"failed to read/write public key: {exc}"))
+            warn(f"{vault_instance}: failed to read/write public key")
+            continue
+
+        public_keys_by_vault_instance[vault_instance] = pub_key
+        info(f"{vault_instance}: fingerprint={public_key_fingerprint(pub_key)}")
+        ok(f"Vault public key ready for {vault_instance}")
+
+    phase1_failed_vaults = {vault_inst for vault_inst, _ in phase1_failures}
+
+    # ── Step 5b: Phase 2 — per-key material from vault public keys ─────────
     step("Provisioning per-key vault public keys")
     phase2_material: dict[str, dict[str, str]] = {}
     phase2_failures: list[tuple[str, str]] = []
-    public_keys_by_vault_instance: dict[str, Any] = {}
     forced_failure_key = os.environ.get("SUBUMBRA_FORCE_PROVISION_FAILURE_KEY", "").strip()
 
-    for key_id, (provider, _target_host, _auth_header, _auth_prefix, _raw) in api_keys.items():
+    for key_id, (provider, _target_host, _auth_header, _auth_prefix, _secret_ref) in api_keys.items():
         vault_instance = _vault_instance_for_key(key_id, unique_key_flags)
-        policy = policy_by_key_id[key_id]
-        _store_checkpoint_entry(
-            checkpoint,
-            key_id,
-            vault_instance=vault_instance,
-            public_key_pem="",
-            pub_key_fp="",
-            provider=provider,
-            target_host=api_keys[key_id][1],
-            raw_secret=_raw,
-            policy=policy,
-            adapters=key_adapters_by_key_id[key_id],
-            auth_header=_auth_header,
-            auth_prefix=_auth_prefix,
-            template_name=provider,
-        )
-        checkpoint_entry = checkpoint.get("keys", {}).get(key_id)
-        if not isinstance(checkpoint_entry, dict) or checkpoint_entry.get("vault_instance") != vault_instance:
-            checkpoint_entry = None
-        if isinstance(checkpoint_entry, dict):
-            public_key_pem = checkpoint_entry.get("public_key_pem", "")
-            pub_key_fp = checkpoint_entry.get("pub_key_fp", "")
-            if not isinstance(public_key_pem, str) or not public_key_pem or not isinstance(pub_key_fp, str) or not pub_key_fp:
-                checkpoint_entry = None
-        if checkpoint_entry is None:
-            candidate_entry = _checkpoint_entry_by_vault_instance(checkpoint, vault_instance)
-            if isinstance(candidate_entry, dict):
-                public_key_pem = candidate_entry.get("public_key_pem", "")
-                pub_key_fp = candidate_entry.get("pub_key_fp", "")
-                if isinstance(public_key_pem, str) and public_key_pem and isinstance(pub_key_fp, str) and pub_key_fp:
-                    checkpoint_entry = candidate_entry
-
-        if checkpoint_entry is None:
-            existing_key_file = _public_key_file_for_key(key_id, vault_instance)
-            if not destructive_nuke and existing_key_file.exists():
-                step(f"Reusing existing vault public key for {key_id} from {existing_key_file.name}")
-                try:
-                    public_key_pem = existing_key_file.read_text()
-                    pub_key_obj = _load_public_key_from_pem(public_key_pem)
-                except OSError as exc:
-                    phase2_failures.append((key_id, f"failed to read existing public key: {exc}"))
-                    warn(f"{key_id}: failed to read existing public key")
-                    continue
-                pub_key_fp = public_key_fingerprint(pub_key_obj)
-            else:
-                try:
-                    public_key_pem, pub_key_fp, _created_at = call_setup_keygen(worker_url, setup_token, vault_instance)
-                except BootstrapFlowError as exc:
-                    phase2_failures.append((key_id, str(exc)))
-                    warn(f"{key_id}: vault provisioning failed")
-                    continue
-            _store_checkpoint_entry(
-                checkpoint,
-                key_id,
-                vault_instance=vault_instance,
-                public_key_pem=public_key_pem,
-                pub_key_fp=pub_key_fp,
-                provider=provider,
-                target_host=api_keys[key_id][1],
-                raw_secret=_raw,
-                policy=policy,
-                adapters=key_adapters_by_key_id[key_id],
-                auth_header=_auth_header,
-                auth_prefix=_auth_prefix,
-                template_name=provider,
-            )
-        else:
-            public_key_pem = checkpoint_entry["public_key_pem"]
-            pub_key_fp = checkpoint_entry["pub_key_fp"]
-            _store_checkpoint_entry(
-                checkpoint,
-                key_id,
-                vault_instance=vault_instance,
-                public_key_pem=public_key_pem,
-                pub_key_fp=pub_key_fp,
-                provider=provider,
-                target_host=api_keys[key_id][1],
-                raw_secret=_raw,
-                policy=policy,
-                adapters=key_adapters_by_key_id[key_id],
-                auth_header=_auth_header,
-                auth_prefix=_auth_prefix,
-                template_name=provider,
-            )
+        if vault_instance in phase1_failed_vaults:
+            warn(f"{key_id}: skipped — vault {vault_instance} failed during phase-1 keygen")
+            continue
+        if vault_instance not in public_keys_by_vault_instance:
+            phase2_failures.append((key_id, f"vault {vault_instance} has no public key after phase 1"))
+            warn(f"{key_id}: missing vault public key for {vault_instance}")
+            continue
 
         public_key_file = _public_key_file_for_key(key_id, vault_instance)
-        _write_public_key_file(public_key_file, public_key_pem)
-        pub_key = _load_public_key_from_pem(public_key_pem)
-        computed_fp = public_key_fingerprint(pub_key)
-        if computed_fp != pub_key_fp:
+        try:
+            public_key_pem = public_key_file.read_text()
+            pub_key_obj = _load_public_key_from_pem(public_key_pem)
+        except OSError as exc:
+            phase2_failures.append((key_id, f"failed to read public key: {exc}"))
+            warn(f"{key_id}: failed to read public key")
+            continue
+        pub_key_fp = public_key_fingerprint(pub_key_obj)
+        if public_key_fingerprint(public_keys_by_vault_instance[vault_instance]) != pub_key_fp:
             die(
-                "Cloudflare setup keygen returned inconsistent fingerprint\n"
-                f"  returned: {pub_key_fp}\n"
-                f"  computed: {computed_fp}"
+                "Local public key does not match phase-1 vault key material\n"
+                f"  key_id: {key_id}\n"
+                f"  vault_instance: {vault_instance}"
             )
-        info(f"{key_id}: vault_instance={vault_instance} fingerprint={computed_fp}")
-        public_keys_by_vault_instance[vault_instance] = pub_key
         if forced_failure_key == key_id:
             phase2_failures.append((key_id, "forced verification failure after vault provisioning"))
             warn(f"{key_id}: forced verification failure after vault provisioning")
@@ -3654,10 +3514,13 @@ def main() -> None:
     # ── Step 6: Phase 3 — encrypt successful keys ────────────────────────
     step("Encrypting API keys — V3 envelope (RSA-4096-OAEP + AES-256-GCM)")
     keys_payload: dict[str, dict] = {}
+    raw_lengths: dict[str, int] = {}
 
-    for key_id, (provider, target_host, _auth_header, _auth_prefix, raw) in api_keys.items():
+    for key_id, (provider, target_host, _auth_header, _auth_prefix, secret_ref) in api_keys.items():
         if key_id not in phase2_material:
             continue
+        raw = _resolve_manifest_secret(secret_ref)
+        raw_lengths[key_id] = len(raw)
         phase2_entry = phase2_material[key_id]
         vault_instance = phase2_entry["vault_instance"]
         pub_key = public_keys_by_vault_instance[vault_instance]
@@ -3682,6 +3545,8 @@ def main() -> None:
             label=key_id,
         )
         del dek
+        raw = "\x00" * raw_lengths[key_id]
+        del raw
         ok(
             f"Encrypted {provider:12s} → {key_id}  →  "
             f"{_binding_label(key_adapters_by_key_id[key_id])}  →  {vault_instance}"
@@ -3727,11 +3592,11 @@ def main() -> None:
     _write_runtime_env_file(runtime_env_lines)
     _sync_host_env_file(host_env_updates)
 
-    if not phase2_failures:
+    if not phase1_failures and not phase2_failures:
         step("Deleting transient SUBUMBRA_SETUP_TOKEN from CF Secrets")
         _delete_worker_secret(cf_creds, "SUBUMBRA_SETUP_TOKEN")
         _delete_bootstrap_checkpoint()
-        ok("Bootstrap checkpoint cleared")
+        ok("Bootstrap cleanup complete (setup token removed from CF)")
 
     # ── Step 10: zero sensitive memory ───────────────────────────────────
     step("Clearing sensitive values from memory")
@@ -3742,25 +3607,34 @@ def main() -> None:
     del management_token
     setup_token = "\x00" * len(setup_token)
     del setup_token
-    # Zero raw API key values (tuples are immutable but we can overwrite the dict)
+    # Zero resolved API key lengths where known; otherwise clear secret_ref slot length
     for k in list(api_keys):
-        provider, target_host, auth_header, auth_prefix, raw = api_keys[k]
-        api_keys[k] = (provider, target_host, auth_header, auth_prefix, "\x00" * len(raw))
+        provider, target_host, auth_header, auth_prefix, secret_ref = api_keys[k]
+        n = raw_lengths.get(k, len(secret_ref))
+        api_keys[k] = (provider, target_host, auth_header, auth_prefix, "\x00" * n)
     del api_keys
     del allowed_keys_by_adapter
     del cf_creds
     gc.collect()
     ok("Sensitive memory cleared (best-effort)")
 
-    if phase2_failures:
+    if phase1_failures or phase2_failures:
         print("\n" + "─" * 70)
         print("  Bootstrap completed with partial success")
-        print("  Successful records are live; failed keys were skipped:")
-        for key_id, message in phase2_failures:
-            print(f"    • {key_id}: {message.splitlines()[0]}")
-        print("\n  Retry each failed key with:")
-        for key_id, _message in phase2_failures:
-            print(f"    ./bootstrap.sh --provision {key_id}")
+        if phase1_failures:
+            print("  Phase-1 vault keygen failures:")
+            for vault_inst, message in phase1_failures:
+                print(f"    • {vault_inst}: {message.splitlines()[0]}")
+        if phase2_failures:
+            print("  Successful records are live; failed keys were skipped:")
+            for key_id, message in phase2_failures:
+                print(f"    • {key_id}: {message.splitlines()[0]}")
+        if phase2_failures:
+            print("\n  Retry each failed key with:")
+            for key_id, _message in phase2_failures:
+                print(f"    ./bootstrap.sh --provision {key_id}")
+        elif phase1_failures:
+            print("\n  Re-run full bootstrap after fixing vault keygen for the instance(s) above.")
         print("─" * 70)
         sys.exit(1)
 
