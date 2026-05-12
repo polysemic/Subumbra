@@ -39,7 +39,11 @@ if MISSING:
     print(f"ERROR: missing env vars: {MISSING}", file=sys.stderr)
     sys.exit(1)
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(levelname)-7s  %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%SZ",
+)
 LOG = logging.getLogger("subumbra-proxy")
 
 STRIP_HEADERS = {
