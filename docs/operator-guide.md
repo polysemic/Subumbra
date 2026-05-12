@@ -180,10 +180,10 @@ when repairs are complete.
 **Interactive vs automation:** With a TTY and **no** complete unattended credential set
 (`CF_API_TOKEN`, `CF_ACCOUNT_ID`, and `subumbra.json` all present in the bootstrap
 environment), bootstrap runs the **manifest wizard**: it reads `subumbra.json`,
-prompts for Cloudflare credentials and each `secret_ref` (RAM / `getpass` only),
+prompts for Cloudflare credentials and each `secret_ref` (hidden TTY reads; RAM only),
 then continues the same deploy → keygen → encrypt pipeline as automation. With
 `.env.bootstrap` populated for every `secret_ref`, use a **non-interactive** compose
-run (`... run --rm bootstrap` without `-it`) so secrets load from the file.
+run (`./bootstrap.sh` without a TTY, or with stdin closed) so secrets load from the file.
 
 ```bash
 ./bootstrap.sh
@@ -416,8 +416,9 @@ coverage is now:
   already revoked locally, a second run without `--offline` performs **KV-only**
   cleanup.
 - `--add-adapter` and `--revoke-adapter` are secure hybrid mutations: they use
-  the local V3 record plus plaintext authority from `subumbra.json` /
-  `.env.bootstrap`, re-encrypt, rewrite `keys.json`, and republish KV.
+  the local V3 record plus the manifest `secret_ref` plaintext (from the process
+  environment, the repo `.env` host mount, or a one-time interactive prompt when
+  you use a TTY), re-encrypt, rewrite `keys.json`, and republish KV.
 - `--publish-policy` has two branches:
   - non-baseline update for `intent`, `velocity`, or `response.deny_patterns`
     only: update fat-record policy and republish with no re-encryption

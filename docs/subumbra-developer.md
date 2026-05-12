@@ -326,7 +326,7 @@ docker compose down --rmi all 2>/dev/null || true
 docker rmi subumbra-bootstrap 2>/dev/null || true
 
 # Remove local credential and runtime files
-rm -f .env .env.bootstrap .env.bootstrap_bak
+rm -f .env .env.bootstrap
 ```
 
 Then bootstrap fresh (section 4 above).

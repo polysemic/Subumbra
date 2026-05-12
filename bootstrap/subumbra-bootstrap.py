@@ -763,9 +763,28 @@ def _resolve_manifest_secret(secret_ref: str) -> str:
     if cached:
         return cached
     resolved = os.environ.get(secret_ref, "").strip()
-    if not resolved:
-        _manifest_die(f"secret_ref {secret_ref!r} is missing or empty in the bootstrap environment")
-    return resolved
+    if resolved:
+        return resolved
+    file_val = _read_env_file_value(HOST_ENV_FILE, secret_ref).strip()
+    if file_val:
+        return file_val
+    if sys.stdin.isatty():
+        warn(
+            f"secret_ref {secret_ref!r} is not in the process environment or repo .env — "
+            "enter the provider secret once for this command (RAM only; bootstrap does not write it to disk)."
+        )
+        value = _prompt_hidden_line(
+            f"provider secret / API key for manifest secret_ref {secret_ref!r}"
+        )
+        if not value:
+            _manifest_die(f"secret_ref {secret_ref!r} cannot be empty")
+        _WIZARD_SECRETS[secret_ref] = value
+        return value
+    _manifest_die(
+        f"secret_ref {secret_ref!r} is missing or empty — set {secret_ref} in the environment "
+        f"(e.g. `.env.bootstrap` loaded by docker compose), add {secret_ref}=... to the repo `.env` "
+        "host mount, or run `./bootstrap.sh` day-2 commands from an interactive terminal so bootstrap can prompt."
+    )
 
 
 def _effective_manifest_adapters(adapters: list[str]) -> list[str]:
