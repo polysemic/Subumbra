@@ -79,7 +79,8 @@ and fresh sessions tend to miss.
   `isolated-mode-no-host-port`. For **nested** self-tests (e.g. `verify-round.sh`
   invoking `verify.sh` for the same round), set **`VERIFY_SKIP_ROUND_HOOK=1`**
   so round hooks are not re-entered.
-- **R62 `verify-round.sh` (CLOSED 2026-05-12):** Static checks on `bootstrap/subumbra-bootstrap.py` (8-tuple wizard unpack, `_WIZARD_SECRETS` + `_resolve_manifest_secret` order, Step 10 scrub) plus optional host `curl` proxy `/health` when port reachable; full TTY wizard smoke remains operator/harness outside the hook. Approved plan + close-out: `council/approved/r62-interactive-bootstrap.md`; archive: `council/closed/r62-interactive-bootstrap/`.
+- **R63 `verify-round.sh`:** Proves `/stats` and `/keys` stability (two rapid fetches; `jq` compact `per_key` match), proxy `/health`, optional bad-token 401 on `/stats`, and writes artifacts under `${VERIFY_ARTIFACT_DIR}/` (`r63-stats-double.json`, `r63-keys-double.json`, `r63-proxy-health.json`, `r63-verify-exit.txt`). Uses `docker compose exec -T subumbra-ui` + in-container `urllib` to `http://subumbra-keys:9090` with `SUBUMBRA_TOKEN_UI` / `VERIFY_UI_TOKEN` from the host environment (R60 hygiene: no curl inside UI for secrets). Approved plan: `council/approved/r63-observability-consistency.md`.
+- **R63 close-out (2026-05-12):** Round **CLOSED**; archive `council/closed/r63-observability-consistency/`. Official VPS `existing-stack` PASS runs: `claude-vps-20260512T233235Z`, `gemini-vps-20260512T234111Z` (implementation `0d403ef`). **`codex-verification.md` not filed** — process gap only; Claude + Gemini both PASS. Claude noted **HARNESS_ISSUE:** first proof without `--build` can hit stale images; use `--build subumbra-keys` (and affected services) for code-change rounds.
 
 ---
 

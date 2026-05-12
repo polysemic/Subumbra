@@ -225,13 +225,6 @@ function initEventSource() {
 
   _es = new EventSource("/api/events");
 
-  _es.addEventListener("status", (e) => {
-    try {
-      applyStatus(JSON.parse(e.data));
-      setLiveIndicator("live");
-    } catch { /* malformed push — ignore, wait for next */ }
-  });
-
   _es.addEventListener("open", () => setLiveIndicator("live"));
 
   _es.addEventListener("error", () => {
