@@ -122,7 +122,7 @@ services:
       - internal
       - external
     environment:
-      SUBUMBRA_ACCESS_TOKEN: ${SUBUMBRA_TOKEN_PROBE}
+      SUBUMBRA_ACCESS_TOKEN: ${SUBUMBRA_TOKEN_PROBE:-}
       SUBUMBRA_HMAC_KEY: ${SUBUMBRA_HMAC_KEY}
       SUBUMBRA_KEYS_URL: http://subumbra-keys:9090
       CF_WORKER_URL: ${CF_WORKER_URL}
@@ -170,11 +170,8 @@ services:
   # ───────────────────────────────────────────────────────────────────────────
   # bootstrap  —  one-shot key generation
   #
-  #   Interactive (human operator):
-  #     docker compose --profile bootstrap run --rm -it bootstrap
-  #
-  #   Automation / CI (requires populated .env.bootstrap):
-  #     docker compose --profile bootstrap run --rm bootstrap
+  #   Interactive or automation / CI (both use the host wrapper):
+  #     ./bootstrap.sh    (automation: populate .env.bootstrap first)
   # ───────────────────────────────────────────────────────────────────────────
   bootstrap:
     build:

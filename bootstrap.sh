@@ -8,6 +8,36 @@ env_file=".env"
 bootstrap_file=".env.bootstrap"
 manifest_file="subumbra.json"
 
+# Resolve primary bootstrap subcommand (may appear after flags, e.g. --revoke-key … --offline).
+mode=""
+for arg in "$@"; do
+    case "$arg" in
+        --upgrade|--nuke|--rotate|--push-registry|--provision|--revoke-key|--add-adapter|--revoke-adapter|--publish-policy)
+            mode="$arg"
+            break
+            ;;
+    esac
+done
+if [[ -z "$mode" ]]; then
+    mode="${1:-}"
+fi
+
+if [[ "$mode" == "--upgrade" ]]; then
+    if [[ ! -f "$env_file" ]]; then
+        echo "ERROR: $env_file not found. Create it (e.g. cp .env.example .env), run ./bootstrap.sh once, then use --upgrade." >&2
+        exit 1
+    fi
+    echo ""
+    echo "▶  Subumbra upgrade — rebuild images and recreate containers"
+    echo "   Docker volumes (e.g. encrypted keys) are not removed by this step."
+    echo ""
+    docker compose build
+    docker compose --profile bootstrap build bootstrap
+    docker compose up -d --force-recreate
+    python3 "$repo_root/scripts/subumbra-print-adapters.py" "$repo_root/$env_file"
+    exit 0
+fi
+
 if [[ ! -f "$env_file" ]]; then
     cp .env.example "$env_file"
 fi
@@ -54,26 +84,43 @@ if [[ -f "$bootstrap_file" ]]; then
     done < "$bootstrap_file"
 fi
 
-# --rotate and full-bootstrap modes need stdin for the interactive wizard / nuke prompt.
-# Non-interactive subcommands keep stdin closed.
-mode="${1:-}"
+# Full bootstrap / --nuke / --rotate: wizard may prompt (hidden input needs /dev/tty).
+# Day-2 registry commands may prompt for Cloudflare credentials when not in env.
+# Use -it when the host has a TTY; use -T for CI/pipes (set CF_* in the environment).
+bootstrap_rc=0
 if [[ "$mode" == "--rotate" || "$mode" == "--nuke" || -z "$mode" ]]; then
-    docker compose --profile bootstrap run -T --rm \
+    if [[ -t 0 ]]; then
+        run_io_flags=(-it)
+    else
+        run_io_flags=(-T)
+    fi
+    docker compose --profile bootstrap run "${run_io_flags[@]}" --rm \
         "${volume_args[@]}" \
         "${env_args[@]}" \
-        bootstrap "$@"
+        bootstrap "$@" || bootstrap_rc=$?
+elif [[ "$mode" == "--push-registry" || "$mode" == "--provision" || "$mode" == "--revoke-key" || "$mode" == "--add-adapter" || "$mode" == "--revoke-adapter" || "$mode" == "--publish-policy" ]]; then
+    if [[ -t 0 ]]; then
+        run_io_flags=(-it)
+    else
+        run_io_flags=(-T)
+    fi
+    docker compose --profile bootstrap run "${run_io_flags[@]}" --rm \
+        "${volume_args[@]}" \
+        "${env_args[@]}" \
+        bootstrap "$@" || bootstrap_rc=$?
 else
     docker compose --profile bootstrap run -T --rm \
         "${volume_args[@]}" \
         "${env_args[@]}" \
-        bootstrap "$@" </dev/null
+        bootstrap "$@" </dev/null || bootstrap_rc=$?
 fi
 
-if [[ -f "$bootstrap_file" && "$mode" != "--provision" && "$mode" != "--add-adapter" && "$mode" != "--revoke-adapter" && "$mode" != "--publish-policy" ]]; then
-    if command -v shred >/dev/null 2>&1; then
-        shred -u "$bootstrap_file"
-    else
-        python3 - "$bootstrap_file" <<'PY'
+if [[ $bootstrap_rc -eq 0 ]]; then
+    if [[ -f "$bootstrap_file" && "$mode" != "--provision" && "$mode" != "--add-adapter" && "$mode" != "--revoke-adapter" && "$mode" != "--publish-policy" ]]; then
+        if command -v shred >/dev/null 2>&1; then
+            shred -u "$bootstrap_file"
+        else
+            python3 - "$bootstrap_file" <<'PY'
 import os
 import sys
 
@@ -85,7 +132,17 @@ with open(path, "r+b") as fh:
     os.fsync(fh.fileno())
 os.remove(path)
 PY
+        fi
+    elif [[ -f "$bootstrap_file" && ( "$mode" == "--provision" || "$mode" == "--add-adapter" || "$mode" == "--revoke-adapter" || "$mode" == "--publish-policy" ) ]]; then
+        echo "WARNING: .env.bootstrap retained after $mode for additional secure mutation steps. Shred it manually when repairs are complete." >&2
     fi
-elif [[ -f "$bootstrap_file" && ( "$mode" == "--provision" || "$mode" == "--add-adapter" || "$mode" == "--revoke-adapter" || "$mode" == "--publish-policy" ) ]]; then
-    echo "WARNING: .env.bootstrap retained after $mode for additional secure mutation steps. Shred it manually when repairs are complete." >&2
 fi
+
+if [[ $bootstrap_rc -eq 0 && ( -z "$mode" || "$mode" == "--nuke" ) ]]; then
+    echo ""
+    echo "▶  Starting / refreshing core stack (docker compose up -d --force-recreate)"
+    docker compose up -d --force-recreate
+    python3 "$repo_root/scripts/subumbra-print-adapters.py" "$repo_root/$env_file" || true
+fi
+
+exit "$bootstrap_rc"

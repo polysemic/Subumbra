@@ -599,6 +599,18 @@ def get_key(key_id: str) -> tuple[Response, int]:
         return _err("key not found", 404)
 
     entry = keys[key_id]
+    if entry.get("revoked") is True:
+        log.warning("get_key: revoked key_id=%s remote=%s", key_id, remote)
+        _record_audit(
+            adapter_id=adapter["adapter_id"],
+            key_id=key_id,
+            endpoint="get_key",
+            verdict="deny",
+            reason_code="key_revoked",
+            remote=remote,
+        )
+        return _err("key revoked", 403)
+
     log.info("get_key: served key_id=%s remote=%s", key_id, remote)
     _record_audit(
         adapter_id=adapter["adapter_id"],
