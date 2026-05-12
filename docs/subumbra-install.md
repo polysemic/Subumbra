@@ -136,6 +136,13 @@ After a successful full bootstrap, the Worker-side `SUBUMBRA_SETUP_TOKEN`
 bootstrap authority is revoked; any host-side copy should be treated as a
 reference record, not a reusable live credential.
 
+**Host `.env` bind-mount.** Full bootstrap and `--provision` update the
+repo-root `.env` through the bootstrap container path `/app/host-env`. If that
+bind-mount is missing, bootstrap fails closed (it cannot persist generated
+tokens). See [docs/operator-guide.md](operator-guide.md) (**Bootstrap Phase-2
+recovery**) for half-state recovery (`--nuke`, `--push-registry`) and setup-token
+notes.
+
 ## 6. Verify Generated Runtime Values
 
 ```bash
