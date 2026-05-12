@@ -395,7 +395,7 @@ resources were started under one of the scoped staging project names above.
 2. Push the updated registry to Cloudflare KV:
 
 ```bash
-docker compose --profile bootstrap run --rm bootstrap --push-registry
+./bootstrap.sh --push-registry
 ```
 
 Visibility window: ~90 seconds (KV `cacheTtl: 30` + CF eventual consistency).
@@ -423,7 +423,7 @@ No provider API keys needed for registry-only publishes.
 ### Single-key rotation (one provider secret changed)
 
 ```bash
-docker compose --profile bootstrap run --rm -it bootstrap --rotate
+./bootstrap.sh --rotate
 ```
 
 No service restart required after per-key rotation.

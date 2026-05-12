@@ -143,7 +143,7 @@ function renderKeys(keys) {
     grid.className = "keys-grid";
     grid.innerHTML =
       `<div class="empty-state">No keys loaded. Run bootstrap first:` +
-      `<div class="empty-code">docker compose --profile bootstrap run --rm -it bootstrap</div></div>`;
+      `<div class="empty-code">./bootstrap.sh</div></div>`;
     return;
   }
   if (_keysView === "list") renderKeysList(keys);

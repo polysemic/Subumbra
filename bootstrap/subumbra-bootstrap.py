@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-subumbra-bootstrap — V2 Asymmetric Envelope Encryption & Deployment.
+subumbra-bootstrap — manifest-era V3 envelope encryption & deployment.
 
 Usage (interactive — TTY, no .env.bootstrap):
   ./bootstrap.sh
@@ -13,7 +13,7 @@ Usage (automation / CI — requires .env.bootstrap with referenced secrets):
   ./bootstrap.sh
 
 Single-key rotation (no Cloudflare interaction):
-  docker compose --profile bootstrap run --rm -it bootstrap --rotate
+  ./bootstrap.sh --rotate
 
 What it does (full bootstrap, in order):
   1. Detects mode: automation when CF token + account + subumbra.json are all
@@ -83,12 +83,14 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 BANNER = """
 ╔══════════════════════════════════════════════════════════════════╗
-║       Subumbra Bootstrap — V2 Envelope Encryption                ║
+║       Subumbra Bootstrap — manifest-era V3 encryption            ║
 ║  API keys exist in RAM only.  Nothing sensitive is written.      ║
 ║                                                                  ║
-║  Full:     docker compose --profile bootstrap run --rm -it       ║
-║  Rotate:   ... run --rm -it bootstrap --rotate                   ║
-║  CI/auto:  docker compose --profile bootstrap run --rm           ║
+║  Full / nuke:   ./bootstrap.sh   (host uses -it when interactive)║
+║  Rotate:        ./bootstrap.sh --rotate                          ║
+║  CI / auto:   ./bootstrap.sh + host .env.bootstrap secrets       ║
+║  Day-2 / KV:   ./bootstrap.sh --push-registry, --provision, …    ║
+║  Image update:  ./bootstrap.sh --upgrade                         ║
 ╚══════════════════════════════════════════════════════════════════╝
 """
 
@@ -163,7 +165,7 @@ def _prompt_hidden_line(what: str) -> str:
     except OSError:
         die(
             "Cannot open /dev/tty for hidden input. Run with a TTY, e.g. "
-            "`docker compose --profile bootstrap run --rm -it bootstrap`."
+            "`./bootstrap.sh` from an interactive shell (the host wrapper uses `docker compose run -it`)."
         )
 
     fd = tty_in.fileno()
@@ -1880,7 +1882,12 @@ def _get_push_registry_cf_creds() -> dict[str, str]:
         }
 
     if not sys.stdin.isatty():
-        die("Missing CF_API_TOKEN / CF_ACCOUNT_ID / CF_WORKER_NAME for day-2 management command")
+        die(
+            "Missing CF_API_TOKEN / CF_ACCOUNT_ID / CF_WORKER_NAME for day-2 management command.\n"
+            "  Export those variables, or run from an interactive terminal so the script can prompt "
+            "(use: ./bootstrap.sh <command> — the host wrapper allocates a TTY for day-2 commands).\n"
+            "  For non-interactive CI, inject CF credentials into the bootstrap container environment."
+        )
 
     while True:
         cf_token = _prompt_hidden_line("Cloudflare API token")
@@ -2952,8 +2959,26 @@ def _load_management_manifest_authority(key_id: str, expected_provider: str | No
 
 
 def run_revoke_key(target_key_id: str) -> None:
-    cf_creds = _get_push_registry_cf_creds()
+    offline = "--offline" in sys.argv
     keys_payload = _load_keys_payload_or_die()
+    if target_key_id not in keys_payload:
+        die(f"key_id {target_key_id!r} not found in keys.json")
+    stored = keys_payload[target_key_id]
+    if not isinstance(stored, dict):
+        die(f"keys.json record {target_key_id!r} is malformed")
+
+    if _is_revoked_record(stored):
+        if offline:
+            die(
+                f"key_id {target_key_id!r} is already revoked in keys.json.\n"
+                "  Omit --offline and re-run with Cloudflare credentials to delete live KV entries only."
+            )
+        cf_creds = _get_push_registry_cf_creds()
+        step(f"{target_key_id} already revoked locally — deleting Worker KV entries only")
+        _delete_revoked_key_kv_entries(cf_creds, keys_payload, target_key_id, stored)
+        ok("KV sync complete for revoked key")
+        return
+
     record = _require_existing_active_record(keys_payload, target_key_id)
     revoked_record = dict(record)
     revoked_record["revoked"] = True
@@ -2963,6 +2988,24 @@ def run_revoke_key(target_key_id: str) -> None:
     _write_keys_payload(keys_payload)
     ok(f"Revocation marker persisted for {target_key_id}")
 
+    if offline:
+        warn(
+            "Offline revoke: keys.json only. Worker KV may still list this key until you run the same "
+            "command without --offline (Cloudflare credentials) to delete key:* / policy:* entries."
+        )
+        info("subumbra-keys will refuse fetches for this key_id while revoked=true is set.")
+        return
+
+    cf_creds = _get_push_registry_cf_creds()
+    _delete_revoked_key_kv_entries(cf_creds, keys_payload, target_key_id, record)
+
+
+def _delete_revoked_key_kv_entries(
+    cf_creds: dict[str, str],
+    keys_payload: dict[str, dict[str, Any]],
+    target_key_id: str,
+    record: dict[str, Any],
+) -> None:
     namespace_id = _create_or_reuse_kv_namespace(cf_creds)
     step(f"Deleting live structured KV key:{target_key_id}")
     _kv_delete_key(cf_creds, namespace_id, f"key:{target_key_id}")
@@ -3863,18 +3906,20 @@ def main() -> None:
   V3 envelope encryption active:
     Shared key:    {PUBLIC_KEY_FILE}
     Fingerprint:   {primary_pub_key_fp or "(unique-vault only run)"}
-    Per-key rotate: existing V3 records only via docker compose --profile bootstrap run --rm -it bootstrap --rotate
+    Per-key rotate: existing V3 records only via ./bootstrap.sh --rotate
     Pause/unpause: Worker management API via SUBUMBRA_MANAGEMENT_TOKEN
-    Revoke key:    ./bootstrap.sh --revoke-key <key_id>
+    Revoke key:    ./bootstrap.sh --revoke-key <key_id> [--offline]
+                   (--offline: keys.json only; then re-run without --offline for KV delete)
     Adapter edit:  ./bootstrap.sh --add-adapter <key_id> <adapter_id>
                    ./bootstrap.sh --revoke-adapter <key_id> <adapter_id>
     Policy publish: ./bootstrap.sh --publish-policy <key_id>
     Targeted repair: ./bootstrap.sh --provision <key_id>
-    V2 migration:  full bootstrap required
 """))
 
 
 if __name__ == "__main__":
+    if "--offline" in sys.argv and "--revoke-key" not in sys.argv:
+        die("--offline is only supported together with --revoke-key")
     if "--rotate-policy" in sys.argv:
         die("--rotate-policy has been removed. Re-run full bootstrap for policy, routing, or adapter-binding changes.")
     mode_flags = (
