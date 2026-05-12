@@ -1,5 +1,5 @@
 # PROJECT_STATUS
-*Current state — updated 2026-05-12 (R62 interactive bootstrap — CLOSED)*
+*Current state — updated 2026-05-12 (R63 observability consistency — implemented; verification pending)*
 
 ---
 
@@ -48,8 +48,7 @@ Deferred by council consensus.
 | AUDIT-RETENTION | SQLite audit trail is durable across restarts and row growth is capped by `AUDIT_MAX_ROWS`, but retention is still local only with no archival/export path | Accepted as current local-ops limit |
 | CRITICAL-3 | CF Access header strip enforced at Worker edge only | Accepted as architectural constraint (Worker is version-controlled) |
 | DEV-AUDIT | `npm audit` vulnerabilities in wrangler dev tooling | Dev-only; never deployed to CF production |
-| DASH-COUNT | Occasional missing entries in dashboard request log | Root cause not yet investigated |
-| DASH-FLICKER | Recent Requests table briefly shows fewer entries on some poll cycles | UI polling race; entries return on next poll |
+| DASH-COUNT / DASH-FLICKER | **Resolved (R63 2026-05-12):** dashboard per-key `request_count` / `last_access` now read from SQLite `audit_events` via `subumbra-keys` `/stats` and `/keys`, eliminating per-Gunicorn-worker divergence | Previously: in-memory stats per worker caused flicker |
 | PROVIDER-COUPLING | App-owned integrations still maintain their own model/provider declarations outside the core stack | Full multi-adapter generalization remains a later round |
 | TTL-EXPIRY-ONLY | subumbra-keys TTL prevents new record fetches after token expiry but does not remove Worker-side token authority | Intentionally deferred beyond Round 30 |
 | NONCE-STORE | `nonce_store_failure reason=nonce_store_error` reports were not reproduced in Round 44.5.1 under the current WAL + `busy_timeout` stack | Watch item only |
@@ -133,6 +132,7 @@ Current pin: `main-latest@sha256:7c311546c25e7bb6e8cafede9fcd3d0d622ac636b5c9418
 | R60 | 2026-05-12 (CLOSED) | Harness improvements: `--deploy-worker` flag for automated existing-stack updates, dynamic proxy port resolution, and mode-aware P9.5 skipping |
 | R61 | 2026-05-12 (CLOSED) | Bootstrap: remove plaintext `bootstrap-checkpoint.json` path; defer `secret_ref` resolution until post-deploy encrypt; phase-1 `call_setup_keygen` per vault; `run_provision_key` uses manifest + host env only; fail-closed host env sync; operator recovery docs. Verified `fresh-install` VPS proof `codex-vps-20260512T174950Z`. |
 | R62 | 2026-05-12 (CLOSED) | Interactive manifest bootstrap wizard (RAM `_WIZARD_SECRETS`, 8-tuple `main()` unpack, post-wizard policy tail removed); round hook `verify-round.sh`. Council close-out: Claude VPS proof **PASS** (`claude-vps-20260512T191443Z`); formal `codex-verification.md` / `gemini-verification.md` not on file (process note in `council/cleanup.md`); Gemini isolated `fresh-install` proof **FAIL** at `remote-install` — not treated as product regression vs static gates. |
+| R63 | 2026-05-12 | Observability consistency: SQLite-backed `/stats` and `/keys` per-key usage; remove volatile counters; proxy logging format alignment; remove dead SSE `status` listener; `verify-round.sh` stats/keys stability artifacts. Verification pending. |
 
 ---
 
