@@ -1981,6 +1981,9 @@ def _load_manifest_bootstrap() -> tuple[
     )
 
 
+# ── TOMBSTONED (R58): legacy env-only bootstrap ─────────────────────────────
+# `_load_env_fallback` only calls `_automation_fail(...)`. `main()` still dispatches here when
+# `subumbra.json` is missing in automation mode so operators get a structured error (manifest-only flow).
 def _load_env_fallback(
     existing_keys: dict,
 ) -> tuple[
@@ -2005,6 +2008,9 @@ def _load_env_fallback(
 # Interactive wizard
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ── TOMBSTONED (R58): interactive catalog-era wizard ───────────────────────
+# `run_interactive_wizard` only calls `die(...)`. `main()` still reaches this when wizard mode is
+# selected so the failure message points operators at manifest-based bootstrap.
 def run_interactive_wizard(
     existing_keys: dict,
 ) -> tuple[
@@ -3280,6 +3286,7 @@ def main() -> None:
             ok(f"Loaded {len(api_keys)} manifest key(s): {', '.join(api_keys.keys())}")
             ok("Cloudflare credentials present")
         else:
+            # Automation without `subumbra.json`: `_load_env_fallback` is tombstoned (immediate `_automation_fail`).
             try:
                 api_keys, cf_creds, allowed_keys_by_adapter, key_adapters_by_key_id, token_ttl_days = _load_env_fallback(existing_keys)
             except AutomationInputError as exc:
@@ -3293,6 +3300,7 @@ def main() -> None:
         else:
             step("Interactive wizard — no credentials found in environment")
     if use_wizard:
+        # Tombstoned catalog-era wizard path; `run_interactive_wizard` calls `die(...)` immediately.
         try:
             api_keys, cf_creds, allowed_keys_by_adapter, key_adapters_by_key_id, token_ttl_days, shred_paths = run_interactive_wizard(existing_keys)
         except KeyboardInterrupt:

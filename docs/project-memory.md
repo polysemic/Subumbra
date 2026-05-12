@@ -127,6 +127,10 @@ them.
   rather than sharing a directory with unrelated services.
 - Portainer/Dockge may be acceptable for day-2 management later, but they are
   not the primary reference install path.
+- **Operator cadence (R58):** Polling, healthcheck, SSE heartbeat, proxy worker-auth cache TTL, and related timeouts are summarized in `docs/operator-guide.md` ("Heartbeat, polling, and health cadence") with file/line pointers; SEC-4 documents Compose-injected env visibility inside containers.
+- **Log rotation (R58):** `subumbra-proxy`, `subumbra-probe`, and `bootstrap` use Docker `json-file` logging with `max-size: 50m` and `max-file: 3` (same pattern as other stack services).
+- **Volume migration naming (R58):** Operator docs use host/project volume name `subumbra_keys_data` for `docker volume create` / migration examples; in-container mount remains `keys_data:/app/data` per Compose.
+- **Legacy callback artifact:** `litellm/custom_callbacks.py` was removed in R58; callback-era behavior is reference-only in prose docs.
 
 ---
 

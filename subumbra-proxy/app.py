@@ -64,6 +64,9 @@ STRIP_HEADERS = {
     "server",
     "content-encoding",
 }
+# SEC-2: Looser than the bootstrap manifest `key_id` validator in `bootstrap/subumbra-bootstrap.py`
+# (`KEY_ID_RE` there). The proxy only validates `/t/<key_id>/` path tokens; bootstrap enforces ownership
+# (`^[a-z0-9][a-z0-9_-]{2,63}$`). See docs/operator-guide.md — "Heartbeat, polling, and health cadence".
 KEY_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 TRANSPARENT_STRIP_HEADERS = {"authorization", "x-api-key", "x-api-key-id"}
 TRANSPARENT_STRIP_PREFIXES = ("x-subumbra-",)
@@ -87,7 +90,9 @@ EXPECTED_RECORD_FIELDS = {
 
 app = FastAPI()
 CLIENT = httpx.AsyncClient()
+# Worker auth cache TTL (seconds). Documented: docs/operator-guide.md "Heartbeat, polling, and health cadence".
 WORKER_AUTH_OK_TTL_SECONDS = 60
+# Outbound HTTP timeout for Worker auth-ping. Same operator-guide section.
 WORKER_AUTH_TIMEOUT_SECONDS = 2.0
 WORKER_AUTH_UNAUTHORIZED_BODY = b'{"error":"unauthorized"}'
 _worker_auth_ok_until = 0.0
