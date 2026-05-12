@@ -1,4 +1,5 @@
-FROM node:20-slim
+# Wrangler v4.90+ requires Node 22+; image stays self-contained (no host Node).
+FROM node:22-bookworm-slim
 
 # Install Python 3 + pip from Debian repos — no curl|bash
 RUN apt-get update && apt-get install -y --no-install-recommends \

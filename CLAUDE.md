@@ -270,7 +270,7 @@ For any new or changed flow, briefly state:
 
 ## Notes
 - Python 3.12+ for all Python components
-- Node 20+ for wrangler/CF Worker
+- Node 22+ in the **bootstrap** image for wrangler deploy (self-contained; host Node not required)
 - wrangler v4+ pinned in bootstrap Dockerfile and worker/package.json
 - All Python deps pinned in requirements.txt
 - No real keys in git ever — .gitignore covers this
