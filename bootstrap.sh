@@ -12,7 +12,7 @@ manifest_file="subumbra.json"
 mode=""
 for arg in "$@"; do
     case "$arg" in
-        --upgrade|--nuke|--rotate|--push-registry|--provision|--revoke-key|--add-adapter|--revoke-adapter|--publish-policy)
+        --upgrade|--nuke|--rotate|--push-registry|--provision|--revoke-key|--add-adapter|--revoke-adapter|--publish-policy|--help|-h|--list-key-ids|--list-adapters)
             mode="$arg"
             break
             ;;

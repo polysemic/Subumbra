@@ -3980,7 +3980,63 @@ def main() -> None:
 """))
 
 
+def print_help() -> None:
+    print("""
+Subumbra Bootstrap Utility
+
+Usage: ./bootstrap.sh [OPTIONS]
+
+Options:
+  --help, -h               Show this help message and exit
+  --list-key-ids           List all key IDs defined in subumbra.json
+  --list-adapters          List all unique adapters defined in subumbra.json
+  --upgrade                Rebuild images and recreate containers
+  --nuke                   Destructive run: destroys existing Cloudflare Vault keypairs
+                           and regenerates everything from scratch
+  --rotate                 Rotate upstream keys for existing records
+  --push-registry          Push keys.json state directly to Cloudflare KV
+  --provision <key_id>     Targeted provisioning/repair for a single key
+  --revoke-key <key_id>    Revoke a key (deletes from KV; --offline updates local keys.json only)
+  --add-adapter <key> <id> Add an adapter binding to an existing key
+  --revoke-adapter <k> <id> Revoke an adapter binding from an existing key
+  --publish-policy <key_id> Republish a key's policy/adapters to KV
+
+For a full initial bootstrap, run without arguments.
+""")
+
+
+def print_key_ids() -> None:
+    try:
+        key_ids = _load_manifest_key_ids_only()
+        for kid in sorted(key_ids):
+            print(kid)
+    except SystemExit:
+        sys.exit(1)
+
+
+def print_adapters() -> None:
+    try:
+        records = _load_manifest_records()
+        adapters: set[str] = set()
+        for r in records:
+            adapters.update(r["effective_adapters"])
+        for a in sorted(adapters):
+            print(a)
+    except SystemExit:
+        sys.exit(1)
+
+
 if __name__ == "__main__":
+    if "--help" in sys.argv or "-h" in sys.argv:
+        print_help()
+        sys.exit(0)
+    elif "--list-key-ids" in sys.argv:
+        print_key_ids()
+        sys.exit(0)
+    elif "--list-adapters" in sys.argv:
+        print_adapters()
+        sys.exit(0)
+
     if "--offline" in sys.argv and "--revoke-key" not in sys.argv:
         die("--offline is only supported together with --revoke-key")
     if "--rotate-policy" in sys.argv:
