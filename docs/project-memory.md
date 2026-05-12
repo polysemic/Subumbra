@@ -131,6 +131,7 @@ them.
 - **Log rotation (R58):** `subumbra-proxy`, `subumbra-probe`, and `bootstrap` use Docker `json-file` logging with `max-size: 50m` and `max-file: 3` (same pattern as other stack services).
 - **Volume migration naming (R58):** Operator docs use host/project volume name `subumbra_keys_data` for `docker volume create` / migration examples; in-container mount remains `keys_data:/app/data` per Compose.
 - **Legacy callback artifact:** `litellm/custom_callbacks.py` was removed in R58; callback-era behavior is reference-only in prose docs.
+- **UI Gunicorn worker model (R59):** `subumbra-ui` runs Gunicorn with **`--workers 1 --threads 4`** so in-process Basic Auth failure counting is not split across processes. SSE `/api/events` still holds a worker thread between heartbeats; Docker-bridge `remote_addr` semantics for host-published UI are documented in `docs/operator-guide.md` (R59 subsection).
 
 ---
 

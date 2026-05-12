@@ -61,6 +61,11 @@ and fresh sessions tend to miss.
   `subumbra-ui` container has non-empty `UI_USERNAME` (Basic Auth enabled) and
   **200** when Basic Auth is not configured — matches product and avoids false
   FAIL on open local dashboards.
+- **R59 `verify-round.sh`:** S4a must not run `curl` inside the `python:3.12-slim`
+  UI image (no `curl` binary). The closed-round hook reads `UI_USERNAME` /
+  `UI_PASSWORD` via `docker compose exec` and runs **host** `curl` against
+  `http://127.0.0.1:6563/api/status`. When Basic Auth is off, S3–S4 **SKIP**
+  per the approved precondition branch.
 - Closeout should capture minor non-blocking cleanup in `council/cleanup.md`
   rather than reopening finished rounds.
 
