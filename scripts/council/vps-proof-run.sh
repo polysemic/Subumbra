@@ -4,7 +4,9 @@ set -euo pipefail
 usage() {
     cat <<'EOF'
 Usage:
-  scripts/council/vps-proof-run.sh --round <round> --agent <llm> --branch <branch> --mode existing-stack|fresh-install [--host subumbra] [--repo /opt/subumbra] [--build <service...>] [--dry-run]
+  scripts/council/vps-proof-run.sh --round <round> --agent <llm> --branch <branch> --mode existing-stack|fresh-install [--host subumbra] [--repo /opt/subumbra] [--build <service...>] [--deploy-worker] [--dry-run]
+
+  --deploy-worker   After existing-stack docker compose up, run Wrangler deploy from the bootstrap image (requires CF_API_TOKEN in the invoking environment; forwarded to the remote session).
 
 Modes:
   existing-stack  Verify an already initialized VPS deployment. Does not run bootstrap.sh and does not tear down the live stack.
@@ -29,6 +31,7 @@ remote_host="subumbra"
 remote_repo="/opt/subumbra"
 build_targets=()
 dry_run=0
+deploy_worker=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -70,6 +73,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --dry-run)
             dry_run=1
+            shift
+            ;;
+        --deploy-worker)
+            deploy_worker=1
             shift
             ;;
         -h|--help)
@@ -126,7 +133,7 @@ scp -r "${repo_root}/council/${round}" "${remote_host}:${remote_repo}/council/" 
 
 set +e
 ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=20 "$remote_host" \
-    "ROUND='$round' AGENT='$agent' BRANCH='$branch' MODE='$mode' RUN_ID='$run_id' REPO='$remote_repo' BUILD_TARGETS='$build_targets_string' DRY_RUN='$dry_run' CF_API_TOKEN='${CF_API_TOKEN:-}' bash -s" >"$local_ssh_log" 2>&1 <<'REMOTE'
+    "ROUND='$round' AGENT='$agent' BRANCH='$branch' MODE='$mode' RUN_ID='$run_id' REPO='$remote_repo' BUILD_TARGETS='$build_targets_string' DRY_RUN='$dry_run' DEPLOY_WORKER='$deploy_worker' CF_API_TOKEN='${CF_API_TOKEN:-}' bash -s" >"$local_ssh_log" 2>&1 <<'REMOTE'
 set -euo pipefail
 
 round="${ROUND:?ROUND required}"
@@ -137,6 +144,7 @@ run_id="${RUN_ID:?RUN_ID required}"
 repo="${REPO:?REPO required}"
 build_targets_string="${BUILD_TARGETS:-}"
 dry_run="${DRY_RUN:-0}"
+deploy_worker="${DEPLOY_WORKER:-0}"
 
 cd "$repo"
 artifact_dir="${repo}/council/${round}/runs/${run_id}"
@@ -423,6 +431,29 @@ update_existing_stack() {
         docker compose build $build_targets_string
     fi
     docker compose up -d --force-recreate
+
+    if [[ -z "${SUBUMBRA_PROXY_HOST_PORT:-}" ]]; then
+        port_line="$(docker compose port subumbra-proxy 8090 2>/dev/null || true)"
+        if [[ -n "$port_line" ]]; then
+            port_only="${port_line##*:}"
+            export SUBUMBRA_PROXY_HOST_PORT="$port_only"
+            echo "[vps-proof-run] SUBUMBRA_PROXY_HOST_PORT=${SUBUMBRA_PROXY_HOST_PORT}" >&2
+        fi
+    fi
+
+    if [[ "$deploy_worker" == "1" ]]; then
+        if [[ -z "${CF_API_TOKEN:-}" ]]; then
+            echo "ERROR: --deploy-worker requires CF_API_TOKEN to be set in the environment (export before invoking vps-proof-run.sh); token is forwarded to this remote session but was empty." >&2
+            return 1
+        fi
+        # shellcheck disable=SC2016
+        docker compose --profile bootstrap run --rm --entrypoint sh \
+            -e CLOUDFLARE_API_TOKEN="$CF_API_TOKEN" \
+            -e WRANGLER_TMPDIR="/tmp" \
+            bootstrap \
+            -c 'cp -r /app/worker /tmp/worker-deploy && cd /tmp/worker-deploy && npx wrangler deploy --config wrangler.toml' || return 1
+    fi
+
     ./scripts/council/preflight.sh
 }
 

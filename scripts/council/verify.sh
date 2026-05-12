@@ -111,6 +111,7 @@ write_summary() {
         if [[ "${results[$key]}" == "FAIL" ]]; then
             overall="FAIL"
         fi
+        # SKIP (e.g. P9.5 isolated fresh-install) is non-failing for overall.
     done
     if [[ "$round_hook_status" == "FAIL" ]]; then
         overall="FAIL"
@@ -134,6 +135,11 @@ run_round_hooks() {
     local hook
     local hook_name
     local hook_log
+
+    if [[ "${VERIFY_SKIP_ROUND_HOOK:-0}" == "1" ]]; then
+        round_hook_status="NOT-RUN"
+        return 0
+    fi
 
     if [[ ${#round_hook_scripts[@]} -eq 0 ]]; then
         round_hook_status="NOT-RUN"
@@ -210,26 +216,37 @@ fi
 
 # --- Baseline: P9.5 — UI status ---
 
-ui_args=()
-ui_recorded_auth=""
-if [[ -n "$ui_username" && -n "$ui_password" ]]; then
-    ui_args+=(-u "${ui_username}:${ui_password}")
-    ui_recorded_auth=" -u '${ui_username}:<redacted>'"
-fi
-run_curl_capture \
-    GET \
-    http://127.0.0.1:6563/api/status \
-    "${ui_args[@]}"
-write_artifact \
-    "${artifact_dir}/p9-5-ui-status.txt" \
-    "curl --compressed -sS -N -D - -o - -X GET${ui_recorded_auth} http://127.0.0.1:6563/api/status"
-exit_codes[p9_5]="$capture_exit"
-if [[ "$capture_exit" -eq 0 && "$capture_status" == "200" ]] && grep -q '"subumbra_keys_healthy"' "$capture_body"; then
-    results[p9_5]="PASS"
+if [[ -n "${SUBUMBRA_UI_CONTAINER:-}" ]]; then
+    {
+        printf '%s\n' '# PROOF: isolated mode — host UI port intentionally absent'
+        printf '%s\n' 'status: SKIP'
+        printf '%s\n' 'reason: isolated-mode-no-host-port'
+        printf 'subumbra_ui_container: %s\n' "$SUBUMBRA_UI_CONTAINER"
+    } >"${artifact_dir}/p9-5-ui-status.txt"
+    results[p9_5]="SKIP"
+    exit_codes[p9_5]=0
 else
-    results[p9_5]="FAIL"
+    ui_args=()
+    ui_recorded_auth=""
+    if [[ -n "$ui_username" && -n "$ui_password" ]]; then
+        ui_args+=(-u "${ui_username}:${ui_password}")
+        ui_recorded_auth=" -u '${ui_username}:<redacted>'"
+    fi
+    run_curl_capture \
+        GET \
+        http://127.0.0.1:6563/api/status \
+        "${ui_args[@]}"
+    write_artifact \
+        "${artifact_dir}/p9-5-ui-status.txt" \
+        "curl --compressed -sS -N -D - -o - -X GET${ui_recorded_auth} http://127.0.0.1:6563/api/status"
+    exit_codes[p9_5]="$capture_exit"
+    if [[ "$capture_exit" -eq 0 && "$capture_status" == "200" ]] && grep -q '"subumbra_keys_healthy"' "$capture_body"; then
+        results[p9_5]="PASS"
+    else
+        results[p9_5]="FAIL"
+    fi
+    cleanup_capture
 fi
-cleanup_capture
 
 # --- Baseline: P9.6 — Worker invalid token ---
 
