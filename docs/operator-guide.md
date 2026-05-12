@@ -302,9 +302,12 @@ embedded authority fields or an embedded policy mismatch, stop and repair the
 local state or re-run the full bootstrap. Those commands no longer reconstruct
 policy or adapter bindings from bootstrap-era inputs.
 
-Run these **from an interactive shell** (or export `CF_API_TOKEN`, `CF_ACCOUNT_ID`,
-and `CF_WORKER_NAME`) so `./bootstrap.sh` can allocate a TTY and prompt for
-Cloudflare credentials when they are not in the environment.
+Run these **from an interactive shell** (or export `CF_API_TOKEN` and
+`CF_ACCOUNT_ID`) so `./bootstrap.sh` can allocate a TTY and prompt for those
+values when they are not in the environment. **`CF_WORKER_NAME`** (or a
+`CF_WORKER_URL` to a `*.workers.dev` host from which the name is inferred) must
+live in the repo **`.env`** for day-2 commands — the worker name is **not**
+prompted, so operations always target the deployed Worker from your last bootstrap.
 
 ### Management Authority
 

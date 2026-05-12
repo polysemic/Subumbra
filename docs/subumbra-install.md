@@ -88,8 +88,10 @@ written as plaintext bootstrap state on disk.
 
 The wizard collects:
 
-- Cloudflare credentials (API token, account ID, worker name) when not already in the environment
-- Per-manifest-key `secret_ref` secrets (`getpass`, with confirmation), or uses
+- Cloudflare API token and account ID when not already in the environment; Worker
+  name defaults from `CF_WORKER_NAME` or `CF_WORKER_URL` in `.env` (else
+  `subumbra-proxy`), Enter to accept or type a new name
+- Per-manifest-key `secret_ref` secrets (hidden prompts with confirmation), or uses
   values already present in the bootstrap environment for that `secret_ref`
 - Policy, `unique_vault`, adapters, and `key_id` from `subumbra.json` only (no
   catalog-era menus)
