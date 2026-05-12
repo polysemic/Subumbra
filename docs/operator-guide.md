@@ -302,6 +302,10 @@ embedded authority fields or an embedded policy mismatch, stop and repair the
 local state or re-run the full bootstrap. Those commands no longer reconstruct
 policy or adapter bindings from bootstrap-era inputs.
 
+Run these **from an interactive shell** (or export `CF_API_TOKEN`, `CF_ACCOUNT_ID`,
+and `CF_WORKER_NAME`) so `./bootstrap.sh` can allocate a TTY and prompt for
+Cloudflare credentials when they are not in the environment.
+
 ### Management Authority
 
 Bootstrap now generates and stores a separate management bearer token:
@@ -402,8 +406,12 @@ coverage is now:
 ```
 
 - `--revoke-key` marks the fat record as revoked, deletes the live `key:<id>`
-  KV entry, and future `--push-registry` runs skip revoked records so the key
-  does not resurrect.
+  KV entry (unless you pass `--offline`), and future `--push-registry` runs skip
+  revoked records so the key does not resurrect. **`--offline`** updates
+  `keys.json` only (no Cloudflare); then re-run the same command **without**
+  `--offline` to delete KV entries once credentials are available. If the key is
+  already revoked locally, a second run without `--offline` performs **KV-only**
+  cleanup.
 - `--add-adapter` and `--revoke-adapter` are secure hybrid mutations: they use
   the local V3 record plus plaintext authority from `subumbra.json` /
   `.env.bootstrap`, re-encrypt, rewrite `keys.json`, and republish KV.
@@ -424,8 +432,11 @@ services:
 
 ```bash
 ./bootstrap.sh
-docker compose up -d --force-recreate
 ```
+
+On success the host wrapper also runs `docker compose up -d --force-recreate`
+and prints an adapter summary. For code-only refreshes without re-bootstrap,
+use `./bootstrap.sh --upgrade`.
 
 ### Existing volume migration
 

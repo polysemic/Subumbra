@@ -7,7 +7,20 @@ cd "$repo_root"
 env_file=".env"
 bootstrap_file=".env.bootstrap"
 manifest_file="subumbra.json"
-mode="${1:-}"
+
+# Resolve primary bootstrap subcommand (may appear after flags, e.g. --revoke-key … --offline).
+mode=""
+for arg in "$@"; do
+    case "$arg" in
+        --upgrade|--nuke|--rotate|--push-registry|--provision|--revoke-key|--add-adapter|--revoke-adapter|--publish-policy)
+            mode="$arg"
+            break
+            ;;
+    esac
+done
+if [[ -z "$mode" ]]; then
+    mode="${1:-}"
+fi
 
 if [[ "$mode" == "--upgrade" ]]; then
     if [[ ! -f "$env_file" ]]; then
@@ -71,12 +84,21 @@ if [[ -f "$bootstrap_file" ]]; then
     done < "$bootstrap_file"
 fi
 
-# --rotate and full-bootstrap modes need stdin for the interactive wizard / nuke prompt.
-# Allocate a TTY when the operator has a real terminal so /dev/tty works for hidden
-# prompts inside the container (-T disables TTY and breaks the wizard).
-# Non-interactive subcommands keep stdin closed.
+# Full bootstrap / --nuke / --rotate: wizard may prompt (hidden input needs /dev/tty).
+# Day-2 registry commands may prompt for Cloudflare credentials when not in env.
+# Use -it when the host has a TTY; use -T for CI/pipes (set CF_* in the environment).
 bootstrap_rc=0
 if [[ "$mode" == "--rotate" || "$mode" == "--nuke" || -z "$mode" ]]; then
+    if [[ -t 0 ]]; then
+        run_io_flags=(-it)
+    else
+        run_io_flags=(-T)
+    fi
+    docker compose --profile bootstrap run "${run_io_flags[@]}" --rm \
+        "${volume_args[@]}" \
+        "${env_args[@]}" \
+        bootstrap "$@" || bootstrap_rc=$?
+elif [[ "$mode" == "--push-registry" || "$mode" == "--provision" || "$mode" == "--revoke-key" || "$mode" == "--add-adapter" || "$mode" == "--revoke-adapter" || "$mode" == "--publish-policy" ]]; then
     if [[ -t 0 ]]; then
         run_io_flags=(-it)
     else

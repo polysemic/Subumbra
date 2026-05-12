@@ -170,11 +170,8 @@ services:
   # ───────────────────────────────────────────────────────────────────────────
   # bootstrap  —  one-shot key generation
   #
-  #   Interactive (human operator):
-  #     docker compose --profile bootstrap run --rm -it bootstrap
-  #
-  #   Automation / CI (requires populated .env.bootstrap):
-  #     docker compose --profile bootstrap run --rm bootstrap
+  #   Interactive or automation / CI (both use the host wrapper):
+  #     ./bootstrap.sh    (automation: populate .env.bootstrap first)
   # ───────────────────────────────────────────────────────────────────────────
   bootstrap:
     build:

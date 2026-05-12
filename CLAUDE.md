@@ -156,7 +156,7 @@ subumbra/
 4. Real keys existed only in RAM, never written to disk
 
 ### Per-Key Rotation (offline)
-- Run: `docker compose --profile bootstrap run --rm bootstrap --rotate`
+- Run: `./bootstrap.sh --rotate`
 - Uses `public_key.pem` for shared keys or `public_key_<key_id>.pem` for unique keys — no CF interaction needed
 - Generates new DEK, re-wraps with existing public key, re-encrypts single key
 - Atomically updates only the target record in `keys.json`
