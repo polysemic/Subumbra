@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Pin wrangler — v4+ required; exact pin prevents silent drift
-RUN npm install -g wrangler@4.77.0
+RUN npm install -g wrangler@4.90.1
 
 # ── Python deps ───────────────────────────────────────────────────────────────
 WORKDIR /app

@@ -38,7 +38,7 @@ remain inside the Subumbra core boundary.
 
 ## Known Limitations
 
-Deferred by council consensus. Acceptable for current single-operator POC deployment.
+Deferred by council consensus.
 
 | ID | Description | Rationale |
 |----|-------------|-----------|
