@@ -2,18 +2,22 @@
 """
 subumbra-bootstrap — V2 Asymmetric Envelope Encryption & Deployment.
 
-Usage (interactive — primary):
-    ./bootstrap.sh
+Usage (interactive — TTY, no .env.bootstrap):
+  ./bootstrap.sh
+  Requires subumbra.json on the bootstrap mount; Cloudflare and provider secrets
+  are prompted via getpass / short prompts and held in RAM (including an
+  in-process secret cache), not written to disk as plaintext.
 
-Usage (automation / CI — requires .env.bootstrap with all credentials):
-    ./bootstrap.sh
+Usage (automation / CI — requires .env.bootstrap with referenced secrets):
+  ./bootstrap.sh
 
 Single-key rotation (no Cloudflare interaction):
-    docker compose --profile bootstrap run --rm -it bootstrap --rotate
+  docker compose --profile bootstrap run --rm -it bootstrap --rotate
 
 What it does (full bootstrap, in order):
-  1. Detects mode: headless env-var fallback (CI) or, in a TTY, prompts when
-     environment credentials are already present
+  1. Detects mode: automation when CF token + account + subumbra.json are all
+     present in the environment; otherwise interactive manifest wizard (TTY) or
+     structured errors when non-interactive
   2. Collects CF credentials + provider API keys (RAM only — never written to disk)
   3. Warns if keys.json already exists (rotation mode) and identifies any
      keys that will be removed because they are absent from this session
@@ -86,10 +90,6 @@ BANNER = """
 ╚══════════════════════════════════════════════════════════════════╝
 """
 
-# Known providers for the numbered wizard menu.
-# Format: (provider_label, env_var_name_for_CI_fallback)
-# This is derived from the shared built-in provider registry.
-
 # key_id validation: lowercase alphanumeric + underscores + hyphens, 3-64 chars
 KEY_ID_RE = re.compile(r'^[a-z0-9][a-z0-9_-]{2,63}$')
 ADAPTER_ID_RE = re.compile(r'^[a-z0-9][a-z0-9_-]{0,61}[a-z0-9]$')
@@ -104,6 +104,9 @@ HOST_ENV_FILE   = Path("/app/host-env")
 WORKER_SRC      = Path("/app/worker")
 MANIFEST_FILE   = Path("/app/subumbra.json")
 KV_CONFIG_FILE = DATA_DIR / "kv-config.json"
+
+# RAM-only secrets collected in interactive wizard mode (never written to disk here).
+_WIZARD_SECRETS: dict[str, str] = {}
 
 CATALOG_DIR = Path("/app/templates")
 CATALOG_JSON_FILE = CATALOG_DIR / "catalog.json"
@@ -677,6 +680,9 @@ def _load_policy_index() -> dict[str, dict[str, Any]]:
 def _resolve_manifest_secret(secret_ref: str) -> str:
     if not isinstance(secret_ref, str) or not secret_ref.strip():
         _manifest_die("secret_ref must be a non-empty string")
+    cached = _WIZARD_SECRETS.get(secret_ref, "").strip()
+    if cached:
+        return cached
     resolved = os.environ.get(secret_ref, "").strip()
     if not resolved:
         _manifest_die(f"secret_ref {secret_ref!r} is missing or empty in the bootstrap environment")
@@ -1976,12 +1982,10 @@ def _load_env_fallback(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Interactive wizard
+# Interactive wizard (manifest-era, RAM-only)
 # ─────────────────────────────────────────────────────────────────────────────
 
-# ── TOMBSTONED (R58): interactive catalog-era wizard ───────────────────────
-# `run_interactive_wizard` only calls `die(...)`. `main()` still reaches this when wizard mode is
-# selected so the failure message points operators at manifest-based bootstrap.
+
 def run_interactive_wizard(
     existing_keys: dict,
 ) -> tuple[
@@ -1990,15 +1994,131 @@ def run_interactive_wizard(
     dict[str, list[str]],
     dict[str, list[str]],
     int,
+    dict[str, bool],
+    dict[str, dict[str, Any]],
     list[str],
 ]:
     """
-    Interactive catalog-era bootstrap is no longer supported after provider catalog removal.
+    Interactive manifest bootstrap: collect Cloudflare credentials and per-key
+    secrets in RAM, bind adapters, and return the same logical credential bundle
+    as _load_manifest_bootstrap plus an empty shred_paths list.
     """
-    die(
-        "Interactive provider-catalog bootstrap is no longer supported.\n"
-        "  Author subumbra.json with explicit provider labels, policy.target.host, and policy.auth,\n"
-        "  then rerun bootstrap in manifest mode."
+    global _WIZARD_SECRETS
+
+    if existing_keys:
+        info(
+            f"Existing encrypted keys on disk: {len(existing_keys)} record(s) "
+            "— rotation rules apply after this session."
+        )
+
+    _WIZARD_SECRETS.clear()
+
+    step("Interactive manifest wizard — Cloudflare credentials")
+    cf_token = os.environ.get("CF_API_TOKEN", "").strip()
+    if not cf_token:
+        while True:
+            cf_token = getpass.getpass("  Cloudflare API token: ").strip()
+            if cf_token:
+                break
+            print("  ✗  API token cannot be empty.\n")
+    cf_account_id = os.environ.get("CF_ACCOUNT_ID", "").strip()
+    if not cf_account_id:
+        while True:
+            cf_account_id = input("  Cloudflare account ID: ").strip()
+            if cf_account_id:
+                break
+            print("  ✗  Account ID cannot be empty.\n")
+    cf_worker_raw = input("  Cloudflare Worker name [subumbra-proxy]: ").strip()
+    cf_worker_name = cf_worker_raw or "subumbra-proxy"
+    cf_creds = {
+        "CF_API_TOKEN": cf_token,
+        "CF_ACCOUNT_ID": cf_account_id,
+        "CF_WORKER_NAME": cf_worker_name,
+    }
+    ok("Cloudflare credentials captured (values not printed)")
+
+    step("Loading manifest records from subumbra.json")
+    records = _load_manifest_records()
+    ok(f"Found {len(records)} manifest key record(s)")
+
+    step("Per-key provider secrets (RAM only; not echoed)")
+    accepted: list[dict[str, Any]] = []
+    for record in records:
+        key_id = record["key_id"]
+        provider = record["provider"]
+        secret_ref = record["secret_ref"]
+        if os.environ.get(secret_ref, "").strip():
+            ok(f"{key_id}: using existing bootstrap environment for {secret_ref!r}")
+            accepted.append(record)
+            continue
+        print(f"\n  Key: {key_id!r}  provider={provider!r}  secret_ref={secret_ref!r}")
+        choice = input("  Provision a secret for this key in this session? [Y/n]: ").strip().lower()
+        if choice in ("n", "no"):
+            info(f"Skipped {key_id!r} — no secret collected for this session.")
+            continue
+        while True:
+            secret_a = getpass.getpass("  Secret: ").strip()
+            if not secret_a:
+                print("  ✗  Secret cannot be empty.\n")
+                continue
+            secret_b = getpass.getpass("  Confirm secret: ").strip()
+            if secret_a != secret_b:
+                print("  ✗  Secrets do not match. Try again.\n")
+                continue
+            _WIZARD_SECRETS[secret_ref] = secret_a
+            accepted.append(record)
+            ok(f"Secret captured for {key_id!r}")
+            break
+
+    if not accepted:
+        die("No keys with resolvable secrets for this session. Aborted.")
+
+    seen_declared: set[str] = set()
+    api_keys: dict[str, tuple[str, str, str, str, str]] = {}
+    key_adapters_by_key_id: dict[str, list[str]] = {}
+    policy_by_key_id: dict[str, dict[str, Any]] = {}
+    unique_key_flags: dict[str, bool] = {}
+    allowed_keys_by_adapter: dict[str, list[str]] = {
+        "subumbra-proxy": [],
+        "subumbra-ui": [],
+    }
+
+    for rec in accepted:
+        for adapter_id in rec["adapters"]:
+            if adapter_id in seen_declared:
+                continue
+            seen_declared.add(adapter_id)
+            allowed_keys_by_adapter[adapter_id] = []
+
+    for rec in accepted:
+        kid = rec["key_id"]
+        api_keys[kid] = (
+            rec["provider"],
+            rec["target_host"],
+            rec["auth_header"],
+            rec["auth_prefix"],
+            rec["secret_ref"],
+        )
+        policy_by_key_id[kid] = rec["policy"]
+        unique_key_flags[kid] = rec["unique_vault"]
+        _bind_key_to_adapters(
+            kid,
+            rec["adapters"],
+            key_adapters_by_key_id=key_adapters_by_key_id,
+            allowed_keys_by_adapter=allowed_keys_by_adapter,
+        )
+
+    token_ttl_days = _parse_token_ttl_days(os.environ.get("TOKEN_TTL_DAYS", ""))
+    shred_paths: list[str] = []
+    return (
+        api_keys,
+        cf_creds,
+        allowed_keys_by_adapter,
+        key_adapters_by_key_id,
+        token_ttl_days,
+        unique_key_flags,
+        policy_by_key_id,
+        shred_paths,
     )
 
 
@@ -3197,23 +3317,21 @@ def main() -> None:
         else:
             step("Interactive wizard — no credentials found in environment")
     if use_wizard:
-        # Tombstoned catalog-era wizard path; `run_interactive_wizard` calls `die(...)` immediately.
+        # Interactive manifest wizard returns the same credential bundle shape as automation.
         try:
-            api_keys, cf_creds, allowed_keys_by_adapter, key_adapters_by_key_id, token_ttl_days, shred_paths = run_interactive_wizard(existing_keys)
+            (
+                api_keys,
+                cf_creds,
+                allowed_keys_by_adapter,
+                key_adapters_by_key_id,
+                token_ttl_days,
+                unique_key_flags,
+                policy_by_key_id,
+                shred_paths,
+            ) = run_interactive_wizard(existing_keys)
         except KeyboardInterrupt:
             print("\n\nAborted. No changes written.", file=sys.stderr)
             sys.exit(0)
-        policy_index = _load_policy_index()
-        policy_by_key_id: dict[str, dict[str, Any]] = {}
-        for key_id, (provider, target_host, _auth_header, _auth_prefix, _secret_ref) in api_keys.items():
-            policy_by_key_id[key_id] = _resolve_policy_for_key(
-                key_id,
-                provider,
-                target_host,
-                policy_index,
-                key_adapters_by_key_id[key_id],
-            )
-        unique_key_flags = _load_unique_key_flags(list(api_keys.keys()))
     if not use_wizard:
         shred_paths = []
         if not MANIFEST_FILE.exists():
@@ -3613,6 +3731,10 @@ def main() -> None:
         n = raw_lengths.get(k, len(secret_ref))
         api_keys[k] = (provider, target_host, auth_header, auth_prefix, "\x00" * n)
     del api_keys
+    for _wk in list(_WIZARD_SECRETS):
+        _wv = _WIZARD_SECRETS[_wk]
+        _WIZARD_SECRETS[_wk] = "\x00" * len(_wv)
+    _WIZARD_SECRETS.clear()
     del allowed_keys_by_adapter
     del cf_creds
     gc.collect()

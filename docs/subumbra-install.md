@@ -82,19 +82,22 @@ Subumbra bootstrap supports two operator paths. Choose one:
 ./bootstrap.sh
 ```
 
-Enter keys one at a time in the terminal. Nothing touches disk until the
-wizard finishes - keys exist in RAM only during the session.
+Enter values in the terminal; provider material is held in RAM for the session
+(including an in-process map keyed by each manifest `secret_ref`). Nothing is
+written as plaintext bootstrap state on disk.
 
 The wizard collects:
 
-- Cloudflare credentials (API token, account ID, worker name)
-- declared app adapter IDs such as `litellm` or `openwebui`
-- provider API keys, generated `key_id` labels, and per-key adapter bindings
-- explicit compatibility/simple mode only when you intentionally leave a key's
-  adapter selection blank, which binds that key to `subumbra-proxy`
-- `subumbra-ui` remains metadata only (no key fetch scope)
-- optional: `subumbra-probe` - an optional diagnostic container for verifying your
-  deployment; its scope is usually the same as or narrower than `subumbra-proxy`
+- Cloudflare credentials (API token, account ID, worker name) when not already in the environment
+- Per-manifest-key `secret_ref` secrets (`getpass`, with confirmation), or uses
+  values already present in the bootstrap environment for that `secret_ref`
+- Policy, `unique_vault`, adapters, and `key_id` from `subumbra.json` only (no
+  catalog-era menus)
+- optional: skip a key for this session (`[Y/n]` decline) — omitted keys follow
+  the same rotation removal rules as automation when not re-included
+
+`subumbra-ui` remains metadata only (no key fetch scope). Optional `subumbra-probe`
+follows the same manifest adapter rules as other adapters.
 
 During full bootstrap, Cloudflare now generates the RSA key pair through the
 one-shot `/setup/keygen` Worker path. The bootstrap container only receives the
@@ -113,8 +116,8 @@ installation, or are migrating from an existing deployment.
 
 ```bash
 cp .env.bootstrap.example .env.bootstrap
-# edit .env.bootstrap: CF credentials, provider keys, key_ids, per-key *_ADAPTERS,
-# per-key UNIQUE_KEY_<key_id> flags, and optional IMPORT_PATH_<n> / IMPORT_APP_LABEL_<n> entries
+# edit .env.bootstrap: CF credentials, values for each manifest secret_ref,
+# optional TOKEN_TTL_DAYS (default 90 when unset), per-key UNIQUE_KEY_<key_id> flags
 ./bootstrap.sh
 ```
 

@@ -177,11 +177,19 @@ when repairs are complete.
 
 ## 4. Run Bootstrap
 
+**Interactive vs automation:** With a TTY and **no** complete unattended credential set
+(`CF_API_TOKEN`, `CF_ACCOUNT_ID`, and `subumbra.json` all present in the bootstrap
+environment), bootstrap runs the **manifest wizard**: it reads `subumbra.json`,
+prompts for Cloudflare credentials and each `secret_ref` (RAM / `getpass` only),
+then continues the same deploy → keygen → encrypt pipeline as automation. With
+`.env.bootstrap` populated for every `secret_ref`, use a **non-interactive** compose
+run (`... run --rm bootstrap` without `-it`) so secrets load from the file.
+
 ```bash
 ./bootstrap.sh
 ```
 
-Bootstrap reads `subumbra.json`, resolves the referenced secret values from
+Automation path: bootstrap reads `subumbra.json`, resolves the referenced secret values from
 `.env.bootstrap`, deploys the Worker, encrypts the retained keys, and writes the
 runtime state under `data/`.
 
