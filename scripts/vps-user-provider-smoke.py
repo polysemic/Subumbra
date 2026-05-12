@@ -121,10 +121,13 @@ def request_for_provider(provider: str, base: str, key_id: str, token: str) -> t
     p = (provider or "").lower().strip()
 
     if p == "anthropic":
+        model = os.environ.get(
+            "SUBUMBRA_VPS_SMOKE_ANTHROPIC_MODEL", "claude-3-5-haiku-20241022"
+        )
         url = f"{base}/t/{key_id}/v1/messages"
         payload = json.dumps(
             {
-                "model": "claude-3-5-haiku-20241022",
+                "model": model,
                 "max_tokens": 8,
                 "messages": [{"role": "user", "content": "ping"}],
             }
