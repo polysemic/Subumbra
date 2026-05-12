@@ -142,7 +142,7 @@ subumbra/
    - Injects the `[[kv_namespaces]]` binding into the temporary deploy copy of `wrangler.toml`
    - Deploys CF Worker via wrangler
    - Pushes `SUBUMBRA_ADAPTER_TOKENS`, `SUBUMBRA_HMAC_KEY`, and a transient `SUBUMBRA_SETUP_TOKEN`
-   - Uses a staged checkpoint pipeline: infra once, then per-key vault provisioning, then per-key encryption, then atomic record write
+   - Uses a staged pipeline (no plaintext checkpoint file): infra once, phase-1 `/setup/keygen` per vault instance, then per-key encryption with `secret_ref` resolved only in that phase, then atomic `keys.json` write
    - Calls one-shot `POST /setup/keygen` against `vault` or `vault-<key_id>` so Cloudflare generates and stores the RSA-4096 key pair in the targeted vault DO
    - Receives `public_key.pem` / `public_key_<key_id>.pem` plus `pub_key_fp` from Cloudflare
    - For each key: generates random 32-byte DEK, wraps DEK with the returned RSA public key, encrypts API key with AES-256-GCM using AAD `subumbra:v3:<key_id>:<policy_hash>`
