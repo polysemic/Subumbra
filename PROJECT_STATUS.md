@@ -1,5 +1,5 @@
 # PROJECT_STATUS
-*Current state — updated 2026-05-12 (R61 bootstrap-checkpoint CLOSED)*
+*Current state — updated 2026-05-12 (R62 interactive bootstrap — implementation on branch; verifier pending)*
 
 ---
 
@@ -132,11 +132,12 @@ Current pin: `main-latest@sha256:7c311546c25e7bb6e8cafede9fcd3d0d622ac636b5c9418
 | R59 | 2026-05-12 | Rate-limit hardening: unified Basic Auth failure counting under `--workers 1 --threads 4` Gunicorn model; documented thread-pool and IP masking semantics |
 | R60 | 2026-05-12 (CLOSED) | Harness improvements: `--deploy-worker` flag for automated existing-stack updates, dynamic proxy port resolution, and mode-aware P9.5 skipping |
 | R61 | 2026-05-12 (CLOSED) | Bootstrap: remove plaintext `bootstrap-checkpoint.json` path; defer `secret_ref` resolution until post-deploy encrypt; phase-1 `call_setup_keygen` per vault; `run_provision_key` uses manifest + host env only; fail-closed host env sync; operator recovery docs. Verified `fresh-install` VPS proof `codex-vps-20260512T174950Z`. |
+| R62 | — | Interactive manifest bootstrap wizard (RAM `_WIZARD_SECRETS`, 8-tuple `main()` unpack, post-wizard policy tail removed); round hook `verify-round.sh`; **verifier pending** |
 
 ---
 
 ## Path Forward
 
-1. **R62 — Interactive bootstrap wizard (operator priority):** Replace the tombstoned `run_interactive_wizard()` path with a restored **RAM-only**, first-class walkthrough: manifest-owned policy/routing authority, no plaintext resume files (R61 baseline), parity with post-R61 automation phases (deploy → phase-1 keygen → encrypt). `_load_env_fallback()` remains legacy tombstone unless scope explicitly revives it.
+1. **R62 — Interactive bootstrap wizard:** Restored manifest-era **`run_interactive_wizard`** (RAM-only prompts, `_WIZARD_SECRETS` + `_resolve_manifest_secret` cache-first), removed post-wizard `SUBUMBRA_POLICY_PATH` / `UNIQUE_KEY_*` tail for the wizard path; **`council/r62-interactive-bootstrap/verify-round.sh`** static gate. **Council verification pending** before close-out.
 2. **Harness noise**: `SUBUMBRA_TOKEN_PROBE` unset warning in `docker compose port` and other non-critical harness logs.
 3. **Harness cleanup (deferred from R60):** `VERIFY_MODE` is still exported by `vps-proof-run.sh` but not read by `verify.sh`; isolated mode continues to key off `SUBUMBRA_UI_CONTAINER`. A small follow-on round may wire an explicit mode string or remove the dead env forward.

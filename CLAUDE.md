@@ -132,9 +132,9 @@ subumbra/
 ### Bootstrap Process (one-shot)
 1. Run bootstrap through the host wrapper:
    `./bootstrap.sh`
-   For CI/automation: create `.env.bootstrap` first, then run the same wrapper.
-   The supported bootstrap path is manifest-driven: author `subumbra.json`,
-   then provide only the referenced secrets in `.env.bootstrap`.
+   **Automation / CI:** create `.env.bootstrap` with the manifest `secret_ref` variables, then run the same wrapper (non-interactive).
+   **Interactive (TTY):** when `.env.bootstrap` is absent or incomplete, bootstrap runs a **manifest wizard**: `subumbra.json` must be mounted at `/app/subumbra.json`; Cloudflare credentials and each provider secret are prompted (`getpass` / short prompts). Secrets are held in RAM only (including an in-process `_WIZARD_SECRETS` map keyed by `secret_ref`); they are **not** written to a plaintext bootstrap resume file. Resolution still uses `_resolve_manifest_secret`, which checks that cache before `os.environ`, so provider material is not required in the process environment for the wizard path.
+   The manifest remains the source of truth for `policy.target.host`, `policy.auth`, adapters, and `unique_vault`.
 2. Bootstrap container:
    - Reads manifest-declared secret refs from env (RAM only)
    - Treats `policy.target.host` and `policy.auth` in `subumbra.json` as the routing/auth source of truth

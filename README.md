@@ -72,6 +72,8 @@ See:
 
 - [docs/subumbra-install.md](docs/subumbra-install.md)
 
+First-time bootstrap may run **interactively** (TTY, `subumbra.json` mounted, no `.env.bootstrap`) or **headlessly** with `.env.bootstrap`; see [CLAUDE.md](CLAUDE.md) § Bootstrap Process.
+
 ### 2. Configure a standalone LiteLLM example
 
 See:
