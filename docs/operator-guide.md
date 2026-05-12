@@ -23,6 +23,23 @@ run.
 | `subumbra-ui` Compose healthcheck | `interval: 30s`, `timeout: 5s`, `retries: 3` | `docker-compose.yml` under `subumbra-ui` → `healthcheck:` (lines ~99–103) |
 | `subumbra-proxy` Compose healthcheck | `interval: 30s`, `timeout: 5s`, `retries: 3` | `docker-compose.yml` under `subumbra-proxy` → `healthcheck:` (lines ~164–168) |
 
+### R59 — `subumbra-ui` Gunicorn and Basic Auth rate limiting
+
+- **Gunicorn defaults (post-R59):** the UI image runs **`--workers 1 --threads 4`**
+  so in-process Basic Auth failure counting (`_auth_failures` in `ui/app.py`)
+  is not split across multiple worker processes (which previously allowed a
+  burst of failures to return only `401` until enough hits landed on one
+  worker).
+- **SSE and thread budget:** `/api/events` holds a worker thread in a
+  **`time.sleep(30)`** loop between heartbeat frames. With threaded workers,
+  that competes for the same thread pool as other requests (including the
+  dashboard’s **`GET /api/status`** polling). Multiple open dashboard tabs can
+  make status polling feel slower when the thread budget is tight.
+- **Rate-limit identity on localhost publish:** when the UI is published to the
+  host (`127.0.0.1:6563` → container), `request.remote_addr` is often the Docker
+  bridge gateway (for example `172.25.0.1`), so host-originated traffic shares
+  one logical bucket for the rate limiter.
+
 **Proxy `/health`:** returns JSON including `worker_auth` (`ok`, `stale`, or
 `unreachable`) in addition to `status`. See install verification docs.
 
