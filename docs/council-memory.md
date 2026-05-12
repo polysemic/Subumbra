@@ -61,11 +61,16 @@ and fresh sessions tend to miss.
   `subumbra-ui` container has non-empty `UI_USERNAME` (Basic Auth enabled) and
   **200** when Basic Auth is not configured — matches product and avoids false
   FAIL on open local dashboards.
-- **R59 `verify-round.sh`:** S4a must not run `curl` inside the `python:3.12-slim`
-  UI image (no `curl` binary). The closed-round hook reads `UI_USERNAME` /
-  `UI_PASSWORD` via `docker compose exec` and runs **host** `curl` against
-  `http://127.0.0.1:6563/api/status`. When Basic Auth is off, S3–S4 **SKIP**
-  per the approved precondition branch.
+- **R60 — harness probes:** (1) Round-local `verify-round.sh` hooks must not run
+  `curl` inside `subumbra-ui`; read secrets with `docker compose exec -T` and
+  call **host** `curl`, then `unset` credential shell variables. (2) When
+  **`SUBUMBRA_UI_CONTAINER`** is set (isolated fresh-install / `vps-proof-run`
+  temp workspace), **do not** probe the dashboard via host-published
+  `127.0.0.1:6563`; `preflight.sh` uses Docker health for the prefixed UI
+  container, and   **`verify.sh` P9.5** records **SKIP** with reason
+  `isolated-mode-no-host-port`. For **nested** self-tests (e.g. `verify-round.sh`
+  invoking `verify.sh` for the same round), set **`VERIFY_SKIP_ROUND_HOOK=1`**
+  so round hooks are not re-entered.
 - Closeout should capture minor non-blocking cleanup in `council/cleanup.md`
   rather than reopening finished rounds.
 

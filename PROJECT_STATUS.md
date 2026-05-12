@@ -1,5 +1,5 @@
 # PROJECT_STATUS
-*Current state — updated 2026-05-12*
+*Current state — updated 2026-05-12 (R60 harness-improvements closed)*
 
 ---
 
@@ -130,12 +130,12 @@ Current pin: `main-latest@sha256:7c311546c25e7bb6e8cafede9fcd3d0d622ac636b5c9418
 | R57 | 2026-05-11 | System cleanup: dead-code prune (6 bootstrap symbols, management-audit route), hygiene artifacts, SEC-1 doc, SEC-3 JS hardening |
 | R58 | 2026-05-12 | Operator tuning: documented cadence/SEC-4, Compose log rotation on proxy/probe/bootstrap, volume migration doc accuracy, tombstone annotations only, removed `litellm/custom_callbacks.py` |
 | R59 | 2026-05-12 | Rate-limit hardening: unified Basic Auth failure counting under `--workers 1 --threads 4` Gunicorn model; documented thread-pool and IP masking semantics |
+| R60 | 2026-05-12 (CLOSED) | Harness improvements: `--deploy-worker` flag for automated existing-stack updates, dynamic proxy port resolution, and mode-aware P9.5 skipping |
 
 ---
 
 ## Path Forward
 
-1. **Verification harness — Worker deploy gap**: existing-stack proof mode (`update_existing_stack`) does not call `wrangler deploy` after `docker compose up`; any round modifying `worker/src/worker.js` requires a separate manual deploy step with CF credentials. Consider adding `--deploy-worker` flag or a `council/{round}/deploy-worker.sh` hook.
-2. **UI Basic Auth rate limit — Option C follow-on (deferred):** R59 implemented Dockerfile-only single-worker Gunicorn (`--workers 1 --threads 4`). A future round may still be needed if operators require a durable shared counter (SQLite on an existing volume), trusted reverse-proxy IP semantics, or other models explicitly deferred in R59 `deferred.md`.
-3. **Bootstrap tombstone stubs**: `run_interactive_wizard()` and `_load_env_fallback()` in `bootstrap/subumbra-bootstrap.py` are tombstoned stubs (call `die()`/`_automation_fail()` immediately) but remain reachable from `main()`. Not dead code but candidates for tombstone-cleanup round.
-4. **Verification harness portability**: consolidate fresh-install proof hooks around operator-first failure handling, dynamic `SUBUMBRA_PROXY_HOST_PORT`, and auth-aware preflight for secure-UI deployments.
+1. **Bootstrap tombstone stubs**: `run_interactive_wizard()` and `_load_env_fallback()` in `bootstrap/subumbra-bootstrap.py` are tombstoned stubs (call `die()`/`_automation_fail()` immediately) but remain reachable from `main()`. Not dead code but candidates for tombstone-cleanup round.
+2. **Harness noise**: `SUBUMBRA_TOKEN_PROBE` unset warning in `docker compose port` and other non-critical harness logs.
+3. **Harness cleanup (deferred from R60):** `VERIFY_MODE` is still exported by `vps-proof-run.sh` but not read by `verify.sh`; isolated mode continues to key off `SUBUMBRA_UI_CONTAINER`. A small follow-on round may wire an explicit mode string or remove the dead env forward.
