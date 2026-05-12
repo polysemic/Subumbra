@@ -93,8 +93,7 @@ subumbra/
 │   ├── probe.py
 │   └── requirements.txt
 │
-├── litellm/                     ← legacy callback artifacts and standalone example config
-│   ├── custom_callbacks.py      ← superseded callback-era integration reference
+├── litellm/                     ← legacy: standalone LiteLLM example config only (callback-era Python removed R58)
 │   └── config.yaml              ← standalone example config using adapter token + path key_id
 │
 ├── scripts/
@@ -126,7 +125,7 @@ subumbra/
 - Provider-specific path suffixes in app examples are upstream API path requirements; `/t` is the Subumbra transparent route root
 
 ### Legacy Callback Reference
-- `litellm/custom_callbacks.py` remains in the repo as a callback-era reference implementation
+- Callback-era Python (`litellm/custom_callbacks.py`) was removed in R58; the repo keeps **`litellm/config.yaml`** only as a standalone example config
 - It is not the current primary integration contract
 - Standalone LiteLLM and similar external apps should follow the transparent sidecar path instead
 

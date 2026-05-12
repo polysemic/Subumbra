@@ -163,6 +163,7 @@ def api_events():
         try:
             while True:
                 yield ": heartbeat\n\n"
+                # SSE comment keep-alive interval (seconds). See docs/operator-guide.md "Heartbeat, polling, and health cadence".
                 time.sleep(30)
         except (GeneratorExit, SystemExit):
             return

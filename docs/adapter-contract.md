@@ -311,9 +311,9 @@ The current supported app-owned contract is the transparent sidecar path:
 This is the current primary adapter path for standalone LiteLLM and similar
 external apps.
 
-`litellm/custom_callbacks.py` remains in the repo as a legacy callback-era
-implementation reference, but it is no longer the current primary integration
-contract.
+The legacy callback-era Python integration is **not** shipped in-repo (removed
+R58); **`litellm/config.yaml`** may still be used as a **standalone** example
+config, but it is not the current primary integration contract.
 
 ---
 

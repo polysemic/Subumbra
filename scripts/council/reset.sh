@@ -10,7 +10,6 @@ Usage:
 
 Rebuild policy:
   Recreate-only is sufficient for bind-mounted changes:
-    - litellm/custom_callbacks.py
     - litellm/config.yaml
     - providers.json
   Use --build for image-built services when their source changes:
