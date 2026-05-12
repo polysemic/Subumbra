@@ -259,33 +259,34 @@ needs to change:
 ./bootstrap.sh --rotate
 ```
 
-If a fresh bootstrap leaves a retryable checkpoint, repair a single missing key:
+Repair a single missing key after a partial bootstrap (manifest + host env
+must still hold authority — no plaintext resume file):
 
 ```bash
 ./bootstrap.sh --provision <key_id>
 ```
 
-> **Bootstrap checkpoint sensitivity.** When bootstrap is interrupted mid-run,
-> it writes `bootstrap-checkpoint.json` to the data volume (`subumbra_keys_data`).
-> This file contains plaintext provider secrets (`raw_secret` fields) for any
-> keys that were processed before the interruption. It is created with mode
-> `0o600` and is automatically deleted after a successful bootstrap completes.
->
-> If bootstrap fails and you do not immediately re-run to completion:
->
-> - Treat `bootstrap-checkpoint.json` as a sensitive credential file.
-> - Manually delete it before leaving the host unattended:
->   ```bash
->   docker run --rm -v subumbra_keys_data:/data alpine sh -c "rm -f /data/bootstrap-checkpoint.json"
->   ```
-> - Full-disk encryption (FDE) on the VPS host is recommended if you rely on
->   resumable bootstrap across reboots, to bound exposure of the checkpoint file.
-> - Do not copy or back up the checkpoint file.
+`--provision` reads `subumbra.json` (resolving `secret_ref` at repair time),
+requires `CF_WORKER_URL` and `SUBUMBRA_SETUP_TOKEN` in the repo bind-mounted
+host env file (`/app/host-env` in the bootstrap container), and needs the
+matching `public_key*.pem` for the key’s vault on the keys data volume. If the
+public key file is missing, re-run full bootstrap.
 
-`--provision` now reads the persisted checkpoint and internal key state. It does
-not require a complete checkpoint record for the target key if `subumbra.json`
-and `.env.bootstrap` still provide the missing authority. If both the repair
-authority and the local public key are gone, rerun the full bootstrap instead.
+> **`SUBUMBRA_SETUP_TOKEN` staleness.** After a successful full bootstrap the
+> Worker secret is deleted while the copy in the repo `.env` may no longer match
+> Cloudflare. That is expected; keep runtime tokens from the last successful
+> bootstrap output. For `--provision`, ensure the host `.env` still carries a
+> **live** setup token if you are mid multi-key repair.
+
+### Bootstrap Phase-2 recovery (half-states)
+
+| Situation | What to do |
+|-----------|------------|
+| **A — `keys.json` not updated** (encrypt or atomic write failed before a good record) | Data volume may be inconsistent with KV. Prefer `./bootstrap.sh --nuke` (non-interactive automation **must** pass `--nuke` when prior CF state exists), then re-run full bootstrap. |
+| **B/C — `keys.json` updated but structured KV missing or partial** | Re-publish from local fat records: `./bootstrap.sh --push-registry` (requires `CF_API_TOKEN` / account context as for other day-2 CF commands). |
+
+Bootstrap **does not** write `bootstrap-checkpoint.json` anymore; there is no
+checkpoint file to delete for resume semantics.
 
 If `--rotate`, `--push-registry`, `--provision`, `--revoke-key`,
 `--add-adapter`, `--revoke-adapter`, or `--publish-policy` reports missing
