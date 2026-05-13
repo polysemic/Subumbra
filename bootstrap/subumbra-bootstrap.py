@@ -899,7 +899,11 @@ def _auth_metadata_from_policy(policy: dict[str, Any], source: str) -> tuple[str
 
 
 def _load_local_template(name: str) -> dict | None:
-    """Return the parsed template dict from USER_TEMPLATES_DIR if present, else None."""
+    """Return the parsed template dict from USER_TEMPLATES_DIR if present, else None.
+
+    Logs a warning and returns None (falls back to built-in catalog) if the
+    file exists but cannot be read or parsed — never silently discards errors.
+    """
     if not USER_TEMPLATES_DIR.is_dir():
         return None
     candidate = USER_TEMPLATES_DIR / f"{name}.yaml"
@@ -907,9 +911,14 @@ def _load_local_template(name: str) -> dict | None:
         return None
     try:
         data = yaml.safe_load(candidate.read_text(encoding="utf-8"))
-    except (OSError, yaml.YAMLError):
+    except OSError as exc:
+        warn(f"Local template {name!r} unreadable ({exc}); falling back to built-in catalog")
+        return None
+    except yaml.YAMLError as exc:
+        warn(f"Local template {name!r} is invalid YAML ({exc}); falling back to built-in catalog")
         return None
     if not isinstance(data, dict):
+        warn(f"Local template {name!r} top-level value is not an object; falling back to built-in catalog")
         return None
     return data
 
