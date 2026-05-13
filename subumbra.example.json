@@ -4,9 +4,7 @@
       "key_id": "anthropic_litellm",
       "provider": "anthropic",
       "secret_ref": "ANTHROPIC_KEY",
-      "adapters": [
-        "litellm"
-      ],
+      "adapters": ["litellm"],
       "unique_vault": false,
       "policy": {
         "key_id": "anthropic_litellm",
@@ -23,26 +21,79 @@
           "header_name": "x-api-key"
         },
         "allow": {
-          "adapters": [
-            "litellm"
-          ],
-          "methods": [
-            "GET",
-            "POST"
-          ],
+          "adapters": ["litellm"],
+          "methods": ["GET", "POST"],
           "path_prefixes": [
             "/v1/models",
             "/v1/messages"
           ],
-          "content_types": [
-            "application/json"
-          ],
+          "content_types": ["application/json"],
           "max_body_bytes": 2097152
         },
         "response": {
-          "deny_patterns": [
-            "api_key"
-          ]
+          "deny_patterns": ["api_key"]
+        }
+      }
+    },
+    {
+      "key_id": "openai_litellm",
+      "provider": "openai",
+      "secret_ref": "OPENAI_KEY",
+      "adapters": ["litellm"],
+      "unique_vault": false,
+      "policy": {
+        "key_id": "openai_litellm",
+        "policy_id": "openai-litellm",
+        "protocol": "openai_compatible",
+        "capability_class": "llm",
+        "source": "env",
+        "target": {
+          "host": "api.openai.com",
+          "base_path": "/v1"
+        },
+        "auth": {
+          "scheme": "bearer"
+        },
+        "allow": {
+          "adapters": ["litellm"],
+          "methods": ["GET", "POST"],
+          "path_prefixes": ["/v1/"],
+          "content_types": ["application/json"],
+          "max_body_bytes": 2097152
+        },
+        "response": {
+          "deny_patterns": ["sk-"]
+        }
+      }
+    },
+    {
+      "key_id": "github_rest",
+      "provider": "github",
+      "secret_ref": "GITHUB_TOKEN",
+      "adapters": ["litellm"],
+      "unique_vault": false,
+      "policy": {
+        "key_id": "github_rest",
+        "policy_id": "github-rest-example",
+        "protocol": "http_rest",
+        "capability_class": "source_control_read",
+        "source": "env",
+        "target": {
+          "host": "api.github.com",
+          "base_path": ""
+        },
+        "auth": {
+          "scheme": "bearer"
+        },
+        "allow": {
+          "adapters": ["litellm"],
+          "methods": ["GET"],
+          "path_prefixes": ["/user"],
+          "content_types": ["application/json"],
+          "max_body_bytes": 65536
+        },
+        "response": {
+          "deny_patterns": ["token", "authorization"]
         }
       }
     }
