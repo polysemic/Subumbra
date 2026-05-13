@@ -4,7 +4,7 @@
 #
 # Field reference:
 #   key_id       — unique identifier for this key (used in the URL: /t/key_id/...)
-#   provider     — human-readable label for the provider (required; not derived from template name)
+#   provider     — unique display label of your choosing; shown in the UI and bootstrap output (not a template name, not used for routing)
 #   secret_ref   — name of the env var in .env.bootstrap that holds your API key
 #   adapters     — app tokens allowed to use this key (use the same name across keys for a shared token)
 #   unique_vault — true for high-isolation keys (separate encryption context); false for shared vault
