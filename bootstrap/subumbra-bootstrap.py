@@ -3983,8 +3983,8 @@ Usage: ./bootstrap.sh [OPTIONS]
 
 Options:
   --help, -h                  Show this help message and exit
-  --list-key-ids              List all key IDs defined in the manifest
-  --list-adapters             List all unique adapters defined in the manifest
+  --list-key-ids              List all key IDs defined in the manifest (subumbra.yaml)
+  --list-adapters             List all unique adapters defined in the manifest (subumbra.yaml)
   --upgrade                   Rebuild images and recreate containers
   --nuke                      Destructive run: destroys existing Cloudflare Vault keypairs
                               and regenerates everything from scratch
@@ -3992,8 +3992,8 @@ Options:
   --push-registry             Push keys.json state directly to Cloudflare KV
   --provision <key_id>        Targeted provisioning/repair for a single key
   --revoke-key <key_id>       Revoke a key (deletes from KV; --offline updates local keys.json only)
-  --add-adapter <key_id>    Add an adapter binding to an existing key
-  --revoke-adapter <key_id> Revoke an adapter binding from an existing key
+  --add-adapter <key_id>      Add an adapter binding to an existing key
+  --revoke-adapter <key_id>   Revoke an adapter binding from an existing key
   --publish-policy <key_id>   Republish a key's policy/adapters to KV
 
 For a full initial bootstrap, run without arguments.
