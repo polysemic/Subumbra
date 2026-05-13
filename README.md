@@ -60,7 +60,7 @@ supported auth slot.
 - Cloudflare holds RSA private key custody in the vault DO; runtime secrets live in Worker config.
 - Plaintext exists only transiently in Worker/DO execution and in transit to providers over HTTPS.
 - Cloudflare deploy authority remains in the trust boundary; the split removes plaintext-at-rest on the VPS, not Cloudflare from the model.
-- Proxy `/health` includes `worker_auth` (`ok` | `stale` | `unreachable`); for full semantics see [docs/operator-guide.md](docs/operator-guide.md) (“Proxy `/health` — `worker_auth` semantics”).
+- Proxy `/health` includes `worker_auth` (`ok` | `stale` | `token_mismatch` | `unreachable`); for full semantics see [docs/operator-guide.md](docs/operator-guide.md) (“Proxy `/health` — `worker_auth` semantics”).
 
 ## UI authentication
 

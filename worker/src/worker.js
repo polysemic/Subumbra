@@ -1041,9 +1041,9 @@ export default {
     const url = new URL(request.url);
 
     // ── GET /health ─────────────────────────────────────────────────────────
-    if (request.method === "GET" && url.pathname === "/health") {
+    if ((request.method === "GET" || request.method === "HEAD") && url.pathname === "/health") {
       return new Response(
-        JSON.stringify({ status: "ok" }),
+        request.method === "HEAD" ? null : JSON.stringify({ status: "ok" }),
         { status: 200, headers: { "content-type": "application/json" } },
       );
     }
