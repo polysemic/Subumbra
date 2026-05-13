@@ -4,7 +4,7 @@
 standalone LiteLLM, and council proof capture.*
 
 Assumes the core stack is already running. See
-[docs/subumbra-install.md](/home/eric/git/Subumbra/docs/subumbra-install.md).
+[docs/subumbra-install.md](subumbra-install.md).
 
 ## 1. Environment Setup
 
@@ -60,7 +60,7 @@ curl -sS http://127.0.0.1:10199/t/anthropic_prod/v1/messages \
 ## 4. Standalone LiteLLM Test
 
 Standalone LiteLLM lives outside `/opt/subumbra`. See
-[docs/apps/litellm/install.md](/home/eric/git/Subumbra/docs/apps/litellm/install.md)
+[docs/apps/litellm/install.md](apps/litellm/install.md)
 for setup.
 
 Once it is running under `/opt/litellm`, a real request through that app-owned

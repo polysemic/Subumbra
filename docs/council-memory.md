@@ -36,6 +36,7 @@ and fresh sessions tend to miss.
 - Round-local `council/{round}/verify-round.sh` hooks stay local-only under the
   ignored `council/` tree; when VPS proof needs them, copy them into the VPS
   checkout or staging path and record that transfer in the report.
+- **R65 close-out (2026-05-13):** Doc-only `existing-stack` round; one Gemini VPS proof **PASS** (`gemini-vps-20260513T022305Z`, SHA `b37481d`). `claude-verification.md` / `codex-verification.md` absent — same three-LLM verification gap class as R62–R64; process-only, not a product regression.
 - **R61 hook:** the round-local hook asserts no `bootstrap-checkpoint.json` in
   `subumbra-keys`, scans `/app/data` for a fixed canary substring (must be
   absent), curls proxy `/health`, and statically checks `run_rotate_wizard` for

@@ -3,7 +3,7 @@
 *How to install and run the core Subumbra stack on a fresh Ubuntu 24.04 VPS.*
 
 **Prerequisites:** complete the host baseline in
-[docs/vps-deployment.md](/home/eric/git/Subumbra/docs/vps-deployment.md) first.
+[docs/vps-deployment.md](vps-deployment.md) first.
 
 ## 1. Install Docker Engine + Compose
 
@@ -44,6 +44,23 @@ sudo chown -R "$USER":"$USER" /opt/subumbra
 cd /opt/subumbra
 git clone https://github.com/your-org/subumbra.git .
 ```
+
+## 2b. Create `subumbra.json` (gitignored)
+
+`subumbra.json` is **not committed** (see `.gitignore`). You **must** create it
+locally before bootstrap or the compose mount will point at a missing file and
+bootstrap will fail.
+
+```bash
+cp subumbra.minimal.json subumbra.json
+# or, for the fuller exemplar:
+# cp subumbra.example.json subumbra.json
+```
+
+Edit `subumbra.json` to match your adapters and policies. The **minimal**
+template is for fast first-time setup (two providers). The **example** file
+shows more keys and adapters — use it only when you accept the added
+configuration surface and operational risk.
 
 ## 3. Create Core `.env`
 
@@ -254,13 +271,13 @@ auth-ping result — see `docs/operator-guide.md` ("Heartbeat, polling, and heal
 For deploy-integrity verification after install, export `CF_API_TOKEN`,
 `CF_ACCOUNT_ID`, and `CF_WORKER_NAME`, then run
 `./scripts/subumbra-verify-deploy` from the repo root. See the
-[operator guide](/home/eric/git/Subumbra/docs/operator-guide.md) for the exact
+[operator guide](operator-guide.md) for the exact
 day-2 command and recovery notes.
 
 If you lose Cloudflare-side vault custody, the supported recovery path is a
 full re-bootstrap with the original `subumbra.json` and `.env.bootstrap`
 inputs. See the recovery section in the
-[operator guide](/home/eric/git/Subumbra/docs/operator-guide.md).
+[operator guide](operator-guide.md).
 
 ## 9. Standalone LiteLLM
 
@@ -268,7 +285,7 @@ LiteLLM is no longer part of the core `/opt/subumbra` compose stack.
 
 Use the standalone guide:
 
-- [docs/apps/litellm/install.md](/home/eric/git/Subumbra/docs/apps/litellm/install.md)
+- [docs/apps/litellm/install.md](apps/litellm/install.md)
 
 That guide shows the supported app-owned contract:
 
@@ -277,7 +294,8 @@ That guide shows the supported app-owned contract:
 
 ## Next
 
-- [docs/subumbra-testing.md](/home/eric/git/Subumbra/docs/subumbra-testing.md)
-- [docs/apps/litellm/install.md](/home/eric/git/Subumbra/docs/apps/litellm/install.md)
-- [docs/operator-guide.md](/home/eric/git/Subumbra/docs/operator-guide.md)
-- [docs/subumbra-developer.md](/home/eric/git/Subumbra/docs/subumbra-developer.md)
+- [docs/subumbra-testing.md](subumbra-testing.md)
+- [docs/apps/litellm/install.md](apps/litellm/install.md)
+- [docs/operator-guide.md](operator-guide.md)
+- [docs/subumbra-developer.md](subumbra-developer.md)
+- [docs/integration-recipes.md](integration-recipes.md)
