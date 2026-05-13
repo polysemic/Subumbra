@@ -1,5 +1,5 @@
 # PROJECT_STATUS
-*Current state — updated 2026-05-13 (R64 launch polish — implementation on branch `r64-launch-polish`; verification pending)*
+*Current state — updated 2026-05-13 (R64 launch polish — CLOSED)*
 
 ---
 
@@ -133,7 +133,7 @@ Current pin: `main-latest@sha256:7c311546c25e7bb6e8cafede9fcd3d0d622ac636b5c9418
 | R61 | 2026-05-12 (CLOSED) | Bootstrap: remove plaintext `bootstrap-checkpoint.json` path; defer `secret_ref` resolution until post-deploy encrypt; phase-1 `call_setup_keygen` per vault; `run_provision_key` uses manifest + host env only; fail-closed host env sync; operator recovery docs. Verified `fresh-install` VPS proof `codex-vps-20260512T174950Z`. |
 | R62 | 2026-05-12 (CLOSED) | Interactive manifest bootstrap wizard (RAM `_WIZARD_SECRETS`, 8-tuple `main()` unpack, post-wizard policy tail removed); round hook `verify-round.sh`. Council close-out: Claude VPS proof **PASS** (`claude-vps-20260512T191443Z`); formal `codex-verification.md` / `gemini-verification.md` not on file (process note in `council/cleanup.md`); Gemini isolated `fresh-install` proof **FAIL** at `remote-install` — not treated as product regression vs static gates. |
 | R63 | 2026-05-12 (CLOSED) | Observability consistency: SQLite-backed `/stats` and `/keys` per-key usage; volatile RAM counters removed; proxy logging ISO alignment; dead SSE `status` listener removed; `verify-round.sh` stability artifacts. VPS `existing-stack` proofs **PASS**: `claude-vps-20260512T233235Z`, `gemini-vps-20260512T234111Z` (SHA `0d403ef`). `codex-verification.md` not on file (process note in `council/cleanup.md`). |
-| R64 | 2026-05-13 (IN PROGRESS) | Launch polish: `GET /audit` optional `key_id` / `verdict` filters; dashboard worker health copy uses `worker_auth`; `fresh-start.sh` audit volume name fix; `subumbra-keys` Gunicorn `--no-control-socket`; Path Forward trim + operator `worker_auth` / CRITICAL-3 docs; `verify-round.sh` S1–S6. |
+| R64 | 2026-05-13 (CLOSED) | Launch polish: `GET /audit` optional `key_id` / `verdict` filters; dashboard worker health copy uses `worker_auth`; `fresh-start.sh` audit volume name fix; `subumbra-keys` Gunicorn `--no-control-socket`; Path Forward trim + operator `worker_auth` / CRITICAL-3 docs; `verify-round.sh` S1–S6. VPS `existing-stack` proof **PASS**: `gemini-vps-20260513T005931Z` (`--build subumbra-keys subumbra-ui`, SHA `a0722d6`). `claude-verification.md` / `codex-verification.md` not on file (process note in `council/cleanup.md`). |
 
 ---
 
