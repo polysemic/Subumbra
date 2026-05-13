@@ -102,7 +102,6 @@ DATA_DIR        = Path(os.environ.get("DATA_DIR", "/app/data"))
 KEYS_FILE       = DATA_DIR / "keys.json"
 RUNTIME_ENV_OUT = DATA_DIR / "runtime.env"
 PUBLIC_KEY_FILE = DATA_DIR / "public_key.pem"
-CHECKPOINT_FILE = DATA_DIR / "bootstrap-checkpoint.json"
 SYSTEM_INTEGRITY_FILE = DATA_DIR / "system-integrity.json"
 HOST_ENV_FILE   = Path("/app/host-env")
 WORKER_SRC      = Path("/app/worker")
@@ -262,32 +261,6 @@ def _representative_key_id_for_vault_instance(
         if _vault_instance_for_key(key_id, unique_key_flags) == vault_instance:
             return key_id
     return None
-
-
-def _delete_bootstrap_checkpoint() -> None:
-    if not CHECKPOINT_FILE.exists():
-        return
-    try:
-        result = subprocess.run(
-            ["shred", "-u", str(CHECKPOINT_FILE)],
-            capture_output=True,
-            text=True,
-        )
-    except FileNotFoundError:
-        try:
-            CHECKPOINT_FILE.unlink(missing_ok=True)
-        except OSError as exc:
-            die(f"Failed to delete bootstrap checkpoint: {exc}")
-        return
-    except OSError:
-        try:
-            CHECKPOINT_FILE.unlink(missing_ok=True)
-        except OSError as exc:
-            die(f"Failed to delete bootstrap checkpoint: {exc}")
-        return
-    if result.returncode != 0:
-        detail = result.stderr.strip() or result.stdout.strip() or f"exit {result.returncode}"
-        die(f"Failed to shred bootstrap checkpoint: {detail}")
 
 
 def _write_public_key_file(path: Path, public_key_pem: str) -> None:
@@ -3416,7 +3389,6 @@ def run_provision_key(target_key_id: str) -> None:
         step("Deleting transient SUBUMBRA_SETUP_TOKEN from CF Secrets")
         _delete_worker_secret(cf_creds, "SUBUMBRA_SETUP_TOKEN")
         _sync_host_env_file({"SUBUMBRA_SETUP_TOKEN": ""})
-        _delete_bootstrap_checkpoint()
         ok("All manifest keys are present in keys.json — setup token cleared from CF and host env")
     else:
         missing = expected_key_ids - set(existing_keys.keys())
@@ -3434,11 +3406,6 @@ def main() -> None:
     print(BANNER, flush=True)
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-    had_checkpoint = CHECKPOINT_FILE.exists()
-    _delete_bootstrap_checkpoint()
-    if had_checkpoint:
-        ok(f"Removed stale bootstrap checkpoint at {CHECKPOINT_FILE}")
 
     # Load existing keys for rotation mode checks (needed before wizard)
     now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -3577,6 +3544,45 @@ def main() -> None:
             print("\nAborted. No changes written.")
             sys.exit(0)
 
+    had_prior_kv_state = KV_CONFIG_FILE.exists()
+    # ── Pre-mutation gate: existing CF state check ────────────────────────
+    # CRITICAL ORDER: This gate must run BEFORE token generation and deploy_worker().
+    # If the operator aborts, no Cloudflare secrets or host .env have been modified.
+    requested_nuke = "--nuke" in sys.argv
+    candidate_vault_instances = sorted(
+        {
+            _vault_instance_for_key(key_id, unique_key_flags)
+            for key_id in api_keys.keys()
+        }
+    )
+    destructive_nuke = False
+
+    if had_prior_kv_state:
+        prompt_message = (
+            "Existing Cloudflare state detected "
+            f"(kv_namespace present at {KV_CONFIG_FILE})."
+        )
+        if requested_nuke:
+            warn(prompt_message)
+            destructive_nuke = True
+        elif sys.stdin.isatty():
+            print("\n" + "─" * 70)
+            print(f"  {prompt_message}")
+            try:
+                confirm = input("  Nuke all detected Cloudflare state and continue? [y/N]: ").strip().lower()
+            except KeyboardInterrupt:
+                print("\n\nAborted. No changes written.", file=sys.stderr)
+                sys.exit(0)
+            if confirm != "y":
+                print("\nAborted. No changes written.")
+                sys.exit(0)
+            destructive_nuke = True
+        else:
+            die(
+                "Existing Cloudflare state detected, but no interactive confirmation path is available.\n"
+                "  Re-run interactively or pass --nuke."
+            )
+
     # ── Step 3: generate runtime auth tokens ─────────────────────────────
     # SECURITY: These are privileged bearer/HMAC secrets. Anyone who obtains
     # an adapter token can drive the Worker as a scoped decryption oracle.
@@ -3611,7 +3617,6 @@ def main() -> None:
         allowed_keys_by_adapter,
         token_ttl_days=token_ttl_days,
     )
-    had_prior_kv_state = KV_CONFIG_FILE.exists()
     # ── Step 4: Phase 1 — deploy worker + push secrets ───────────────────
     # CRITICAL ORDER: remote secrets are pushed BEFORE keys.json is written.
     # If the deploy fails here, keys.json still holds the old blobs that match
@@ -3635,50 +3640,6 @@ def main() -> None:
         setup_token=setup_token,
     )
     _sync_host_env_file(host_env_updates)
-
-    requested_nuke = "--nuke" in sys.argv
-    candidate_vault_instances = sorted(
-        {
-            _vault_instance_for_key(key_id, unique_key_flags)
-            for key_id in api_keys.keys()
-        }
-    )
-    prior_kv_state = had_prior_kv_state
-    initialized_vault_instances: list[str] = []
-    for vault_instance in candidate_vault_instances:
-        try:
-            if _call_internal_vault_status(worker_url, setup_token, vault_instance):
-                initialized_vault_instances.append(vault_instance)
-        except BootstrapFlowError as exc:
-            die(str(exc))
-
-    destructive_nuke = False
-    if prior_kv_state or initialized_vault_instances:
-        prompt_message = (
-            "Existing Cloudflare state detected "
-            f"(vaults: {', '.join(initialized_vault_instances) or 'none'}, "
-            f"kv_namespace: {'present' if prior_kv_state else 'absent'})."
-        )
-        if requested_nuke:
-            warn(prompt_message)
-            destructive_nuke = True
-        elif sys.stdin.isatty():
-            print("\n" + "─" * 70)
-            print(f"  {prompt_message}")
-            try:
-                confirm = input("  Nuke all detected Cloudflare state and continue? [y/N]: ").strip().lower()
-            except KeyboardInterrupt:
-                print("\n\nAborted. No changes written.", file=sys.stderr)
-                sys.exit(0)
-            if confirm != "y":
-                print("\nAborted. No changes written.")
-                sys.exit(0)
-            destructive_nuke = True
-        else:
-            die(
-                "Existing Cloudflare state detected, but no interactive confirmation path is available.\n"
-                "  Re-run interactively or pass --nuke."
-            )
 
     if destructive_nuke:
         step("Resetting detected Cloudflare state for fresh bootstrap")
@@ -3880,8 +3841,9 @@ def main() -> None:
     if not phase1_failures and not phase2_failures:
         step("Deleting transient SUBUMBRA_SETUP_TOKEN from CF Secrets")
         _delete_worker_secret(cf_creds, "SUBUMBRA_SETUP_TOKEN")
-        _delete_bootstrap_checkpoint()
-        ok("Bootstrap cleanup complete (setup token removed from CF)")
+        _sync_host_env_file({"SUBUMBRA_SETUP_TOKEN": ""})
+        ok("SUBUMBRA_SETUP_TOKEN zeroed in host .env (CF secret already deleted)")
+        ok("Bootstrap cleanup complete (setup token removed from CF and zeroed in host .env)")
 
     # ── Step 10: zero sensitive memory ───────────────────────────────────
     step("Clearing sensitive values from memory")

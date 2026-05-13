@@ -148,10 +148,7 @@ See `.env.bootstrap.example` for the full list of expected variables. Key format
 Optional `UNIQUE_KEY_<key_id>=true` provisions that key into its own
 `vault-<key_id>` Durable Object; omitted or `false` keeps the key on the shared
 `vault` instance.
-Blank `*_ADAPTERS` is explicit compatibility/simple mode only. App-owned
-imports use `IMPORT_PATH_<n>` plus required
-`IMPORT_APP_LABEL_<n>` entries; `bootstrap.sh` mounts those files readonly into
-the container. The automation path does not start an interactive wizard.
+Blank `*_ADAPTERS` is explicit compatibility/simple mode only.
 
 `./bootstrap.sh` shreds `.env.bootstrap` after a successful full bootstrap.
 `./bootstrap.sh --provision <key_id>` intentionally does **not** shred it so
@@ -267,7 +264,7 @@ curl -sS http://127.0.0.1:6563/api/status
 
 The Worker `curl` target and `subumbra-keys` `/health` return a minimal
 `{"status":"ok"}` body. **`subumbra-proxy` `/health`** additionally returns
-`worker_auth` (`ok`, `stale`, or `unreachable`) describing the last Worker
+`worker_auth` (`ok`, `stale`, `token_mismatch`, or `unreachable`) describing the last Worker
 auth-ping result — see `docs/operator-guide.md` ("Heartbeat, polling, and health cadence").
 
 For deploy-integrity verification after install, export `CF_API_TOKEN`,
