@@ -1,5 +1,5 @@
 # PROJECT_STATUS
-*Current state — updated 2026-05-13 (R65 launch docs — CLOSED; round-cleanup — CLOSED)*
+*Current state — updated 2026-05-13 (R65 launch docs — CLOSED; round-cleanup — CLOSED; r67-user-templates — CLOSED)*
 
 ---
 
@@ -10,7 +10,8 @@ V3 Asymmetric Envelope Encryption (deployed, all three council verifiers PASS).
 - Asymmetric hybrid envelope: RSA-4096 wraps a per-record AES-256-GCM DEK; neither side can decrypt alone
 - AAD binding: `subumbra:v3:<key_id>:<policy_hash>` prevents ciphertext transplant and policy replay
 - Private key in CF Durable Object SQLite custody (non-extractable); public key on host for offline rotation
-- Manifest-owned provider authority: operators declare routing, auth, and capability in `subumbra.json`; no hardcoded catalog at runtime
+- Manifest-owned provider authority: operators declare routing, auth, and capability in `subumbra.yaml` (preferred) or `subumbra.json`; no hardcoded catalog at runtime
+- **YAML manifest support (r67):** Bootstrap accepts `subumbra.yaml` or `subumbra.json`; local `./templates/<name>.yaml` operator workspace checked before signed built-in catalog
 - V1 symmetric `MASTER_DECRYPTION_KEY` path fully removed; V2 records hard-rejected by Worker
 
 ---
@@ -136,6 +137,7 @@ Current pin: `main-latest@sha256:7c311546c25e7bb6e8cafede9fcd3d0d622ac636b5c9418
 | R64 | 2026-05-13 (CLOSED) | Launch polish: `GET /audit` optional `key_id` / `verdict` filters; dashboard worker health copy uses `worker_auth`; `fresh-start.sh` audit volume name fix; `subumbra-keys` Gunicorn `--no-control-socket`; Path Forward trim + operator `worker_auth` / CRITICAL-3 docs; `verify-round.sh` S1–S6. VPS `existing-stack` proof **PASS**: `gemini-vps-20260513T005931Z` (`--build subumbra-keys subumbra-ui`, SHA `a0722d6`). `claude-verification.md` / `codex-verification.md` not on file (process note in `council/cleanup.md`). |
 | R65 | 2026-05-13 (CLOSED) | Launch docs: README quickstart + `docs/architecture.md`; gitignored `subumbra.json` with tracked `subumbra.minimal.json` / `subumbra.example.json`; `.env.bootstrap.example` + `.env.bootstrap_bak` note; `docs/integration-recipes.md` (merged guides + catalog curls); removed legacy root stubs + `docs/provider-catalog.md`; `litellm/README.md`; operator-guide `worker_auth` detail; path/link hygiene. VPS `existing-stack` proof **PASS**: `gemini-vps-20260513T022305Z` (SHA `b37481d`). `claude-verification.md` / `codex-verification.md` not on file (process note in `council/cleanup.md`). |
 | round-cleanup | 2026-05-13 (CLOSED) | Code cleanup: bootstrap pre-mutation KV gate (no CF/.env mutation before abort); zero `SUBUMBRA_SETUP_TOKEN` in host `.env` after full bootstrap; proxy `worker_auth` `token_mismatch` for Worker 401; UI CSP + `Cache-Control`; Worker `HEAD /health`; `subumbra-verify-deploy` infers `CF_WORKER_NAME` from `CF_WORKER_URL`; remove stale `IMPORT_PATH_*` install doc + dead checkpoint cleanup; `verify-round.sh`. VPS `existing-stack` proofs **PASS**: `codex-vps-20260513T143105Z`, `Gemini-vps-20260513T142722Z` (SHA `05083d1`). Close-out documents accepted scope deviation (UI/README/install `worker_auth` follow-through; no `claude-verification.md`). Archive: `council/closed/round-cleanup/`. |
+| r67-user-templates | 2026-05-13 (CLOSED) | Template Liberation: YAML manifest support (`subumbra.yaml` preferred, `subumbra.json` accepted); local `./templates/<name>.yaml` operator workspace checked before signed built-in catalog; `pyyaml==6.0.2` added; `bootstrap.sh` manifest auto-discovery; extension-free `/app/manifest` container path; `_load_local_template` with warn-on-error fallback + `info()` on success; `template_name` dead-field fix; `subumbra.minimal.yaml` tracked starter; docs + gitignore updated. VPS `existing-stack` proofs: Gemini **PASS** (`gemini-vps-20260513T190733Z`, SHA `b64308b`); Codex harness issues only (S2/S5 environmental — operator override: manual verification passes, `codex-vps-20260513T195138Z`, SHA `a196e4b`). Archive: `council/closed/r67-user-templates/`. |
 
 ---
 
@@ -147,3 +149,4 @@ For the detailed multi-round strategy and unaddressed technical debt, see the [R
 2. **Council audit stubs**: `council/doc-cleanup.md` and `council/log-cleanup.md` now point at `ROADMAP.md` (their 2026-05-10 scan content was merged 2026-05-13). Optional local snapshots can be dropped under `council/archive/roadmap-baseline/` (see that folder’s `README.md`).
 3. **Operator scratchpad**: `council/eric-questions.md` is for research notes only; backlog lines belong in `ROADMAP.md`.
 4. **Deferred from round-cleanup (2026-05-13):** `subumbra-keys` SQLite **`velocity_counters`** table has no automatic pruning (medium priority — schedule an observability/maintenance round). Lower-priority hygiene (orphan `litellm/__pycache__/*.pyc`, VPS `subumbra.json` 664 perms, `subumbra.json.bak` gitignore gap, stricter UI CSP after moving `onclick` to JS) is noted in local `council/cleanup.md` from that round’s `deferred.md`.
+5. **Deferred from r67-user-templates (2026-05-13):** Top-level manifest `source:` field for remote template prefetch targeted for **r69**. Docker Hub/Portainer native template fetch targeted for **r70+**. Low-priority deferred items (community template sharing, hot-reload, formal JSON schema, shadow-warning UX, adapter template YAML conversion) in `council/cleanup.md`.
