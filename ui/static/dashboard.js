@@ -103,11 +103,25 @@ function renderHealth(data) {
     : (data.subumbra_keys_error ?? "subumbra-keys error");
   sText.classList.toggle("err", !data.subumbra_keys_healthy);
 
-  wDot.className = "health-dot " + (data.worker_reachable ? "ok" : "err");
-  wText.textContent = data.worker_reachable
-    ? "worker reachable"
-    : (data.worker_error ?? "worker unreachable");
-  wText.classList.toggle("err", !data.worker_reachable);
+  const wa = data.worker_auth;
+  let wOk = false;
+  let wLabel = "";
+  if (wa === "ok") {
+    wOk = true;
+    wLabel = "Worker auth ok";
+  } else if (wa === "stale") {
+    wOk = false;
+    wLabel = "Worker auth stale";
+  } else if (wa === "unreachable") {
+    wOk = false;
+    wLabel = data.worker_error ?? "Worker unreachable";
+  } else {
+    wOk = !!data.worker_reachable;
+    wLabel = data.worker_error ?? "Worker unreachable";
+  }
+  wDot.className = "health-dot " + (wOk ? "ok" : "err");
+  wText.textContent = wLabel;
+  wText.classList.toggle("err", !wOk);
 }
 
 function renderErrorBanner(data) {

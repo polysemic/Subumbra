@@ -20,4 +20,4 @@ EXPOSE 9090
 # Two workers with four threads; keep runtime config and comment aligned.
 CMD ["gunicorn", "--bind", "0.0.0.0:9090", "--workers", "2", "--threads", "4", \
      "--timeout", "30", "--access-logfile", "-", "--error-logfile", "-", \
-     "--log-level", "info", "app:app"]
+     "--log-level", "info", "--no-control-socket", "app:app"]
