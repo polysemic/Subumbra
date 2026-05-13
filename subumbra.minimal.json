@@ -2,7 +2,7 @@
   "_note": "MANUAL ENTRY REQUIRED: Copy this file to 'subumbra.json' before running bootstrap. Edit the values below to match your providers. Add, delete, or comment out keys you don't need.",
   "_fields": {
     "key_id": "Unique identifier for this key (used in the URL: /t/key_id/...)",
-    "provider": "Human-readable label for the provider",
+    "provider": "Unique display label of your choosing — shown in the UI and bootstrap output (not a template name, not used for routing)",
     "secret_ref": "The name of the Environment Variable in .env.bootstrap that holds your API key",
     "adapters": "List of app tokens allowed to use this key. Use the SAME name (e.g., ['universal']) across all keys to create one token that works for everything.",
     "unique_vault": "Set to true for high-isolation keys (separate encryption hardware/context)",
