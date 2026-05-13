@@ -36,6 +36,7 @@ and fresh sessions tend to miss.
 - Round-local `council/{round}/verify-round.sh` hooks stay local-only under the
   ignored `council/` tree; when VPS proof needs them, copy them into the VPS
   checkout or staging path and record that transfer in the report.
+- **r67 close-out (2026-05-13):** `existing-stack` round. Gemini VPS proof **PASS** (`gemini-vps-20260513T190733Z`, SHA `b64308b`). Codex VPS proof **FAIL** on S2/S5 harness issues only (Docker compose stdout noise; live manifest uses inline policy not `template` keys — environmental mismatch, not product error). Operator override: manual verification passes. `claude-verification.md` absent; `claude-remediation.md` written. Codex disputes (1 & 2) rejected — approved plan is the scope boundary, not scope-lock docs. Dispute 3 revealed a real implementation gap (missing `info()` success log); fixed in remediation.
 - **R65 close-out (2026-05-13):** Doc-only `existing-stack` round; one Gemini VPS proof **PASS** (`gemini-vps-20260513T022305Z`, SHA `b37481d`). `claude-verification.md` / `codex-verification.md` absent — same three-LLM verification gap class as R62–R64; process-only, not a product regression.
 - **R61 hook:** the round-local hook asserts no `bootstrap-checkpoint.json` in
   `subumbra-keys`, scans `/app/data` for a fixed canary substring (must be
