@@ -8,6 +8,7 @@ import os
 import subprocess
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from email import policy
 from email.parser import BytesParser
@@ -43,14 +44,43 @@ def load_dotenv(path: Path) -> dict[str, str]:
     return values
 
 
+def _infer_worker_name_from_url(url: str) -> str:
+    """Derive worker script name from a *.workers.dev URL (best-effort)."""
+    try:
+        host = (urllib.parse.urlparse(url.strip()).hostname or "").strip().lower()
+    except Exception:
+        return ""
+    labels = host.split(".")
+    if len(labels) >= 3 and labels[-2] == "workers" and labels[-1] == "dev":
+        return labels[0]
+    return ""
+
+
 def resolve_credentials() -> dict[str, str]:
     repo_env = load_dotenv(REPO_ROOT / ".env")
     resolved: dict[str, str] = {}
-    for name in ("CF_API_TOKEN", "CF_ACCOUNT_ID", "CF_WORKER_NAME"):
+    for name in ("CF_API_TOKEN", "CF_ACCOUNT_ID"):
         value = os.environ.get(name, "").strip() or repo_env.get(name, "").strip()
         if not value:
             die(f"missing required credential: {name}")
         resolved[name] = value
+    worker_name = (
+        os.environ.get("CF_WORKER_NAME", "").strip()
+        or repo_env.get("CF_WORKER_NAME", "").strip()
+    )
+    if not worker_name:
+        worker_url = (
+            os.environ.get("CF_WORKER_URL", "").strip()
+            or repo_env.get("CF_WORKER_URL", "").strip()
+        )
+        worker_name = _infer_worker_name_from_url(worker_url)
+    if not worker_name:
+        die(
+            "missing required credential: CF_WORKER_NAME\n"
+            "  Set CF_WORKER_NAME in .env, or set CF_WORKER_URL to a *.workers.dev URL "
+            "and CF_WORKER_NAME will be inferred."
+        )
+    resolved["CF_WORKER_NAME"] = worker_name
     return resolved
 
 

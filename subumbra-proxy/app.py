@@ -442,7 +442,7 @@ async def get_worker_auth_status() -> str:
         _worker_auth_ok_until = now + WORKER_AUTH_OK_TTL_SECONDS
         return "ok"
     if response.status_code == 401 and response.content.strip() == WORKER_AUTH_UNAUTHORIZED_BODY:
-        return "stale"
+        return "token_mismatch"
     return "unreachable"
 
 

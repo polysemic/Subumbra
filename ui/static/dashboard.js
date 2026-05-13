@@ -112,6 +112,9 @@ function renderHealth(data) {
   } else if (wa === "stale") {
     wOk = false;
     wLabel = "Worker auth stale";
+  } else if (wa === "token_mismatch") {
+    wOk = false;
+    wLabel = data.worker_error ?? "Worker auth token mismatch";
   } else if (wa === "unreachable") {
     wOk = false;
     wLabel = data.worker_error ?? "Worker unreachable";

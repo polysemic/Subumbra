@@ -1,5 +1,5 @@
 # PROJECT_STATUS
-*Current state — updated 2026-05-13 (R65 launch docs — CLOSED)*
+*Current state — updated 2026-05-13 (R65 launch docs — CLOSED; round-cleanup implementation staged)*
 
 ---
 
@@ -135,6 +135,7 @@ Current pin: `main-latest@sha256:7c311546c25e7bb6e8cafede9fcd3d0d622ac636b5c9418
 | R63 | 2026-05-12 (CLOSED) | Observability consistency: SQLite-backed `/stats` and `/keys` per-key usage; volatile RAM counters removed; proxy logging ISO alignment; dead SSE `status` listener removed; `verify-round.sh` stability artifacts. VPS `existing-stack` proofs **PASS**: `claude-vps-20260512T233235Z`, `gemini-vps-20260512T234111Z` (SHA `0d403ef`). `codex-verification.md` not on file (process note in `council/cleanup.md`). |
 | R64 | 2026-05-13 (CLOSED) | Launch polish: `GET /audit` optional `key_id` / `verdict` filters; dashboard worker health copy uses `worker_auth`; `fresh-start.sh` audit volume name fix; `subumbra-keys` Gunicorn `--no-control-socket`; Path Forward trim + operator `worker_auth` / CRITICAL-3 docs; `verify-round.sh` S1–S6. VPS `existing-stack` proof **PASS**: `gemini-vps-20260513T005931Z` (`--build subumbra-keys subumbra-ui`, SHA `a0722d6`). `claude-verification.md` / `codex-verification.md` not on file (process note in `council/cleanup.md`). |
 | R65 | 2026-05-13 (CLOSED) | Launch docs: README quickstart + `docs/architecture.md`; gitignored `subumbra.json` with tracked `subumbra.minimal.json` / `subumbra.example.json`; `.env.bootstrap.example` + `.env.bootstrap_bak` note; `docs/integration-recipes.md` (merged guides + catalog curls); removed legacy root stubs + `docs/provider-catalog.md`; `litellm/README.md`; operator-guide `worker_auth` detail; path/link hygiene. VPS `existing-stack` proof **PASS**: `gemini-vps-20260513T022305Z` (SHA `b37481d`). `claude-verification.md` / `codex-verification.md` not on file (process note in `council/cleanup.md`). |
+| round-cleanup | 2026-05-13 | Code cleanup: bootstrap pre-mutation KV gate (no CF/.env mutation before abort); zero `SUBUMBRA_SETUP_TOKEN` in host `.env` after full bootstrap; proxy `worker_auth` `token_mismatch` for Worker 401; UI CSP + `Cache-Control`; Worker `HEAD /health`; `subumbra-verify-deploy` infers `CF_WORKER_NAME` from `CF_WORKER_URL`; remove stale `IMPORT_PATH_*` install doc + dead checkpoint cleanup; `council/round-cleanup/verify-round.sh`. |
 
 ---
 
