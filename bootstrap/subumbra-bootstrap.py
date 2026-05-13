@@ -980,6 +980,8 @@ def _normalize_manifest_record(record: Any, idx: int) -> dict[str, Any]:
             if template_name not in catalog:
                 _manifest_die(f"{source} template {template_name!r} not found in user-templates or built-in catalog")
             template_data = catalog[template_name]
+        else:
+            info(f"Using local template for {template_name!r} from user templates directory")
         operator_overrides = record.get("policy") if isinstance(record.get("policy"), dict) else None
         policy_raw = _expand_template_into_policy(
             template=template_data,
