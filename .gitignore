@@ -8,6 +8,7 @@
 .env.bootstrap_bak
 .env.bootstrap.local
 subumbra.json
+subumbra.yaml
 
 # Runtime env (contains generated tokens, not keys — still keep out of git)
 .env

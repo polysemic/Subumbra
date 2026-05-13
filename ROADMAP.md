@@ -2,13 +2,6 @@
 
 This is the **operator- and contributor-facing** backlog: planned work, open ideas, and long-range possibilities. **Nothing here is a fixed sequence**—order shifts with real installs, incidents, and feedback. Items are grouped so similar work can be scheduled together when you pick the next round.
 
-**Where detail lives**
-
-- Engineering regrouping and Gemini/Codex notes: `council/round-66-roadmap/` (e.g. `codex-proposal.md`, `gemini-proposal.md`).
-- Secure UI + key lifecycle council designs: `council/round-TBD-secure-ui/` (hardening reviews, pause/delete/rotate proposals, `dashboard.js` handoff notes).
-- Day-to-day round close-outs and deferrals: `council/cleanup.md` (append-only council notes; not purged).
-- Archived snapshots of the old doc/log audit files: `council/archive/roadmap-baseline/`.
-- Scratch research: `council/eric-questions.md`.
 
 **Recently addressed (verify docs, do not re-implement blindly)**
 

@@ -4,7 +4,7 @@ subumbra-bootstrap — manifest-era V3 envelope encryption & deployment.
 
 Usage (interactive — TTY, no .env.bootstrap):
   ./bootstrap.sh
-  Requires subumbra.json on the bootstrap mount; Cloudflare and provider secrets
+  Requires subumbra.yaml (or subumbra.json) on the bootstrap mount; Cloudflare and provider secrets
   are prompted via hidden TTY reads (clear labels; no password echo) and held in RAM
   (including an
   in-process secret cache), not written to disk as plaintext.
@@ -16,7 +16,7 @@ Single-key rotation (no Cloudflare interaction):
   ./bootstrap.sh --rotate
 
 What it does (full bootstrap, in order):
-  1. Detects mode: automation when CF token + account + subumbra.json are all
+  1. Detects mode: automation when CF token + account + manifest are all
      present in the environment; otherwise interactive manifest wizard (TTY) or
      structured errors when non-interactive
   2. Collects CF credentials + provider API keys (RAM only — never written to disk)
@@ -54,6 +54,7 @@ import gc
 import hashlib
 import json
 import os
+import yaml
 import re
 import secrets
 import shutil
@@ -105,7 +106,8 @@ PUBLIC_KEY_FILE = DATA_DIR / "public_key.pem"
 SYSTEM_INTEGRITY_FILE = DATA_DIR / "system-integrity.json"
 HOST_ENV_FILE   = Path("/app/host-env")
 WORKER_SRC      = Path("/app/worker")
-MANIFEST_FILE   = Path("/app/subumbra.json")
+MANIFEST_FILE   = Path("/app/manifest")
+USER_TEMPLATES_DIR = Path("/app/user-templates")
 KV_CONFIG_FILE = DATA_DIR / "kv-config.json"
 
 # RAM-only secrets collected in interactive wizard mode (never written to disk here).
@@ -237,7 +239,7 @@ def _load_unique_key_flags(key_ids: list[str]) -> dict[str, bool]:
 
 
 def _manifest_die(message: str) -> NoReturn:
-    die(f"subumbra.json: {message}")
+    die(f"manifest: {message}")
 
 
 def _vault_instance_for_key(key_id: str, unique_key_flags: dict[str, bool]) -> str:
@@ -896,8 +898,33 @@ def _auth_metadata_from_policy(policy: dict[str, Any], source: str) -> tuple[str
     _policy_die(source, f"auth.scheme {scheme!r} is invalid")
 
 
+def _load_local_template(name: str) -> dict | None:
+    """Return the parsed template dict from USER_TEMPLATES_DIR if present, else None.
+
+    Logs a warning and returns None (falls back to built-in catalog) if the
+    file exists but cannot be read or parsed — never silently discards errors.
+    """
+    if not USER_TEMPLATES_DIR.is_dir():
+        return None
+    candidate = USER_TEMPLATES_DIR / f"{name}.yaml"
+    if not candidate.is_file():
+        return None
+    try:
+        data = yaml.safe_load(candidate.read_text(encoding="utf-8"))
+    except OSError as exc:
+        warn(f"Local template {name!r} unreadable ({exc}); falling back to built-in catalog")
+        return None
+    except yaml.YAMLError as exc:
+        warn(f"Local template {name!r} is invalid YAML ({exc}); falling back to built-in catalog")
+        return None
+    if not isinstance(data, dict):
+        warn(f"Local template {name!r} top-level value is not an object; falling back to built-in catalog")
+        return None
+    return data
+
+
 def _normalize_manifest_record(record: Any, idx: int) -> dict[str, Any]:
-    source = f"subumbra.json.keys[{idx}]"
+    source = f"manifest.keys[{idx}]"
     if not isinstance(record, dict):
         _manifest_die(f"{source} must be an object")
 
@@ -947,12 +974,17 @@ def _normalize_manifest_record(record: Any, idx: int) -> dict[str, Any]:
     if template_name is not None:
         if not isinstance(template_name, str) or not template_name:
             _manifest_die(f"{source}.template must be a non-empty string")
-        catalog = _load_and_verify_catalog()
-        if template_name not in catalog:
-            _manifest_die(f"{source} template {template_name!r} not found in catalog")
+        template_data = _load_local_template(template_name)
+        if template_data is None:
+            catalog = _load_and_verify_catalog()
+            if template_name not in catalog:
+                _manifest_die(f"{source} template {template_name!r} not found in user-templates or built-in catalog")
+            template_data = catalog[template_name]
+        else:
+            info(f"Using local template for {template_name!r} from user templates directory")
         operator_overrides = record.get("policy") if isinstance(record.get("policy"), dict) else None
         policy_raw = _expand_template_into_policy(
-            template=catalog[template_name],
+            template=template_data,
             key_id=key_id,
             policy_id=f"{template_name}-{key_id}",
             effective_adapters=effective_adapters,
@@ -996,11 +1028,11 @@ def _load_manifest_records() -> list[dict[str, Any]]:
         _manifest_die(f"{MANIFEST_FILE} is not a regular file")
 
     try:
-        payload = json.loads(MANIFEST_FILE.read_text(encoding="utf-8"))
+        payload = yaml.safe_load(MANIFEST_FILE.read_text(encoding="utf-8"))
     except OSError as exc:
         _manifest_die(f"unreadable manifest: {exc}")
-    except json.JSONDecodeError as exc:
-        _manifest_die(f"invalid JSON: {exc}")
+    except yaml.YAMLError as exc:
+        _manifest_die(f"invalid YAML/JSON: {exc}")
 
     if not isinstance(payload, dict):
         _manifest_die("top-level value must be an object")
@@ -1027,11 +1059,11 @@ def _load_manifest_key_ids_only() -> set[str]:
         _manifest_die(f"{MANIFEST_FILE} is not a regular file")
 
     try:
-        payload = json.loads(MANIFEST_FILE.read_text(encoding="utf-8"))
+        payload = yaml.safe_load(MANIFEST_FILE.read_text(encoding="utf-8"))
     except OSError as exc:
         _manifest_die(f"unreadable manifest: {exc}")
-    except json.JSONDecodeError as exc:
-        _manifest_die(f"invalid JSON: {exc}")
+    except yaml.YAMLError as exc:
+        _manifest_die(f"invalid YAML/JSON: {exc}")
 
     if not isinstance(payload, dict):
         _manifest_die("top-level value must be an object")
@@ -1041,7 +1073,7 @@ def _load_manifest_key_ids_only() -> set[str]:
 
     key_ids: set[str] = set()
     for idx, record in enumerate(records):
-        source = f"subumbra.json.keys[{idx}]"
+        source = f"manifest.keys[{idx}]"
         if not isinstance(record, dict):
             _manifest_die(f"{source} must be an object")
         key_id = record.get("key_id")
@@ -1152,7 +1184,7 @@ def _verify_embedded_policy_hash(record: dict[str, Any], key_id: str) -> None:
 def _load_manifest_repair_authority(target_key_id: str) -> dict[str, Any]:
     if not MANIFEST_FILE.exists():
         die(
-            f"Cannot repair key_id {target_key_id!r}: subumbra.json is unavailable.\n"
+            f"Cannot repair key_id {target_key_id!r}: manifest is unavailable.\n"
             "  Re-run full bootstrap with a manifest that declares this key."
         )
     for record in _load_manifest_records():
@@ -1166,10 +1198,10 @@ def _load_manifest_repair_authority(target_key_id: str) -> dict[str, Any]:
                 "adapters": list(record["adapters"]),
                 "auth_header": record["auth_header"],
                 "auth_prefix": record["auth_prefix"],
-                "template_name": record["provider"],
+                "template_name": record.get("template"),
             }
     die(
-        f"Cannot repair key_id {target_key_id!r}: subumbra.json does not declare that key.\n"
+        f"Cannot repair key_id {target_key_id!r}: manifest does not declare that key.\n"
         "  Re-run full bootstrap or add the key to the manifest."
     )
 
@@ -1830,7 +1862,7 @@ def _has_env_credentials() -> bool:
     unattended manifest-era bootstrap:
       - CF_API_TOKEN     (non-empty)
       - CF_ACCOUNT_ID    (non-empty)
-      - subumbra.json exists
+      - manifest exists at /app/manifest
 
     Comment-only, whitespace-only, or REPLACE_ME placeholder values do NOT
     satisfy this check — only real non-empty values count.
@@ -2065,7 +2097,7 @@ def _load_env_fallback(
     # retained for reference — not called in current flow (always _automation_fail).
     _automation_fail(
         "Legacy env-only bootstrap is no longer supported after provider catalog removal.\n"
-        "  Author subumbra.json with explicit policy.target.host and policy.auth settings,\n"
+        "  Author subumbra.yaml (or subumbra.json) with explicit policy.target.host and policy.auth settings,\n"
         "  then provide only the referenced secrets in .env.bootstrap."
     )
 
@@ -2137,7 +2169,7 @@ def run_interactive_wizard(
     }
     ok("Cloudflare credentials captured (values not printed)")
 
-    step("Loading manifest records from subumbra.json")
+    step("Loading manifest records")
     records = _load_manifest_records()
     ok(f"Found {len(records)} manifest key record(s)")
 
@@ -3951,8 +3983,8 @@ Usage: ./bootstrap.sh [OPTIONS]
 
 Options:
   --help, -h                  Show this help message and exit
-  --list-key-ids              List all key IDs defined in subumbra.json
-  --list-adapters             List all unique adapters defined in subumbra.json
+  --list-key-ids              List all key IDs defined in the manifest (subumbra.yaml)
+  --list-adapters             List all unique adapters defined in the manifest (subumbra.yaml)
   --upgrade                   Rebuild images and recreate containers
   --nuke                      Destructive run: destroys existing Cloudflare Vault keypairs
                               and regenerates everything from scratch
@@ -3960,8 +3992,8 @@ Options:
   --push-registry             Push keys.json state directly to Cloudflare KV
   --provision <key_id>        Targeted provisioning/repair for a single key
   --revoke-key <key_id>       Revoke a key (deletes from KV; --offline updates local keys.json only)
-  --add-adapter <key_id>    Add an adapter binding to an existing key
-  --revoke-adapter <key_id> Revoke an adapter binding from an existing key
+  --add-adapter <key_id>      Add an adapter binding to an existing key
+  --revoke-adapter <key_id>   Revoke an adapter binding from an existing key
   --publish-policy <key_id>   Republish a key's policy/adapters to KV
 
 For a full initial bootstrap, run without arguments.
