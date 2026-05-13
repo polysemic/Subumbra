@@ -1,7 +1,9 @@
-# Subumbra Provider × App Matrix — Round 43-6
+# Subumbra Provider × App Matrix — historical (Round 43-6)
 
-*Tested 2026-04-25 through 2026-04-26. All direct-path cells use the transparent sidecar.*
-*Proxy log pass pattern: `complete key_id=<provider>_prod status=200`*
+*Historical regression matrix (2026-04-25 through 2026-04-26). All direct-path cells used the transparent sidecar at that time.*
+*Proxy log pass pattern referenced: `complete key_id=<provider>_prod status=200`*
+
+For current **example `curl`** paths and REST notes, see [integration-recipes.md](integration-recipes.md). This file is retained for **traceability**; cell results are not re-verified each release.
 
 ---
 
