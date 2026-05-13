@@ -192,7 +192,7 @@ services:
       - keys_data:/app/data
       # Mount worker source so bootstrap can deploy via wrangler
       - ./worker:/app/worker:ro
-      - ./subumbra.json:/app/subumbra.json:ro
+      # Manifest is mounted dynamically by bootstrap.sh (subumbra.yaml preferred, subumbra.json fallback)
     env_file:
       # required: false — wizard runs when file is absent (interactive mode)
       # Populate this file for CI/automation (headless) mode.

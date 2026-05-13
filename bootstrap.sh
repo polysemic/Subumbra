@@ -6,7 +6,14 @@ cd "$repo_root"
 
 env_file=".env"
 bootstrap_file=".env.bootstrap"
-manifest_file="subumbra.json"
+
+# Discover manifest: prefer subumbra.yaml, fall back to subumbra.json.
+manifest_file=""
+if [[ -f "subumbra.yaml" ]]; then
+    manifest_file="subumbra.yaml"
+elif [[ -f "subumbra.json" ]]; then
+    manifest_file="subumbra.json"
+fi
 
 # Resolve primary bootstrap subcommand (may appear after flags, e.g. --revoke-key … --offline).
 mode=""
@@ -51,9 +58,13 @@ declare -a volume_args=()
 declare -a env_args=()
 
 volume_args+=(-v "$repo_root/$env_file:/app/host-env:rw")
+volume_args+=(-v "$repo_root/$manifest_file:/app/manifest:ro")
+if [[ -d "$repo_root/templates" ]]; then
+    volume_args+=(-v "$repo_root/templates:/app/user-templates:ro")
+fi
 
-if [[ ! -f "$manifest_file" ]]; then
-    echo "ERROR: $manifest_file is required for manifest-era bootstrap and must be a regular file." >&2
+if [[ -z "$manifest_file" ]]; then
+    echo "ERROR: manifest not found. Create subumbra.yaml (preferred) or subumbra.json." >&2
     exit 1
 fi
 
