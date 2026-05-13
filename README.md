@@ -2,12 +2,14 @@
 
 Current version label: `0.0.1-alpha`
 
+# Not ready for production - this is for testing only!
+
 Subumbra keeps provider API keys split between **encrypted records** in
 `subumbra-keys` and **decrypt authority** in a Cloudflare Worker + Durable
 Object vault. The supported integration model is **app-owned installs**: core
 stack under `/opt/subumbra`, apps in their own installs, apps call
 `subumbra-proxy` on the transparent **`/t/<key_id>/...`** path. Routing and auth
-live in operator-authored **`subumbra.json`**.
+live in operator-authored **`subumbra.yaml`** (or `subumbra.json`).
 
 **Architecture (diagram + stack list):** [docs/architecture.md](docs/architecture.md)
 
@@ -17,11 +19,11 @@ live in operator-authored **`subumbra.json`**.
 
 1. **Clone** into `/opt/subumbra` (or your chosen path). See
    [docs/subumbra-install.md](docs/subumbra-install.md) for Docker install on Ubuntu.
-2. **Manifest (required):** `subumbra.json` is **gitignored** — it must exist on
-   disk before bootstrap. Copy a template, then edit:
+2. **Manifest (required):** `subumbra.yaml` (preferred) or `subumbra.json` is **gitignored** — it must exist on disk before bootstrap. Copy a template, then edit:
    ```bash
-   cp subumbra.minimal.json subumbra.json
-   # or: cp subumbra.example.json subumbra.json
+   cp subumbra.minimal.yaml subumbra.yaml
+   # or JSON: cp subumbra.minimal.json subumbra.json
+   # or fuller example: cp subumbra.example.json subumbra.json
    ```
    The **minimal** template is a **single** OpenAI row using only a signed
    **`template`** (no inline `policy`). It is the smallest manifest bootstrap
@@ -84,6 +86,7 @@ subumbra/
 ├── docker-compose.yml
 ├── .env.example
 ├── .env.bootstrap.example
+├── subumbra.minimal.yaml   # preferred YAML starter (copy to gitignored subumbra.yaml)
 ├── subumbra.minimal.json
 ├── subumbra.example.json   # gold exemplar (copy to gitignored subumbra.json)
 ├── bootstrap/
