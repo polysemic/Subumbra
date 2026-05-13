@@ -14,7 +14,7 @@ Any HTTPS JSON API can be brokered when you set:
 - `policy.target.host` / `policy.target.base_path`
 - `policy.auth` (`bearer`, `basic`, `header`, or `query` per operator guide)
 
-Declare labels, hosts, and auth in `subumbra.json`; use [subumbra.example.json](../subumbra.example.json) as the **gold** shape reference and [subumbra.minimal.json](../subumbra.minimal.json) for a **two-provider** quick copy.
+Declare labels, hosts, and auth in `subumbra.json`; use [subumbra.example.json](../subumbra.example.json) as the **gold** reference (every signed catalog template plus one full inline policy example) and [subumbra.minimal.json](../subumbra.minimal.json) for the **smallest** valid manifest (one OpenAI key via `template` only). For sample `curl` paths per provider, see the sections below.
 
 ---
 
