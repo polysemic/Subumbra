@@ -2089,6 +2089,7 @@ def _load_env_fallback(
     Legacy env-only bootstrap is no longer supported after provider catalog removal.
     cf_creds: {"CF_API_TOKEN": ..., "CF_ACCOUNT_ID": ..., "CF_WORKER_NAME": ...}
     """
+    # retained for reference — not called in current flow (always _automation_fail).
     _automation_fail(
         "Legacy env-only bootstrap is no longer supported after provider catalog removal.\n"
         "  Author subumbra.json with explicit policy.target.host and policy.auth settings,\n"

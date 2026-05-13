@@ -113,6 +113,10 @@ subumbra/
 - Cloudflare deploy authority remains part of the trust boundary; the split
   design removes plaintext-at-rest on the VPS, not Cloudflare from the model.
 - Proxy health now reports Worker-auth state via `worker_auth: ok|stale|unreachable`.
+  - **`ok`:** the proxy recently verified the Worker with a successful auth ping within its TTL.
+  - **`stale`:** the Worker is still reachable but the cached auth ping expired — often transient after restarts; not the same as “Cloudflare is down”.
+  - **`unreachable`:** the proxy cannot reach the Worker health/auth path at all.
+  - **CRITICAL-3 (operator model):** CF Access (and related) header stripping is enforced at the **Cloudflare Worker edge**; misconfiguration there can surface as `worker_auth` / proxy errors even when the VPS stack is healthy.
 
 ## UI Authentication
 

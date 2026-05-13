@@ -138,7 +138,7 @@ section "What will be destroyed"
 echo ""
 echo "  Docker:"
 echo "    - All containers defined in docker-compose.yml (with volumes)"
-echo "    - Named volumes: subumbra_keys_data, subumbra_audit_data"
+echo "    - Named volumes: subumbra_keys_data, subumbra_subumbra_audit_data"
 echo ""
 echo "  Local files:"
 echo "    - .env"
@@ -178,7 +178,7 @@ if docker compose ps --quiet 2>/dev/null | grep -q .; then
 else
   info "No running containers found"
   # Still remove volumes if they exist
-  for vol in subumbra_keys_data subumbra_audit_data; do
+  for vol in subumbra_keys_data subumbra_subumbra_audit_data; do
     if docker volume inspect "$vol" &>/dev/null 2>&1; then
       info "Removing volume: $vol"
       run docker volume rm "$vol"
