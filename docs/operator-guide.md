@@ -160,7 +160,7 @@ Trust model and offline behavior:
 
 ### Minimal example — template only
 
-One OpenAI key, one adapter label, no optional policy fields. Replace `litellm` with your own adapter id if you prefer; keep the `keys` wrapper. This matches the tracked [`subumbra.minimal.yaml`](../subumbra.minimal.yaml).
+One OpenAI key, one adapter label, no optional policy fields. Replace `litellm` with your own adapter id if you prefer; keep the `keys` wrapper. The tracked [`subumbra.minimal.yaml`](../subumbra.minimal.yaml) is a fuller multi-provider reference starter.
 
 ```yaml
 keys:
