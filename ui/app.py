@@ -143,6 +143,10 @@ def add_security_headers(response):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self'"
+    )
+    response.headers.setdefault("Cache-Control", "no-store")
     return response
 
 @app.get("/health")
@@ -204,7 +208,7 @@ def api_status():
     proxy_health_data, proxy_health_err = _proxy_get("/health")
     worker_auth = (proxy_health_data or {}).get("worker_auth")
     worker_reachable = proxy_health_err is None and worker_auth == "ok"
-    if proxy_health_err is None and worker_auth in {"stale", "unreachable"}:
+    if proxy_health_err is None and worker_auth in {"stale", "token_mismatch", "unreachable"}:
         worker_err = f"Worker auth {worker_auth}"
     else:
         worker_err = proxy_health_err

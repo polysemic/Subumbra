@@ -41,14 +41,15 @@ run.
   bridge gateway (for example `172.25.0.1`), so host-originated traffic shares
   one logical bucket for the rate limiter.
 
-**Proxy `/health`:** returns JSON including `worker_auth` (`ok`, `stale`, or
-`unreachable`) in addition to `status`. **`ok`** means a recent Worker auth ping succeeded; **`stale`** means the ping TTL elapsed (Worker still up, refresh pending); **`unreachable`** means the proxy could not reach the Worker path. **CRITICAL-3:** CF Access and related header handling is enforced at the **Worker** edge — edge misconfiguration can look like proxy/`worker_auth` failures. See install verification docs.
+**Proxy `/health`:** returns JSON including `worker_auth` (`ok`, `stale`,
+`token_mismatch`, or `unreachable`) in addition to `status`. **`ok`** means a recent Worker auth ping succeeded; **`stale`** means the cached auth ping TTL elapsed without a new ping (Worker may still be healthy); **`token_mismatch`** means the Worker rejected the proxy auth token (401) — permanent until tokens are re-synchronized; **`unreachable`** means the proxy could not reach the Worker path. **CRITICAL-3:** CF Access and related header handling is enforced at the **Worker** edge — edge misconfiguration can look like proxy/`worker_auth` failures. See install verification docs.
 
 ### Proxy `/health` — `worker_auth` semantics (from README)
 
 - **`ok`:** the proxy recently verified the Worker with a successful auth ping within its TTL.
-- **`stale`:** the Worker is still reachable but the cached auth ping expired — often transient after restarts; not the same as “Cloudflare is down”.
-- **`unreachable`:** the proxy cannot reach the Worker health/auth path at all.
+- **`stale`:** the cached auth ping TTL elapsed without a new ping; the Worker may still be healthy. Often transient after restarts.
+- **`token_mismatch`:** the Worker rejected the proxy's auth token with 401 — the adapter token in the proxy's environment does not match what Cloudflare holds. This is a permanent failure until tokens are re-synchronized (re-run `./bootstrap.sh --nuke` or re-push `SUBUMBRA_ADAPTER_TOKENS` via wrangler). **This is not the same as `stale`.**
+- **`unreachable`:** the proxy cannot reach the Worker health/auth path at all (network or Cloudflare outage).
 - **CRITICAL-3 (operator model):** CF Access (and related) header stripping is enforced at the **Cloudflare Worker edge**; misconfiguration there can surface as `worker_auth` / proxy errors even when the VPS stack is healthy.
 
 ## SEC-4 — Container environment and process visibility
