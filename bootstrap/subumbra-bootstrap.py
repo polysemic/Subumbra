@@ -994,7 +994,10 @@ def _normalize_manifest_record(record: Any, idx: int) -> dict[str, Any]:
         policy_raw = record.get("policy")
         if not isinstance(policy_raw, dict):
             _manifest_die(f"{source}.policy must be an object")
-    normalized_policy = _normalize_policy_doc(policy_raw, f"{source}.policy")
+    normalized_policy = _normalize_policy_doc(
+        policy_raw,
+        f"{source}.policy (expanded from template {template_name!r})" if template_name is not None else f"{source}.policy",
+    )
     if normalized_policy["key_id"] != key_id:
         _manifest_die(
             f"{source}.policy.key_id {normalized_policy['key_id']!r} does not match record key_id {key_id!r}"
@@ -1042,12 +1045,17 @@ def _load_manifest_records() -> list[dict[str, Any]]:
 
     normalized_records: list[dict[str, Any]] = []
     seen_key_ids: set[str] = set()
+    seen_providers: set[str] = set()
     for idx, record in enumerate(records):
         normalized = _normalize_manifest_record(record, idx)
         key_id = normalized["key_id"]
         if key_id in seen_key_ids:
             _manifest_die(f"duplicate key_id {key_id!r}")
         seen_key_ids.add(key_id)
+        provider = normalized["provider"]
+        if provider in seen_providers:
+            warn(f"duplicate provider label {provider!r} — each key's provider should be a unique display name")
+        seen_providers.add(provider)
         normalized_records.append(normalized)
     return normalized_records
 

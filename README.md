@@ -25,10 +25,10 @@ live in operator-authored **`subumbra.yaml`** (or `subumbra.json`).
    # or JSON: cp subumbra.minimal.json subumbra.json
    # or fuller example: cp subumbra.example.json subumbra.json
    ```
-   The **minimal** template is a **single** OpenAI row using only a signed
-   **`template`** (no inline `policy`). It is the smallest manifest bootstrap
-   accepts; swap the template name or add more objects under `keys` when you
-   need more providers. The **example** file lists **every** signed catalog
+   The tracked **minimal** YAML starter is a multi-provider catalog reference
+   using only signed **`template`** entries (no inline `policy`). Copy it when
+   you want a ready-made provider inventory, then delete rows you do not need.
+   The **example** file lists **every** signed catalog
    template plus one inline policy row showing optional `deny`, `intent`,
    `response`, and `velocity` fields. Use minimal to get running fast; use the
    example when you want the full variable surface.
