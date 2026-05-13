@@ -1,6 +1,6 @@
 # Subumbra Operator Guide
 
-This guide covers the supported Round 1 operator flow:
+This guide covers the supported **manifest-driven** operator flow:
 
 1. author `subumbra.json`
 2. provide a secret-only `.env.bootstrap`
@@ -65,12 +65,39 @@ services on the same host.
 
 ## 1. Create The Manifest
 
+### In plain terms
+
+- **`subumbra.json`** is your **recipe**: it lists which provider keys Subumbra should broker. It stores **names** of secrets (`secret_ref`), not the secrets themselves.
+- The **tracked** file in git is a **starting copy** (`subumbra.minimal.json` or `subumbra.example.json`). You copy it to **`subumbra.json`** (gitignored), edit, then run bootstrap.
+- After bootstrap, apps use an **adapter token** (printed into your runtime `.env`) as the `api_key` when calling `subumbra-proxy` on the `/t/<key_id>/...` path.
+
+### Whole-file shape (required)
+
+Bootstrap accepts **only** a JSON **object** with a single top-level array named **`keys`**. Each element is one brokered key. A file that contains only one key object **without** the `keys` wrapper will be rejected.
+
+The smallest **valid** file is one non-empty entry inside `keys` (see the minimal template below). The repo ships that shape in [`subumbra.minimal.json`](../subumbra.minimal.json) (one OpenAI key, `template` only) and [`subumbra.example.json`](../subumbra.example.json) (full catalog coverage + one inline “gold” policy).
+
+### Normative reference (auditors / implementers)
+
+Record validation, template expansion, and adapter-id rules are implemented in
+`bootstrap/subumbra-bootstrap.py` (`_normalize_manifest_record`,
+`_normalize_policy_doc`, `_expand_template_into_policy`). Treat that code as the
+source of truth if this guide and the runtime ever disagree.
+
+### Security Checkpoint: Policy-Bound Encryption
+Subumbra uses **Policy-Bound Encryption** (technically AES-GCM with AAD). When you bootstrap a key, the rules you define (like which apps can use it and what paths are allowed) are cryptographically bound to the encrypted secret.
+
+- **The Benefit**: If someone gains access to your Cloudflare KV and tries to "edit" your policy to give themselves more access, they will **fail**. The Worker will detect that the policy no longer matches the "seal" on the key and will refuse to decrypt it.
+- **The Operator Workflow**: Because of this seal, whenever you change a critical field in `subumbra.json` (like increasing `max_body_bytes` or changing a `target.host`), you **must re-run `./bootstrap.sh`**. Bootstrap will re-encrypt the secret using the new policy hash and update the "seal" in the cloud.
+
+---
+
 `subumbra.json` is **gitignored** (never committed). Start from a **tracked**
 template, then edit the working copy:
 
 ```bash
 cp subumbra.minimal.json subumbra.json
-# or a fuller exemplar:
+# or a fuller example:
 # cp subumbra.example.json subumbra.json
 ```
 
@@ -88,10 +115,16 @@ Each manifest record declares:
 
 `secret_ref` names the environment variable that will hold the provider secret
 during bootstrap. The manifest itself should not contain plaintext secrets.
-`provider` is now an operator-declared label, not a built-in routing lookup key.
+`provider` is an operator-declared label, not a built-in routing lookup key.
 Routing and auth authority come from `policy.target.host` and `policy.auth`
 when using an inline policy, or from the expanded template plus optional
 operator overrides when using `template`.
+
+**Adapter ids:** each entry in `adapters` must match the manifest adapter regex
+in bootstrap (`ADAPTER_ID_RE`) and **must not** be a reserved built-in id
+(`subumbra-proxy`, `subumbra-probe`, `subumbra-ui`). You may use any other
+stable label (for example `litellm` or `my-chat-app`); bootstrap will emit a
+matching `SUBUMBRA_TOKEN_<NORMALIZED>` runtime secret for each non-built-in id.
 
 ## 2. Using Provider Templates
 
@@ -106,7 +139,7 @@ Merge rules:
 1. The template supplies provider-determined fields (`protocol`, `capability_class`,
    `target`, `auth`, default `allow` limits, and optional `response` / `intent` /
    `velocity` / `deny`).
-2. The operator always supplies `key_id`, `secret_ref`, `adapters`, and
+2. The operator always supplies `key_id`, `provider`, `secret_ref`, `adapters`, and
    `unique_vault` on the manifest record. Bootstrap injects `allow.adapters`
    from the manifest’s `adapters` list (after normalization); **`allow.adapters`
    is never taken from the template** and cannot be overridden via an optional
@@ -123,36 +156,69 @@ Trust model and offline behavior:
 - Templates ship inside the bootstrap container image under `/app/templates/`; no
   network fetch of a catalog URL is performed.
 
-Minimal example using only a template:
+### Minimal example — template only (full `subumbra.json` file)
+
+This matches the tracked [`subumbra.minimal.json`](../subumbra.minimal.json): one OpenAI key, one adapter label, no optional policy fields. Replace `litellm` with your own adapter id if you prefer; keep the `keys` wrapper.
 
 ```json
 {
-  "key_id": "my-openai-key",
-  "provider": "openai",
-  "secret_ref": "OPENAI_KEY",
-  "adapters": ["my-proxy-token"],
-  "unique_vault": false,
-  "template": "openai"
-}
-```
-
-Example with partial override:
-
-```json
-{
-  "key_id": "my-openai-key",
-  "provider": "openai",
-  "secret_ref": "OPENAI_KEY",
-  "adapters": ["my-proxy-token"],
-  "unique_vault": false,
-  "template": "openai",
-  "policy": {
-    "allow": {
-      "max_body_bytes": 524288
+  "keys": [
+    {
+      "key_id": "openai_prod",
+      "provider": "openai",
+      "secret_ref": "OPENAI_KEY",
+      "adapters": ["litellm"],
+      "unique_vault": false,
+      "template": "openai"
     }
-  }
+  ]
 }
 ```
+
+### Custom adapter name (same shape)
+
+Adapter id `my-proxy-token` is valid as long as it is not a reserved built-in. Bootstrap will surface a `SUBUMBRA_TOKEN_MY_PROXY_TOKEN` line in the generated runtime material (normalization details in `_normalize_adapter_id` in `bootstrap/subumbra-bootstrap.py`).
+
+```json
+{
+  "keys": [
+    {
+      "key_id": "my-openai-key",
+      "provider": "openai",
+      "secret_ref": "OPENAI_KEY",
+      "adapters": ["my-proxy-token"],
+      "unique_vault": false,
+      "template": "openai"
+    }
+  ]
+}
+```
+
+### Template with partial override (full file)
+
+Optional `policy` merges on top of the template; **`allow.adapters` is still taken only from the manifest’s `adapters` list** (never from the template, and not overridable here).
+
+```json
+{
+  "keys": [
+    {
+      "key_id": "my-openai-key",
+      "provider": "openai",
+      "secret_ref": "OPENAI_KEY",
+      "adapters": ["my-proxy-token"],
+      "unique_vault": false,
+      "template": "openai",
+      "policy": {
+        "allow": {
+          "max_body_bytes": 524288
+        }
+      }
+    }
+  ]
+}
+```
+
+For **Anthropic**, **Groq**, **GitHub**, and every other signed catalog provider, copy another object into `keys` (or start from [`subumbra.example.json`](../subumbra.example.json) and delete what you do not need). Example `curl` paths for several providers live in [`docs/integration-recipes.md`](integration-recipes.md).
 
 Adapter JSON files under `bootstrap/templates/adapters/` are signed for
 integrity and operator documentation; bootstrap does not expand them into policy.

@@ -58,9 +58,11 @@ cp subumbra.minimal.json subumbra.json
 ```
 
 Edit `subumbra.json` to match your adapters and policies. The **minimal**
-template is for fast first-time setup (two providers). The **example** file
-shows more keys and adapters — use it only when you accept the added
-configuration surface and operational risk.
+template is one OpenAI key using **`template` only** (no inline `policy`). The
+**example** file lists **every** signed catalog template plus one inline policy
+row demonstrating optional `deny`, `intent`, `response`, and `velocity` fields;
+use it when you want the full variable surface or to copy additional providers
+into `keys`.
 
 ## 3. Create Core `.env`
 

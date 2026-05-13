@@ -1,14 +1,110 @@
 {
   "keys": [
     {
-      "key_id": "anthropic_litellm",
+      "key_id": "anthropic_example",
       "provider": "anthropic",
       "secret_ref": "ANTHROPIC_KEY",
-      "adapters": ["litellm"],
+      "adapters": ["litellm", "openwebui", "anythingllm", "librechat", "bifrost"],
+      "unique_vault": false,
+      "template": "anthropic"
+    },
+    {
+      "key_id": "openai_example",
+      "provider": "openai",
+      "secret_ref": "OPENAI_KEY",
+      "adapters": ["litellm", "openwebui", "anythingllm", "librechat", "bifrost"],
+      "unique_vault": false,
+      "template": "openai"
+    },
+    {
+      "key_id": "groq_example",
+      "provider": "groq",
+      "secret_ref": "GROQ_KEY",
+      "adapters": ["litellm", "openwebui", "anythingllm", "librechat"],
+      "unique_vault": false,
+      "template": "groq"
+    },
+    {
+      "key_id": "deepseek_example",
+      "provider": "deepseek",
+      "secret_ref": "DEEPSEEK_KEY",
+      "adapters": ["litellm", "openwebui", "anythingllm", "librechat"],
+      "unique_vault": false,
+      "template": "deepseek"
+    },
+    {
+      "key_id": "gemini_example",
+      "provider": "gemini",
+      "secret_ref": "GEMINI_API_KEY",
+      "adapters": ["litellm", "openwebui", "anythingllm", "librechat"],
+      "unique_vault": false,
+      "template": "gemini"
+    },
+    {
+      "key_id": "mistral_example",
+      "provider": "mistral",
+      "secret_ref": "MISTRAL_API_KEY",
+      "adapters": ["litellm", "openwebui", "anythingllm", "librechat"],
+      "unique_vault": false,
+      "template": "mistral"
+    },
+    {
+      "key_id": "openrouter_example",
+      "provider": "openrouter",
+      "secret_ref": "OPENROUTER_API_KEY",
+      "adapters": ["litellm", "openwebui", "anythingllm", "librechat"],
+      "unique_vault": false,
+      "template": "openrouter"
+    },
+    {
+      "key_id": "together_example",
+      "provider": "together",
+      "secret_ref": "TOGETHER_AI_API_KEY",
+      "adapters": ["litellm", "openwebui", "anythingllm", "librechat"],
+      "unique_vault": false,
+      "template": "together"
+    },
+    {
+      "key_id": "xai_example",
+      "provider": "xai",
+      "secret_ref": "XAI_API_KEY",
+      "adapters": ["litellm", "openwebui", "anythingllm", "librechat"],
+      "unique_vault": true,
+      "template": "xai"
+    },
+    {
+      "key_id": "github_example",
+      "provider": "github",
+      "secret_ref": "GITHUB_TOKEN",
+      "adapters": ["litellm", "n8n", "openwebui"],
+      "unique_vault": false,
+      "template": "github"
+    },
+    {
+      "key_id": "slack_example",
+      "provider": "slack",
+      "secret_ref": "SLACK_BOT_TOKEN",
+      "adapters": ["litellm", "n8n", "openwebui"],
+      "unique_vault": false,
+      "template": "slack"
+    },
+    {
+      "key_id": "sendgrid_example",
+      "provider": "sendgrid",
+      "secret_ref": "SENDGRID_API_KEY",
+      "adapters": ["litellm", "n8n"],
+      "unique_vault": false,
+      "template": "sendgrid"
+    },
+    {
+      "key_id": "anthropic_policy_gold",
+      "provider": "anthropic",
+      "secret_ref": "ANTHROPIC_KEY",
+      "adapters": ["litellm", "openwebui"],
       "unique_vault": false,
       "policy": {
-        "key_id": "anthropic_litellm",
-        "policy_id": "anthropic-litellm",
+        "key_id": "anthropic_policy_gold",
+        "policy_id": "anthropic-policy-gold-reference",
         "protocol": "http_rest",
         "capability_class": "llm",
         "source": "env",
@@ -21,79 +117,30 @@
           "header_name": "x-api-key"
         },
         "allow": {
-          "adapters": ["litellm"],
-          "methods": ["GET", "POST"],
-          "path_prefixes": [
-            "/v1/models",
-            "/v1/messages"
-          ],
+          "adapters": ["litellm", "openwebui"],
+          "methods": ["GET", "POST", "PUT", "PATCH", "DELETE"],
+          "path_prefixes": ["/v1/messages", "/v1/models"],
           "content_types": ["application/json"],
-          "max_body_bytes": 2097152
+          "max_body_bytes": 1048576
+        },
+        "deny": {
+          "path_prefixes": ["/v1/fine-tuning"]
+        },
+        "intent": {
+          "policy_match": "subumbra-intent-baseline-v1",
+          "trust": {
+            "allowed_initiators": ["litellm-proxy", "openwebui-server"],
+            "allowed_content_sources": ["operator-ui", "api-request-body"]
+          }
         },
         "response": {
-          "deny_patterns": ["api_key"]
-        }
-      }
-    },
-    {
-      "key_id": "openai_litellm",
-      "provider": "openai",
-      "secret_ref": "OPENAI_KEY",
-      "adapters": ["litellm"],
-      "unique_vault": false,
-      "policy": {
-        "key_id": "openai_litellm",
-        "policy_id": "openai-litellm",
-        "protocol": "openai_compatible",
-        "capability_class": "llm",
-        "source": "env",
-        "target": {
-          "host": "api.openai.com",
-          "base_path": "/v1"
+          "deny_patterns": ["api_key", "sk-", "authorization"]
         },
-        "auth": {
-          "scheme": "bearer"
-        },
-        "allow": {
-          "adapters": ["litellm"],
-          "methods": ["GET", "POST"],
-          "path_prefixes": ["/v1/"],
-          "content_types": ["application/json"],
-          "max_body_bytes": 2097152
-        },
-        "response": {
-          "deny_patterns": ["sk-"]
-        }
-      }
-    },
-    {
-      "key_id": "github_rest",
-      "provider": "github",
-      "secret_ref": "GITHUB_TOKEN",
-      "adapters": ["litellm"],
-      "unique_vault": false,
-      "policy": {
-        "key_id": "github_rest",
-        "policy_id": "github-rest-example",
-        "protocol": "http_rest",
-        "capability_class": "source_control_read",
-        "source": "env",
-        "target": {
-          "host": "api.github.com",
-          "base_path": ""
-        },
-        "auth": {
-          "scheme": "bearer"
-        },
-        "allow": {
-          "adapters": ["litellm"],
-          "methods": ["GET"],
-          "path_prefixes": ["/user"],
-          "content_types": ["application/json"],
-          "max_body_bytes": 65536
-        },
-        "response": {
-          "deny_patterns": ["token", "authorization"]
+        "velocity": {
+          "adapter_rpm": 120,
+          "key_rpm": 600,
+          "breaker_failures": 3,
+          "breaker_cooldown_seconds": 30
         }
       }
     }

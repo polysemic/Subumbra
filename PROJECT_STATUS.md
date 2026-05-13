@@ -140,6 +140,8 @@ Current pin: `main-latest@sha256:7c311546c25e7bb6e8cafede9fcd3d0d622ac636b5c9418
 
 ## Path Forward
 
-1. **Post-R62 follow-on (non-blocking):** Subsequent commits on `r62-interactive-bootstrap` may include operator UX (Node 22 bootstrap image, `./bootstrap.sh --upgrade`, TTY/day-2 CF + `secret_ref` resolution, banner/docs) — outside the frozen R62 approved diff boundary; track via normal PR review to `main`.
-2. **Verifier / harness backlog (local-only):** `vps-proof-run.sh` `--build` guidance for code-change `existing-stack` proofs, `SUBUMBRA_TOKEN_PROBE` compose noise, and `VERIFY_MODE` export cleanup — see `council/cleanup.md` (not committed; council-only).
-3. **R65 follow-on (non-blocking):** Optional `PROJECT_STATUS.md` Path Forward density trim (deferred from R65 scope); Mermaid / troubleshooting doc / automated doc-link validator remain backlog — see `council/cleanup.md`. Restore three-LLM verification files (`claude-verification.md`, `codex-verification.md`) when practical (same gap class as R62–R64).
+For the detailed multi-round strategy and unaddressed technical debt, see the [ROADMAP.md](ROADMAP.md).
+
+1. **Strategic roadmap**: Planned and possible work lives in the root [`ROADMAP.md`](ROADMAP.md). Themes there are grouped for scheduling (signal, policy, lifecycle, docs, Cloudflare, ecosystem, harness, research)—**not** a committed sequence.
+2. **Council audit stubs**: `council/doc-cleanup.md` and `council/log-cleanup.md` now point at `ROADMAP.md` (their 2026-05-10 scan content was merged 2026-05-13). Optional local snapshots can be dropped under `council/archive/roadmap-baseline/` (see that folder’s `README.md`).
+3. **Operator scratchpad**: `council/eric-questions.md` is for research notes only; backlog lines belong in `ROADMAP.md`.
