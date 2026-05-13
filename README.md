@@ -11,6 +11,8 @@ live in operator-authored **`subumbra.json`**.
 
 **Architecture (diagram + stack list):** [docs/architecture.md](docs/architecture.md)
 
+**Planned and possible work:** [ROADMAP.md](ROADMAP.md) (living backlog; order shifts with feedback).
+
 ## Five-minute quickstart
 
 1. **Clone** into `/opt/subumbra` (or your chosen path). See
@@ -21,10 +23,13 @@ live in operator-authored **`subumbra.json`**.
    cp subumbra.minimal.json subumbra.json
    # or: cp subumbra.example.json subumbra.json
    ```
-   The **minimal** template is two providers (OpenAI + Anthropic). The
-   **example** file is a larger gold exemplar (more keys / adapters). Use the
-   minimal copy for a fast first bootstrap; switch to the example only when you
-   accept broader surface area and configuration risk.
+   The **minimal** template is a **single** OpenAI row using only a signed
+   **`template`** (no inline `policy`). It is the smallest manifest bootstrap
+   accepts; swap the template name or add more objects under `keys` when you
+   need more providers. The **example** file lists **every** signed catalog
+   template plus one inline policy row showing optional `deny`, `intent`,
+   `response`, and `velocity` fields. Use minimal to get running fast; use the
+   example when you want the full variable surface.
 3. **Runtime env:** `cp .env.example .env` — leave optional CF Access / tunnel
    vars blank unless you use them.
 4. **Bootstrap:** `./bootstrap.sh` (interactive TTY) or automation with
