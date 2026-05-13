@@ -88,6 +88,7 @@ Polled every 30 seconds. Drives all dashboard state.
   "subumbra_keys_healthy": true,
   "subumbra_keys_error": null,
   "worker_reachable": true,
+  "worker_auth": "ok",
   "worker_error": null,
   "stats_available": true,
   "audit_available": true,
@@ -116,6 +117,7 @@ Polled every 30 seconds. Drives all dashboard state.
 ```
 
 **Notes:**
+- **`worker_auth`** (`ok` \| `stale` \| `unreachable`) is the authoritative Worker auth signal from the proxy. **`worker_reachable`** is the derived boolean: proxy `/health` succeeded **and** `worker_auth == "ok"` (so `stale` can still show `worker_reachable: false` while the Worker is up).
 - `provider` must be one of: `anthropic`, `openai`, `groq`, `deepseek` (controls badge colour)
 - `verdict` must be one of: `allow`, `deny` (controls log row colour)
 - `stats_available: false` → dashboard shows a warning banner; `request_count` and `last_access` may be stale

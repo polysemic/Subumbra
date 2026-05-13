@@ -749,14 +749,33 @@ def audit() -> tuple[Response, int]:
     if _audit_conn is None:
         return _err("audit unavailable", 503)
 
+    key_id_filter = (request.args.get("key_id") or "").strip()
+    verdict_filter = (request.args.get("verdict") or "").strip()
+    if verdict_filter and verdict_filter not in {"allow", "deny"}:
+        return _err("invalid verdict filter", 400)
+
+    where_clauses: list[str] = []
+    query_params: list[str] = []
+    if key_id_filter:
+        where_clauses.append("key_id = ?")
+        query_params.append(key_id_filter)
+    if verdict_filter:
+        where_clauses.append("verdict = ?")
+        query_params.append(verdict_filter)
+    where_sql = ""
+    if where_clauses:
+        where_sql = " WHERE " + " AND ".join(where_clauses)
+
     try:
         rows = _audit_conn.execute(
-            """
+            f"""
             SELECT timestamp, adapter_id, endpoint, key_id, verdict, reason_code, remote
             FROM audit_events
+            {where_sql}
             ORDER BY id DESC
             LIMIT 100
-            """
+            """,
+            tuple(query_params),
         ).fetchall()
     except sqlite3.Error as exc:
         log.warning("audit_read_error error=%s", exc)

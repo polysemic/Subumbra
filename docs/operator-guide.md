@@ -42,7 +42,7 @@ run.
   one logical bucket for the rate limiter.
 
 **Proxy `/health`:** returns JSON including `worker_auth` (`ok`, `stale`, or
-`unreachable`) in addition to `status`. See install verification docs.
+`unreachable`) in addition to `status`. **`ok`** means a recent Worker auth ping succeeded; **`stale`** means the ping TTL elapsed (Worker still up, refresh pending); **`unreachable`** means the proxy could not reach the Worker path. **CRITICAL-3:** CF Access and related header handling is enforced at the **Worker** edge — edge misconfiguration can look like proxy/`worker_auth` failures. See install verification docs.
 
 ## SEC-4 — Container environment and process visibility
 

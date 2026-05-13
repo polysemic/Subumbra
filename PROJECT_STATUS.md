@@ -1,5 +1,5 @@
 # PROJECT_STATUS
-*Current state — updated 2026-05-12 (R63 observability consistency — CLOSED)*
+*Current state — updated 2026-05-13 (R64 launch polish — implementation on branch `r64-launch-polish`; verification pending)*
 
 ---
 
@@ -133,12 +133,11 @@ Current pin: `main-latest@sha256:7c311546c25e7bb6e8cafede9fcd3d0d622ac636b5c9418
 | R61 | 2026-05-12 (CLOSED) | Bootstrap: remove plaintext `bootstrap-checkpoint.json` path; defer `secret_ref` resolution until post-deploy encrypt; phase-1 `call_setup_keygen` per vault; `run_provision_key` uses manifest + host env only; fail-closed host env sync; operator recovery docs. Verified `fresh-install` VPS proof `codex-vps-20260512T174950Z`. |
 | R62 | 2026-05-12 (CLOSED) | Interactive manifest bootstrap wizard (RAM `_WIZARD_SECRETS`, 8-tuple `main()` unpack, post-wizard policy tail removed); round hook `verify-round.sh`. Council close-out: Claude VPS proof **PASS** (`claude-vps-20260512T191443Z`); formal `codex-verification.md` / `gemini-verification.md` not on file (process note in `council/cleanup.md`); Gemini isolated `fresh-install` proof **FAIL** at `remote-install` — not treated as product regression vs static gates. |
 | R63 | 2026-05-12 (CLOSED) | Observability consistency: SQLite-backed `/stats` and `/keys` per-key usage; volatile RAM counters removed; proxy logging ISO alignment; dead SSE `status` listener removed; `verify-round.sh` stability artifacts. VPS `existing-stack` proofs **PASS**: `claude-vps-20260512T233235Z`, `gemini-vps-20260512T234111Z` (SHA `0d403ef`). `codex-verification.md` not on file (process note in `council/cleanup.md`). |
+| R64 | 2026-05-13 (IN PROGRESS) | Launch polish: `GET /audit` optional `key_id` / `verdict` filters; dashboard worker health copy uses `worker_auth`; `fresh-start.sh` audit volume name fix; `subumbra-keys` Gunicorn `--no-control-socket`; Path Forward trim + operator `worker_auth` / CRITICAL-3 docs; `verify-round.sh` S1–S6. |
 
 ---
 
 ## Path Forward
 
-1. **Post-R63 harness (non-blocking):** Document or harden `vps-proof-run.sh` so **`existing-stack`** proofs that change **containerized** Python/JS default to **`--build`** (or equivalent) — R63 showed a false-positive risk when stale images remained (see `claude-verification.md` HARNESS_ISSUE).
-2. **Post-R62 follow-on (non-blocking):** Subsequent commits on `r62-interactive-bootstrap` may include operator UX (Node 22 bootstrap image, `./bootstrap.sh --upgrade`, TTY/day-2 CF + `secret_ref` resolution, banner/docs) — outside the frozen R62 approved diff boundary; track via normal PR review to `main`.
-3. **Harness noise**: `SUBUMBRA_TOKEN_PROBE` unset warning in `docker compose port` and other non-critical harness logs.
-4. **Harness cleanup (deferred from R60):** `VERIFY_MODE` is still exported by `vps-proof-run.sh` but not read by `verify.sh`; isolated mode continues to key off `SUBUMBRA_UI_CONTAINER`. A small follow-on round may wire an explicit mode string or remove the dead env forward.
+1. **Post-R62 follow-on (non-blocking):** Subsequent commits on `r62-interactive-bootstrap` may include operator UX (Node 22 bootstrap image, `./bootstrap.sh --upgrade`, TTY/day-2 CF + `secret_ref` resolution, banner/docs) — outside the frozen R62 approved diff boundary; track via normal PR review to `main`.
+2. **Verifier / harness backlog (local-only):** `vps-proof-run.sh` `--build` guidance for code-change `existing-stack` proofs, `SUBUMBRA_TOKEN_PROBE` compose noise, and `VERIFY_MODE` export cleanup — see `council/cleanup.md` (not committed; council-only).
