@@ -44,6 +44,13 @@ run.
 **Proxy `/health`:** returns JSON including `worker_auth` (`ok`, `stale`, or
 `unreachable`) in addition to `status`. **`ok`** means a recent Worker auth ping succeeded; **`stale`** means the ping TTL elapsed (Worker still up, refresh pending); **`unreachable`** means the proxy could not reach the Worker path. **CRITICAL-3:** CF Access and related header handling is enforced at the **Worker** edge — edge misconfiguration can look like proxy/`worker_auth` failures. See install verification docs.
 
+### Proxy `/health` — `worker_auth` semantics (from README)
+
+- **`ok`:** the proxy recently verified the Worker with a successful auth ping within its TTL.
+- **`stale`:** the Worker is still reachable but the cached auth ping expired — often transient after restarts; not the same as “Cloudflare is down”.
+- **`unreachable`:** the proxy cannot reach the Worker health/auth path at all.
+- **CRITICAL-3 (operator model):** CF Access (and related) header stripping is enforced at the **Cloudflare Worker edge**; misconfiguration there can surface as `worker_auth` / proxy errors even when the VPS stack is healthy.
+
 ## SEC-4 — Container environment and process visibility
 
 Docker Compose injects runtime secrets from your host `.env` into **container
@@ -58,11 +65,17 @@ services on the same host.
 
 ## 1. Create The Manifest
 
-Start from the checked-in example:
+`subumbra.json` is **gitignored** (never committed). Start from a **tracked**
+template, then edit the working copy:
 
 ```bash
-cp subumbra.example.json subumbra.json
+cp subumbra.minimal.json subumbra.json
+# or a fuller exemplar:
+# cp subumbra.example.json subumbra.json
 ```
+
+Bootstrap **requires** a local `subumbra.json` on disk (Compose bind-mount). If
+the file is missing, bootstrap fails closed.
 
 Each manifest record declares:
 
