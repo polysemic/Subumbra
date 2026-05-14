@@ -237,7 +237,7 @@ Optional `policy` merges on top of the template; **`allow.adapters` is still tak
 
 For **Anthropic**, **Groq**, **GitHub**, and every other signed catalog provider, copy another object into `keys` (or start from [`subumbra.example.json`](../subumbra.example.json) and delete what you do not need). Example `curl` paths for several providers live in [`docs/integration-recipes.md`](integration-recipes.md).
 
-Adapter JSON files under `bootstrap/templates/adapters/` are signed for
+Adapter YAML files under `bootstrap/templates/adapters/` are signed for
 integrity and operator documentation; bootstrap does not expand them into policy.
 
 ## 3. Create The Secret Bootstrap File

@@ -54,13 +54,20 @@ them.
 - Live provider validation has moved away from a purely bundled model; local
   repo metadata can still remain as operator/bootstrap seed material.
 - **Signed provider templates (r51):** Bootstrap ships a release-signed catalog
-  under `/app/templates/` (`catalog.json` + `catalog.sig` + per-provider JSON).
-  A manifest key may use `"template": "<name>"` instead of an inline `policy`
-  object; bootstrap verifies signature and SHA-256 before expanding into policy.
+  under `/app/templates/` (`catalog.json` + `catalog.sig` + per-provider
+  templates). A manifest key may use `"template": "<name>"` instead of an inline
+  `policy` object; bootstrap verifies signature and SHA-256 before expanding into policy.
 - **Internal State Authority (R48-3)**: Day-2 management commands (`--push-registry`, `--provision`, `--rotate`) source all authority from internal "Fat Records" in `keys.json` instead of external manifests. Re-bootstrap is the only supported path for changing embedded authority fields.
 - **Management Authority (R50)**: Worker management mutations now use a distinct `SUBUMBRA_MANAGEMENT_TOKEN`; browser/UI routes remain read-only, while pause/unpause writes happen through Worker `/manage/*` endpoints and durable audit rows in the existing vault DO.
 - **R65 (2026-05-13):** The repo ships **tracked** `subumbra.minimal.json` and `subumbra.example.json`. **Minimal** is one OpenAI key via `template` only (smallest valid manifest). **Example** lists every signed catalog template plus one inline “gold” policy. The operator working file **`subumbra.json` is gitignored** — copy a template (`cp subumbra.minimal.json subumbra.json` or `cp subumbra.example.json subumbra.json`), edit, then bootstrap; README and `docs/subumbra-install.md` document this. Example `curl` tables for `/t` moved to `docs/integration-recipes.md` (replacing removed `docs/provider-catalog.md`).
 - **r67 (2026-05-13):** Bootstrap now accepts **`subumbra.yaml`** (preferred) or `subumbra.json` — both gitignored; `subumbra.minimal.yaml` is the new tracked YAML starter. `bootstrap.sh` auto-discovers the manifest and mounts it extension-free at `/app/manifest`. Operators may place local `./templates/<name>.yaml` files that take precedence over the signed built-in catalog (not signature-verified; operator-owned). Bootstrap image must be rebuilt (`./bootstrap.sh --upgrade`) after pulling this round to pick up `pyyaml`.
+- **r68 (2026-05-13):** Template-backed policy normalization failures now name
+  the originating template in bootstrap errors, and the docs/starter wording
+  was aligned to the tracked multi-provider `subumbra.minimal.yaml`.
+- **r69 (2026-05-13):** Built-in provider and adapter templates were migrated to
+  YAML under the signed catalog, `./bootstrap.sh --status` was added as a
+  read-only manifest-vs-record drift check, and `--add-adapter` /
+  `--revoke-adapter` gained bounded canonical `adapters: [...]` manifest sync.
 
 ---
 
