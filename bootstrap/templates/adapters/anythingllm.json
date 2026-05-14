@@ -1,6 +1,0 @@
-{
-  "adapter_id": "anythingllm",
-  "config_snippet_notes": "Point AnythingLLM OpenAI-compatible base URL at http://subumbra-proxy:8090/t/<key_id>/v1 (or provider-specific suffix per AnythingLLM docs). Use the adapter token value as the API key.",
-  "suggested_allow_adapters": ["anythingllm-app"],
-  "token_env_var": "ANYTHINGLLM_SUBUMBRA_ADAPTER_TOKEN"
-}

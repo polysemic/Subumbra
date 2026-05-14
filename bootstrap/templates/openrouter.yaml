@@ -1,0 +1,17 @@
+adapter_notes: OpenRouter OpenAI-compatible routing API.
+allow:
+  content_types:
+  - application/json
+  max_body_bytes: 1048576
+  methods:
+  - GET
+  - POST
+  path_prefixes:
+  - /api/v1
+auth:
+  scheme: bearer
+capability_class: llm
+protocol: openai_compatible
+target:
+  base_path: /api/v1
+  host: openrouter.ai

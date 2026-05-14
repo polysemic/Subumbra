@@ -1,0 +1,6 @@
+adapter_id: n8n
+config_snippet_notes: Use HTTP Request nodes with base URL http://subumbra-proxy:8090/t/<key_id>/...
+  and Authorization Bearer with the adapter token.
+suggested_allow_adapters:
+- n8n-workflow
+token_env_var: N8N_SUBUMBRA_ADAPTER_TOKEN

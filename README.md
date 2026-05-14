@@ -26,8 +26,11 @@ live in operator-authored **`subumbra.yaml`** (or `subumbra.json`).
    # or fuller example: cp subumbra.example.json subumbra.json
    ```
    The tracked **minimal** YAML starter is a multi-provider catalog reference
-   using only signed **`template`** entries (no inline `policy`). Copy it when
-   you want a ready-made provider inventory, then delete rows you do not need.
+   using only signed **`template`** entries (no inline `policy`). Built-in
+   provider and adapter templates now live in `bootstrap/templates/*.yaml` if
+   you want to copy them into `./templates/` for local customization.
+   Copy the starter when you want a ready-made provider inventory, then delete
+   rows you do not need.
    The **example** file lists **every** signed catalog
    template plus one inline policy row showing optional `deny`, `intent`,
    `response`, and `velocity` fields. Use minimal to get running fast; use the
@@ -52,8 +55,8 @@ supported auth slot.
 
 - Env ingestion supports multi-app deduplication; richer same-provider
   multi-secret import is deferred.
-- There is **no** built-in provider catalog: `provider` is a label;
-  `policy.target.host` and `policy.auth` are source of truth.
+- Built-in signed provider and adapter templates ship as YAML inside
+  `bootstrap/templates/`; local `./templates/<name>.yaml` still overrides them.
 
 ## Key properties
 
