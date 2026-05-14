@@ -154,7 +154,8 @@ Trust model and offline behavior:
   release key; the public key is pinned in `bootstrap/subumbra-bootstrap.py` as
   `CATALOG_RELEASE_PUBKEY_HEX`. Bootstrap verifies the detached signature and
   every listed template file’s SHA-256 before any template contributes to policy.
-- Templates ship inside the bootstrap container image under `/app/templates/`; no
+- Templates ship inside the bootstrap container image under `/app/templates/` as
+  YAML files; the tracked copies in git live under `bootstrap/templates/`. No
   network fetch of a catalog URL is performed.
 - **User-owned templates:** place `<name>.yaml` files in a `./templates/` directory next to the manifest. `bootstrap.sh` mounts that directory at `/app/user-templates/` inside the container. Bootstrap checks user-owned templates before the signed built-in catalog, so a `./templates/openai.yaml` will shadow the built-in `openai` template. User-owned templates are **not** signature-verified — you own and trust them.
 
@@ -501,6 +502,7 @@ coverage is now:
 ./bootstrap.sh --add-adapter <key_id> <adapter_id>
 ./bootstrap.sh --revoke-adapter <key_id> <adapter_id>
 ./bootstrap.sh --publish-policy <key_id>
+./bootstrap.sh --status
 ./bootstrap.sh --rotate
 ```
 
@@ -515,11 +517,19 @@ coverage is now:
   the local V3 record plus the manifest `secret_ref` plaintext (from the process
   environment, the repo `.env` host mount, or a one-time interactive prompt when
   you use a TTY), re-encrypt, rewrite `keys.json`, and republish KV.
+- After a successful `--add-adapter` or `--revoke-adapter`, bootstrap now offers
+  a best-effort manifest sync for the matching YAML `adapters: [...]` line. This
+  auto-sync supports only the canonical single-line form. If your manifest uses a
+  multiline adapters block or a non-canonical stanza layout, bootstrap warns and
+  leaves the manifest unchanged; update it manually in that case.
 - `--publish-policy` has two branches:
   - non-baseline update for `intent`, `velocity`, or `response.deny_patterns`
     only: update fat-record policy and republish with no re-encryption
   - baseline update touching `allow.*`, `target.host`, or `auth.*`: re-encrypt
     and republish
+- `--status` is a read-only drift check. It compares the manifest-derived
+  `policy_hash` for each declared key against the stored fat record and prints
+  `UP_TO_DATE`, `POLICY_DRIFT`, `NOT_DEPLOYED`, or `REVOKED` per key.
 
 Pause/unpause is the one Worker-native write path in this round. After a
 successful `/manage/key/pause` or `/manage/key/unpause`, allow up to 90 seconds

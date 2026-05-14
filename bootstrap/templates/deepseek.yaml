@@ -1,0 +1,17 @@
+adapter_notes: DeepSeek OpenAI-compatible API.
+allow:
+  content_types:
+  - application/json
+  max_body_bytes: 1048576
+  methods:
+  - GET
+  - POST
+  path_prefixes:
+  - /v1
+auth:
+  scheme: bearer
+capability_class: llm
+protocol: openai_compatible
+target:
+  base_path: /v1
+  host: api.deepseek.com

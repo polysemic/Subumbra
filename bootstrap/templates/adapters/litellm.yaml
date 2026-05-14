@@ -1,0 +1,6 @@
+adapter_id: litellm
+config_snippet_notes: Set LiteLLM api_base to http://subumbra-proxy:8090/t/<key_id>/...
+  for each provider block; api_key is the Subumbra adapter token.
+suggested_allow_adapters:
+- litellm
+token_env_var: LITELLM_SUBUMBRA_ADAPTER_TOKEN

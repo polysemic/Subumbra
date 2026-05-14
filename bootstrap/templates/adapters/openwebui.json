@@ -1,6 +1,0 @@
-{
-  "adapter_id": "openwebui",
-  "config_snippet_notes": "Set Open WebUI OpenAI API URL to http://subumbra-proxy:8090/t/<key_id>/v1 and API key to the adapter token.",
-  "suggested_allow_adapters": ["openwebui-app"],
-  "token_env_var": "OPENWEBUI_SUBUMBRA_ADAPTER_TOKEN"
-}

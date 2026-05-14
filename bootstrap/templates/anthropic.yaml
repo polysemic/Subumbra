@@ -1,0 +1,23 @@
+adapter_notes: Anthropic Messages API; Subumbra injects the provider secret as x-api-key
+  upstream.
+allow:
+  content_types:
+  - application/json
+  max_body_bytes: 1048576
+  methods:
+  - GET
+  - POST
+  path_prefixes:
+  - /v1/messages
+  - /v1/models
+auth:
+  header_name: x-api-key
+  scheme: header
+capability_class: llm
+protocol: http_rest
+response:
+  deny_patterns:
+  - api_key
+target:
+  base_path: /v1
+  host: api.anthropic.com
