@@ -29,17 +29,17 @@ The default `/opt/subumbra` compose stack contains:
 - `subumbra-probe` profile
 - optional `cloudflared` profile
 
-Bundled LiteLLM is **not** part of the core stack (see `litellm/README.md` for the standalone example config).
+Bundled LiteLLM is **not** part of the core stack; use the [LiteLLM install docs](apps/litellm/install.md) when you want that integration path.
 
 ## Authority
 
-- **Routing and auth** for each key come from operator-authored **`subumbra.json`**
+- **Routing and auth** for each key come from operator-authored **`subumbra.yaml`**
   (inline `policy` or signed **`template`** expansion; see `policy.target.host`,
   `policy.auth`, allowlists).
-- **Manifest templates:** the repo ships [`subumbra.minimal.json`](../subumbra.minimal.json)
+- **Manifest templates:** the repo ships [`subumbra.minimal.yaml`](../subumbra.minimal.yaml)
   (smallest valid file: one OpenAI key via `template` only) and
-  [`subumbra.example.json`](../subumbra.example.json) (every catalog provider +
-  one inline “gold” policy). Operators copy to gitignored `subumbra.json` before
+  [`subumbra.example.yaml`](../subumbra.example.yaml) (every catalog provider +
+  one inline “gold” policy). Operators copy to gitignored `subumbra.yaml` before
   bootstrap. Normative validation lives in `bootstrap/subumbra-bootstrap.py`.
 - **Encrypted blobs** live in `subumbra-keys`; **decrypt authority** is split with the Cloudflare Worker + vault Durable Object (see `README.md` Key Properties and `docs/operator-guide.md`).
 - **Policy-Bound Encryption (AAD)**: Every provider secret is encrypted using its specific policy as **Associated Authenticated Data (AAD)**. This creates a cryptographic "seal" between the key and its rules (like `max_body_bytes` or `path_prefixes`). If the policy in Cloudflare KV is tampered with, the Worker will fail to decrypt the key, preventing unauthorized use of the secret under a modified policy.
@@ -48,4 +48,5 @@ Bundled LiteLLM is **not** part of the core stack (see `litellm/README.md` for t
 
 - [README.md](../README.md) — quick start and links
 - [docs/subumbra-install.md](subumbra-install.md) — install and bootstrap
+- [docs/provider-templates.md](provider-templates.md) — signed templates, local overrides, and inline policy tradeoffs
 - [docs/adapter-contract.md](adapter-contract.md) — `/proxy` contract

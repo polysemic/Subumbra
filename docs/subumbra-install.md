@@ -73,28 +73,30 @@ If you cannot or prefer not to modify the app's network config, use the host
 port `http://127.0.0.1:10199/t/<key_id>/...` instead — no network changes
 needed.
 
-## 2b. Create `subumbra.json` (gitignored)
+## 2b. Create `subumbra.yaml` (gitignored)
 
-`subumbra.json` is **not committed** (see `.gitignore`). You **must** create it
+`subumbra.yaml` is **not committed** (see `.gitignore`). You **must** create it
 locally before bootstrap or the compose mount will point at a missing file and
 bootstrap will fail.
 
 To use pre-built templates, use:
 ```bash
-cp subumbra.minimal.json subumbra.json
+cp subumbra.minimal.yaml subumbra.yaml
 ```
 
-To use custom providers, use:
+To use custom providers or inline policies, use:
 ```bash
-cp subumbra.example.json subumbra.json
+cp subumbra.example.yaml subumbra.yaml
 ```
 
-Edit `subumbra.json` to match your providers, apps and policies. The **minimal**
-template shows the simplest form: an LLM provider using our provided templates
-for specific providers. 
-The **example** file lists the minimal template plus one inline policy row 
-providing the required and optional fields. Use this file when you want the 
-full variable surface or to use additional providers.
+Edit `subumbra.yaml` to match your providers, apps and policies. The **minimal**
+file shows the simplest form: one or more LLM providers using signed built-in
+templates. The **example** file lists every built-in template plus one inline
+policy row showing all required and optional fields. Use minimal to get running
+fast; use the example when you want full control over policy.
+
+See [docs/provider-templates.md](provider-templates.md) for the full list of
+built-in templates and how to customize them.
 
 ## 3. Core `.env`
 
@@ -379,13 +381,14 @@ For deploy-integrity verification after install, export `CF_API_TOKEN`,
 day-2 command and recovery notes.
 
 If you lose Cloudflare-side vault custody, the supported recovery path is a
-full re-bootstrap with the original `subumbra.json` and `.env.bootstrap`
+full re-bootstrap with the original `subumbra.yaml` and `.env.bootstrap`
 inputs. See the recovery section in the
 [operator guide](operator-guide.md).
 
 
 ## Next
 
+- [docs/provider-templates.md](provider-templates.md)
 - [docs/subumbra-testing.md](subumbra-testing.md)
 - [docs/apps/litellm/install.md](apps/litellm/install.md)
 - [docs/operator-guide.md](operator-guide.md)

@@ -9,5 +9,5 @@ Start here:
 Important note:
 
 - this folder is the operator documentation path for standalone LiteLLM
-- the repo-root [`litellm/`](../../../litellm/) directory remains the location
-  for legacy/example runtime artifacts and is not moved by this round
+- the example config used by these docs lives in
+  [`templates/config.yaml`](./templates/config.yaml)

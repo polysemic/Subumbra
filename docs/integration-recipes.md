@@ -2,7 +2,7 @@
 
 *Cookbook for operator-declared `http_rest` policies and example `curl` calls through `subumbra-proxy`. For the canonical adapter API see [adapter-contract.md](adapter-contract.md). For manifest authoring see [operator-guide.md](operator-guide.md).*
 
-**Status:** Several paths below are still **experimental** for the `0.0.1-alpha` operator path; validate against your own `subumbra.json` before production.
+**Status:** Several paths below are still **experimental** for the `0.0.1-alpha` operator path; validate against your own `subumbra.yaml` before production.
 
 ---
 
@@ -14,7 +14,7 @@ Any HTTPS JSON API can be brokered when you set:
 - `policy.target.host` / `policy.target.base_path`
 - `policy.auth` (`bearer`, `basic`, `header`, or `query` per operator guide)
 
-Declare labels, hosts, and auth in `subumbra.json`; use [subumbra.example.json](../subumbra.example.json) as the **gold** reference (every signed catalog template plus one full inline policy example) and [subumbra.minimal.json](../subumbra.minimal.json) for the **smallest** valid manifest (one OpenAI key via `template` only). For sample `curl` paths per provider, see the sections below.
+Declare labels, hosts, and auth in `subumbra.yaml`; use [subumbra.example.yaml](../subumbra.example.yaml) as the **gold** reference (every signed catalog template plus one full inline policy example) and [subumbra.minimal.yaml](../subumbra.minimal.yaml) for the **smallest** valid manifest (one OpenAI key via `template` only). For sample `curl` paths per provider, see the sections below.
 
 ---
 
@@ -22,7 +22,7 @@ Declare labels, hosts, and auth in `subumbra.json`; use [subumbra.example.json](
 
 **Target:** `api.github.com` | **Scheme:** `bearer` | **Capability:** e.g. `source_control_read`
 
-Author policy in `subumbra.json` with the correct `target.host` and path allowlist. Internal proof templates lived under historical council rounds; treat those JSON blobs as **inspiration only**—your manifest is source of truth.
+Author policy in `subumbra.yaml` with the correct `target.host` and path allowlist. Internal proof templates lived under historical council rounds; treat those YAML files as **inspiration only**—your manifest is source of truth.
 
 ---
 
@@ -42,7 +42,7 @@ Set `policy.auth.scheme` to `"header"` and `policy.auth.header_name` (for exampl
 
 ## 5. Example `curl` — transparent `/t` route
 
-Subumbra does **not** ship a hardcoded provider catalog. Replace `<your_*_key_id>` and `<your_adapter_token>` with values from your **local** `subumbra.json` (gitignored) and `.env` after bootstrap.
+Subumbra does **not** ship a hardcoded provider catalog. Replace `<your_*_key_id>` and `<your_adapter_token>` with values from your **local** `subumbra.yaml` (gitignored) and `.env` after bootstrap.
 
 Host below uses `localhost:10199` (published proxy on the VPS). Apps on the Docker internal network use `http://subumbra-proxy:8090/t/<key_id>/...` instead.
 

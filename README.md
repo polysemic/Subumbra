@@ -9,7 +9,7 @@ Subumbra keeps provider API keys split between **encrypted records** in
 Object vault. The supported integration model is **app-owned installs**: core
 stack under `/opt/subumbra`, apps in their own installs, apps call
 `subumbra-proxy` on the transparent **`/t/<key_id>/...`** path. Routing and auth
-live in operator-authored **`subumbra.yaml`** (or `subumbra.json`).
+live in operator-authored **`subumbra.yaml`**.
 
 **Architecture (diagram + stack list):** [docs/architecture.md](docs/architecture.md)
 
@@ -19,11 +19,11 @@ live in operator-authored **`subumbra.yaml`** (or `subumbra.json`).
 
 1. **Clone** into `/opt/subumbra` (or your chosen path). See
    [docs/subumbra-install.md](docs/subumbra-install.md) for Docker install on Ubuntu.
-2. **Manifest (required):** `subumbra.yaml` (preferred) or `subumbra.json` is **gitignored** — it must exist on disk before bootstrap. Copy a template, then edit:
+2. **Manifest (required):** `subumbra.yaml` is **gitignored** — it must exist on disk before bootstrap. Copy a starter, then edit:
    ```bash
    cp subumbra.minimal.yaml subumbra.yaml
-   # or JSON: cp subumbra.minimal.json subumbra.json
-   # or fuller example: cp subumbra.example.json subumbra.json
+   # or for full inline policy control:
+   # cp subumbra.example.yaml subumbra.yaml
    ```
    The tracked **minimal** YAML starter is a multi-provider catalog reference
    using only signed **`template`** entries (no inline `policy`). Built-in
@@ -78,7 +78,7 @@ supported auth slot.
 
 - AnythingLLM: [install](docs/apps/anythingllm/install.md) · [takeover](docs/apps/anythingllm/takeover.md)
 - OpenWebUI: [install](docs/apps/openwebui/install.md) · [takeover](docs/apps/openwebui/takeover.md)
-- LiteLLM: [install](docs/apps/litellm/install.md) (standalone; see `litellm/README.md`)
+- LiteLLM: [install](docs/apps/litellm/install.md)
 - n8n: [workflow assets](docs/apps/n8n/README.md)
 - LibreChat / Bifrost: see `docs/apps/*`
 
@@ -105,6 +105,7 @@ subumbra/
 - [docs/subumbra-install.md](docs/subumbra-install.md)
 - [docs/subumbra-testing.md](docs/subumbra-testing.md)
 - [docs/integration-recipes.md](docs/integration-recipes.md)
+- [docs/provider-templates.md](docs/provider-templates.md)
 - [docs/adapter-contract.md](docs/adapter-contract.md)
 - [docs/operator-guide.md](docs/operator-guide.md)
 - [docs/subumbra-developer.md](docs/subumbra-developer.md)

@@ -2,7 +2,7 @@
 
 This guide covers the supported **manifest-driven** operator flow:
 
-1. author `subumbra.yaml` (or `subumbra.json`)
+1. author `subumbra.yaml` (YAML-first; JSON compatibility remains)
 2. provide a secret-only `.env.bootstrap`
 3. run `./bootstrap.sh`
 4. recreate the runtime services
@@ -68,15 +68,15 @@ services on the same host.
 
 ### In plain terms
 
-- **`subumbra.yaml`** (preferred) or **`subumbra.json`** is your **recipe**: it lists which provider keys Subumbra should broker. It stores **names** of secrets (`secret_ref`), not the secrets themselves.
-- The **tracked** file in git is a **starting copy** (`subumbra.minimal.yaml` or `subumbra.minimal.json`). You copy it to **`subumbra.yaml`** (gitignored), edit, then run bootstrap.
+- **`subumbra.yaml`** is your **recipe**: it lists which provider keys Subumbra should broker. It stores **names** of secrets (`secret_ref`), not the secrets themselves.
+- The **tracked** file in git is a **starting copy** (`subumbra.minimal.yaml`). You copy it to **`subumbra.yaml`** (gitignored), edit, then run bootstrap.
 - After bootstrap, apps use an **adapter token** (printed into your runtime `.env`) as the `api_key` when calling `subumbra-proxy` on the `/t/<key_id>/...` path.
 
 ### Whole-file shape (required)
 
 Bootstrap accepts YAML or JSON with a single top-level mapping named **`keys`**. Each element is one brokered key. A file that contains only one key object **without** the `keys` wrapper will be rejected.
 
-The smallest **valid** file is one non-empty entry inside `keys` (see the minimal template below). The repo ships that shape in [`subumbra.minimal.yaml`](../subumbra.minimal.yaml) (preferred YAML form) and [`subumbra.minimal.json`](../subumbra.minimal.json) (JSON equivalent), plus [`subumbra.example.json`](../subumbra.example.json) (full catalog coverage + one inline “gold” policy).
+The smallest **valid** file is one non-empty entry inside `keys` (see the minimal template below). The repo ships that shape in [`subumbra.minimal.yaml`](../subumbra.minimal.yaml) (smallest valid manifest: one OpenAI key via `template` only), plus [`subumbra.example.yaml`](../subumbra.example.yaml) (full catalog coverage + one inline “gold” policy).
 
 ### Normative reference (auditors / implementers)
 
@@ -93,17 +93,15 @@ Subumbra uses **Policy-Bound Encryption** (technically AES-GCM with AAD). When y
 
 ---
 
-`subumbra.yaml` and `subumbra.json` are **gitignored** (never committed). Start from a **tracked** template, then edit the working copy:
+`subumbra.yaml` is **gitignored** (never committed). Start from a **tracked** template, then edit the working copy:
 
 ```bash
 cp subumbra.minimal.yaml subumbra.yaml
-# or JSON form:
-# cp subumbra.minimal.json subumbra.json
-# or a fuller JSON example:
-# cp subumbra.example.json subumbra.json
+# or for full inline policy control:
+# cp subumbra.example.yaml subumbra.yaml
 ```
 
-Bootstrap **requires** a local manifest (`subumbra.yaml` preferred, `subumbra.json` accepted) on disk. `bootstrap.sh` detects whichever is present and bind-mounts it. If neither is found, bootstrap fails closed.
+Bootstrap **requires** a local `subumbra.yaml` on disk. `bootstrap.sh` detects it and bind-mounts it automatically. If the file is missing, bootstrap fails closed.
 
 Each manifest record declares:
 
@@ -235,7 +233,7 @@ Optional `policy` merges on top of the template; **`allow.adapters` is still tak
 }
 ```
 
-For **Anthropic**, **Groq**, **GitHub**, and every other signed catalog provider, copy another object into `keys` (or start from [`subumbra.example.json`](../subumbra.example.json) and delete what you do not need). Example `curl` paths for several providers live in [`docs/integration-recipes.md`](integration-recipes.md).
+For **Anthropic**, **Groq**, **GitHub**, and every other signed catalog provider, copy another object into `keys` (or start from [`subumbra.example.yaml`](../subumbra.example.yaml) and delete what you do not need). Example `curl` paths for several providers live in [`docs/integration-recipes.md`](integration-recipes.md). For a focused template guide, see [`docs/provider-templates.md`](provider-templates.md).
 
 Adapter YAML files under `bootstrap/templates/adapters/` are signed for
 integrity and operator documentation; bootstrap does not expand them into policy.
@@ -286,7 +284,7 @@ run (`./bootstrap.sh` without a TTY, or with stdin closed) so secrets load from 
 ./bootstrap.sh
 ```
 
-Automation path: bootstrap reads the manifest (`subumbra.yaml` or `subumbra.json`), resolves the referenced secret values from
+Automation path: bootstrap reads the manifest (`subumbra.yaml`), resolves the referenced secret values from
 `.env.bootstrap`, deploys the Worker, encrypts the retained keys, and writes the
 runtime state under `data/`.
 
@@ -307,7 +305,7 @@ the previous vault state cannot be decrypted by that new state.
 
 The supported recovery path is:
 
-1. keep the original operator inputs (`subumbra.yaml` / `subumbra.json` plus `.env.bootstrap`)
+1. keep the original operator inputs (`subumbra.yaml` plus `.env.bootstrap`)
 2. re-run a full bootstrap to provision fresh Cloudflare-side custody
 3. recreate the runtime services so they load the new runtime state
 
