@@ -72,6 +72,7 @@ STRIP_HEADERS = {
 # (`KEY_ID_RE` there). The proxy only validates `/t/<key_id>/` path tokens; bootstrap enforces ownership
 # (`^[a-z0-9][a-z0-9_-]{2,63}$`). See docs/operator-guide.md — "Heartbeat, polling, and health cadence".
 KEY_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+KEY_ID_MAX_LEN = 128
 TRANSPARENT_STRIP_HEADERS = {"authorization", "x-api-key", "x-api-key-id"}
 TRANSPARENT_STRIP_PREFIXES = ("x-subumbra-",)
 TRANSPARENT_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
@@ -236,7 +237,7 @@ def extract_transparent_key_id(headers: dict[str, str]) -> tuple[Optional[str], 
 
 
 def validate_transparent_key_id(key_id: str) -> bool:
-    return bool(KEY_ID_RE.fullmatch(key_id))
+    return len(key_id) <= KEY_ID_MAX_LEN and bool(KEY_ID_RE.fullmatch(key_id))
 
 
 def strip_transparent_headers(headers: dict[str, str]) -> dict[str, str]:

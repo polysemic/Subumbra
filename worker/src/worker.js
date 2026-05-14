@@ -1087,6 +1087,17 @@ export default {
 };
 
 async function handleSetupKeygen(request, env) {
+  // Auth-first: reject before parsing body so deleted setup tokens
+  // return 401 instead of a body-validation 400.
+  const bearerToken = parseBearerToken(request);
+  if (!bearerToken) {
+    return jsonError("unauthorized", 401);
+  }
+  const expectedToken = env.SUBUMBRA_SETUP_TOKEN ?? "";
+  if (!expectedToken) {
+    return jsonError("unauthorized", 401);
+  }
+
   let vaultInstance = VAULT_INSTANCE_NAME;
   const bodyText = await request.text();
   if (bodyText.trim() !== "") {
