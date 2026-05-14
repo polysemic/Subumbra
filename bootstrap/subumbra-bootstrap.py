@@ -921,13 +921,22 @@ def _load_local_template(name: str) -> dict | None:
     try:
         data = yaml.safe_load(candidate.read_text(encoding="utf-8"))
     except OSError as exc:
-        warn(f"Local template {name!r} unreadable ({exc}); falling back to built-in catalog")
+        warn(
+            f"Local template {name!r} at {candidate} unreadable ({exc}); "
+            "falling back to built-in catalog"
+        )
         return None
     except yaml.YAMLError as exc:
-        warn(f"Local template {name!r} is invalid YAML ({exc}); falling back to built-in catalog")
+        warn(
+            f"Local template {name!r} at {candidate} is invalid YAML ({exc}); "
+            "falling back to built-in catalog"
+        )
         return None
     if not isinstance(data, dict):
-        warn(f"Local template {name!r} top-level value is not an object; falling back to built-in catalog")
+        warn(
+            f"Local template {name!r} at {candidate} top-level value is not an object; "
+            "falling back to built-in catalog"
+        )
         return None
     return data
 
@@ -1067,7 +1076,14 @@ def _normalize_manifest_record(record: Any, idx: int) -> dict[str, Any]:
                 _manifest_die(f"{source} template {template_name!r} not found in user-templates or built-in catalog")
             template_data = catalog[template_name]
         else:
-            info(f"Using local template for {template_name!r} from user templates directory")
+            catalog = _load_and_verify_catalog()
+            if template_name in catalog:
+                warn(
+                    f"Local template {template_name!r} shadows signed built-in catalog entry; "
+                    "using local version (not signature-verified)"
+                )
+            else:
+                info(f"Using local template for {template_name!r} from user templates directory")
         operator_overrides = record.get("policy") if isinstance(record.get("policy"), dict) else None
         policy_raw = _expand_template_into_policy(
             template=template_data,
