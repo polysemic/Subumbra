@@ -352,6 +352,7 @@ def _build_host_env_updates(
     subumbra_hmac_key: str,
     management_token: str,
     worker_url: str,
+    worker_name: str,
     setup_token: str,
 ) -> dict[str, str]:
     host_env_updates = {
@@ -363,6 +364,7 @@ def _build_host_env_updates(
         "SUBUMBRA_MANAGEMENT_TOKEN": management_token,
         "SUBUMBRA_HMAC_KEY": subumbra_hmac_key,
         "CF_WORKER_URL": worker_url,
+        "CF_WORKER_NAME": worker_name,
         "SUBUMBRA_SETUP_TOKEN": setup_token,
     }
     if "subumbra-probe" in allowed_keys_by_adapter:
@@ -2104,7 +2106,7 @@ def _load_kv_namespace_id() -> str:
 def _parse_token_ttl_days(raw: str) -> int:
     raw = raw.strip()
     if not raw:
-        return 90
+        return 365
     try:
         token_ttl_days = int(raw)
     except ValueError:
@@ -3824,6 +3826,7 @@ def main() -> None:
         subumbra_hmac_key=subumbra_hmac_key,
         management_token=management_token,
         worker_url=worker_url,
+        worker_name=cf_creds["CF_WORKER_NAME"],
         setup_token=setup_token,
     )
     _sync_host_env_file(host_env_updates)

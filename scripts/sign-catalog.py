@@ -31,9 +31,7 @@ def main() -> None:
     key_path = Path(args.key_file).resolve()
 
     providers: list[dict[str, str]] = []
-    for path in sorted(root.glob("*.json")):
-        if path.name == "catalog.json":
-            continue
+    for path in sorted(root.glob("*.yaml")):
         raw = path.read_bytes()
         providers.append(
             {
@@ -47,7 +45,7 @@ def main() -> None:
     adapters: list[dict[str, str]] = []
     adapters_dir = root / "adapters"
     if adapters_dir.is_dir():
-        for path in sorted(adapters_dir.glob("*.json")):
+        for path in sorted(adapters_dir.glob("*.yaml")):
             raw = path.read_bytes()
             rel = f"adapters/{path.name}"
             adapters.append(

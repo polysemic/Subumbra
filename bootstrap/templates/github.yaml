@@ -1,24 +1,46 @@
-adapter_notes: GitHub REST API; use a classic PAT or fine-grained token as the provider
-  secret.
-allow:
-  content_types:
-  - application/json
-  max_body_bytes: 1048576
-  methods:
-  - GET
-  - POST
-  - PATCH
-  - PUT
-  - DELETE
-  path_prefixes:
-  - /repos
-  - /user
-  - /orgs
-  - /graphql
-  - /zen
-auth:
-  scheme: bearer
-capability_class: source_control_read
+# Subumbra built-in provider template — github
+# GitHub REST API — use a classic PAT or fine-grained personal access token
+# Auth: bearer  |  Docs: https://docs.github.com/en/rest
+#
+# Reference in subumbra.yaml:
+#   - key_id: github_prod
+#     provider: github
+#     secret_ref: GITHUB_TOKEN
+#     adapters: [universal]
+#     unique_vault: false
+#     template: github
+#
+# To override any field or add optional controls, replace template: with a full
+# inline policy block. See subumbra.example.yaml for the complete field reference.
+#
+# Updating policy after bootstrap (no re-bootstrap required):
+#   ./bootstrap.sh --publish-policy <key_id>
+
+# ── Required ────────────────────────────────────────────────────────────────
 protocol: http_rest
+capability_class: source_control_read
 target:
   host: api.github.com
+auth:
+  scheme: bearer
+allow:
+  methods: [GET, POST, PATCH, PUT, DELETE]
+  path_prefixes: [/repos, /user, /orgs, /graphql, /zen]
+  content_types: [application/json]
+  max_body_bytes: 1048576   # 1MB — GitHub REST payloads are small; verify at docs.github.com
+
+# ── Optional — uncomment as needed ─────────────────────────────────────────
+# deny:
+#   path_prefixes: [/repos/{owner}/{repo}/git/commits]
+# intent:
+#   policy_match: subumbra-intent-baseline-v1
+#   trust:
+#     allowed_initiators: []
+#     allowed_content_sources: []
+# response:
+#   deny_patterns: [ghp_, github_pat_]
+# velocity:
+#   adapter_rpm: 60
+#   key_rpm: 300
+#   breaker_failures: 3
+#   breaker_cooldown_seconds: 30

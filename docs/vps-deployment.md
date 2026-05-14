@@ -707,7 +707,7 @@ This is a common good baseline for small VPS deployments.
 
 ---
 
-## 13. Optional: Basic App Runtime Packages
+## 12. Optional: Basic App Runtime Packages
 
 Depending on what you host later, common additions are:
 
@@ -724,7 +724,7 @@ For a container-first deployment, you may skip these until needed.
 
 ---
 
-## 14. DNS And Domain Notes
+## 13. DNS And Domain Notes
 
 Typical direct web hosting:
 
@@ -745,7 +745,7 @@ If using a Cloudflare Tunnel later:
 
 ---
 
-## 15. Basic Verification Checklist
+## 14. Basic Verification Checklist
 
 SSH:
 
@@ -787,7 +787,7 @@ sudo certbot renew --dry-run
 
 ---
 
-## 16. What This Guide Does Not Cover
+## 15. What This Guide Does Not Cover
 
 This baseline intentionally does **not** cover:
 
@@ -804,7 +804,7 @@ host baseline.
 
 ---
 
-## 17. Practical Snapshot
+## 16. Practical Snapshot
 
 At the end of this guide, a typical VPS should have:
 

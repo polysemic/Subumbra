@@ -32,6 +32,7 @@ subumbra-keys/data/
 worker/.wrangler/
 worker/node_modules/
 worker/dist/
+node_modules/
 
 # Python
 __pycache__/

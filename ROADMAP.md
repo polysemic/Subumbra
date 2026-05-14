@@ -3,7 +3,7 @@
 This is the **operator- and contributor-facing** backlog: planned work, open ideas, and long-range possibilities. **Nothing here is a fixed sequence**—order shifts with real installs, incidents, and feedback. Items are grouped so similar work can be scheduled together when you pick the next round.
 
 
-**Recently addressed (verify docs, do not re-implement blindly)**
+**Recently addressed**
 
 - Proxy `GET /health` again exposes `worker_auth` in JSON; some app install guides may still need a wording pass.
 - `GET /audit` on `subumbra-keys` supports `key_id` and `verdict` query filters; remaining gap is mainly **UI** filters/wiring if desired.

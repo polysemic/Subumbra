@@ -7,43 +7,71 @@
 
 ## 1. Install Docker Engine + Compose
 
-```bash
-sudo apt remove -y docker docker-engine docker.io containerd runc
-sudo apt update
-sudo apt install -y ca-certificates curl gnupg
-sudo install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-sudo chmod a+r /etc/apt/keyrings/docker.gpg
-echo \
-  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-  https://download.docker.com/linux/ubuntu \
-  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
-  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-sudo apt update
-sudo apt install -y \
-  docker-ce docker-ce-cli containerd.io \
-  docker-buildx-plugin docker-compose-plugin
-sudo systemctl enable docker
-sudo systemctl start docker
-sudo usermod -aG docker "$USER"
-newgrp docker
-```
+Follow the official Docker guide for your distro:
 
-Verify:
+- **Docker Engine:** https://docs.docker.com/engine/install/
+- **Linux post-install** (run Docker without `sudo`): https://docs.docker.com/engine/install/linux-postinstall/
+
+The Compose plugin is included in Docker Engine packages. Verify before continuing:
 
 ```bash
 docker compose version
 docker run --rm hello-world
 ```
 
-## 2. Clone Into `/opt/subumbra`
+## 2. Clone Into `/wherever/you/want`
 
 ```bash
-sudo mkdir -p /opt/subumbra
-sudo chown -R "$USER":"$USER" /opt/subumbra
-cd /opt/subumbra
-git clone https://github.com/your-org/subumbra.git .
+sudo mkdir -p /wherever/you/want
+sudo chown -R "$USER":"$USER" /wherever/you/want
+cd /wherever/you/want
+git clone https://github.com/polysemic/Subumbra.git .
 ```
+
+## 2a. Create the shared Docker network
+
+Subumbra's proxy container joins a pre-existing Docker network (`subumbra-net`)
+so that app containers on other Compose stacks (LiteLLM, OpenWebUI, etc.) can
+reach `subumbra-proxy` by container name. Create it once per host — it persists
+across restarts and only needs to be created again if you prune all networks.
+
+```bash
+docker network create subumbra-net
+```
+
+**Connecting your app to Subumbra**
+
+There are two ways an app container can reach the proxy, depending on whether
+it joins `subumbra-net`:
+
+| Method | When to use | `api_base` / proxy URL |
+|--------|-------------|------------------------|
+| **Docker network** (recommended) | App runs in Docker and you join it to `subumbra-net` | `http://subumbra-proxy:8090/t/<key_id>/...` |
+| **Host port** | App runs on the host, in a VM, or you prefer not to modify its network | `http://127.0.0.1:10199/t/<key_id>/...` |
+
+**To join an existing Docker app to `subumbra-net`**, add the network to its
+`docker-compose.yml` under both the service and the top-level `networks` block:
+
+```yaml
+services:
+  your-app:
+    # ... existing config ...
+    networks:
+      - your-existing-network   # keep your existing networks
+      - subumbra-net            # add this
+
+networks:
+  your-existing-network:        # keep your existing declaration
+  subumbra-net:
+    external: true              # tells Compose not to create it — it already exists
+```
+
+Then restart the app stack (`docker compose up -d`). The container can now
+reach `subumbra-proxy` at `http://subumbra-proxy:8090/t/<key_id>/...`.
+
+If you cannot or prefer not to modify the app's network config, use the host
+port `http://127.0.0.1:10199/t/<key_id>/...` instead — no network changes
+needed.
 
 ## 2b. Create `subumbra.json` (gitignored)
 
@@ -51,45 +79,71 @@ git clone https://github.com/your-org/subumbra.git .
 locally before bootstrap or the compose mount will point at a missing file and
 bootstrap will fail.
 
+To use pre-built templates, use:
 ```bash
 cp subumbra.minimal.json subumbra.json
-# or, for the fuller exemplar:
-# cp subumbra.example.json subumbra.json
 ```
 
-Edit `subumbra.json` to match your adapters and policies. The **minimal**
-template is one OpenAI key using **`template` only** (no inline `policy`). The
-**example** file lists **every** signed catalog template plus one inline policy
-row demonstrating optional `deny`, `intent`, `response`, and `velocity` fields;
-use it when you want the full variable surface or to copy additional providers
-into `keys`.
+To use custom providers, use:
+```bash
+cp subumbra.example.json subumbra.json
+```
 
-## 3. Create Core `.env`
+Edit `subumbra.json` to match your providers, apps and policies. The **minimal**
+template shows the simplest form: an LLM provider using our provided templates
+for specific providers. 
+The **example** file lists the minimal template plus one inline policy row 
+providing the required and optional fields. Use this file when you want the 
+full variable surface or to use additional providers.
 
+## 3. Core `.env`
+
+`bootstrap.sh` creates `.env` from `.env.example` automatically.
+
+You only need to copy the example file before bootstrap if you want to pre-set
+`CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`, or `TUNNEL_TOKEN`; if you
+wish to use a cloudflare-managed tunnel and/or Cloudflare Access.
 ```bash
 cp .env.example .env
 ```
 
-Leave `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`, and `TUNNEL_TOKEN`
-blank unless you already use them. `bootstrap.sh` fills in the generated
-runtime values and `CF_WORKER_URL`.
-
-> Do not `source .env` — `SUBUMBRA_ADAPTER_REGISTRY` is JSON and bash mangles it.
+> Do not `source .env` after bootstrap, `SUBUMBRA_ADAPTER_REGISTRY` Bash mangles it.
 
 ## 4. Cloudflare Prerequisites
 
 You need:
 
-- `CF_API_TOKEN` with `Workers Scripts: Edit` and `Workers KV Storage: Edit`
+- `CF_API_TOKEN` and Your Cloudflare Account Id (`CF_ACCOUNT_ID`)
+- It is recommended that you use a User API Token from:
+  https://dash.cloudflare.com/profile/api-tokens
+- Use the Edit Cloudflare Workers, if not already enabled, select: 
+  - `Workers KV Storage: Edit`
+  - `Workers Scripts: Edit`
+  - give it a name like `subumbra-deploy`.
 - `CF_ACCOUNT_ID`
 - a Worker name, e.g. `subumbra-proxy`
 - Workers Paid Plan enabled
 
 The interactive bootstrap wizard prompts for these values. Treat
-`CF_API_TOKEN` as bootstrap/deploy authority for Worker, KV, and secret
-changes; keep it separate from any persistent runtime secrets you enable later.
-Runtime `.env` does **not** retain `CF_API_TOKEN`, so you must re-supply it for
-later Cloudflare-backed day-2 operations such as deploy-integrity verification.
+`CF_API_TOKEN` and `CF_ACCOUNT_ID` as bootstrap/deploy authority for Worker, KV,
+and secret changes; keep it separate from any persistent runtime secrets you enable
+later. Subumbra does **not** retain `CF_API_TOKEN` or `CF_ACCOUNT_ID` in `.env`.
+
+**CF credentials required** (deploys to or reads from Cloudflare):
+- `./bootstrap.sh` — full bootstrap; deploys Worker, pushes KV and secrets
+- `./bootstrap.sh --nuke` — destructive re-bootstrap; resets Cloudflare vault state first
+- `./bootstrap.sh --provision <key_id>` — targeted key repair; pushes KV entry for one key
+- `./bootstrap.sh --push-registry` — syncs local `keys.json` state to Cloudflare KV
+- `./bootstrap.sh --revoke-key <key_id>` — removes key from live KV (omit `--offline` flag)
+- `./bootstrap.sh --add-adapter <key_id> <adapter_id>` — re-encrypts and pushes updated policy
+- `./bootstrap.sh --revoke-adapter <key_id> <adapter_id>` — re-encrypts and pushes updated policy
+- `./bootstrap.sh --publish-policy <key_id>` — republishes a key's policy and adapters to KV
+
+**CF credentials not required** (local operations only):
+- `./bootstrap.sh --rotate` — re-encrypts using the on-disk RSA public key.
+- `./bootstrap.sh --upgrade` — rebuilds Docker images and recreates containers.
+- `./bootstrap.sh --revoke-key <key_id> --offline` — marks key revoked in `keys.json` only; run
+  without `--offline` afterward to sync KV.
 
 ## 5. Run Bootstrap
 
@@ -101,34 +155,71 @@ Subumbra bootstrap supports two operator paths. Choose one:
 ./bootstrap.sh
 ```
 
-Enter values in the terminal; provider material is held in RAM for the session
-(including an in-process map keyed by each manifest `secret_ref`). Nothing is
-written as plaintext bootstrap state on disk.
+All secrets are entered at the terminal and held in RAM only — nothing sensitive
+is written to disk. The wizard walks through the following steps:
 
-The wizard collects:
+**Step 1 — Cloudflare credentials**
 
-- Cloudflare API token and account ID when not already in the environment; Worker
-  name defaults from `CF_WORKER_NAME` or `CF_WORKER_URL` in `.env` (else
-  `subumbra-proxy`), Enter to accept or type a new name
-- Per-manifest-key `secret_ref` secrets (hidden prompts with confirmation), or uses
-  values already present in the bootstrap environment for that `secret_ref`
-- Policy, `unique_vault`, adapters, and `key_id` from `subumbra.json` only (no
-  catalog-era menus)
-- optional: skip a key for this session (`[Y/n]` decline) — omitted keys follow
-  the same rotation removal rules as automation when not re-included
+`CF_API_TOKEN` and `CF_ACCOUNT_ID` from your Cloudflare account. Both inputs
+are hidden and not stored anywhere after bootstrap.
 
-`subumbra-ui` remains metadata only (no key fetch scope). Optional `subumbra-probe`
-follows the same manifest adapter rules as other adapters.
+```
+Cloudflare API token: <hidden>
+Cloudflare account ID: <hidden>
+```
 
-During full bootstrap, Cloudflare now generates the RSA key pair through the
-one-shot `/setup/keygen` Worker path. The bootstrap container only receives the
-returned public key, writes `public_key.pem`, and uses that public key for the
-local V3 envelope records.
+**Step 2 — Worker name**
 
-If a previous run already left Cloudflare vault or provider-registry state
-behind, full bootstrap now stops and asks for explicit destructive
-acknowledgement before it wipes that state and continues. In non-interactive
-automation, pass `--nuke` only when you intend a true fresh start.
+The wizard shows the current default (read from `CF_WORKER_NAME` or inferred
+from `CF_WORKER_URL` in `.env`, otherwise `subumbra-proxy`). Press Enter to
+accept it or type a new name. This becomes the Cloudflare Worker script name
+and is saved to `.env` after a successful bootstrap.
+
+```
+Cloudflare Worker name [default: subumbra-proxy] — press Enter to use default, or type a new name:
+  >
+```
+
+**Step 3 — Per-key provider secrets**
+
+For each key defined in `subumbra.yaml`, the wizard shows the `key_id`,
+`provider`, and `secret_ref` label, then asks whether to provision it in this
+session. Entering `n` skips the key without aborting.
+
+```
+Key: 'anthropic_prod'  provider='anthropic'  secret_ref='ANTHROPIC_KEY'
+Provision a secret for this key in this session? [Y/n]:
+```
+
+If you answer Y, you are prompted to enter the API key twice (hidden, for
+confirmation). A mismatch loops back to re-entry.
+
+```
+secret or API key for key_id 'anthropic_prod' (ANTHROPIC_KEY): <hidden>
+same secret again to confirm for key_id 'anthropic_prod': <hidden>
+```
+
+If a `secret_ref` value is already present in the environment, the wizard skips
+the prompt for that key and uses the existing value automatically.
+
+At least one key must be accepted or bootstrap aborts.
+
+**Step 4 — Automated provisioning**
+
+Once credentials and secrets are collected the wizard runs without further
+input:
+
+1. Deploys the Cloudflare Worker and pushes adapter tokens and HMAC key as CF secrets
+2. Calls the one-shot `/setup/keygen` Worker endpoint — Cloudflare generates the RSA-4096 key pair inside the Durable Object and returns only the public key; the private key never leaves Cloudflare
+3. Encrypts each provider API key locally using the returned public key (AES-256-GCM with a per-key DEK wrapped by RSA-OAEP) and writes the V3 envelope records to `keys.json`
+4. Publishes policy and key metadata to Cloudflare KV
+5. Writes all generated runtime values (`SUBUMBRA_TOKEN_*`, `CF_WORKER_URL`, `CF_WORKER_NAME`, etc.) into `.env`
+6. Deletes the transient `SUBUMBRA_SETUP_TOKEN` from Cloudflare secrets
+7. Starts the core stack with `docker compose up -d --force-recreate` and prints an adapter token summary
+
+If a previous bootstrap left Cloudflare vault or KV state behind, the wizard
+stops and asks for explicit confirmation before wiping it. Pass `--nuke` to
+skip that prompt in non-interactive automation only when you intend a full reset.
 
 ### 5b. Automation path (`.env.bootstrap`)
 
@@ -137,18 +228,50 @@ installation, or are migrating from an existing deployment.
 
 ```bash
 cp .env.bootstrap.example .env.bootstrap
-# edit .env.bootstrap: CF credentials, values for each manifest secret_ref,
-# optional TOKEN_TTL_DAYS (default 90 when unset), per-key UNIQUE_KEY_<key_id> flags
+# edit .env.bootstrap — see variable reference below
 ./bootstrap.sh
 ```
 
-See `.env.bootstrap.example` for the full list of expected variables. Key format:
-`{PROVIDER}_KEY=<value>` with matching `{PROVIDER}_KEY_ID=<key_id>` and
-`{PROVIDER}_KEY_ADAPTERS=<adapter_ids>` entries per direct secret slot.
-Optional `UNIQUE_KEY_<key_id>=true` provisions that key into its own
-`vault-<key_id>` Durable Object; omitted or `false` keeps the key on the shared
-`vault` instance.
-Blank `*_ADAPTERS` is explicit compatibility/simple mode only.
+**`.env.bootstrap` variable reference:**
+
+```bash
+# ── Cloudflare (required) ─────────────────────────────────────────────────────
+CF_API_TOKEN=REPLACE_ME       # API token with Workers Scripts: Edit and Workers KV Storage: Edit
+CF_ACCOUNT_ID=REPLACE_ME      # your Cloudflare account ID
+CF_WORKER_NAME=subumbra-proxy # the Cloudflare Worker script name to deploy
+
+# ── Bootstrap tuning (optional) ───────────────────────────────────────────────
+TOKEN_TTL_DAYS=365            # how long adapter tokens are valid before expiry (see note below)
+
+# ── Provider secrets ──────────────────────────────────────────────────────────
+# One line per secret_ref declared in subumbra.yaml.
+# The name must match secret_ref exactly.
+OPENAI_KEY=REPLACE_ME
+ANTHROPIC_KEY=REPLACE_ME
+# add more as needed to match your subumbra.yaml
+```
+
+**`TOKEN_TTL_DAYS` — adapter token lifetime**
+
+Adapter tokens (the credentials apps use to call `subumbra-keys`) are stamped
+with an `issued_at` and `expires_at` at bootstrap time. `subumbra-keys` checks
+expiry on every request — once a token expires it returns a 403 and the app can
+no longer fetch encrypted records. The default is 365 days.
+
+To renew expired tokens, re-run `./bootstrap.sh` (full bootstrap). This
+generates fresh tokens with a new TTL window and restarts the stack.
+
+> **Note:** TTL enforcement is implemented but has not yet been validated
+> end-to-end with an actual expiry event. The simplest way to test it is to set
+> `TOKEN_TTL_DAYS=1`, wait for expiry, and confirm requests are rejected with
+> `adapter_expired`. Alternatively, manually set `expires_at` to a past
+> timestamp inside `SUBUMBRA_ADAPTER_REGISTRY` in `.env` and restart
+> `subumbra-keys`.
+
+> **TTL and the interactive wizard:** The wizard does not prompt for
+> `TOKEN_TTL_DAYS` — it reads the value from the environment only. To use a
+> non-default value with the interactive path, set it before running bootstrap:
+> `TOKEN_TTL_DAYS=180 ./bootstrap.sh`.
 
 `./bootstrap.sh` shreds `.env.bootstrap` after a successful full bootstrap.
 `./bootstrap.sh --provision <key_id>` intentionally does **not** shred it so
@@ -167,7 +290,7 @@ notes.
 ## 6. Verify Generated Runtime Values
 
 ```bash
-grep -E '^(SUBUMBRA_TOKEN_|CF_WORKER_URL|PROBE_ALLOWED_KEYS|UI_ALLOWED_KEYS)' .env
+grep -E '^(SUBUMBRA_TOKEN_|CF_WORKER_URL|CF_WORKER_NAME|PROBE_ALLOWED_KEYS|UI_ALLOWED_KEYS)' .env
 ```
 
 `bootstrap.sh` writes the generated Subumbra runtime values directly into `.env`:
@@ -178,7 +301,7 @@ grep -E '^(SUBUMBRA_TOKEN_|CF_WORKER_URL|PROBE_ALLOWED_KEYS|UI_ALLOWED_KEYS)' .e
 - `SUBUMBRA_TOKEN_UI`
 - `SUBUMBRA_HMAC_KEY`
 - `CF_WORKER_URL`
-- `PROXY_ALLOWED_KEYS` (intentionally empty after proxy lockdown)
+- `CF_WORKER_NAME`
 - `UI_ALLOWED_KEYS`
 
 If probe provisioning was enabled during bootstrap, this step also writes:
@@ -224,24 +347,6 @@ Expected services:
 - `subumbra-proxy` (healthy)
 - `subumbra-ui`
 
-### Existing volume migration
-
-If you already have data in Docker's older doubled volume name, migrate it once
-into the Compose-backed host volume (default project name `subumbra` →
-`subumbra_keys_data`):
-
-```bash
-docker volume create subumbra_keys_data
-docker run --rm \
-  -v subumbra_subumbra_keys_data:/from \
-  -v subumbra_keys_data:/to \
-  alpine:3.21 sh -c "cp -a /from/. /to/"
-```
-
-After migration and `docker compose up`, you may remove the stale
-`subumbra_subumbra_keys_data` volume **only** after confirming the stack is
-healthy and data is present under the new volume.
-
 Port exposure:
 
 - `subumbra-keys` — internal only
@@ -278,18 +383,6 @@ full re-bootstrap with the original `subumbra.json` and `.env.bootstrap`
 inputs. See the recovery section in the
 [operator guide](operator-guide.md).
 
-## 9. Standalone LiteLLM
-
-LiteLLM is no longer part of the core `/opt/subumbra` compose stack.
-
-Use the standalone guide:
-
-- [docs/apps/litellm/install.md](apps/litellm/install.md)
-
-That guide shows the supported app-owned contract:
-
-- `api_base: http://subumbra-proxy:8090/t/<key_id>/...`
-- `api_key: <SUBUMBRA_TOKEN_LITELLM>` — use the LiteLLM app token from `.env`
 
 ## Next
 

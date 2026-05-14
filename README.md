@@ -90,15 +90,13 @@ subumbra/
 ├── .env.example
 ├── .env.bootstrap.example
 ├── subumbra.minimal.yaml   # preferred YAML starter (copy to gitignored subumbra.yaml)
-├── subumbra.minimal.json
-├── subumbra.example.json   # gold exemplar (copy to gitignored subumbra.json)
+├── subumbra.example.yaml   # gold exemplar (copy to gitignored subumbra.yaml)
 ├── bootstrap/
 ├── subumbra-keys/
 ├── subumbra-proxy/
 ├── subumbra-probe/
 ├── ui/
 ├── worker/
-├── litellm/                # standalone LiteLLM example only
 └── docs/
 ```
 

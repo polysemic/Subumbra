@@ -1,17 +1,47 @@
-adapter_notes: DeepSeek OpenAI-compatible API.
-allow:
-  content_types:
-  - application/json
-  max_body_bytes: 1048576
-  methods:
-  - GET
-  - POST
-  path_prefixes:
-  - /v1
+# Subumbra built-in provider template — deepseek
+# DeepSeek OpenAI-compatible Chat and Completions API
+# Auth: bearer  |  Docs: https://platform.deepseek.com/api-docs
+#
+# Reference in subumbra.yaml:
+#   - key_id: deepseek_prod
+#     provider: deepseek
+#     secret_ref: DEEPSEEK_KEY
+#     adapters: [universal]
+#     unique_vault: false
+#     template: deepseek
+#
+# To override any field or add optional controls, replace template: with a full
+# inline policy block. See subumbra.example.yaml for the complete field reference.
+#
+# Updating policy after bootstrap (no re-bootstrap required):
+#   ./bootstrap.sh --publish-policy <key_id>
+
+# ── Required ────────────────────────────────────────────────────────────────
+protocol: openai_compatible
+capability_class: llm
+target:
+  host: api.deepseek.com
+  base_path: /v1
 auth:
   scheme: bearer
-capability_class: llm
-protocol: openai_compatible
-target:
-  base_path: /v1
-  host: api.deepseek.com
+allow:
+  methods: [GET, POST]
+  path_prefixes: [/v1/chat, /v1/completions, /v1/models]
+  content_types: [application/json]
+  max_body_bytes: 8388608   # 8MB — covers DeepSeek 64K context in JSON; verify at platform.deepseek.com
+
+# ── Optional — uncomment as needed ─────────────────────────────────────────
+# deny:
+#   path_prefixes: []
+# intent:
+#   policy_match: subumbra-intent-baseline-v1
+#   trust:
+#     allowed_initiators: []
+#     allowed_content_sources: []
+# response:
+#   deny_patterns: []
+# velocity:
+#   adapter_rpm: 120
+#   key_rpm: 600
+#   breaker_failures: 3
+#   breaker_cooldown_seconds: 30

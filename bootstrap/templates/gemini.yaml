@@ -1,18 +1,47 @@
-adapter_notes: Google Gemini OpenAI-compatible endpoint on Generative Language API.
-allow:
-  content_types:
-  - application/json
-  max_body_bytes: 1048576
-  methods:
-  - GET
-  - POST
-  path_prefixes:
-  - /v1beta/openai
-  - /v1beta/models
+# Subumbra built-in provider template — gemini
+# Google Gemini via the OpenAI-compatible Generative Language API endpoint
+# Auth: bearer  |  Docs: https://ai.google.dev/gemini-api/docs/openai
+#
+# Reference in subumbra.yaml:
+#   - key_id: gemini_prod
+#     provider: gemini
+#     secret_ref: GEMINI_KEY
+#     adapters: [universal]
+#     unique_vault: false
+#     template: gemini
+#
+# To override any field or add optional controls, replace template: with a full
+# inline policy block. See subumbra.example.yaml for the complete field reference.
+#
+# Updating policy after bootstrap (no re-bootstrap required):
+#   ./bootstrap.sh --publish-policy <key_id>
+
+# ── Required ────────────────────────────────────────────────────────────────
+protocol: openai_compatible
+capability_class: llm
+target:
+  host: generativelanguage.googleapis.com
+  base_path: /v1beta/openai
 auth:
   scheme: bearer
-capability_class: llm
-protocol: openai_compatible
-target:
-  base_path: /v1beta/openai
-  host: generativelanguage.googleapis.com
+allow:
+  methods: [GET, POST]
+  path_prefixes: [/v1beta/openai, /v1beta/models]
+  content_types: [application/json]
+  max_body_bytes: 16777216   # 16MB — covers Gemini 2.0 1M+ token context in JSON; verify at ai.google.dev
+
+# ── Optional — uncomment as needed ─────────────────────────────────────────
+# deny:
+#   path_prefixes: []
+# intent:
+#   policy_match: subumbra-intent-baseline-v1
+#   trust:
+#     allowed_initiators: []
+#     allowed_content_sources: []
+# response:
+#   deny_patterns: []
+# velocity:
+#   adapter_rpm: 120
+#   key_rpm: 600
+#   breaker_failures: 3
+#   breaker_cooldown_seconds: 30

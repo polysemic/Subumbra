@@ -1,18 +1,47 @@
-adapter_notes: Groq OpenAI-compatible API.
-allow:
-  content_types:
-  - application/json
-  max_body_bytes: 1048576
-  methods:
-  - GET
-  - POST
-  path_prefixes:
-  - /openai/v1
-  - /v1
+# Subumbra built-in provider template — groq
+# Groq OpenAI-compatible Chat and Completions API (fast inference)
+# Auth: bearer  |  Docs: https://console.groq.com/docs/openai
+#
+# Reference in subumbra.yaml:
+#   - key_id: groq_prod
+#     provider: groq
+#     secret_ref: GROQ_KEY
+#     adapters: [universal]
+#     unique_vault: false
+#     template: groq
+#
+# To override any field or add optional controls, replace template: with a full
+# inline policy block. See subumbra.example.yaml for the complete field reference.
+#
+# Updating policy after bootstrap (no re-bootstrap required):
+#   ./bootstrap.sh --publish-policy <key_id>
+
+# ── Required ────────────────────────────────────────────────────────────────
+protocol: openai_compatible
+capability_class: llm
+target:
+  host: api.groq.com
+  base_path: /openai/v1
 auth:
   scheme: bearer
-capability_class: llm
-protocol: openai_compatible
-target:
-  base_path: /openai/v1
-  host: api.groq.com
+allow:
+  methods: [GET, POST]
+  path_prefixes: [/openai/v1/chat, /openai/v1/completions, /openai/v1/models]
+  content_types: [application/json]
+  max_body_bytes: 8388608   # 8MB — covers Groq 128K context in JSON; verify at console.groq.com
+
+# ── Optional — uncomment as needed ─────────────────────────────────────────
+# deny:
+#   path_prefixes: []
+# intent:
+#   policy_match: subumbra-intent-baseline-v1
+#   trust:
+#     allowed_initiators: []
+#     allowed_content_sources: []
+# response:
+#   deny_patterns: []
+# velocity:
+#   adapter_rpm: 120
+#   key_rpm: 600
+#   breaker_failures: 3
+#   breaker_cooldown_seconds: 30
