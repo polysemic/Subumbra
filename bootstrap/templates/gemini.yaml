@@ -1,0 +1,18 @@
+adapter_notes: Google Gemini OpenAI-compatible endpoint on Generative Language API.
+allow:
+  content_types:
+  - application/json
+  max_body_bytes: 1048576
+  methods:
+  - GET
+  - POST
+  path_prefixes:
+  - /v1beta/openai
+  - /v1beta/models
+auth:
+  scheme: bearer
+capability_class: llm
+protocol: openai_compatible
+target:
+  base_path: /v1beta/openai
+  host: generativelanguage.googleapis.com
