@@ -1,0 +1,22 @@
+adapter_notes: OpenAI Chat Completions and related endpoints (OpenAI-compatible surface).
+allow:
+  content_types:
+  - application/json
+  max_body_bytes: 1048576
+  methods:
+  - GET
+  - POST
+  path_prefixes:
+  - /v1/chat
+  - /v1/completions
+  - /v1/models
+auth:
+  scheme: bearer
+capability_class: llm
+protocol: openai_compatible
+response:
+  deny_patterns:
+  - sk-
+target:
+  base_path: /v1
+  host: api.openai.com

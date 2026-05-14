@@ -119,7 +119,7 @@ CATALOG_SIG_FILE = CATALOG_DIR / "catalog.sig"
 # 64-char hex encoding of the 32-byte Ed25519 release public key.
 # Update when rotating the release key; rebuild bootstrap image.
 CATALOG_RELEASE_PUBKEY_HEX: str = (
-    "724c0c5822745fcc9a0fa91839abe6bb2b63d86307e8c5f027270e6f591bf4bc"
+    "596369765b3ed21312a1df175cc1ebe822e7f155ef2ddf27a1032d6b8dc89373"
 )
 
 _CATALOG_CACHE: dict[str, dict] | None = None
@@ -811,9 +811,12 @@ def _load_and_verify_catalog() -> dict[str, dict]:
         if hashlib.sha256(template_bytes).hexdigest() != expected_sha256:
             die(f"Template SHA-256 mismatch: {name}")
         try:
-            result[name] = json.loads(template_bytes)
-        except json.JSONDecodeError as exc:
-            die(f"Template {name!r} JSON is invalid: {exc}")
+            template_doc = yaml.safe_load(template_bytes)
+        except yaml.YAMLError as exc:
+            die(f"Template {name!r} YAML is invalid: {exc}")
+        if not isinstance(template_doc, dict):
+            die(f"Template {name!r} top-level YAML value must be an object")
+        result[name] = template_doc
 
     for entry in catalog_doc.get("adapters", []):
         name = entry["name"]
@@ -824,6 +827,12 @@ def _load_and_verify_catalog() -> dict[str, dict]:
         template_bytes = file_path.read_bytes()
         if hashlib.sha256(template_bytes).hexdigest() != expected_sha256:
             die(f"Template SHA-256 mismatch: adapter:{name}")
+        try:
+            template_doc = yaml.safe_load(template_bytes)
+        except yaml.YAMLError as exc:
+            die(f"Adapter template {name!r} YAML is invalid: {exc}")
+        if not isinstance(template_doc, dict):
+            die(f"Adapter template {name!r} top-level YAML value must be an object")
 
     _CATALOG_CACHE = result
     return _CATALOG_CACHE
@@ -921,6 +930,83 @@ def _load_local_template(name: str) -> dict | None:
         warn(f"Local template {name!r} top-level value is not an object; falling back to built-in catalog")
         return None
     return data
+
+
+def _load_keys_payload_if_present() -> dict[str, dict[str, Any]]:
+    if not KEYS_FILE.exists():
+        return {}
+    return _load_keys_payload_or_die()
+
+
+def _format_adapter_line(adapter_ids: Iterable[str]) -> str:
+    return "[" + ", ".join(adapter_ids) + "]"
+
+
+def _rewrite_manifest_adapters_line(target_key_id: str, adapter_ids: list[str]) -> tuple[bool, str]:
+    """Best-effort manifest sync for canonical single-line YAML adapter lists only."""
+    try:
+        manifest_text = MANIFEST_FILE.read_text(encoding="utf-8")
+    except OSError as exc:
+        return False, f"manifest unreadable ({exc})"
+
+    stanza_pattern = re.compile(
+        rf"(?ms)^([ \t]*)-\s+key_id:\s*{re.escape(target_key_id)}\s*$"
+        rf"(.*?)(?=^[ \t]*-\s+key_id:\s*|\Z)"
+    )
+    stanza_match = stanza_pattern.search(manifest_text)
+    if stanza_match is None:
+        return False, "target key stanza not found in canonical YAML item form"
+
+    stanza_text = stanza_match.group(0)
+    adapters_pattern = re.compile(r"(?m)^([ \t]*adapters:\s*)\[[^\n]*\]\s*$")
+    adapters_match = adapters_pattern.search(stanza_text)
+    if adapters_match is None:
+        return False, "adapters line is not in canonical single-line form"
+
+    replacement = adapters_match.group(1) + _format_adapter_line(adapter_ids)
+    rewritten_stanza = adapters_pattern.sub(replacement, stanza_text, count=1)
+    rewritten_manifest = (
+        manifest_text[:stanza_match.start()] +
+        rewritten_stanza +
+        manifest_text[stanza_match.end():]
+    )
+
+    try:
+        MANIFEST_FILE.write_text(rewritten_manifest, encoding="utf-8")
+    except OSError as exc:
+        return False, f"manifest write failed ({exc})"
+    return True, "updated"
+
+
+def _prompt_manifest_sync_after_adapter_mutation(target_key_id: str, adapters: list[str]) -> None:
+    prompt = (
+        f"  Deployed record for {target_key_id!r} changed. Also update subumbra.yaml "
+        f"adapters line to {_format_adapter_line(adapters)}? [y/N]: "
+    )
+    if not sys.stdin.isatty():
+        warn("Manifest sync prompt unavailable without a TTY; manual manifest update required.")
+        warn("A later --publish-policy will restore manifest authority until the manifest is updated.")
+        return
+
+    try:
+        choice = input(prompt).strip().lower()
+    except EOFError:
+        warn("Manifest sync prompt unavailable; manual manifest update required.")
+        warn("A later --publish-policy will restore manifest authority until the manifest is updated.")
+        return
+
+    if choice != "y":
+        warn("Manifest left unchanged. A later --publish-policy will restore manifest authority.")
+        return
+
+    synced, reason = _rewrite_manifest_adapters_line(target_key_id, adapters)
+    if not synced:
+        warn(
+            "Manifest auto-sync skipped; manual manifest update required "
+            f"({reason})."
+        )
+        return
+    ok(f"Updated manifest adapters line for {target_key_id}")
 
 
 def _normalize_manifest_record(record: Any, idx: int) -> dict[str, Any]:
@@ -3035,6 +3121,48 @@ def _load_management_manifest_authority(key_id: str, expected_provider: str | No
     return authority
 
 
+def run_status() -> None:
+    manifest_records = _load_manifest_records()
+    keys_payload = _load_keys_payload_if_present()
+    seen_manifest_key_ids: set[str] = set()
+    found_problem = False
+
+    for record in manifest_records:
+        key_id = record["key_id"]
+        seen_manifest_key_ids.add(key_id)
+        manifest_hash = compute_policy_hash(record["policy"])
+        stored = keys_payload.get(key_id)
+
+        if not isinstance(stored, dict) or _is_revoked_record(stored):
+            print(f"{key_id} NOT_DEPLOYED")
+            found_problem = True
+            continue
+
+        _require_fat_record_fields(stored, key_id)
+        _verify_embedded_policy_hash(stored, key_id)
+        stored_hash = str(stored.get("policy_hash", "")).strip()
+        if stored_hash == manifest_hash:
+            print(f"{key_id} UP_TO_DATE")
+        else:
+            print(
+                f"{key_id} POLICY_DRIFT "
+                f"manifest_hash={manifest_hash} stored_hash={stored_hash}"
+            )
+            found_problem = True
+
+    for key_id in sorted(keys_payload):
+        if key_id in seen_manifest_key_ids:
+            continue
+        record = keys_payload[key_id]
+        if not isinstance(record, dict):
+            die(f"keys.json record {key_id!r} is malformed")
+        print(f"{key_id} REVOKED")
+        found_problem = True
+
+    if found_problem:
+        sys.exit(1)
+
+
 def run_revoke_key(target_key_id: str) -> None:
     offline = "--offline" in sys.argv
     keys_payload = _load_keys_payload_or_die()
@@ -3139,6 +3267,9 @@ def _mutate_adapter_binding(target_key_id: str, adapter_id: str, *, add: bool) -
     _write_keys_payload(keys_payload)
     ok(f"Updated {target_key_id} in keys.json")
     _publish_after_local_record_update(cf_creds, keys_payload)
+
+    if sorted(authority["adapters"]) != sorted(adapters):
+        _prompt_manifest_sync_after_adapter_mutation(target_key_id, adapters)
 
 
 def run_add_adapter(target_key_id: str, adapter_id: str) -> None:
@@ -3993,6 +4124,7 @@ Options:
   --help, -h                  Show this help message and exit
   --list-key-ids              List all key IDs defined in the manifest (subumbra.yaml)
   --list-adapters             List all unique adapters defined in the manifest (subumbra.yaml)
+  --status                    Compare manifest authority to deployed record state
   --upgrade                   Rebuild images and recreate containers
   --nuke                      Destructive run: destroys existing Cloudflare Vault keypairs
                               and regenerates everything from scratch
@@ -4039,6 +4171,9 @@ if __name__ == "__main__":
     elif "--list-adapters" in sys.argv:
         print_adapters()
         sys.exit(0)
+    elif "--status" in sys.argv:
+        run_status()
+        sys.exit(0)
 
     if "--offline" in sys.argv and "--revoke-key" not in sys.argv:
         die("--offline is only supported together with --revoke-key")
@@ -4052,6 +4187,7 @@ if __name__ == "__main__":
         "--add-adapter",
         "--revoke-adapter",
         "--publish-policy",
+        "--status",
     )
     selected_modes = sum(flag in sys.argv for flag in mode_flags)
     if selected_modes > 1:

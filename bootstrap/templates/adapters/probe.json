@@ -1,6 +1,0 @@
-{
-  "adapter_id": "probe",
-  "config_snippet_notes": "subumbra-probe uses SUBUMBRA_ACCESS_TOKEN from compose env; map to an adapter_id listed in allow.adapters for the keys you probe.",
-  "suggested_allow_adapters": ["subumbra-probe"],
-  "token_env_var": "SUBUMBRA_TOKEN_PROBE"
-}
