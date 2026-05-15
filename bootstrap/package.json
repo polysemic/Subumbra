@@ -1,0 +1,9 @@
+{
+  "name": "subumbra-bootstrap",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Wrangler CLI for Subumbra bootstrap (pinned via package-lock.json integrity hashes).",
+  "dependencies": {
+    "wrangler": "4.90.1"
+  }
+}
