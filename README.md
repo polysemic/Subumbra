@@ -1,111 +1,202 @@
-# Subumbra — Split-Trust Secret Mediation
+# Subumbra — Keep Your AI API Keys Safe
 
-Current version label: `0.0.1-alpha`
+> **Alpha release** — designed for self-hosters and tinkerers who want to test this early. Not yet recommended for production use.
 
-# Not ready for production - this is for testing only!
+Subumbra is a **security proxy** that sits between your apps (like LiteLLM, OpenWebUI, AnythingLLM, n8n, etc.) and providers (like OpenAI or Anthropic). Instead of pasting your API keys directly into each app — where they can be leaked in logs, config files, or breaches — Subumbra holds them encrypted and hands them out only to apps you explicitly authorize, one request at a time.
 
-Subumbra keeps provider API keys split between **encrypted records** in
-`subumbra-keys` and **decrypt authority** in a Cloudflare Worker + Durable
-Object vault. The supported integration model is **app-owned installs**: core
-stack under `/opt/subumbra`, apps in their own installs, apps call
-`subumbra-proxy` on the transparent **`/t/<key_id>/...`** path. Routing and auth
-live in operator-authored **`subumbra.yaml`**.
+**In plain terms:** your apps never see your real API keys. They talk to Subumbra, Subumbra talks to OpenAI (or whoever), and your keys stay locked away.
 
-**Architecture (diagram + stack list):** [docs/architecture.md](docs/architecture.md)
+→ [How it works under the hood](docs/architecture.md) · [Planned features](ROADMAP.md)
 
-**Planned and possible work:** [ROADMAP.md](ROADMAP.md) (living backlog; order shifts with feedback).
+---
 
-## Five-minute quickstart
+## Before you start
 
-1. **Clone** into `/opt/subumbra` (or your chosen path). See
-   [docs/subumbra-install.md](docs/subumbra-install.md) for Docker install on Ubuntu.
-2. **Manifest (required):** `subumbra.yaml` is **gitignored** — it must exist on disk before bootstrap. Copy a starter, then edit:
-   ```bash
-   cp subumbra.minimal.yaml subumbra.yaml
-   # or for full inline policy control:
-   # cp subumbra.example.yaml subumbra.yaml
-   ```
-   The tracked **minimal** YAML starter is a multi-provider catalog reference
-   using only signed **`template`** entries (no inline `policy`). Built-in
-   provider and adapter templates now live in `bootstrap/templates/*.yaml` if
-   you want to copy them into `./templates/` for local customization.
-   Copy the starter when you want a ready-made provider inventory, then delete
-   rows you do not need.
-   The **example** file lists **every** signed catalog
-   template plus one inline policy row showing optional `deny`, `intent`,
-   `response`, and `velocity` fields. Use minimal to get running fast; use the
-   example when you want the full variable surface.
-3. **Runtime env:** `cp .env.example .env` — leave optional CF Access / tunnel
-   vars blank unless you use them.
-4. **Bootstrap:** `./bootstrap.sh` (interactive TTY) or automation with
-   `.env.bootstrap` from `.env.bootstrap.example` (see install guide).
-5. **Stack:** after bootstrap, `docker compose up -d --force-recreate` (the
-   wrapper usually runs this). **Health:** `curl -sS http://127.0.0.1:10199/health`
-   on the host; apps **inside Docker** use `http://subumbra-proxy:8090/t/<key_id>/...`.
+You'll need:
 
-## Supported app contract
+- A Linux server (VPS or homelab) with **Docker** installed. Anything with Docker should work, but I have only tested on Ubuntu 24.04 LTS.
+- A [**Cloudflare account**](https://cloudflare.com) with the **Workers Paid plan** ($5/month) — this is where your keys are held encrypted. It may work with a free account, but this is not guaranteed.
+- A **Cloudflare API token** (created at [dash.cloudflare.com/profile/api-tokens](https://dash.cloudflare.com/profile/api-tokens) — use "Edit Cloudflare Workers" template, add `Workers KV Storage: Edit`)
+- Your **Cloudflare Account ID** (visible in the URL when you're logged into Cloudflare or after creating your API token)
+- At least one AI provider API key (e.g. an OpenAI key starting with `sk-...`)
 
-- `api_base: http://subumbra-proxy:8090/t/<key_id>/...` (or `http://127.0.0.1:10199/t/...` from the host)
-- `api_key: <adapter token>` such as `${SUBUMBRA_TOKEN_LITELLM}`
+> Don't have Docker yet? Follow the [full install guide](docs/subumbra-install.md) first.
 
-Do **not** use callback-era `subumbra:<key_id>` values or raw key IDs in the
-supported auth slot.
+---
 
-## Alpha notes
+## Quickstart
 
-- Env ingestion supports multi-app deduplication; richer same-provider
-  multi-secret import is deferred.
-- Built-in signed provider and adapter templates ship as YAML inside
-  `bootstrap/templates/`; local `./templates/<name>.yaml` still overrides them.
+### Step 1 — Download Subumbra
 
-## Key properties
+The example below uses `/opt/subumbra` — you can use any path you like, just replace it consistently:
 
-- Provider keys do not remain on the VPS in plaintext after bootstrap.
-- `subumbra-keys` holds ciphertext + wrapped DEKs + metadata only.
-- Cloudflare holds RSA private key custody in the vault DO; runtime secrets live in Worker config.
-- Plaintext exists only transiently in Worker/DO execution and in transit to providers over HTTPS.
-- Cloudflare deploy authority remains in the trust boundary; the split removes plaintext-at-rest on the VPS, not Cloudflare from the model.
-- Proxy `/health` includes `worker_auth` (`ok` | `stale` | `token_mismatch` | `unreachable`); for full semantics see [docs/operator-guide.md](docs/operator-guide.md) (“Proxy `/health` — `worker_auth` semantics”).
+```bash
+git clone https://github.com/polysemic/Subumbra.git /opt/subumbra
+cd /opt/subumbra
+```
 
-## UI authentication
+> If `/opt` is restricted on your system, you may need `sudo mkdir -p /opt/subumbra && sudo chown -R "$USER":"$USER" /opt/subumbra` first, then run the clone.
 
-| Mode | When | Configuration |
-|------|------|-----------------|
-| CF Tunnel + CF Access (recommended) | UI behind Tunnel + Access | Leave `UI_USERNAME` / `UI_PASSWORD` unset |
-| HTTP Basic Auth | Direct UI on localhost | Set both `UI_USERNAME` and `UI_PASSWORD` in `.env` |
+### Step 2 — Create a shared Docker network
 
-## Tested applications (docs)
+This lets your Dockerized apps talk to Subumbra by name. Run this once:
 
-- AnythingLLM: [install](docs/apps/anythingllm/install.md) · [takeover](docs/apps/anythingllm/takeover.md)
-- OpenWebUI: [install](docs/apps/openwebui/install.md) · [takeover](docs/apps/openwebui/takeover.md)
-- LiteLLM: [install](docs/apps/litellm/install.md)
-- n8n: [workflow assets](docs/apps/n8n/README.md)
-- LibreChat / Bifrost: see `docs/apps/*`
+```bash
+docker network create subumbra-net
+```
 
-## Project layout
+### Step 3 — Create your provider list
+
+Subumbra reads a file called `subumbra.yaml` to know which providers you want to use. This file is **never committed to git** — it lives only on your server.
+
+Start from the minimal template, which includes all supported providers (just comment out the ones you don't use):
+
+```bash
+cp subumbra.minimal.yaml subumbra.yaml
+```
+
+Now open `subumbra.yaml` in a text editor and:
+
+1. **Delete or comment out** providers you don't have keys for (put a `#` at the start of any line to disable it)
+2. **Set `adapters`** to the names of your apps — for example `[litellm, openwebui]` or `[universal]` to use one adapter token for every app. This is to only allow certain apps to use certain keys.
+
+The `secret_ref` values (like `OPENAI_KEY`, `ANTHROPIC_KEY`) are just labels — you'll enter the actual key values in the next step, not here.
+
+> **Want full control over policies or custom providers?** Use `cp subumbra.example.yaml subumbra.yaml` instead. That file documents every available option. See [docs/provider-templates.md](docs/provider-templates.md).
+
+> **Optional automation:** You can also use an automation file. Copy `.env.bootstrap.example` to `.env.bootstrap`, fill in your keys and Cloudflare credentials, then run `./bootstrap.sh`. The file is automatically deleted after a successful run. The `secret_ref` values from `subumbra.yaml` must match the environment variable names in `.env.bootstrap`.
+
+### Step 4 — Run the setup wizard
+
+```bash
+./bootstrap.sh
+```
+
+The wizard will ask you for:
+
+1. **Your Cloudflare API token** — paste it in (this isn't stored anywhere and is only used for the initial setup and to update the worker)
+2. **Your Cloudflare Account ID** — paste it in (this isn't stored anywhere and is only used for the initial setup and to update the worker)
+3. **A Worker name** — just press Enter to use the default (`subumbra-proxy`)
+4. **Your API keys** — for each provider in your `subumbra.yaml`, it will ask for the key
+
+**Automated Alternative:** If you filled `.env.bootstrap`, all prompts will be skipped and the wizard will use the values from the file.
+ 
+That's it. The wizard automatically:
+- Deploys a Cloudflare Worker (your encrypted key vault lives here)
+- Generates a fresh RSA key pair — the private key is generated **inside Cloudflare** and never touches your server
+- Encrypts your API keys and stores them
+- Writes all the access tokens your apps will need into `.env`
+- Starts the Subumbra services
+
+### Step 5 — Verify everything is running
+
+```bash
+# Check all three services are up
+docker compose ps
+
+# Check the proxy is healthy and connected to Cloudflare
+curl -sS http://127.0.0.1:10199/health
+```
+
+You should see something like:
+
+```json
+{"status": "ok", "worker_auth": "ok"}
+```
+
+If `worker_auth` says `ok`, you're live. 🎉
+
+---
+
+## Connecting your apps
+
+After bootstrap, your `.env` file contains tokens for each app. Check them:
+
+```bash
+grep SUBUMBRA_TOKEN .env
+```
+
+You'll see lines like:
+```
+SUBUMBRA_TOKEN_LITELLM=3fbe4c3f...
+SUBUMBRA_TOKEN_OPENWEBUI=19d1262d...
+```
+
+Each app gets its **own token** (so you can revoke one without affecting others) and points to Subumbra instead of directly to OpenAI:
+
+| Setting | Value |
+|---------|-------|
+| `api_base` / base URL | `http://subumbra-proxy:8090/t/<key_id>/...` (from inside Docker) |
+| `api_base` / base URL | `http://127.0.0.1:10199/t/<key_id>/...` (from the host or outside Docker) |
+| `api_key` | Your app's adapter token (e.g. `SUBUMBRA_TOKEN_LITELLM` from `.env`) |
+
+Where `<key_id>` is the identifier from your `subumbra.yaml` — for example `openai_prod`, `anthropic_prod`.
+
+App-specific setup guides:
+
+- **LiteLLM:** [docs/apps/litellm/install.md](docs/apps/litellm/install.md)
+- **OpenWebUI:** [docs/apps/openwebui/install.md](docs/apps/openwebui/install.md)
+- **AnythingLLM:** [docs/apps/anythingllm/install.md](docs/apps/anythingllm/install.md)
+- **Bifrost / LibreChat / n8n:** [docs/apps/](docs/apps/)
+
+---
+
+## Security properties
+
+Here's what Subumbra actually protects and what it doesn't:
+
+| What it protects | How |
+|-----------------|-----|
+| API keys at rest on your server | Keys are encrypted immediately and only stored as ciphertext |
+| API keys in app configs | Apps only ever see a short-lived proxy token, not your real key |
+| Per-app access control | Each app has its own token — revoke one without touching others |
+| Policy enforcement | You define which paths and methods each key is allowed to serve |
+
+| What it does **not** protect | Notes |
+|------------------------------|-------|
+| Cloudflare itself | The private key lives in Cloudflare — Cloudflare is in the trust boundary |
+| Your server if fully compromised | An attacker with root on your server can read running container memory |
+| Billing/rate limits | Subumbra doesn't cap spend — set limits at the provider level |
+
+---
+
+## Dashboard (UI)
+
+A read-only dashboard is available at `http://127.0.0.1:6563` showing your active keys, usage stats, and audit log.
+
+**To access it:**
+
+| Setup | Configuration |
+|-------|---------------|
+| Cloudflare Tunnel + Access (recommended for remote access) | Leave `UI_USERNAME` and `UI_PASSWORD` unset in `.env` |
+| Simple password on localhost | Set `UI_USERNAME` and `UI_PASSWORD` in `.env`, then `docker compose up -d --force-recreate` |
+
+---
+
+## What's in the box
 
 ```
 subumbra/
-├── docker-compose.yml
-├── .env.example
-├── .env.bootstrap.example
-├── subumbra.minimal.yaml   # preferred YAML starter (copy to gitignored subumbra.yaml)
-├── subumbra.example.yaml   # gold exemplar (copy to gitignored subumbra.yaml)
-├── bootstrap/
-├── subumbra-keys/
-├── subumbra-proxy/
-├── subumbra-probe/
-├── ui/
-├── worker/
-└── docs/
+├── docker-compose.yml          ← starts the three local services
+├── .env.example                ← template for optional config
+├── .env.bootstrap.example      ← template for automation bootstrap
+├── subumbra.minimal.yaml       ← copy this to subumbra.yaml to get started
+├── subumbra.example.yaml       ← full reference with every option documented
+├── bootstrap/                  ← setup wizard and encryption logic
+├── subumbra-keys/              ← stores encrypted key records locally
+├── subumbra-proxy/             ← the transparent proxy your apps talk to
+├── ui/                         ← the read-only dashboard
+├── worker/                     ← the Cloudflare Worker (key vault + decrypt)
+└── docs/                       ← all documentation
 ```
 
-## Next docs
+---
 
-- [docs/subumbra-install.md](docs/subumbra-install.md)
-- [docs/subumbra-testing.md](docs/subumbra-testing.md)
-- [docs/integration-recipes.md](docs/integration-recipes.md)
-- [docs/provider-templates.md](docs/provider-templates.md)
-- [docs/adapter-contract.md](docs/adapter-contract.md)
-- [docs/operator-guide.md](docs/operator-guide.md)
-- [docs/subumbra-developer.md](docs/subumbra-developer.md)
+## More docs
+
+- [Full install guide (Docker from scratch)](docs/subumbra-install.md)
+- [Provider templates reference](docs/provider-templates.md)
+- [Integration recipes (curl examples per provider)](docs/integration-recipes.md)
+- [Operator guide (day-2 operations, recovery)](docs/operator-guide.md)
+- [Architecture deep-dive](docs/architecture.md)
+- [Developer / council guide](docs/subumbra-developer.md)

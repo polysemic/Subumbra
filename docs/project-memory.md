@@ -10,7 +10,7 @@ otherwise misunderstand.
 
 ## 1. Product Identity
 
-- Subumbra is a **universal zero-trust secret broker**, not a LiteLLM plugin.
+- Subumbra is a **policy-bound secret proxy**: it brokers access to provider API keys without ever exposing them in plaintext to apps. Not a LiteLLM plugin.
 - LiteLLM is a proven app-owned example, not the product boundary.
 - The core product shape is:
   - `subumbra-keys` for encrypted record storage and limited metadata access

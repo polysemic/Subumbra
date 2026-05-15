@@ -7,7 +7,7 @@
 
 ## Overview
 
-Subumbra is a zero-trust key-broker core. The decrypt/proxy contract is:
+Subumbra is a **policy-bound secret proxy**: apps never receive decrypted API keys — they supply a token and a target, and the Worker authenticates, validates policy, decrypts, and forwards the request. The decrypt/proxy contract is:
 
 - **Adapters** request narrow capability by supplying a V3 envelope, a target
   destination, and transport payload.

@@ -20,7 +20,7 @@ The universal `/t` path is a **shared `subumbra-proxy` identity** at the Worker 
 
 ## Core stack
 
-The default `/opt/subumbra` compose stack contains:
+The core Subumbra compose stack (your chosen install path, conventionally `/opt/subumbra`) contains:
 
 - `subumbra-keys`
 - `subumbra-proxy`
