@@ -38,6 +38,10 @@
 #                              omit entirely for bearer, basic, or query schemes
 #     allow:                   (required)
 #       adapters:              (required) adapter IDs allowed — must match top-level adapters list
+#                              Revocation granularity: all keys sharing the same adapter name share
+#                              one token. To revoke one app without affecting others, assign each
+#                              app a distinct adapter name (e.g. litellm, openwebui, bifrost) and
+#                              use --revoke-adapter <key_id> <adapter> for targeted removal.
 #       methods:               (required) HTTP methods the Worker will forward
 #       path_prefixes:         (required) upstream paths allowed — no wildcards, must start with /
 #       content_types:         (required) accepted request Content-Type values

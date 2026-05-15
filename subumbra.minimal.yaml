@@ -7,6 +7,8 @@
 #   provider     — unique display label of your choosing; shown in the UI and bootstrap output (not a template name, not used for routing)
 #   secret_ref   — unique label for the API key secret; the interactive wizard prompts once per unique value (shared across keys that reference the same label); in automation mode it is the env var name in .env.bootstrap or the process environment
 #   adapters     — app tokens allowed to use this key (use the same name across keys for a shared token)
+#                  Revocation granularity: all keys sharing an adapter name share one token.
+#                  Use distinct names per app (e.g. litellm, openwebui) for independent revocation.
 #   unique_vault — false assigns one private key in Durable Object `vault` (best for low-risk)
 #                — true assigns one private key to a dedicated Durable Object instance `vault-<key_id>` (isolation from all other keys)
 #   template     — signed built-in template name, or a file in <repo_root>./templates/<name>.yaml for custom providers

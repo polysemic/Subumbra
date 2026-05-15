@@ -1,4 +1,4 @@
-# Subumbra — Keep Your AI API Keys Safe
+# Subumbra — Keep Your API Keys Safe
 
 > **Alpha release** — designed for self-hosters and tinkerers who want to test this early. Not yet recommended for production use.
 
@@ -18,7 +18,7 @@ You'll need:
 - A [**Cloudflare account**](https://cloudflare.com) with the **Workers Paid plan** ($5/month) — this is where your keys are held encrypted. It may work with a free account, but this is not guaranteed.
 - A **Cloudflare API token** (created at [dash.cloudflare.com/profile/api-tokens](https://dash.cloudflare.com/profile/api-tokens) — use "Edit Cloudflare Workers" template, add `Workers KV Storage: Edit`)
 - Your **Cloudflare Account ID** (visible in the URL when you're logged into Cloudflare or after creating your API token)
-- At least one AI provider API key (e.g. an OpenAI key starting with `sk-...`)
+- At least one provider API key (e.g. an OpenAI key starting with `sk-...`)
 
 > Don't have Docker yet? Follow the [full install guide](docs/subumbra-install.md) first.
 
@@ -217,4 +217,4 @@ For detailed security guidance, see:
 
 ## Disclaimer
 
-This project was built with AI coding tools. I am not a security expert, a coder, or a software engineer, and the development history, branches, and releases may be a bit clunky. I like to build and tinker with things; this is a project I built for myself to solve a problem I was having, and I hope it can help you too. If you find it useful, feel free to use it. If you do not, that is fine too.
+This project was built with AI coding tools ($20/mo plans). I am not a security expert, a coder, or a software engineer. I am not great at git or github, so the development history, branches, and releases may be a bit clunky. I like to build and tinker with things; this is a project I built for myself to try and solve a problem I kept reading about almost every day. If you find it useful, feel free to use it. If you do not, that is fine too.
