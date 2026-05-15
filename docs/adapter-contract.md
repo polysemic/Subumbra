@@ -312,8 +312,9 @@ This is the current primary adapter path for standalone LiteLLM and similar
 external apps.
 
 The legacy callback-era Python integration is **not** shipped in-repo (removed
-R58); **`litellm/config.yaml`** may still be used as a **standalone** example
-config, but it is not the current primary integration contract.
+R58); the standalone LiteLLM example config lives at
+[`docs/apps/litellm/templates/config.yaml`](apps/litellm/templates/config.yaml),
+but it is not the current primary integration contract.
 
 ---
 

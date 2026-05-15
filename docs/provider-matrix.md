@@ -43,7 +43,9 @@ provider configuration gives `failed to unmarshal response from provider API`. M
 unavailable; no test cells completable. Bifrost limitation, not Subumbra.
 
 **◇ Gemini N/A:** Google's OpenAI-compatible endpoint is at `/v1beta/openai/`, not `/v1/`.
-The transparent sidecar routes to the wrong path (404). Ref: `litellm/config.yaml:92-100`. Deferred.
+The historical transparent sidecar path routed to the wrong path (404). The
+current LiteLLM example keeps the Gemini entry commented with the corrected
+path shape in [`docs/apps/litellm/templates/config.yaml`](apps/litellm/templates/config.yaml).
 
 **— N8N not tested:** N8N AI-node integration was validated for Anthropic and OpenAI only.
 Other providers are expected to work via the same credential base URL override pattern but

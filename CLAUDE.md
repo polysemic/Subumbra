@@ -6,8 +6,8 @@ use API keys without storing those keys in plaintext on the app server. Keys
 are split across two systems — neither side can decrypt alone.
 
 Subumbra's current reference integration surface is `subumbra-proxy`. LiteLLM
-is a proven app-owned example, not the bundled product boundary. Legacy
-callback-era artifacts remain in the repo for reference only.
+is a proven app-owned example, not the bundled product boundary. LiteLLM
+operator docs and example config live under `docs/apps/litellm/`.
 
 ## Architecture
 
@@ -93,9 +93,6 @@ subumbra/
 │   ├── probe.py
 │   └── requirements.txt
 │
-├── litellm/                     ← legacy: standalone LiteLLM example config only (callback-era Python removed R58)
-│   └── config.yaml              ← standalone example config using adapter token + path key_id
-│
 ├── scripts/
 │   ├── council/                 ← verification harness scripts
 │   └── subumbra-expire-adapter.sh  ← operational adapter expiry tool
@@ -125,19 +122,19 @@ subumbra/
 - Provider-specific path suffixes in app examples are upstream API path requirements; `/t` is the Subumbra transparent route root
 
 ### Legacy Callback Reference
-- Callback-era Python (`litellm/custom_callbacks.py`) was removed in R58; the repo keeps **`litellm/config.yaml`** only as a standalone example config
-- It is not the current primary integration contract
-- Standalone LiteLLM and similar external apps should follow the transparent sidecar path instead
+- Callback-era Python (`litellm/custom_callbacks.py`) was removed in R58.
+- Standalone LiteLLM examples now live under `docs/apps/litellm/` and use the transparent sidecar path.
+- Callback-style `subumbra:<key_id>` values are not the current primary integration contract.
 
 ### Bootstrap Process (one-shot)
 1. Run bootstrap through the host wrapper:
    `./bootstrap.sh`
    **Automation / CI:** create `.env.bootstrap` with the manifest `secret_ref` variables, then run the same wrapper (non-interactive).
-   **Interactive (TTY):** when `.env.bootstrap` is absent or incomplete, bootstrap runs a **manifest wizard**: `subumbra.json` must be mounted at `/app/subumbra.json`; Cloudflare credentials and each provider secret are prompted (`getpass` / short prompts). Secrets are held in RAM only (including an in-process `_WIZARD_SECRETS` map keyed by `secret_ref`); they are **not** written to a plaintext bootstrap resume file. Resolution still uses `_resolve_manifest_secret`, which checks that cache before `os.environ`, so provider material is not required in the process environment for the wizard path.
+   **Interactive (TTY):** when `.env.bootstrap` is absent or incomplete, bootstrap runs a **manifest wizard**: `subumbra.yaml` is preferred, `subumbra.json` remains a compatibility fallback, and `bootstrap.sh` mounts the chosen file at `/app/manifest`; Cloudflare credentials and each provider secret are prompted (`getpass` / short prompts). Secrets are held in RAM only (including an in-process `_WIZARD_SECRETS` map keyed by `secret_ref`); they are **not** written to a plaintext bootstrap resume file. Resolution still uses `_resolve_manifest_secret`, which checks that cache before `os.environ`, so provider material is not required in the process environment for the wizard path.
    The manifest remains the source of truth for `policy.target.host`, `policy.auth`, adapters, and `unique_vault`.
 2. Bootstrap container:
    - Reads manifest-declared secret refs from env (RAM only)
-   - Treats `policy.target.host` and `policy.auth` in `subumbra.json` as the routing/auth source of truth
+   - Treats `policy.target.host` and `policy.auth` in the manifest as the routing/auth source of truth
    - Creates or reuses the provider-registry KV namespace and persists its namespace ID in `/app/data/kv-config.json`
    - Injects the `[[kv_namespaces]]` binding into the temporary deploy copy of `wrangler.toml`
    - Deploys CF Worker via wrangler
@@ -199,7 +196,7 @@ as legacy reference only and are not the current adapter hierarchy.
 
 ## Provider Declarations
 - Subumbra no longer ships a hardcoded provider-routing catalog as runtime/bootstrap authority.
-- Operators declare provider labels, `policy.target.host`, and `policy.auth` explicitly in `subumbra.json`.
+- Operators declare provider labels, `policy.target.host`, and `policy.auth` explicitly in `subumbra.yaml` (or JSON compatibility form).
 - The Worker remains generic: it validates `target.host` against embedded policy/key authority and executes auth by generic `bearer`, `basic`, `header`, or `query` policy semantics.
 
 ## Environment Variables

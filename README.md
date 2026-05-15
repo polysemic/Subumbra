@@ -217,4 +217,4 @@ For detailed security guidance, see:
 
 ## Disclaimer
 
-This project is completely coded by AI tools. I am not a security expert, a coder, or a software engineer. I like to build and tinker with things and this is a project I built for myself to solve a problem I was having and hope it can help you too. If you find this project useful, feel free to use it. If you don't, that's fine too. 
+This project was built with AI coding tools. I am not a security expert, a coder, or a software engineer, and the development history, branches, and releases may be a bit clunky. I like to build and tinker with things; this is a project I built for myself to solve a problem I was having, and I hope it can help you too. If you find it useful, feel free to use it. If you do not, that is fine too.
