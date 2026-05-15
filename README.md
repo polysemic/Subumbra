@@ -200,3 +200,21 @@ subumbra/
 - [Operator guide (day-2 operations, recovery)](docs/operator-guide.md)
 - [Architecture deep-dive](docs/architecture.md)
 - [Developer / council guide](docs/subumbra-developer.md)
+
+---
+
+## ⚠️ Warning: Security and Data Handling
+
+This project handles sensitive credentials (API keys, tokens, and certificates).
+* **Do not commit `.env` files** or any files containing secrets to version control.
+* **Always back up your secrets** in a secure location before running bootstrap scripts.
+* **Understand the risks** before using this software in production.
+
+For detailed security guidance, see:
+- [Security Overview](docs/security-overview.md)
+
+---
+
+## Disclaimer
+
+This project is completely coded by AI tools. I am not a security expert, a coder, or a software engineer. I like to build and tinker with things and this is a project I built for myself to solve a problem I was having and hope it can help you too. If you find this project useful, feel free to use it. If you don't, that's fine too. 
