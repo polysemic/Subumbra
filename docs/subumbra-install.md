@@ -19,14 +19,13 @@ docker compose version
 docker run --rm hello-world
 ```
 
-## 2. Clone Into `/wherever/you/want`
+## 2. Clone Into `/opt/subumbra`
 
 ```bash
-sudo mkdir -p /wherever/you/want
-sudo chown -R "$USER":"$USER" /wherever/you/want
-cd /wherever/you/want
-git clone https://github.com/polysemic/Subumbra.git .
+git clone https://github.com/polysemic/Subumbra.git /opt/subumbra
+cd /opt/subumbra
 ```
+> If `/opt` is restricted on your system, you may need `sudo mkdir -p /opt/subumbra && sudo chown -R "$USER":"$USER" /opt/subumbra` first, then run the clone.
 
 ## 2a. Create the shared Docker network
 

@@ -18,15 +18,15 @@ run.
 | Proxy Worker auth cache TTL | `60` s | `subumbra-proxy/app.py` (`WORKER_AUTH_OK_TTL_SECONDS`) |
 | Proxy Worker auth-ping HTTP timeout | `2.0` s | `subumbra-proxy/app.py` (`WORKER_AUTH_TIMEOUT_SECONDS`) |
 | Dashboard `/api/status` poll | `30000` ms (30 s) | `ui/static/dashboard.js` (`STATUS_POLL_MS`) |
-| Dashboard per-key usage (`request_count`, `last_access`) | Aggregated from **`subumbra-keys` SQLite `audit_events`** via `GET /stats` and `GET /keys` (R63); not per-Gunicorn-worker RAM | `subumbra-keys/app.py` (`_sqlite_per_key_usage_map` and callers) |
+| Dashboard per-key usage (`request_count`, `last_access`) | Aggregated from **`subumbra-keys` SQLite `audit_events`** via `GET /stats` and `GET /keys`; not per-Gunicorn-worker RAM | `subumbra-keys/app.py` (`_sqlite_per_key_usage_map` and callers) |
 | Dashboard SSE `/api/events` heartbeat | `30` s between comment frames | `ui/app.py` (`time.sleep(30)` in `api_events`) |
 | `subumbra-keys` Compose healthcheck | `interval: 30s`, `timeout: 5s`, `retries: 5`, `start_period: 10s` | `docker-compose.yml` under `subumbra-keys` → `healthcheck:` (lines ~61–66) |
 | `subumbra-ui` Compose healthcheck | `interval: 30s`, `timeout: 5s`, `retries: 3` | `docker-compose.yml` under `subumbra-ui` → `healthcheck:` (lines ~99–103) |
 | `subumbra-proxy` Compose healthcheck | `interval: 30s`, `timeout: 5s`, `retries: 3` | `docker-compose.yml` under `subumbra-proxy` → `healthcheck:` (lines ~164–168) |
 
-### R59 — `subumbra-ui` Gunicorn and Basic Auth rate limiting
+### `subumbra-ui` Gunicorn and Basic Auth rate limiting
 
-- **Gunicorn defaults (post-R59):** the UI image runs **`--workers 1 --threads 4`**
+- **Gunicorn defaults:** the UI image runs **`--workers 1 --threads 4`**
   so in-process Basic Auth failure counting (`_auth_failures` in `ui/app.py`)
   is not split across multiple worker processes (which previously allowed a
   burst of failures to return only `401` until enough hits landed on one

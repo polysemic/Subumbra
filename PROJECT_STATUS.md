@@ -1,5 +1,5 @@
 # PROJECT_STATUS
-*Current state — updated 2026-05-14 (R65 launch docs — CLOSED; round-cleanup — CLOSED; r67-user-templates — CLOSED; r68-template-foundation — CLOSED; r69-template-lifecycle — CLOSED; r70-template-cleanup — CLOSED)*
+*Current state — updated 2026-05-15 (0.0.1-alpha Release Finalization — READY)*
 
 ---
 

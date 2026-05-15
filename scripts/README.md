@@ -1,16 +1,15 @@
 # Scripts
 
-> **Warning:** These scripts are primarily used by the project owner and council
-> verification harness. Developers and operators may use them, but they are
-> provided **as-is** and some require specific environment state (a live VPS,
-> running Docker stack, Cloudflare credentials, etc.) to work correctly.
-> Read each script's usage block before running it.
+> [!CAUTION]
+> **Warning: Use at your own risk.**
+> These scripts are primarily intended for use by the project owner and the automated council verification harness. While developers and operators may find them useful, they are provided **as-is** and without warranty. Some scripts perform destructive actions (like `fresh-start.sh`) or require specific environment states (live VPS, running Docker stack, Cloudflare credentials).
+> **Always read the source code and usage blocks before running any script.**
 
 ---
 
-## Operator scripts
+## Operator & Developer Scripts
 
-These can be run by developers against their own deployment.
+These scripts are intended for general maintenance and diagnostics of a Subumbra deployment.
 
 ### `fresh-start.sh`
 
@@ -133,14 +132,9 @@ will accept when verifying template integrity.
 
 ---
 
-## Council / verification harness scripts (`scripts/council/`)
+## Council & Verification Scripts (`scripts/council/`)
 
-These scripts run the structured round verification harness used to validate
-Subumbra releases. They are designed for the project owner's workflow and assume
-a specific VPS environment, SSH aliases, and council round directory layout.
-**Operators do not need to run these.**
-
----
+These scripts power the "Council" verification harness. They are highly specialized for the project's multi-LLM review process and generally assume a VPS environment with specific SSH aliases (`ssh subumbra`).
 
 ### `council/verify.sh`
 
