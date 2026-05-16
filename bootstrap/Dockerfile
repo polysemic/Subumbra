@@ -1,6 +1,14 @@
 # Wrangler v4.90+ requires Node 22+; image stays self-contained (no host Node).
 # Pinned by digest — supply-chain protection against retagged base images.
 # Refresh via: docker pull node:22-bookworm-slim && docker inspect ... | grep RepoDigests
+#
+# NOTE: This container intentionally runs as root (no USER directive).
+# Bootstrap is a one-shot admin tool that:
+#   - writes to /app/data/, a volume shared with subumbra-keys (uid 0 → chowned
+#     to the subumbra user by the keys image on its next start)
+#   - shells out to wrangler for Cloudflare Worker deploys
+#   - is invoked manually by an operator, never long-running
+# Trivy AVD-DS-0002 is suppressed for this file in /.trivyignore.yaml.
 FROM node:22-bookworm-slim@sha256:689c11043dad91472750cd824c97dd5e2318e9dd6f954e492fe7af0135d33ceb
 
 # Install Python 3 + pip from Debian repos — no curl|bash

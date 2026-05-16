@@ -1,0 +1,13 @@
+# Trivy suppression — path-scoped, with justification.
+# Review on every cleanup pass; remove entries that no longer apply.
+
+misconfigurations:
+  - id: AVD-DS-0002
+    paths:
+      - "bootstrap/Dockerfile"
+    statement: |
+      Bootstrap intentionally runs as root. One-shot admin container:
+      writes to shared /app/data/ volume (chowned to subumbra user by the
+      keys image on next start), shells out to wrangler for CF Worker
+      deploys, invoked manually by an operator. Not a long-running service.
+      Full rationale in bootstrap/Dockerfile header.

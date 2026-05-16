@@ -24,15 +24,22 @@ mkdir -p "$REPORT_DIR"
 OVERALL_EXIT=0
 
 # ── Filesystem scan (deps, secrets, misconfigs) ───────────────────────────────
+# Path-scoped suppressions live in /.trivyignore.yaml at the repo root.
+IGNOREFILE="$REPO_ROOT/.trivyignore.yaml"
+IGNORE_ARGS=()
+[[ -f "$IGNOREFILE" ]] && IGNORE_ARGS=(--ignorefile "$IGNOREFILE")
+
 echo "Running trivy filesystem scan..."
 trivy fs "$REPO_ROOT" \
   --scanners vuln,secret,misconfig \
+  "${IGNORE_ARGS[@]}" \
   --format json \
   --output "$REPORT_DIR/trivy-fs-report.json" \
   --exit-code 1 || OVERALL_EXIT=1
 
 trivy fs "$REPO_ROOT" \
   --scanners vuln,secret,misconfig \
+  "${IGNORE_ARGS[@]}" \
   --format table || true
 
 # ── Docker image scans (optional) ─────────────────────────────────────────────
