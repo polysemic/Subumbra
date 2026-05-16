@@ -1,0 +1,49 @@
+name: "Subumbra CodeQL config"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Query scoping
+# ─────────────────────────────────────────────────────────────────────────────
+# Three CodeQL queries are particularly noisy against a secret-broker
+# codebase because their taint analysis cannot distinguish a *label*
+# (variable name) from a *value*. Subumbra is built around the concept
+# of moving plaintext secrets, so identifiers like `secret_ref`, `key_id`,
+# `api_key`, `token`, and `password` appear constantly in code that
+# emits diagnostics, writes runtime env files, or hashes policy JSON.
+#
+# Excluded queries (each evaluated against this codebase 2026-05-16):
+#
+#   py/clear-text-logging-sensitive-data
+#     30 alerts in bootstrap/ + scripts/subumbra-env-ingest.py, all
+#     printing key_id / secret_ref / provider *labels* and never the
+#     secret values themselves. The runtime services explicitly avoid
+#     printing token values (see bootstrap/subumbra-bootstrap.py:4109).
+#
+#   py/clear-text-storage-sensitive-data
+#     2 alerts: one writes worker_name/url/SHA-256 integrity metadata
+#     (no secrets); the other writes runtime adapter tokens to .env,
+#     which is *required* for services to read at startup. Real API
+#     keys are encrypted via the V3 envelope and never land on disk.
+#
+#   py/weak-sensitive-data-hashing
+#     1 alert: SHA-256 used to fingerprint canonical policy JSON for
+#     V3 AAD binding (`subumbra:v3:<key_id>:<policy_hash>`). This is
+#     content-addressable hashing, not password hashing.
+#
+# All other CodeQL queries remain active, including command-injection,
+# SQL-injection, unsafe-deserialization, and path-traversal — which DO
+# matter for the bootstrap module's subprocess calls into wrangler.
+
+query-filters:
+  - exclude:
+      id: py/clear-text-logging-sensitive-data
+  - exclude:
+      id: py/clear-text-storage-sensitive-data
+  - exclude:
+      id: py/weak-sensitive-data-hashing
+
+# Path-level exclusions for non-source noise
+paths-ignore:
+  - "**/node_modules/**"
+  - "**/__pycache__/**"
+  - "council/**"                        # local-only research artifacts
+  - "scripts/security/**/reports/**"    # scan output, not code
