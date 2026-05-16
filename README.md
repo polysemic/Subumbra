@@ -1,5 +1,8 @@
 # Subumbra — Keep Your API Keys Safe
 
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/polysemic/Subumbra/badge)](https://scorecard.dev/viewer/?uri=github.com/polysemic/Subumbra)
+[![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](LICENSE)
+
 > **Alpha release** — designed for self-hosters and tinkerers who want to test this early. Not yet recommended for production use.
 
 Subumbra is a **security proxy** that sits between your apps (like LiteLLM, OpenWebUI, AnythingLLM, n8n, etc.) and providers (like OpenAI or Anthropic). Instead of pasting your API keys directly into each app — where they can be leaked in logs, config files, or breaches — Subumbra holds them encrypted and hands them out only to apps you explicitly authorize, one request at a time.
