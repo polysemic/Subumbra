@@ -101,6 +101,10 @@ jobs:
           output: scripts/security/trivy/reports/trivy-report.sarif
           exit-code: "1"
           severity: CRITICAL,HIGH
+          # Apply severity filter to SARIF too — otherwise the action unsets
+          # TRIVY_SEVERITY for SARIF output, and the job fails on LOW findings
+          # like DS-0026 (missing HEALTHCHECK).
+          limit-severities-for-sarif: "true"
           trivyignores: ./.trivyignore.yaml
       - name: Upload SARIF to GitHub Security tab
         uses: github/codeql-action/upload-sarif@78ed0c7291d93e40c51b085850dc669a4c3ab73b # v3
