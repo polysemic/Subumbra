@@ -1,0 +1,37 @@
+# Gitleaks allowlist — false positives only.
+# Do not add real secrets here. Rotate any real secret immediately.
+#
+# Every entry below should fall into one of these categories:
+#   1. Intentional placeholder/fake values in documentation curl examples
+#   2. Empty environment variable name assignments (no value after =)
+#   3. Test fixtures using deliberately invalid tokens
+#   4. Internal key_id strings used as bearer values in negative-path tests
+
+[allowlist]
+  description = "Documentation placeholders, empty env assignments, and negative-test fixtures"
+
+  paths = [
+    # All app integration docs use fake placeholder tokens in curl examples
+    '''docs/apps/''',
+    # Standalone takeover and testing docs use the same placeholder convention
+    '''docs/standalone-.*\.md''',
+    '''docs/takeover-.*\.md''',
+    '''docs/subumbra-testing\.md''',
+    '''docs/operator-guide\.md''',
+    # Local test harness for the Worker — uses obviously-wrong tokens
+    '''worker/test-local\.sh''',
+    # Council verification scripts and round artifacts — negative-path proofs
+    # use key_id strings as bearer values to confirm 401 rejection
+    '''scripts/council/''',
+    '''council/''',
+  ]
+
+  regexes = [
+    # Intentionally fake bearer tokens used in curl doc examples
+    '''definitely_not_allowed''',
+    '''definitely-wrong-token''',
+    # Empty env var assignments in docs (no value after the =)
+    '''(OPENAI|ANTHROPIC|GROQ|DEEPSEEK|OPENROUTER|GEMINI|MISTRAL|XAI|TOGETHER|GITHUB|SLACK|SENDGRID)_API_KEY=\s*$''',
+    # Subumbra key_ids used as fake bearer values in negative tests
+    '''Bearer (openai|anthropic|gemini|groq|mistral|deepseek|openrouter|together|xai|github|slack|sendgrid)_prod''',
+  ]

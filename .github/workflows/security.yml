@@ -1,0 +1,131 @@
+name: Security Scans
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  schedule:
+    # Weekly on Monday 06:00 UTC — catches new CVEs against pinned deps
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write  # needed to upload SARIF results to GitHub Security tab
+
+jobs:
+
+  gitleaks:
+    name: Secret Scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history required for secret scanning
+      - uses: gitleaks/gitleaks-action@v2
+        with:
+          config-path: scripts/security/gitleaks/.gitleaks.toml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  bandit:
+    name: Python SAST (bandit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install bandit
+      - name: Run bandit
+        run: |
+          python3 -m bandit \
+            subumbra-keys/app.py \
+            subumbra-proxy/app.py \
+            ui/app.py \
+            subumbra-probe/probe.py \
+            bootstrap/subumbra-bootstrap.py \
+            --format json \
+            --output scripts/security/bandit/reports/bandit-report.json \
+            --exit-zero
+      - name: Fail on HIGH severity
+        run: |
+          python3 -c "
+          import json, sys
+          with open('scripts/security/bandit/reports/bandit-report.json') as f:
+              data = json.load(f)
+          high = [r for r in data.get('results', []) if r['issue_severity'] == 'HIGH']
+          if high:
+              print(f'FAIL: {len(high)} HIGH severity finding(s)')
+              for r in high:
+                  print(f'  [{r[\"test_id\"]}] {r[\"issue_text\"]} — {r[\"filename\"]}:{r[\"line_number\"]}')
+              sys.exit(1)
+          print(f'PASS — no HIGH severity findings')
+          "
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bandit-report
+          path: scripts/security/bandit/reports/
+
+  pip-audit:
+    name: Dependency CVE Scan (pip-audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: pypa/gh-action-pip-audit@v1
+        with:
+          inputs: >-
+            bootstrap/requirements.txt
+            subumbra-keys/requirements.txt
+            subumbra-proxy/requirements.txt
+            subumbra-probe/requirements.txt
+            ui/requirements.txt
+
+  trivy:
+    name: Filesystem + Dependency Scan (trivy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run trivy filesystem scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          format: sarif
+          output: scripts/security/trivy/reports/trivy-report.sarif
+          exit-code: "1"
+          severity: CRITICAL,HIGH
+      - name: Upload SARIF to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: scripts/security/trivy/reports/trivy-report.sarif
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-report
+          path: scripts/security/trivy/reports/
+
+  codeql:
+    name: CodeQL (Python + JavaScript)
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    strategy:
+      matrix:
+        language: [python, javascript]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+      - uses: github/codeql-action/autobuild@v3
+      - uses: github/codeql-action/analyze@v3
