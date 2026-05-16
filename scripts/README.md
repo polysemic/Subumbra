@@ -112,6 +112,80 @@ specific key or adapter is broken end-to-end.
 
 ---
 
+### `security/publish-shannon-report.sh`
+
+Publishes a sanitized markdown report from an off-repo Shannon workspace into
+the repo’s `security/reports/` folder. This is intended for GitHub-facing
+transparency reports, not raw agent logs or full workspaces.
+
+```bash
+scripts/security/publish-shannon-report.sh ~/shannon-subumbra/reports/<workspace>
+scripts/security/publish-shannon-report.sh ~/shannon-subumbra/reports/<workspace> 2026-05-16-shannon-auth.md
+```
+
+**Intended outcome:** a redacted markdown summary lands in `security/reports/`
+while the raw Shannon workspace stays outside the repo.
+
+---
+
+### `security/publish-report-file.sh`
+
+Publishes a sanitized markdown or text report from any off-repo security tool
+into `security/reports/`.
+
+```bash
+scripts/security/publish-report-file.sh ~/zap-subumbra/reports/<run>/zap-report.md
+scripts/security/publish-report-file.sh ~/nuclei-subumbra/reports/<run>/nuclei-report.md 2026-05-16-nuclei-web-lite.md
+```
+
+**Intended outcome:** a redacted report lands in `security/reports/` without
+bringing the tool workspace itself into the repo.
+
+---
+
+### `security/run-zap-vps.sh`
+
+Runs an OWASP ZAP baseline scan against the Subumbra staging target and writes
+HTML, JSON, and markdown outputs under an off-repo workspace.
+
+```bash
+STAGE_DIR=~/subumbra-staging scripts/security/run-zap-vps.sh baseline
+```
+
+**Intended outcome:** a lightweight DAST pass against the staging URL with
+reports written under `~/zap-subumbra/reports/<run>/`.
+
+---
+
+### `security/run-nuclei-vps.sh`
+
+Runs a lightweight Nuclei web scan against the Subumbra staging target and
+builds a markdown summary from the JSONL findings.
+
+```bash
+STAGE_DIR=~/subumbra-staging scripts/security/run-nuclei-vps.sh web-lite
+```
+
+**Intended outcome:** a quick template-based web scan with outputs written
+under `~/nuclei-subumbra/reports/<run>/`.
+
+---
+
+### `security/run-semgrep-vps.sh`
+
+Runs a Docker-based Semgrep SAST scan against the staging checkout and renders a
+markdown summary from the JSON output.
+
+```bash
+STAGE_DIR=~/subumbra-staging scripts/security/run-semgrep-vps.sh baseline
+STAGE_DIR=~/subumbra-staging scripts/security/run-semgrep-vps.sh secrets
+```
+
+**Intended outcome:** an off-repo SAST report under
+`~/semgrep-subumbra/reports/<run>/` with a publishable markdown summary.
+
+---
+
 ### `sign-catalog.py`
 
 Generates `bootstrap/templates/catalog.json` (SHA-256 hashes of all provider

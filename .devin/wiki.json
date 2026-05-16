@@ -1,0 +1,58 @@
+{
+  "project": "Subumbra",
+  "version": "1.0.0-alpha",
+  "description": "A security-focused API key broker designed to eliminate plaintext provider secrets in application environments using a split-trust architecture.",
+  "repository": "https://github.com/polysemic/Subumbra",
+  "architecture": {
+    "model": "Split-Trust / Split-Custody",
+    "encryption": "V3 Asymmetric Envelope Encryption (RSA-4096 hybrid with AES-256-GCM)",
+    "binding": "AAD (Associated Authenticated Data) binding to key_id and policy_hash",
+    "trust_boundary": {
+      "local": "subumbra-proxy, subumbra-keys (holds encrypted envelopes)",
+      "remote": "Cloudflare Worker + SubumbraVault Durable Object (holds RSA private key)"
+    }
+  },
+  "core_services": [
+    {
+      "name": "subumbra-proxy",
+      "role": "Transparent proxy for applications; validates adapter tokens; coordinates with Cloudflare.",
+      "port": 8090,
+      "host_port": 10199
+    },
+    {
+      "name": "subumbra-keys",
+      "role": "Encrypted record store and audit logger; manages V3 envelopes in SQLite.",
+      "port": 9090
+    },
+    {
+      "name": "Cloudflare Worker",
+      "role": "The decryption authority; enforces policies; performs upstream provider calls."
+    },
+    {
+      "name": "subumbra-ui",
+      "role": "Read-only management dashboard.",
+      "port": 8080,
+      "host_port": 6563
+    }
+  ],
+  "key_files": {
+    "manifest": "subumbra.yaml",
+    "bootstrap_script": "bootstrap.sh",
+    "stack_definition": "docker-compose.yml",
+    "project_status": "PROJECT_STATUS.md",
+    "roadmap": "ROADMAP.md"
+  },
+  "security_invariants": [
+    "No plaintext provider secrets are stored on the local host.",
+    "Decryption authority is separated from encrypted storage.",
+    "Policy changes on the host break the cryptographic seal (AAD) of the key.",
+    "Provider keys exist only in Cloudflare Worker memory during active requests."
+  ],
+  "documentation_map": {
+    "architecture": "docs/architecture.md",
+    "security": "docs/security-overview.md",
+    "installation": "docs/subumbra-install.md",
+    "operations": "docs/operator-guide.md",
+    "developer": "docs/subumbra-developer.md"
+  }
+}

@@ -1,0 +1,31 @@
+description: "Subumbra staging worker-only auth pass. Focus on worker token verification and auth-only routes."
+vuln_classes: [auth]
+
+pipeline:
+  retry_preset: subscription
+  max_concurrent_pipelines: 1
+
+rules_of_engagement: |
+  - Target only the staging Worker URL.
+  - Keep testing focused on worker token verification and auth route handling.
+  - Do not brute-force credentials.
+  - Throttle to under 2 requests per second.
+
+rules:
+  focus:
+    - description: "Worker auth code"
+      type: code_path
+      value: "worker/src/worker.js"
+    - description: "Worker bindings"
+      type: code_path
+      value: "worker/wrangler.toml"
+    - description: "Worker proxy route"
+      type: url_path
+      value: "/proxy"
+    - description: "Worker setup route"
+      type: url_path
+      value: "/setup/keygen"
+
+report:
+  min_severity: low
+  min_confidence: medium

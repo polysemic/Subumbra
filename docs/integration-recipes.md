@@ -2,7 +2,7 @@
 
 *Cookbook for operator-declared `http_rest` policies and example `curl` calls through `subumbra-proxy`. For the canonical adapter API see [adapter-contract.md](adapter-contract.md). For manifest authoring see [operator-guide.md](operator-guide.md).*
 
-**Status:** Several paths below are still **experimental** for the `0.0.1-alpha` operator path; validate against your own `subumbra.yaml` before production.
+**Status:** Several paths below are still **experimental** for the `1.0.0-alpha` operator path; validate against your own `subumbra.yaml` before production.
 
 ---
 

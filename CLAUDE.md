@@ -272,3 +272,4 @@ For any new or changed flow, briefly state:
 - wrangler v4+ pinned in bootstrap Dockerfile and worker/package.json
 - All Python deps pinned in requirements.txt
 - No real keys in git ever — .gitignore covers this
+- https://semver.org/ for semantic versioning. Rounds must decide if they are a major, minor, or patch release and increment the appropriate number.

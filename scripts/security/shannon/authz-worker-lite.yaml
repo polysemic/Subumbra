@@ -1,0 +1,28 @@
+description: "Subumbra staging worker-only authz pass. Focus on adapter, key, and policy boundaries."
+vuln_classes: [authz]
+
+pipeline:
+  retry_preset: subscription
+  max_concurrent_pipelines: 1
+
+rules_of_engagement: |
+  - Target only the staging Worker URL.
+  - Keep testing focused on key-routing and policy-bound authorization behavior.
+  - Do not brute-force credentials.
+  - Throttle to under 2 requests per second.
+
+rules:
+  focus:
+    - description: "Worker authz logic"
+      type: code_path
+      value: "worker/src/worker.js"
+    - description: "Adapter contract"
+      type: code_path
+      value: "docs/adapter-contract.md"
+    - description: "Worker proxy route"
+      type: url_path
+      value: "/proxy"
+
+report:
+  min_severity: low
+  min_confidence: medium

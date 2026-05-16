@@ -1,0 +1,22 @@
+services:
+  subumbra-keys:
+    container_name: subumbra-staging-keys
+
+  subumbra-ui:
+    container_name: subumbra-staging-ui
+    ports:
+      - "127.0.0.1:${SUBUMBRA_STAGE_UI_PORT:-6664}:8080"
+
+  subumbra-probe:
+    container_name: subumbra-staging-probe
+
+  subumbra-proxy:
+    container_name: subumbra-staging-proxy
+    ports:
+      - "127.0.0.1:${SUBUMBRA_STAGE_PROXY_PORT:-10299}:8090"
+
+  bootstrap:
+    container_name: subumbra-staging-bootstrap
+
+  cloudflared:
+    container_name: subumbra-staging-cloudflared

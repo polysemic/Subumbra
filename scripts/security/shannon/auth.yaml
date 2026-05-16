@@ -1,0 +1,35 @@
+description: "Subumbra staging auth-focused pass. Test only the isolated staging proxy and worker."
+vuln_classes: [auth]
+
+pipeline:
+  retry_preset: subscription
+  max_concurrent_pipelines: 1
+
+rules_of_engagement: |
+  - Target only the local staging environment for this VPS.
+  - Do not brute-force credentials.
+  - Throttle to under 3 requests per second per endpoint.
+  - Use test-only data and placeholder values in outputs where practical.
+
+rules:
+  avoid:
+    - description: "Skip docs"
+      type: code_path
+      value: "docs/**"
+  focus:
+    - description: "Proxy auth handling"
+      type: code_path
+      value: "subumbra-proxy/**"
+    - description: "Worker auth checks"
+      type: code_path
+      value: "worker/src/**"
+    - description: "Transparent route"
+      type: url_path
+      value: "/t"
+    - description: "Canonical worker route"
+      type: url_path
+      value: "/proxy"
+
+report:
+  min_severity: low
+  min_confidence: medium

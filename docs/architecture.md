@@ -73,6 +73,17 @@ Every key is encrypted using its specific rules (like allowed paths or body size
 
 ---
 
+## ⚙️ Technical Specifications
+
+For those interested in the cryptographic details, Subumbra implements the following security invariants:
+
+- **V3 Asymmetric Envelopes**: Each provider secret is stored in a hybrid-encrypted envelope. An RSA-4096 public key wraps a per-record AES-256-GCM Data Encryption Key (DEK).
+- **Split Custody**: The RSA private key is generated and held exclusively within a Cloudflare Durable Object (SubumbraVault). It is non-extractable and never touches your server.
+- **AAD Binding**: Every envelope is bound to a specific `key_id` and `policy_hash` (e.g., `subumbra:v3:<key_id>:<policy_hash>`). This prevents "ciphertext transplant" attacks where an encrypted key might be replayed under a different policy.
+- **Fail-Closed Design**: If the policy stored on your server is tampered with, the resulting hash will not match the AAD seal, causing the Cloudflare Worker to hard-reject the decryption request.
+
+---
+
 ## 🗺️ Example System Flow
 
 When you ask an AI a question through your App (configured to use Subumbra):

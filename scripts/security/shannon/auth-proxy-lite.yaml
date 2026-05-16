@@ -1,0 +1,28 @@
+description: "Subumbra staging proxy-only auth pass. Keep scope narrow and cheap."
+vuln_classes: [auth]
+
+pipeline:
+  retry_preset: subscription
+  max_concurrent_pipelines: 1
+
+rules_of_engagement: |
+  - Target only the staging environment.
+  - Keep testing focused on proxy bearer-token handling.
+  - Do not brute-force credentials.
+  - Throttle to under 2 requests per second.
+
+rules:
+  focus:
+    - description: "Proxy auth code"
+      type: code_path
+      value: "subumbra-proxy/app.py"
+    - description: "Proxy dependency surface"
+      type: code_path
+      value: "subumbra-proxy/requirements.txt"
+    - description: "Transparent proxy route"
+      type: url_path
+      value: "/t"
+
+report:
+  min_severity: low
+  min_confidence: medium

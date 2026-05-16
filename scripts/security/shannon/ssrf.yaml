@@ -1,0 +1,35 @@
+description: "Subumbra staging SSRF-focused pass. Emphasize upstream-target validation and proxy boundary checks."
+vuln_classes: [ssrf]
+
+pipeline:
+  retry_preset: subscription
+  max_concurrent_pipelines: 1
+
+rules_of_engagement: |
+  - Target only the local staging environment for this VPS.
+  - Do not scan arbitrary internet hosts.
+  - Throttle to under 3 requests per second per endpoint.
+  - Keep testing bounded to SSRF-style routing and target validation.
+
+rules:
+  avoid:
+    - description: "Skip docs"
+      type: code_path
+      value: "docs/**"
+  focus:
+    - description: "Worker target enforcement"
+      type: code_path
+      value: "worker/src/**"
+    - description: "Proxy request packaging"
+      type: code_path
+      value: "subumbra-proxy/**"
+    - description: "Transparent route"
+      type: url_path
+      value: "/t"
+    - description: "Canonical worker route"
+      type: url_path
+      value: "/proxy"
+
+report:
+  min_severity: low
+  min_confidence: medium

@@ -1,0 +1,38 @@
+description: "Subumbra staging authz-focused pass. Emphasize cross-key, policy, and adapter-boundary enforcement."
+vuln_classes: [authz]
+
+pipeline:
+  retry_preset: subscription
+  max_concurrent_pipelines: 1
+
+rules_of_engagement: |
+  - Target only the local staging environment for this VPS.
+  - Do not brute-force credentials.
+  - Throttle to under 3 requests per second per endpoint.
+  - Keep testing bounded to key and adapter authorization flows.
+
+rules:
+  avoid:
+    - description: "Skip docs"
+      type: code_path
+      value: "docs/**"
+  focus:
+    - description: "Worker policy enforcement"
+      type: code_path
+      value: "worker/src/**"
+    - description: "Proxy adapter routing"
+      type: code_path
+      value: "subumbra-proxy/**"
+    - description: "Policy contract docs"
+      type: code_path
+      value: "docs/adapter-contract.md"
+    - description: "Transparent route"
+      type: url_path
+      value: "/t"
+    - description: "Canonical worker route"
+      type: url_path
+      value: "/proxy"
+
+report:
+  min_severity: low
+  min_confidence: medium

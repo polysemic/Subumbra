@@ -1,5 +1,5 @@
 # PROJECT_STATUS
-*Current state — updated 2026-05-15 (0.0.1-alpha Release Finalization — READY)*
+*Current state — updated 2026-05-15 (1.0.0-alpha Release Finalization — READY)*
 
 ---
 

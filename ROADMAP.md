@@ -175,8 +175,8 @@ These are **tracked as limitations or watch items**, not a promise to "fix soon"
 
 ## Completed (post-release)
 
-_Items completed after the 0.0.1-alpha release. Add entries here as work ships._
+_Items completed after the 1.0.0-alpha release. Add entries here as work ships._
 
 ---
 
-*Last updated: 2026-05-15 — cleaned for 0.0.1-alpha release; removed all pre-release completed items; added post-release completed section at bottom.*
+*Last updated: 2026-05-15 — cleaned for 1.0.0-alpha release; removed all pre-release completed items; added post-release completed section at bottom.*
