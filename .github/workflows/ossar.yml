@@ -1,0 +1,41 @@
+name: OSSAR
+
+# GitHub's OSS Security Analyzer Runner bundles several open-source
+# static-analysis tools (DevSkim, Security Code Scan, CredScan, BinSkim)
+# under one workflow and uploads unified SARIF to the Security tab.
+#
+# Overlap note: bandit + gitleaks + CodeQL already cover most Python
+# findings; OSSAR adds value primarily for the Worker's JavaScript code
+# and broader pattern-based checks (DevSkim) that the other scanners
+# don't run.
+#
+# Docs: https://github.com/github/ossar-action
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  schedule:
+    # Weekly Monday 06:45 UTC — staggered after Scorecard
+    - cron: "45 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  ossar:
+    name: OSSAR scan
+    runs-on: windows-latest  # OSSAR requires Windows for the .NET-based analyzers
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Run OSSAR
+        id: ossar
+        uses: github/ossar-action@4e96c4f6e591eb4b991abfd459e40b136a317aea # v2.0.0
+
+      - uses: github/codeql-action/upload-sarif@78ed0c7291d93e40c51b085850dc669a4c3ab73b # v3
+        with:
+          sarif_file: ${{ steps.ossar.outputs.sarifFile }}

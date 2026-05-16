@@ -1,0 +1,31 @@
+name: Dependency Review
+
+# Runs on every PR. Compares the base and head dependency manifests
+# (package-lock.json, requirements.txt, etc.) and blocks the PR if it
+# introduces dependencies with known vulnerabilities at or above the
+# configured severity. Catches issues at PR time rather than after merge.
+#
+# Docs: https://github.com/actions/dependency-review-action
+
+on:
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+  pull-requests: write  # needed for the action to post a summary comment
+
+jobs:
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          # Match the threshold the rest of the security pipeline uses.
+          fail-on-severity: high
+          # Comment a summary table on the PR so reviewers see the diff
+          # without opening the workflow run.
+          comment-summary-in-pr: on-failure

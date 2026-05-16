@@ -1,0 +1,52 @@
+name: OpenSSF Scorecard
+
+# Scorecard evaluates ~18 security health checks (branch protection,
+# pinned dependencies, SAST presence, signed releases, code review, etc.)
+# and publishes a numeric score plus a SARIF report to the Security tab.
+# Public repos can also display the score as a README badge.
+#
+# Docs: https://github.com/ossf/scorecard
+# Checks: https://github.com/ossf/scorecard/blob/main/docs/checks.md
+
+on:
+  push:
+    branches: ["main"]
+  schedule:
+    # Weekly Monday 06:30 UTC — runs after the main security scan window
+    - cron: "30 6 * * 1"
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+    permissions:
+      # Required to upload results to the code-scanning dashboard
+      security-events: write
+      # Required to read the repository's OIDC token to verify the publishing identity
+      id-token: write
+      contents: read
+      actions: read
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - uses: ossf/scorecard-action@99c09fe975337306107572b4fdf4db224cf8e2f2 # v2.4.3
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: true
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: scorecard-results
+          path: results.sarif
+          retention-days: 14
+
+      - uses: github/codeql-action/upload-sarif@78ed0c7291d93e40c51b085850dc669a4c3ab73b # v3
+        with:
+          sarif_file: results.sarif
