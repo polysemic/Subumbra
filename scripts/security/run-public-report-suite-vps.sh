@@ -38,11 +38,16 @@ require_cmd python3
 
 resolve_home_path() {
   local path="$1"
-  case "$path" in
-    "~") printf '%s\n' "$HOME" ;;
-    "~/"*) printf '%s/%s\n' "$HOME" "${path#~/}" ;;
-    *) printf '%s\n' "$path" ;;
-  esac
+  python3 - "$path" <<'PY'
+import os
+import sys
+
+path = sys.argv[1]
+if path == "~" or path.startswith("~/"):
+    path = os.path.expanduser(path)
+path = path.replace("/~/", "/")
+print(path)
+PY
 }
 
 should_run_locally() {
@@ -73,10 +78,17 @@ suite_name="${SUITE_NAME:?}"
 remote_root="${REMOTE_ROOT:?}"
 include_web_scans="${INCLUDE_WEB_SCANS:-1}"
 
-case "${remote_root}" in
-  "~") remote_root="${HOME}" ;;
-  "~/"*) remote_root="${HOME}/${remote_root#~/}" ;;
-esac
+remote_root="$(python3 - "${remote_root}" <<'PY'
+import os
+import sys
+
+path = sys.argv[1]
+if path == "~" or path.startswith("~/"):
+    path = os.path.expanduser(path)
+path = path.replace("/~/", "/")
+print(path)
+PY
+)"
 
 stage_dir="${remote_root}/repo"
 publish_dir="${remote_root}/publish"
@@ -88,11 +100,15 @@ git -C "${remote_repo}" fetch origin
 git -C "${remote_repo}" checkout "${branch}" >/dev/null 2>&1
 git -C "${remote_repo}" pull --ff-only origin "${branch}" >/dev/null 2>&1
 
+target_url=""
+if [[ -f "${remote_repo}/.env" ]]; then
+  target_url="$(sed -n 's/^CF_WORKER_URL=//p' "${remote_repo}/.env" | head -n1)"
+fi
+
 rm -rf "${stage_dir}"
 git clone --local --branch "${branch}" "${remote_repo}" "${stage_dir}" >/dev/null 2>&1
 
-target_url=""
-if [[ -f "${stage_dir}/.env" ]]; then
+if [[ -z "${target_url}" && -f "${stage_dir}/.env" ]]; then
   target_url="$(sed -n 's/^CF_WORKER_URL=//p' "${stage_dir}/.env" | head -n1)"
 fi
 
@@ -261,7 +277,7 @@ if [[ "${include_web_scans}" == "1" ]]; then
   fi
 
   set +e
-  (cd "${stage_dir}" && STAGE_DIR="${stage_dir}" NUCLEI_DIR="${remote_root}/nuclei-root" RUN_NAME="nuclei-web-lite" OUTPUT_DIR="${nuclei_dir}" bash scripts/security/run-nuclei-vps.sh web-lite) > "${remote_root}/nuclei-web-lite.log" 2>&1
+  (cd "${stage_dir}" && STAGE_DIR="${stage_dir}" TARGET_URL="${target_url}" NUCLEI_DIR="${remote_root}/nuclei-root" RUN_NAME="nuclei-web-lite" OUTPUT_DIR="${nuclei_dir}" bash scripts/security/run-nuclei-vps.sh web-lite) > "${remote_root}/nuclei-web-lite.log" 2>&1
   nuclei_exit=$?
   set -e
   printf 'nuclei-web-lite\t%s\n' "${nuclei_exit}" >> "${status_file}"
@@ -271,13 +287,13 @@ if [[ "${include_web_scans}" == "1" ]]; then
       "nuclei-web-lite" \
       "Nuclei Web Lite" \
       "Low-rate public web scan against the live Worker URL from ${stage_dir}/.env." \
-      "STAGE_DIR=${stage_dir} bash scripts/security/run-nuclei-vps.sh web-lite" \
+      "STAGE_DIR=${stage_dir} TARGET_URL=${target_url} bash scripts/security/run-nuclei-vps.sh web-lite" \
       "${nuclei_exit}"
   else
     write_log_summary \
       "nuclei-web-lite" \
       "Nuclei Web Lite" \
-      "STAGE_DIR=${stage_dir} bash scripts/security/run-nuclei-vps.sh web-lite" \
+      "STAGE_DIR=${stage_dir} TARGET_URL=${target_url} bash scripts/security/run-nuclei-vps.sh web-lite" \
       "Low-rate public web scan against the live Worker URL from ${stage_dir}/.env." \
       "${nuclei_exit}" \
       "${nuclei_dir}/nuclei-report.md" \
@@ -285,7 +301,7 @@ if [[ "${include_web_scans}" == "1" ]]; then
   fi
 
   set +e
-  (cd "${stage_dir}" && STAGE_DIR="${stage_dir}" ZAP_DIR="${remote_root}/zap-root" RUN_NAME="zap-baseline" OUTPUT_DIR="${zap_dir}" bash scripts/security/run-zap-vps.sh baseline) > "${remote_root}/zap-baseline.log" 2>&1
+  (cd "${stage_dir}" && STAGE_DIR="${stage_dir}" TARGET_URL="${target_url}" ZAP_DIR="${remote_root}/zap-root" RUN_NAME="zap-baseline" OUTPUT_DIR="${zap_dir}" bash scripts/security/run-zap-vps.sh baseline) > "${remote_root}/zap-baseline.log" 2>&1
   zap_exit=$?
   set -e
   printf 'zap-baseline\t%s\n' "${zap_exit}" >> "${status_file}"
@@ -295,13 +311,13 @@ if [[ "${include_web_scans}" == "1" ]]; then
       "zap-baseline" \
       "ZAP Baseline" \
       "Baseline passive web scan against the live Worker URL from ${stage_dir}/.env." \
-      "STAGE_DIR=${stage_dir} bash scripts/security/run-zap-vps.sh baseline" \
+      "STAGE_DIR=${stage_dir} TARGET_URL=${target_url} bash scripts/security/run-zap-vps.sh baseline" \
       "${zap_exit}"
   else
     write_log_summary \
       "zap-baseline" \
       "ZAP Baseline" \
-      "STAGE_DIR=${stage_dir} bash scripts/security/run-zap-vps.sh baseline" \
+      "STAGE_DIR=${stage_dir} TARGET_URL=${target_url} bash scripts/security/run-zap-vps.sh baseline" \
       "Baseline passive web scan against the live Worker URL from ${stage_dir}/.env." \
       "${zap_exit}" \
       "${zap_dir}/zap-report.md" \
