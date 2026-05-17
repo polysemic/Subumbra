@@ -143,6 +143,25 @@ bringing the tool workspace itself into the repo.
 
 ---
 
+### `security/run-public-report-suite-vps.sh`
+
+Runs the public security report suite sequentially on the VPS, waits for each
+tool to finish, copies the generated publish-ready markdown back locally, and
+then publishes the results into the repo security report folders.
+
+```bash
+scripts/security/run-public-report-suite-vps.sh
+INCLUDE_WEB_SCANS=0 scripts/security/run-public-report-suite-vps.sh
+BRANCH=main REMOTE_HOST=subumbra scripts/security/run-public-report-suite-vps.sh
+```
+
+**Intended outcome:** a clean, serialized run of the public scan set
+(`gitleaks`, `bandit`, `pip-audit`, `trivy`, `semgrep`, `nuclei`, `zap`)
+without dirtying `/opt/subumbra`, because the scans run from a fresh VPS clone
+under `~/security-scan-workspaces/`.
+
+---
+
 ### `security/run-zap-vps.sh`
 
 Runs an OWASP ZAP baseline scan against the Subumbra staging target and writes

@@ -80,6 +80,18 @@ Both helpers now write:
 - a dated historical copy under `security/reports/YYYY-MM/`
 - a mirrored current copy under `security/reports/latest/`
 
+Run the full public scan suite sequentially from your local machine:
+
+```bash
+scripts/security/run-public-report-suite-vps.sh
+```
+
+This orchestrator SSHes to the VPS, updates `/opt/subumbra`, creates a clean
+temporary clone under `~/security-scan-workspaces/`, runs the supported public
+scans one by one, copies the publish-ready markdown back locally, and then
+publishes each report into both `security/reports/YYYY-MM/` and
+`security/reports/latest/`.
+
 ## Suggested VPS Report Layout
 
 - Shannon workspaces: `~/shannon-subumbra/reports/...`
