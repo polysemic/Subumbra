@@ -82,6 +82,9 @@ Install or verify the VPS public scan toolchain:
 /opt/subumbra/scripts/security/install-public-scan-tools-vps.sh --check
 ```
 
+The installer uses a dedicated virtualenv under `~/security-tools/scan-venv`
+for the Python-based scanners, so it does not need `--break-system-packages`.
+
 Both helpers now write:
 
 - a dated historical copy under `security/reports/YYYY-MM/`

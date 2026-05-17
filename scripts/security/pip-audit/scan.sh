@@ -8,10 +8,16 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 REPORT_DIR="$SCRIPT_DIR/reports"
+SCAN_VENV_PYTHON="${HOME}/security-tools/scan-venv/bin/python3"
+PYTHON_BIN="${SECURITY_PYTHON:-python3}"
 
-if ! python3 -m pip_audit --version &>/dev/null; then
-  echo "ERROR: pip-audit not found. Run: pip install pip-audit" >&2
-  exit 1
+if ! "$PYTHON_BIN" -m pip_audit --version &>/dev/null; then
+  if [[ -x "$SCAN_VENV_PYTHON" ]] && "$SCAN_VENV_PYTHON" -m pip_audit --version &>/dev/null; then
+    PYTHON_BIN="$SCAN_VENV_PYTHON"
+  else
+    echo "ERROR: pip-audit not found. Run: scripts/security/install-public-scan-tools-vps.sh" >&2
+    exit 1
+  fi
 fi
 
 mkdir -p "$REPORT_DIR"
@@ -32,7 +38,7 @@ for REQ in "${REQUIREMENTS[@]}"; do
 
   echo "Scanning $REQ ..."
 
-  if python3 -m pip_audit \
+  if "$PYTHON_BIN" -m pip_audit \
       -r "$REPO_ROOT/$REQ" \
       --format json \
       --output "$REPORT_FILE" 2>/dev/null; then

@@ -167,8 +167,9 @@ auto-falls back to local execution if `ssh subumbra` is not resolvable there.
 ### `security/install-public-scan-tools-vps.sh`
 
 Installs or checks the user-space toolchain needed by the public security suite.
-It installs `bandit` and `pip-audit` into the user Python environment, creates
-Docker-backed shims for `gitleaks` and `trivy` under `~/bin`, and pre-pulls the
+It installs `bandit` and `pip-audit` into a dedicated virtualenv under
+`~/security-tools/scan-venv`, creates Docker-backed shims for `gitleaks` and
+`trivy` under `~/bin`, and pre-pulls the
 container images used by Semgrep, Nuclei, and ZAP.
 
 ```bash

@@ -10,10 +10,16 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 REPORT_DIR="$SCRIPT_DIR/reports"
 REPORT_JSON="$REPORT_DIR/bandit-report.json"
 REPORT_HTML="$REPORT_DIR/bandit-report.html"
+SCAN_VENV_PYTHON="${HOME}/security-tools/scan-venv/bin/python3"
+PYTHON_BIN="${SECURITY_PYTHON:-python3}"
 
-if ! python3 -m bandit --version &>/dev/null; then
-  echo "ERROR: bandit not found. Run: pip install bandit" >&2
-  exit 1
+if ! "$PYTHON_BIN" -m bandit --version &>/dev/null; then
+  if [[ -x "$SCAN_VENV_PYTHON" ]] && "$SCAN_VENV_PYTHON" -m bandit --version &>/dev/null; then
+    PYTHON_BIN="$SCAN_VENV_PYTHON"
+  else
+    echo "ERROR: bandit not found. Run: scripts/security/install-public-scan-tools-vps.sh" >&2
+    exit 1
+  fi
 fi
 
 mkdir -p "$REPORT_DIR"
@@ -30,27 +36,27 @@ TARGETS=(
 
 echo "Running bandit on Python source files..."
 
-python3 -m bandit \
+"$PYTHON_BIN" -m bandit \
   "${TARGETS[@]}" \
   --format json \
   --output "$REPORT_JSON" \
   --exit-zero  # don't fail CI on LOW findings; review manually
 
-python3 -m bandit \
+"$PYTHON_BIN" -m bandit \
   "${TARGETS[@]}" \
   --format html \
   --output "$REPORT_HTML" \
   --exit-zero
 
 # Print console summary — fail if any HIGH severity findings exist
-python3 - <<'PYEOF'
+"$PYTHON_BIN" - <<'PYEOF'
 import json, sys
 
 with open("$REPORT_JSON".replace("\$REPORT_JSON", sys.argv[1] if len(sys.argv) > 1 else "")) as f:
     pass
 PYEOF
 
-python3 -c "
+"$PYTHON_BIN" -c "
 import json, sys
 with open('$REPORT_JSON') as f:
     data = json.load(f)

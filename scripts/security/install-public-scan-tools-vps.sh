@@ -14,9 +14,10 @@ fi
 export PATH="$HOME/bin:$HOME/.local/bin:$PATH"
 
 BIN_DIR="${HOME}/bin"
-PYTHON_USER_BIN="${HOME}/.local/bin"
 TOOLS_DIR="${HOME}/security-tools"
 STATE_DIR="${TOOLS_DIR}/state"
+VENV_DIR="${TOOLS_DIR}/scan-venv"
+VENV_PYTHON="${VENV_DIR}/bin/python3"
 
 GITLEAKS_IMAGE="${GITLEAKS_IMAGE:-zricethezav/gitleaks:latest}"
 TRIVY_IMAGE="${TRIVY_IMAGE:-aquasec/trivy:latest}"
@@ -69,7 +70,11 @@ EOF
 }
 
 install_python_tools() {
-  python3 -m pip install --user --upgrade bandit pip-audit
+  if [[ ! -x "$VENV_PYTHON" ]]; then
+    python3 -m venv "$VENV_DIR"
+  fi
+  "$VENV_PYTHON" -m pip install --upgrade pip
+  "$VENV_PYTHON" -m pip install --upgrade bandit pip-audit
 }
 
 pull_images() {
@@ -83,8 +88,12 @@ pull_images() {
 check_python_module() {
   local module="$1"
   local label="$2"
-  if python3 -m "$module" --version >/dev/null 2>&1; then
-    printf 'PASS  %s available via python3 -m %s\n' "$label" "$module"
+  local python_bin="${VENV_PYTHON}"
+  if [[ ! -x "$python_bin" ]]; then
+    python_bin="python3"
+  fi
+  if "$python_bin" -m "$module" --version >/dev/null 2>&1; then
+    printf 'PASS  %s available via %s -m %s\n' "$label" "$python_bin" "$module"
     return 0
   fi
   printf 'FAIL  %s missing\n' "$label" >&2
@@ -105,12 +114,13 @@ check_docker_image() {
 require_cmd python3
 require_cmd docker
 
-mkdir -p "$BIN_DIR" "$PYTHON_USER_BIN" "$STATE_DIR"
+mkdir -p "$BIN_DIR" "$STATE_DIR"
 
 if [[ "$MODE" == "install" ]]; then
   echo "Installing public scan toolchain into user space"
   echo "  bin dir:   $BIN_DIR"
   echo "  state dir: $STATE_DIR"
+  echo "  venv dir:  $VENV_DIR"
   echo
 
   install_python_tools
@@ -134,7 +144,9 @@ check_docker_image "$ZAP_IMAGE" "zap" || true
 
 echo
 echo "PATH reminder:"
-echo "  export PATH=\"$HOME/bin:$HOME/.local/bin:\$PATH\""
+echo "  export PATH=\"$HOME/bin:\$PATH\""
+echo "Venv reminder:"
+echo "  source \"$VENV_DIR/bin/activate\"   # optional for manual scanner use"
 
 if [[ "$FAILURES" -ne 0 ]]; then
   echo
