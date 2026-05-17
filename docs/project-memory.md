@@ -68,6 +68,13 @@ them.
   YAML under the signed catalog, `./bootstrap.sh --status` was added as a
   read-only manifest-vs-record drift check, and `--add-adapter` /
   `--revoke-adapter` gained bounded canonical `adapters: [...]` manifest sync.
+- **r71 (2026-05-17):** Worker-generated JSON/auth/error responses now carry
+  hardening headers (`Cache-Control: no-store`, `Pragma: no-cache`,
+  `X-Content-Type-Options: nosniff`, `Cross-Origin-Resource-Policy:
+  same-origin`, and HSTS). Non-proxy auth/admin surfaces (`/auth-ping`,
+  `/setup/keygen`, `/internal/*`, `/manage/key/*`) now use Worker-side
+  per-IP throttling with `429 rate_limit_exceeded_auth`, and built-in signed
+  provider templates now ship active default `velocity` controls.
 
 ---
 
@@ -140,6 +147,11 @@ them.
 - **Volume migration naming (R58):** Operator docs use host/project volume name `subumbra_keys_data` for `docker volume create` / migration examples; in-container mount remains `keys_data:/app/data` per Compose.
 - **Legacy callback artifact:** `litellm/custom_callbacks.py` was removed in R58; callback-era behavior is reference-only in prose docs.
 - **Harness existing-stack (R60):** `scripts/council/vps-proof-run.sh` may auto-export `SUBUMBRA_PROXY_HOST_PORT` from `docker compose port subumbra-proxy 8090` after `docker compose up` when the value is unset; operators may pass **`--deploy-worker`** with a non-empty **`CF_API_TOKEN`** for an optional Wrangler deploy on that path (fail-closed if the flag is set without a token). **`scripts/council/verify.sh`** P9.5 records **SKIP** (non-failing) when **`SUBUMBRA_UI_CONTAINER`** is set, instead of host-curling the UI port. Round hooks that call `verify.sh` for the same round should set **`VERIFY_SKIP_ROUND_HOOK=1`** to avoid re-entrant `verify-round.sh` invocation.
+- **R71 deploy-worker proof note (2026-05-17):** when `scripts/council/vps-proof-run.sh --deploy-worker`
+  runs a temporary Wrangler deploy from the bootstrap image, it must append the
+  live KV namespace binding from `/app/data/kv-config.json` into the copied
+  `wrangler.toml` before deploy. Otherwise Worker smoke proofs can fail with a
+  missing `PROVIDER_REGISTRY_KV` binding even when the product code is correct.
 - **UI Gunicorn worker model (R59):** `subumbra-ui` runs Gunicorn with **`--workers 1 --threads 4`** so in-process Basic Auth failure counting is not split across processes. SSE `/api/events` still holds a worker thread between heartbeats; Docker-bridge `remote_addr` semantics for host-published UI are documented in `docs/operator-guide.md` (R59 subsection).
 - **R61 (2026-05-12, CLOSED):** Bootstrap no longer writes plaintext `bootstrap-checkpoint.json`; manifest `secret_ref` resolves only in the encrypt phase; phase-1 `/setup/keygen` runs per vault instance before encryption; `run_provision_key` uses host env + manifest only; `_sync_host_env_file` fails closed without `/app/host-env`. VPS `fresh-install` proof run `codex-vps-20260512T174950Z` (see `PROJECT_STATUS.md`).
 - **round-cleanup (CLOSED 2026-05-13):** Bootstrap uses a **pre-mutation gate** on `kv-config.json` before runtime token generation / `deploy_worker()`; successful full bootstrap **zeros `SUBUMBRA_SETUP_TOKEN` in host `.env`** after the CF secret is deleted; the Worker exposes **`HEAD /health`** (200, no body); the UI sets **CSP** and default **`Cache-Control: no-store`** (SSE keeps `no-cache`); **`subumbra-verify-deploy`** infers **`CF_WORKER_NAME` from `CF_WORKER_URL`** when unset. Proof runs `codex-vps-20260513T143105Z`, `Gemini-vps-20260513T142722Z` (SHA `05083d1`).
