@@ -228,10 +228,14 @@ if [[ "${include_web_scans}" == "1" ]]; then
   nuclei_dir="${remote_root}/nuclei-web-lite"
   zap_dir="${remote_root}/zap-baseline"
 
+  echo
+  echo "=== Semgrep Baseline ==="
+  echo "Logging to: ${remote_root}/semgrep-baseline.log"
   set +e
   (cd "${stage_dir}" && STAGE_DIR="${stage_dir}" SEMGREP_DIR="${remote_root}/semgrep-base-root" RUN_NAME="semgrep-baseline" OUTPUT_DIR="${semgrep_base_dir}" bash scripts/security/run-semgrep-vps.sh baseline) > "${remote_root}/semgrep-baseline.log" 2>&1
   semgrep_baseline_exit=$?
   set -e
+  echo "Semgrep Baseline finished with exit code ${semgrep_baseline_exit}"
   printf 'semgrep-baseline\t%s\n' "${semgrep_baseline_exit}" >> "${status_file}"
   if [[ -f "${semgrep_base_dir}/semgrep-report.md" ]]; then
     copy_existing_md \
@@ -252,10 +256,14 @@ if [[ "${include_web_scans}" == "1" ]]; then
       "${remote_root}/semgrep-baseline.log"
   fi
 
+  echo
+  echo "=== Semgrep Secrets ==="
+  echo "Logging to: ${remote_root}/semgrep-secrets.log"
   set +e
   (cd "${stage_dir}" && STAGE_DIR="${stage_dir}" SEMGREP_DIR="${remote_root}/semgrep-secrets-root" RUN_NAME="semgrep-secrets" OUTPUT_DIR="${semgrep_secrets_dir}" bash scripts/security/run-semgrep-vps.sh secrets) > "${remote_root}/semgrep-secrets.log" 2>&1
   semgrep_secrets_exit=$?
   set -e
+  echo "Semgrep Secrets finished with exit code ${semgrep_secrets_exit}"
   printf 'semgrep-secrets\t%s\n' "${semgrep_secrets_exit}" >> "${status_file}"
   if [[ -f "${semgrep_secrets_dir}/semgrep-report.md" ]]; then
     copy_existing_md \
@@ -276,10 +284,14 @@ if [[ "${include_web_scans}" == "1" ]]; then
       "${remote_root}/semgrep-secrets.log"
   fi
 
+  echo
+  echo "=== Nuclei Web Lite ==="
+  echo "Logging to: ${remote_root}/nuclei-web-lite.log"
   set +e
   (cd "${stage_dir}" && STAGE_DIR="${stage_dir}" TARGET_URL="${target_url}" NUCLEI_DIR="${remote_root}/nuclei-root" RUN_NAME="nuclei-web-lite" OUTPUT_DIR="${nuclei_dir}" bash scripts/security/run-nuclei-vps.sh web-lite) > "${remote_root}/nuclei-web-lite.log" 2>&1
   nuclei_exit=$?
   set -e
+  echo "Nuclei Web Lite finished with exit code ${nuclei_exit}"
   printf 'nuclei-web-lite\t%s\n' "${nuclei_exit}" >> "${status_file}"
   if [[ -f "${nuclei_dir}/nuclei-report.md" ]]; then
     copy_existing_md \
@@ -300,10 +312,14 @@ if [[ "${include_web_scans}" == "1" ]]; then
       "${remote_root}/nuclei-web-lite.log"
   fi
 
+  echo
+  echo "=== ZAP Baseline ==="
+  echo "Logging to: ${remote_root}/zap-baseline.log"
   set +e
   (cd "${stage_dir}" && STAGE_DIR="${stage_dir}" TARGET_URL="${target_url}" ZAP_DIR="${remote_root}/zap-root" RUN_NAME="zap-baseline" OUTPUT_DIR="${zap_dir}" bash scripts/security/run-zap-vps.sh baseline) > "${remote_root}/zap-baseline.log" 2>&1
   zap_exit=$?
   set -e
+  echo "ZAP Baseline finished with exit code ${zap_exit}"
   printf 'zap-baseline\t%s\n' "${zap_exit}" >> "${status_file}"
   if [[ -f "${zap_dir}/zap-report.md" ]]; then
     copy_existing_md \
@@ -384,6 +400,7 @@ while IFS=$'\t' read -r tool_slug exit_code; do
     continue
   fi
   output_name="${OUTPUT_NAMES[$tool_slug]:-${tool_slug}.md}"
+  echo "Publishing ${tool_slug} report..."
   "$PUBLISH_HELPER" \
     "$src_file" \
     "$output_name" \
