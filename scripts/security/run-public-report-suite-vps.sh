@@ -329,7 +329,7 @@ if should_run_locally; then
   require_cmd cp
   LOCAL_REMOTE_ROOT="$(resolve_home_path "$REMOTE_ROOT")"
   echo "SSH to ${REMOTE_HOST} is unavailable or bypassed; running directly on this machine against ${REMOTE_REPO}."
-  REMOTE_REPO="$REMOTE_REPO" BRANCH="$BRANCH" SUITE_NAME="$SUITE_NAME" REMOTE_ROOT="$REMOTE_ROOT" INCLUDE_WEB_SCANS="$INCLUDE_WEB_SCANS" bash "${REMOTE_RUNNER}"
+  REMOTE_REPO="$REMOTE_REPO" BRANCH="$BRANCH" SUITE_NAME="$SUITE_NAME" REMOTE_ROOT="$LOCAL_REMOTE_ROOT" INCLUDE_WEB_SCANS="$INCLUDE_WEB_SCANS" bash "${REMOTE_RUNNER}"
   mkdir -p "$LOCAL_STAGE/publish"
   cp -R "${LOCAL_REMOTE_ROOT}/publish/." "$LOCAL_STAGE/publish/"
   cp "${LOCAL_REMOTE_ROOT}/suite-status.tsv" "$LOCAL_STAGE/suite-status.tsv"

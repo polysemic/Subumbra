@@ -49,13 +49,6 @@ echo "Running bandit on Python source files..."
   --exit-zero
 
 # Print console summary — fail if any HIGH severity findings exist
-"$PYTHON_BIN" - <<'PYEOF'
-import json, sys
-
-with open("$REPORT_JSON".replace("\$REPORT_JSON", sys.argv[1] if len(sys.argv) > 1 else "")) as f:
-    pass
-PYEOF
-
 "$PYTHON_BIN" -c "
 import json, sys
 with open('$REPORT_JSON') as f:
