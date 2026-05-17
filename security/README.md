@@ -1,28 +1,67 @@
 # Security Reports
 
-This folder is for sanitized, publishable security summaries that are safe to
-keep in the repository and share on GitHub.
+This directory is the public-facing security evidence area for Subumbra.
 
-Guidelines:
+It is meant to show serious, repeatable testing without publishing raw
+attack-material, secrets, or internal-only operational detail.
 
-- Keep raw scanner workspaces, agent transcripts, and exploit logs out of the repo.
-- Prefer short markdown summaries over bulk JSON or HTML dumps.
-- Redact tokens, secrets, internal-only hostnames, and copy-pasteable exploit payloads.
-- Treat this folder as public-facing documentation, not as a raw evidence archive.
+## Purpose
 
-Recommended flow for Shannon:
+Subumbra publishes security testing artifacts so operators, reviewers, and
+security engineers can see:
 
-1. Run Shannon outside the repo, for example under `~/shannon-subumbra/reports/...`
-2. Review the generated report manually
-3. Publish a sanitized markdown copy into `security/reports/`
+- what classes of tools are being run
+- what the tools found
+- what was fixed
+- what was reviewed and accepted as non-blocking or platform-controlled
 
-The helper script below automates step 3:
+This folder is intentionally curated. It is **not** a raw evidence dump.
 
-```bash
-scripts/security/publish-shannon-report.sh ~/shannon-subumbra/reports/<workspace>
+## Layout
+
+```text
+security/
+├── README.md
+├── advisories/
+│   └── accepted-risks.md
+└── reports/
+    ├── YYYY-MM/
+    │   └── *.md
+    └── latest/
+        └── *.md
 ```
 
-Additional off-repo report publishers:
+- `reports/YYYY-MM/` keeps dated historical snapshots.
+- `reports/latest/` is the easiest place for reviewers to start.
+- `advisories/accepted-risks.md` explains reviewed findings that are accepted,
+  platform-controlled, or intentionally out of scope for the current release.
+
+## Publishing Rules
+
+Good candidates for public raw-or-sanitized markdown reports:
+
+- Gitleaks
+- pip-audit
+- Bandit
+- Semgrep
+- Trivy
+- Nuclei
+- ZAP baseline
+
+Do **not** publish raw:
+
+- Shannon workspaces
+- exploit chains or attack playbooks
+- token-bearing logs
+- operator-only host details unless they are already intentionally public
+- copy-pasteable payload collections that materially help an attacker
+
+For Shannon, publish a **sanitized summary** of findings rather than the raw
+workspace.
+
+## Helper Scripts
+
+Publish a sanitized single-file report:
 
 ```bash
 scripts/security/publish-report-file.sh ~/zap-subumbra/reports/<run>/zap-report.md
@@ -30,15 +69,48 @@ scripts/security/publish-report-file.sh ~/nuclei-subumbra/reports/<run>/nuclei-r
 scripts/security/publish-report-file.sh ~/semgrep-subumbra/reports/<run>/semgrep-report.md
 ```
 
-Suggested tool layout on the VPS:
+Publish a sanitized Shannon summary from a workspace:
+
+```bash
+scripts/security/publish-shannon-report.sh ~/shannon-subumbra/reports/<workspace>
+```
+
+Both helpers now write:
+
+- a dated historical copy under `security/reports/YYYY-MM/`
+- a mirrored current copy under `security/reports/latest/`
+
+## Suggested VPS Report Layout
 
 - Shannon workspaces: `~/shannon-subumbra/reports/...`
 - ZAP workspaces: `~/zap-subumbra/reports/...`
 - Nuclei workspaces: `~/nuclei-subumbra/reports/...`
 - Semgrep workspaces: `~/semgrep-subumbra/reports/...`
 
-Budget-friendly Shannon profiles now available:
+## Shannon Publishing Policy
+
+Recommended flow:
+
+1. Run Shannon outside the repo.
+2. Review the results manually.
+3. Extract the real findings into a sanitized markdown summary.
+4. Publish only that sanitized summary into this directory.
+
+Budget-friendly Shannon profiles currently kept in-repo:
 
 - `auth-proxy-lite`
 - `auth-worker-lite`
 - `authz-worker-lite`
+
+## Reading These Reports
+
+These reports should be read together with:
+
+- [README.md](../README.md)
+- [SECURITY.md](../SECURITY.md)
+- [accepted-risks.md](advisories/accepted-risks.md)
+
+Scanner findings are not all equal. Some are direct product issues, some are
+environmental, some are accepted operator tradeoffs, and some are platform
+behaviors outside Subumbra's direct control. We try to annotate that clearly
+instead of pretending every scanner line is equally actionable.

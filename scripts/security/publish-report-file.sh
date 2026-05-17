@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-REPORTS_DIR="$REPO_ROOT/security/reports"
+REPORTS_ROOT="$REPO_ROOT/security/reports"
 
 if [[ $# -lt 1 || $# -gt 3 ]]; then
   echo "Usage: $0 <source-file> [output-name.md] [source-label]" >&2
@@ -19,14 +19,19 @@ if [[ ! -f "$SOURCE_FILE" ]]; then
   exit 1
 fi
 
-mkdir -p "$REPORTS_DIR"
+DATE_BUCKET="$(date -u +%Y-%m)"
+MONTH_DIR="$REPORTS_ROOT/$DATE_BUCKET"
+LATEST_DIR="$REPORTS_ROOT/latest"
+
+mkdir -p "$MONTH_DIR" "$LATEST_DIR"
 
 if [[ -z "$OUTPUT_NAME" ]]; then
   DATE_PREFIX="$(date -u +%Y-%m-%d)"
   OUTPUT_NAME="${DATE_PREFIX}-$(basename "$SOURCE_FILE")"
 fi
 
-OUTPUT_PATH="$REPORTS_DIR/$OUTPUT_NAME"
+OUTPUT_PATH="$MONTH_DIR/$OUTPUT_NAME"
+LATEST_PATH="$LATEST_DIR/$OUTPUT_NAME"
 
 python3 - "$SOURCE_FILE" "$OUTPUT_PATH" "$SOURCE_LABEL" <<'PY'
 from __future__ import annotations
@@ -64,6 +69,9 @@ header = (
 output_path.write_text(header + text, encoding="utf-8")
 PY
 
+cp "$OUTPUT_PATH" "$LATEST_PATH"
+
 echo "Published sanitized report:"
 echo "  source: $SOURCE_FILE"
-echo "  output: $OUTPUT_PATH"
+echo "  month:  $OUTPUT_PATH"
+echo "  latest: $LATEST_PATH"
