@@ -525,6 +525,11 @@ coverage is now:
     only: update fat-record policy and republish with no re-encryption
   - baseline update touching `allow.*`, `target.host`, or `auth.*`: re-encrypt
     and republish
+- Built-in signed templates now ship active default `velocity` controls. After
+  upgrading to a release that changes template policy defaults, rebuild the
+  bootstrap image so it carries the current signed catalog, then run
+  `./bootstrap.sh --publish-policy <key_id>` for each active template-backed
+  key you want updated live.
 - `--status` is a read-only drift check. It compares the manifest-derived
   `policy_hash` for each declared key against the stored fat record and prints
   `UP_TO_DATE`, `POLICY_DRIFT`, `NOT_DEPLOYED`, or `REVOKED` per key.
@@ -533,6 +538,20 @@ Pause/unpause is the one Worker-native write path in this round. After a
 successful `/manage/key/pause` or `/manage/key/unpause`, allow up to 90 seconds
 for worst-case Cloudflare KV propagation before treating a stale proxy result as
 a failure.
+
+Worker auth/admin surfaces now also have their own in-source throttles:
+
+- `GET /auth-ping`
+- `POST /setup/keygen`
+- `POST /internal/rotate`
+- `POST /internal/vault-status`
+- `POST /internal/vault-reset`
+- `POST /manage/key/pause`
+- `POST /manage/key/unpause`
+
+When a caller exceeds the per-minute limit for one of those surfaces, the
+Worker returns `429 {"error":"rate_limit_exceeded_auth"}` and logs
+`subumbra: auth rate limit exceeded endpoint=<name> ip=<cf_ip_or_unknown>`.
 
 If you change routing metadata or broader retained bootstrap state beyond those
 day-2 command boundaries, re-run the full bootstrap and recreate the runtime

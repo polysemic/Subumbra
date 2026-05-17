@@ -39,8 +39,8 @@ allow:
 #     allowed_content_sources: []
 # response:
 #   deny_patterns: []
-# velocity:
-#   adapter_rpm: 60
-#   key_rpm: 300
-#   breaker_failures: 3
-#   breaker_cooldown_seconds: 30
+velocity:
+  adapter_rpm: 60
+  key_rpm: 300
+  breaker_failures: 3
+  breaker_cooldown_seconds: 30

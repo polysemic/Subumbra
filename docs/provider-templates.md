@@ -25,6 +25,10 @@ Bootstrap verifies the SHA-256 hash and Ed25519 signature of the template file
 against `bootstrap/templates/catalog.json` and `catalog.sig` before expanding
 it. If the file has been tampered with, bootstrap fails closed.
 
+Built-in signed templates now ship active default `velocity` values. Those
+defaults are part of the template policy and apply once the key is published to
+KV.
+
 **Use this when:** you trust the built-in policy defaults and do not need to
 change allowed paths, rate limits, or deny rules.
 
@@ -64,7 +68,7 @@ The `templates/` directory at the repo root is gitignored by default. Files
 inside it are operator-owned and not committed.
 
 **Use this when:** you want to change the allowed paths, `max_body_bytes`,
-add `deny` rules, or enable `velocity` limits — but still keep policy in a
+add `deny` rules, or change `velocity` limits — but still keep policy in a
 separate file per provider.
 
 ---
@@ -121,7 +125,8 @@ provider that does not have a built-in template.
 ## Built-in provider templates
 
 All 12 templates are in `bootstrap/templates/`. Each file documents its own
-fields, optional controls, and a day-2 update command at the top.
+fields, active default `velocity` values, optional controls, and a day-2
+update command at the top.
 
 | Template name | Provider | Auth scheme | Capability class | `max_body_bytes` |
 |---------------|----------|-------------|-----------------|-----------------|
@@ -161,6 +166,11 @@ full re-bootstrap. Push the updated policy to Cloudflare KV with:
 ```bash
 ./bootstrap.sh --publish-policy <key_id>
 ```
+
+If you upgrade to a release that changes built-in template policy defaults,
+rebuild the bootstrap image first so the signed catalog inside the container is
+current, then run `./bootstrap.sh --publish-policy <key_id>` for each active
+template-backed key you want updated.
 
 Changing `target.host`, `auth.scheme`, or any field that affects encryption
 (the AAD binding) **does** require a full re-bootstrap, because the ciphertext

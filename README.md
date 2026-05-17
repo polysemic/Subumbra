@@ -65,6 +65,10 @@ Now open `subumbra.yaml` in a text editor and:
 
 The `secret_ref` values (like `OPENAI_KEY`, `ANTHROPIC_KEY`) are just labels — you'll enter the actual key values in the next step, not here.
 
+Built-in signed templates ship active default `velocity` and circuit-breaker
+controls. If you want different limits, use a local template override or the
+full inline policy form in `subumbra.example.yaml`.
+
 > **Want full control over policies or custom providers?** Use `cp subumbra.example.yaml subumbra.yaml` instead. That file documents every available option. See [docs/provider-templates.md](docs/provider-templates.md).
 
 > **Optional automation:** You can also use an automation file. Copy `.env.bootstrap.example` to `.env.bootstrap`, fill in your keys and Cloudflare credentials, then run `./bootstrap.sh`. The file is automatically deleted after a successful run. The `secret_ref` values from `subumbra.yaml` must match the environment variable names in `.env.bootstrap`.

@@ -56,6 +56,9 @@
 #     response:                (optional)
 #       deny_patterns:         (optional) substrings triggering 403 if found in buffered response body
 #     velocity:                (optional)
+#                              Built-in signed templates ship active default velocity values.
+#                              Inline policy velocity remains the override path when you use a
+#                              full inline policy or a template plus inline policy override.
 #       adapter_rpm:           (optional) per-adapter rate limit (requests/minute)
 #       key_rpm:               (optional) per-key aggregate rate limit (requests/minute)
 #       breaker_failures:      (optional) consecutive failures before circuit breaker opens

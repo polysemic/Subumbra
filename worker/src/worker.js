@@ -174,6 +174,15 @@ const VAULT_EXECUTE_PATH = "/execute";
 const VAULT_ROTATE_PATH = "/rotate";
 const VAULT_RESET_PATH = "/reset";
 const VAULT_MANAGEMENT_AUDIT_PATH = "/management-audit";
+const VAULT_RATE_CHECK_PATH = "/rate-check";
+const AUTH_RATE_LIMITS = {
+  "auth-ping": 20,
+  "manage-key": 20,
+  "setup-keygen": 5,
+  "internal-rotate": 5,
+  "internal-vault-status": 5,
+  "internal-vault-reset": 5,
+};
 const VAULT_SCHEMA = `
   CREATE TABLE IF NOT EXISTS custody (
     id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -204,6 +213,13 @@ const VAULT_SCHEMA = `
     key_id TEXT,
     actor_token_prefix TEXT NOT NULL,
     result TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS auth_attempts (
+    endpoint TEXT NOT NULL,
+    ip_key TEXT NOT NULL,
+    window_start INTEGER NOT NULL,
+    count INTEGER NOT NULL,
+    PRIMARY KEY (endpoint, ip_key, window_start)
   );
 `;
 
@@ -330,11 +346,27 @@ async function resolveAdapterToken(incomingToken, validTokens) {
 // Response helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-function jsonError(message, status) {
-  return new Response(JSON.stringify({ error: message }), {
+const DEFAULT_JSON_HEADERS = {
+  "content-type": "application/json",
+  "cache-control": "no-store",
+  "pragma": "no-cache",
+  "x-content-type-options": "nosniff",
+  "cross-origin-resource-policy": "same-origin",
+  "strict-transport-security": "max-age=31536000; includeSubDomains",
+};
+
+function jsonResponse(payload, status = 200, extraHeaders = {}) {
+  return new Response(payload == null ? null : JSON.stringify(payload), {
     status,
-    headers: { "content-type": "application/json" },
+    headers: {
+      ...DEFAULT_JSON_HEADERS,
+      ...extraHeaders,
+    },
   });
+}
+
+function jsonError(message, status) {
+  return jsonResponse({ error: message }, status);
 }
 
 function getVaultStub(env, vaultInstance = VAULT_INSTANCE_NAME) {
@@ -411,6 +443,10 @@ export class SubumbraVault {
 
     if (url.pathname === VAULT_MANAGEMENT_AUDIT_PATH) {
       return this._handleManagementAudit(request);
+    }
+
+    if (url.pathname === VAULT_RATE_CHECK_PATH) {
+      return this._handleRateCheck(request);
     }
 
     return jsonError("not found", 404);
@@ -512,14 +548,11 @@ export class SubumbraVault {
 
       this._cachedPrivateKey = await this._importPrivateKey(privateKeyPkcs8);
 
-      return new Response(JSON.stringify({
+      return jsonResponse({
         public_key_pem: this._encodePublicKeyPem(publicKeySpki),
         pub_key_fp: pubKeyFp,
         created_at: createdAt,
-      }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
+      }, 200);
     } catch {
       console.error("subumbra: vault setup keygen internal error");
       return jsonError("setup failed", 500);
@@ -542,14 +575,11 @@ export class SubumbraVault {
 
     const vaultInstance = request.headers.get("X-Subumbra-Vault-Instance") ?? VAULT_INSTANCE_NAME;
     const initialized = this._loadCustodyRow() !== null;
-    return new Response(JSON.stringify({
+    return jsonResponse({
       status: "ok",
       vault_instance: vaultInstance,
       initialized,
-    }), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    });
+    }, 200);
   }
 
   async _handleExecute(request) {
@@ -917,13 +947,10 @@ export class SubumbraVault {
     const ciphertextOut = btoa(String.fromCharCode(...combined));
     console.info("subumbra: internal rotate complete key_id=%s", keyId);
 
-    return new Response(JSON.stringify({
+    return jsonResponse({
       ciphertext: ciphertextOut,
       enc_version: 3,
-    }), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    });
+    }, 200);
   }
 
   async _handleReset(request) {
@@ -945,13 +972,10 @@ export class SubumbraVault {
       await this.state.storage.deleteAll();
       this._cachedPrivateKey = null;
       console.info("subumbra: internal reset complete vault_instance=%s", vaultInstance);
-      return new Response(JSON.stringify({
+      return jsonResponse({
         status: "ok",
         vault_instance: vaultInstance,
-      }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
+      }, 200);
     } catch {
       console.error("subumbra: internal reset failed vault_instance=%s", vaultInstance);
       return jsonError("reset failed", 500);
@@ -983,10 +1007,7 @@ export class SubumbraVault {
       const rows = this.state.storage.sql.exec(
         "SELECT id, ts, operation, key_id, actor_token_prefix, result FROM management_audit ORDER BY id ASC"
       ).toArray();
-      return new Response(JSON.stringify({ rows }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
+      return jsonResponse({ rows }, 200);
     }
 
     const {
@@ -1016,10 +1037,52 @@ export class SubumbraVault {
       result,
     );
 
-    return new Response(JSON.stringify({ status: "ok" }), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    });
+    return jsonResponse({ status: "ok" }, 200);
+  }
+
+  async _handleRateCheck(request) {
+    let payload;
+    try {
+      payload = await request.json();
+    } catch {
+      return jsonError("invalid JSON body", 400);
+    }
+
+    const {
+      endpoint,
+      ip_key: ipKey,
+      limit,
+    } = payload ?? {};
+    if (
+      typeof endpoint !== "string" ||
+      !endpoint ||
+      typeof ipKey !== "string" ||
+      !ipKey ||
+      !Number.isInteger(limit) ||
+      limit <= 0
+    ) {
+      return jsonError("missing required fields", 400);
+    }
+
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const windowStart = Math.floor(nowSeconds / 60) * 60;
+    this.state.storage.sql.exec(
+      `INSERT INTO auth_attempts (endpoint, ip_key, window_start, count)
+       VALUES (?, ?, ?, 1)
+       ON CONFLICT (endpoint, ip_key, window_start) DO UPDATE SET count = count + 1`,
+      endpoint, ipKey, windowStart
+    );
+
+    const rows = this.state.storage.sql.exec(
+      "SELECT count FROM auth_attempts WHERE endpoint=? AND ip_key=? AND window_start=?",
+      endpoint, ipKey, windowStart
+    ).toArray();
+    const count = rows.length > 0 ? rows[0].count : 0;
+    if (count > limit) {
+      return jsonResponse({ error: "rate_limit_exceeded_auth" }, 429);
+    }
+
+    return new Response(null, { status: 204 });
   }
 }
 
@@ -1042,10 +1105,7 @@ export default {
 
     // ── GET /health ─────────────────────────────────────────────────────────
     if ((request.method === "GET" || request.method === "HEAD") && url.pathname === "/health") {
-      return new Response(
-        request.method === "HEAD" ? null : JSON.stringify({ status: "ok" }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      );
+      return jsonResponse(request.method === "HEAD" ? null : { status: "ok" }, 200);
     }
 
     if (request.method === "GET" && url.pathname === "/auth-ping") {
@@ -1087,15 +1147,14 @@ export default {
 };
 
 async function handleSetupKeygen(request, env) {
-  // Auth-first: reject before parsing body so deleted setup tokens
-  // return 401 instead of a body-validation 400.
-  const bearerToken = parseBearerToken(request);
-  if (!bearerToken) {
-    return jsonError("unauthorized", 401);
+  const rateLimitResponse = await checkAuthRateLimit(request, env, "setup-keygen");
+  if (rateLimitResponse) {
+    return rateLimitResponse;
   }
-  const expectedToken = env.SUBUMBRA_SETUP_TOKEN ?? "";
-  if (!expectedToken) {
-    return jsonError("unauthorized", 401);
+
+  const setupAuth = await authorizeSetupRequest(request, env);
+  if (!setupAuth.ok) {
+    return setupAuth.response;
   }
 
   let vaultInstance = VAULT_INSTANCE_NAME;
@@ -1129,6 +1188,16 @@ async function handleSetupKeygen(request, env) {
 }
 
 async function handleInternalRotate(request, env) {
+  const rateLimitResponse = await checkAuthRateLimit(request, env, "internal-rotate");
+  if (rateLimitResponse) {
+    return rateLimitResponse;
+  }
+
+  const setupAuth = await authorizeSetupRequest(request, env);
+  if (!setupAuth.ok) {
+    return setupAuth.response;
+  }
+
   let payloadText;
   try {
     payloadText = await request.text();
@@ -1192,6 +1261,16 @@ async function parseVaultInstancePayload(request) {
 }
 
 async function handleInternalVaultStatus(request, env) {
+  const rateLimitResponse = await checkAuthRateLimit(request, env, "internal-vault-status");
+  if (rateLimitResponse) {
+    return rateLimitResponse;
+  }
+
+  const setupAuth = await authorizeSetupRequest(request, env);
+  if (!setupAuth.ok) {
+    return setupAuth.response;
+  }
+
   const parsed = await parseVaultInstancePayload(request);
   if (parsed.error) {
     return parsed.error;
@@ -1216,6 +1295,16 @@ async function handleInternalVaultStatus(request, env) {
 }
 
 async function handleInternalVaultReset(request, env) {
+  const rateLimitResponse = await checkAuthRateLimit(request, env, "internal-vault-reset");
+  if (rateLimitResponse) {
+    return rateLimitResponse;
+  }
+
+  const setupAuth = await authorizeSetupRequest(request, env);
+  if (!setupAuth.ok) {
+    return setupAuth.response;
+  }
+
   const parsed = await parseVaultInstancePayload(request);
   if (parsed.error) {
     return parsed.error;
@@ -1240,6 +1329,11 @@ async function handleInternalVaultReset(request, env) {
 }
 
 async function handleManagePauseToggle(request, env, paused) {
+  const rateLimitResponse = await checkAuthRateLimit(request, env, "manage-key");
+  if (rateLimitResponse) {
+    return rateLimitResponse;
+  }
+
   const managementAuth = await authorizeManagementRequest(request, env);
   if (!managementAuth.ok) {
     return managementAuth.response;
@@ -1289,10 +1383,7 @@ async function handleManagePauseToggle(request, env, paused) {
     return jsonError("vault unavailable", 503);
   }
 
-  return new Response(
-    JSON.stringify({ status: "ok", key_id: payload.key_id, paused }),
-    { status: 200, headers: { "content-type": "application/json" } },
-  );
+  return jsonResponse({ status: "ok", key_id: payload.key_id, paused }, 200);
 }
 
 async function authorizeRequest(request, env) {
@@ -1344,6 +1435,69 @@ async function authorizeManagementRequest(request, env) {
   };
 }
 
+async function authorizeSetupRequest(request, env) {
+  const expectedToken = env.SUBUMBRA_SETUP_TOKEN ?? "";
+  if (!expectedToken) {
+    return { ok: false, response: jsonError("unauthorized", 401) };
+  }
+
+  const bearerToken = parseBearerToken(request);
+  if (!bearerToken) {
+    return { ok: false, response: jsonError("unauthorized", 401) };
+  }
+
+  const tokenOk = await timingSafeEqual(bearerToken, expectedToken);
+  if (!tokenOk) {
+    return { ok: false, response: jsonError("forbidden", 403) };
+  }
+
+  return { ok: true };
+}
+
+async function checkAuthRateLimit(request, env, endpoint) {
+  if (!env.SUBUMBRA_VAULT) {
+    console.error("subumbra: worker bindings not configured (run bootstrap)");
+    return jsonError("worker not configured", 503);
+  }
+
+  const limit = AUTH_RATE_LIMITS[endpoint];
+  if (!Number.isInteger(limit) || limit <= 0) {
+    console.error("subumbra: auth rate limit misconfigured endpoint=%s", endpoint);
+    return jsonError("worker not configured", 503);
+  }
+
+  const ipKey = request.cf?.connectingIp ?? "unknown";
+
+  try {
+    const vault = getVaultStub(env);
+    const response = await vault.fetch(`https://do-internal${VAULT_RATE_CHECK_PATH}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        endpoint,
+        ip_key: ipKey,
+        limit,
+      }),
+    });
+
+    if (response.status === 429) {
+      console.warn("subumbra: auth rate limit exceeded endpoint=%s ip=%s", endpoint, ipKey);
+      return jsonResponse({ error: "rate_limit_exceeded_auth" }, 429);
+    }
+    if (response.status === 204) {
+      return null;
+    }
+
+    console.error("subumbra: auth rate limit check failed endpoint=%s status=%s", endpoint, response.status);
+    return jsonError("vault unavailable", 503);
+  } catch {
+    console.error("subumbra: auth rate limit check unavailable");
+    return jsonError("vault unavailable", 503);
+  }
+}
+
 async function writeManagementAudit(env, payload, vaultInstance = VAULT_INSTANCE_NAME) {
   if (!env.SUBUMBRA_VAULT) {
     throw new Error("vault binding missing");
@@ -1368,15 +1522,17 @@ async function writeManagementAudit(env, payload, vaultInstance = VAULT_INSTANCE
 }
 
 async function handleAuthPing(request, env) {
+  const rateLimitResponse = await checkAuthRateLimit(request, env, "auth-ping");
+  if (rateLimitResponse) {
+    return rateLimitResponse;
+  }
+
   const auth = await authorizeRequest(request, env);
   if (!auth.ok) {
     return auth.response;
   }
 
-  return new Response(
-    JSON.stringify({ status: "ok", timestamp: new Date().toISOString() }),
-    { status: 200, headers: { "content-type": "application/json" } },
-  );
+  return jsonResponse({ status: "ok", timestamp: new Date().toISOString() }, 200);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
