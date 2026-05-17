@@ -451,7 +451,7 @@ update_existing_stack() {
             -e CLOUDFLARE_API_TOKEN="$CF_API_TOKEN" \
             -e WRANGLER_TMPDIR="/tmp" \
             bootstrap \
-            -c 'cp -r /app/worker /tmp/worker-deploy && cd /tmp/worker-deploy && npx wrangler deploy --config wrangler.toml' || return 1
+            -c 'cp -r /app/worker /tmp/worker-deploy && cd /tmp/worker-deploy && if [ -f /app/data/kv-config.json ]; then ns_id=$(python3 -c "import json; print(json.load(open(\"/app/data/kv-config.json\"))[\"namespace_id\"])"); printf "\n[[kv_namespaces]]\nbinding = \"PROVIDER_REGISTRY_KV\"\nid = \"%s\"\n" "$ns_id" >> wrangler.toml; fi && npx wrangler deploy --config wrangler.toml' || return 1
     fi
 
     ./scripts/council/preflight.sh
