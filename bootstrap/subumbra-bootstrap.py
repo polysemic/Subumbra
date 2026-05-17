@@ -354,6 +354,7 @@ def _build_host_env_updates(
     worker_url: str,
     worker_name: str,
     setup_token: str,
+    cf_runtime_creds: dict[str, str] | None = None,
 ) -> dict[str, str]:
     host_env_updates = {
         "SUBUMBRA_ADAPTER_REGISTRY": json.dumps(adapter_registry, separators=(",", ":")),
@@ -373,6 +374,11 @@ def _build_host_env_updates(
     for adapter_id in allowed_keys_by_adapter:
         if adapter_id not in BUILTIN_ADAPTER_IDS:
             host_env_updates[f"SUBUMBRA_TOKEN_{_normalize_adapter_id(adapter_id)}"] = adapter_tokens[adapter_id]
+    if cf_runtime_creds:
+        for key in ("TUNNEL_TOKEN", "CF_ACCESS_CLIENT_ID", "CF_ACCESS_CLIENT_SECRET"):
+            val = cf_runtime_creds.get(key, "").strip()
+            if val:
+                host_env_updates[key] = val
     return host_env_updates
 
 
@@ -2122,6 +2128,7 @@ def _load_manifest_bootstrap() -> tuple[
     dict[str, list[str]],
     dict[str, list[str]],
     int,
+    dict[str, str],
     dict[str, bool],
     dict[str, dict[str, Any]],
 ]:
@@ -2140,6 +2147,11 @@ def _load_manifest_bootstrap() -> tuple[
     cf_creds["CF_WORKER_NAME"] = (
         _resolved_cf_worker_name_from_operator_context() or "subumbra-proxy"
     )
+    cf_runtime_creds: dict[str, str] = {}
+    for var in ("TUNNEL_TOKEN", "CF_ACCESS_CLIENT_ID", "CF_ACCESS_CLIENT_SECRET"):
+        val = os.environ.get(var, "").strip()
+        if val:
+            cf_runtime_creds[var] = val
 
     declared_adapter_ids: list[str] = []
     seen_declared: set[str] = set()
@@ -2185,6 +2197,7 @@ def _load_manifest_bootstrap() -> tuple[
         allowed_keys_by_adapter,
         key_adapters_by_key_id,
         token_ttl_days,
+        cf_runtime_creds,
         unique_key_flags,
         policy_by_key_id,
     )
@@ -2227,6 +2240,7 @@ def run_interactive_wizard(
     dict[str, list[str]],
     dict[str, list[str]],
     int,
+    dict[str, str],
     dict[str, bool],
     dict[str, dict[str, Any]],
     list[str],
@@ -2280,6 +2294,43 @@ def run_interactive_wizard(
         "CF_WORKER_NAME": cf_worker_name,
     }
     ok("Cloudflare credentials captured (values not printed)")
+    cf_runtime_creds: dict[str, str] = {}
+
+    step("Cloudflare Tunnel runtime token (optional)")
+    existing_tunnel = _read_env_file_value(HOST_ENV_FILE, "TUNNEL_TOKEN").strip()
+    if existing_tunnel:
+        use_existing = input("  Found existing TUNNEL_TOKEN. Reuse? [Y/n]: ").strip().lower()
+        if use_existing not in ("n", "no"):
+            cf_runtime_creds["TUNNEL_TOKEN"] = existing_tunnel
+            ok("Reusing existing TUNNEL_TOKEN (value not printed)")
+        else:
+            tunnel_tok = _prompt_hidden_line("Cloudflare Tunnel token (leave blank to skip)")
+            if tunnel_tok:
+                cf_runtime_creds["TUNNEL_TOKEN"] = tunnel_tok
+                ok("Tunnel token captured (value not printed)")
+            else:
+                info("No Tunnel token provided — skipping Tunnel runtime credential")
+    else:
+        tunnel_tok = _prompt_hidden_line("Cloudflare Tunnel token (leave blank to skip)")
+        if tunnel_tok:
+            cf_runtime_creds["TUNNEL_TOKEN"] = tunnel_tok
+            ok("Tunnel token captured (value not printed)")
+        else:
+            info("No Tunnel token provided — skipping Tunnel runtime credential")
+
+    step("Cloudflare Access service token (optional)")
+    existing_id = _read_env_file_value(HOST_ENV_FILE, "CF_ACCESS_CLIENT_ID").strip()
+    existing_secret = _read_env_file_value(HOST_ENV_FILE, "CF_ACCESS_CLIENT_SECRET").strip()
+    if existing_id and existing_secret:
+        use_existing = input("  Found existing CF Access credentials. Reuse? [Y/n]: ").strip().lower()
+        if use_existing not in ("n", "no"):
+            cf_runtime_creds["CF_ACCESS_CLIENT_ID"] = existing_id
+            cf_runtime_creds["CF_ACCESS_CLIENT_SECRET"] = existing_secret
+            ok("Reusing existing CF Access credentials (values not printed)")
+        else:
+            _wizard_collect_cf_access(cf_runtime_creds)
+    else:
+        _wizard_collect_cf_access(cf_runtime_creds)
 
     step("Loading manifest records")
     records = _load_manifest_records()
@@ -2364,10 +2415,26 @@ def run_interactive_wizard(
         allowed_keys_by_adapter,
         key_adapters_by_key_id,
         token_ttl_days,
+        cf_runtime_creds,
         unique_key_flags,
         policy_by_key_id,
         shred_paths,
     )
+
+
+def _wizard_collect_cf_access(cf_runtime_creds: dict[str, str]) -> None:
+    """Collect CF Access client ID and secret interactively; skip if blank."""
+    client_id = input("  CF Access client ID (leave blank to skip): ").strip()
+    if not client_id:
+        info("No CF Access client ID provided — skipping Access runtime credential")
+        return
+    client_secret = _prompt_hidden_line("CF Access client secret")
+    if not client_secret:
+        info("CF Access client secret blank — skipping Access runtime credential")
+        return
+    cf_runtime_creds["CF_ACCESS_CLIENT_ID"] = client_id
+    cf_runtime_creds["CF_ACCESS_CLIENT_SECRET"] = client_secret
+    ok("CF Access credentials captured (values not printed)")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -3493,6 +3560,42 @@ def run_rotate_wizard() -> None:
     print()
 
 
+def run_update_tunnel() -> None:
+    """Day-2: update TUNNEL_TOKEN in the host .env without re-running bootstrap."""
+    print(BANNER, flush=True)
+    step("Update Cloudflare Tunnel token")
+    existing = _read_env_file_value(HOST_ENV_FILE, "TUNNEL_TOKEN").strip()
+    if existing:
+        info("Existing TUNNEL_TOKEN detected in host .env")
+    token = _prompt_hidden_line("new Cloudflare Tunnel token (leave blank to clear)")
+    _sync_host_env_file({"TUNNEL_TOKEN": token})
+    if token:
+        ok("TUNNEL_TOKEN updated in host .env (value not printed)")
+    else:
+        ok("TUNNEL_TOKEN cleared from host .env")
+    info("Restart the cloudflared container to pick up the new token: docker compose restart cloudflared")
+
+
+def run_update_access() -> None:
+    """Day-2: update CF Access service token in the host .env without re-running bootstrap."""
+    print(BANNER, flush=True)
+    step("Update Cloudflare Access service token")
+    existing_id = _read_env_file_value(HOST_ENV_FILE, "CF_ACCESS_CLIENT_ID").strip()
+    if existing_id:
+        info("Existing CF_ACCESS_CLIENT_ID detected in host .env")
+    client_id = input("  CF Access client ID (leave blank to clear both Access vars): ").strip()
+    if not client_id:
+        _sync_host_env_file({"CF_ACCESS_CLIENT_ID": "", "CF_ACCESS_CLIENT_SECRET": ""})
+        ok("CF Access credentials cleared from host .env")
+        return
+    client_secret = _prompt_hidden_line("CF Access client secret")
+    if not client_secret:
+        die("CF Access client secret cannot be blank when client ID is provided")
+    _sync_host_env_file({"CF_ACCESS_CLIENT_ID": client_id, "CF_ACCESS_CLIENT_SECRET": client_secret})
+    ok("CF Access credentials updated in host .env (secret value not printed)")
+    info("Restart affected containers to pick up new credentials: docker compose up -d --force-recreate")
+
+
 def run_provision_key(target_key_id: str) -> None:
     print(BANNER, flush=True)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -3620,6 +3723,7 @@ def main() -> None:
                 allowed_keys_by_adapter,
                 key_adapters_by_key_id,
                 token_ttl_days,
+                cf_runtime_creds,
                 unique_key_flags,
                 policy_by_key_id,
             ) = _load_manifest_bootstrap()
@@ -3648,6 +3752,7 @@ def main() -> None:
                 allowed_keys_by_adapter,
                 key_adapters_by_key_id,
                 token_ttl_days,
+                cf_runtime_creds,
                 unique_key_flags,
                 policy_by_key_id,
                 shred_paths,
@@ -3657,6 +3762,7 @@ def main() -> None:
             sys.exit(0)
     if not use_wizard:
         shred_paths = []
+        cf_runtime_creds = {}
         if not MANIFEST_FILE.exists():
             policy_index = _load_policy_index()
             policy_by_key_id = {}
@@ -3828,6 +3934,7 @@ def main() -> None:
         worker_url=worker_url,
         worker_name=cf_creds["CF_WORKER_NAME"],
         setup_token=setup_token,
+        cf_runtime_creds=cf_runtime_creds,
     )
     _sync_host_env_file(host_env_updates)
 
@@ -4206,6 +4313,8 @@ if __name__ == "__main__":
         "--add-adapter",
         "--revoke-adapter",
         "--publish-policy",
+        "--update-tunnel",
+        "--update-access",
         "--status",
     )
     selected_modes = sum(flag in sys.argv for flag in mode_flags)
@@ -4251,5 +4360,9 @@ if __name__ == "__main__":
         run_provision_key(target_key_id)
     elif "--rotate" in sys.argv:
         run_rotate_wizard()
+    elif "--update-tunnel" in sys.argv:
+        run_update_tunnel()
+    elif "--update-access" in sys.argv:
+        run_update_access()
     else:
         main()

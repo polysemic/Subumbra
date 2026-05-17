@@ -19,7 +19,7 @@ fi
 mode=""
 for arg in "$@"; do
     case "$arg" in
-        --upgrade|--nuke|--rotate|--push-registry|--provision|--revoke-key|--add-adapter|--revoke-adapter|--publish-policy|--help|-h|--list-key-ids|--list-adapters|--status)
+        --upgrade|--nuke|--rotate|--push-registry|--provision|--revoke-key|--add-adapter|--revoke-adapter|--publish-policy|--update-tunnel|--update-access|--help|-h|--list-key-ids|--list-adapters|--status)
             mode="$arg"
             break
             ;;
@@ -96,7 +96,7 @@ if [[ -f "$bootstrap_file" ]]; then
 fi
 
 # Full bootstrap / --nuke / --rotate: wizard may prompt (hidden input needs /dev/tty).
-# Day-2 registry commands may prompt for Cloudflare credentials when not in env.
+# Day-2 commands may prompt for Cloudflare credentials or runtime token values.
 # Use -it when the host has a TTY; use -T for CI/pipes (set CF_* in the environment).
 bootstrap_rc=0
 if [[ "$mode" == "--rotate" || "$mode" == "--nuke" || -z "$mode" ]]; then
@@ -109,7 +109,7 @@ if [[ "$mode" == "--rotate" || "$mode" == "--nuke" || -z "$mode" ]]; then
         "${volume_args[@]}" \
         "${env_args[@]}" \
         bootstrap "$@" || bootstrap_rc=$?
-elif [[ "$mode" == "--push-registry" || "$mode" == "--provision" || "$mode" == "--revoke-key" || "$mode" == "--add-adapter" || "$mode" == "--revoke-adapter" || "$mode" == "--publish-policy" || "$mode" == "--status" ]]; then
+elif [[ "$mode" == "--push-registry" || "$mode" == "--provision" || "$mode" == "--revoke-key" || "$mode" == "--add-adapter" || "$mode" == "--revoke-adapter" || "$mode" == "--publish-policy" || "$mode" == "--update-tunnel" || "$mode" == "--update-access" || "$mode" == "--status" ]]; then
     if [[ -t 0 ]]; then
         run_io_flags=(-it)
     else
