@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Privacy Policy for Subumbra — Zero-Trust API Key Broker.">
+  <meta name="referrer" content="no-referrer">
+  <title>Privacy Policy — Subumbra</title>
+  <style>
+    :root {
+      --bg-page: #061027;
+      --bg-surface: #1e293b;
+      --bg-raised: #263044;
+      --bg-sunken: #0f172a;
+      --border-subtle: #334155;
+      --border: 1px solid #334155;
+      --text-primary: #f1f5f9;
+      --text-secondary: #e2e8f0;
+      --text-muted: #94a3b8;
+      --text-faint: #64748b;
+      --blue: #3b82f6;
+      --blue-dim: #1d4ed8;
+      --font-sans: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      --font-mono: ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
+      --radius-md: 8px;
+      --radius-lg: 12px;
+      --max-w: 800px;
+      --nav-h: 60px;
+    }
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      background-color: var(--bg-page);
+      color: var(--text-secondary);
+      font-family: var(--font-sans);
+      font-size: 1rem;
+      line-height: 1.7;
+      overflow-x: hidden;
+    }
+
+    a {
+      color: var(--blue);
+      text-decoration: none;
+      transition: color 0.15s;
+    }
+
+    a:hover {
+      color: #93c5fd;
+    }
+
+    /* Navigation */
+    .nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      height: var(--nav-h);
+      background-color: rgba(6, 16, 39, 0.92);
+      border-bottom: var(--border);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+    }
+
+    .nav-inner {
+      max-width: 1160px;
+      margin-inline: auto;
+      padding-inline: clamp(1.25rem, 5vw, 2.5rem);
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .nav-logo {
+      font-size: 1.15rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      color: var(--text-primary);
+    }
+
+    .nav-logo span {
+      color: var(--blue);
+    }
+
+    .nav-back {
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      border: var(--border);
+      padding: 0.35rem 0.85rem;
+      border-radius: var(--radius-md);
+      transition: color 0.15s, border-color 0.15s, background-color 0.15s;
+    }
+
+    .nav-back:hover {
+      color: var(--text-primary);
+      border-color: var(--text-faint);
+      background-color: var(--bg-raised);
+    }
+
+    /* Content Layout */
+    .content-wrap {
+      max-width: var(--max-w);
+      margin: 4rem auto;
+      padding-inline: 1.5rem;
+    }
+
+    .card {
+      background-color: var(--bg-surface);
+      border: var(--border);
+      border-radius: var(--radius-lg);
+      padding: clamp(2rem, 6vw, 4rem);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+    }
+
+    h1 {
+      font-size: clamp(2rem, 5vw, 2.75rem);
+      font-weight: 800;
+      line-height: 1.1;
+      letter-spacing: -0.02em;
+      color: var(--text-primary);
+      margin-bottom: 0.5rem;
+    }
+
+    .meta {
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      color: var(--text-faint);
+      margin-bottom: 2.5rem;
+      border-bottom: var(--border);
+      padding-bottom: 1rem;
+    }
+
+    h2 {
+      font-size: 1.4rem;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin-top: 2rem;
+      margin-bottom: 0.85rem;
+      letter-spacing: -0.015em;
+    }
+
+    p {
+      color: var(--text-muted);
+      margin-bottom: 1.25rem;
+      text-wrap: pretty;
+    }
+
+    ul, ol {
+      color: var(--text-muted);
+      margin-bottom: 1.5rem;
+      padding-left: 1.5rem;
+    }
+
+    li {
+      margin-bottom: 0.5rem;
+    }
+
+    .highlight-box {
+      background-color: rgba(59, 130, 246, 0.06);
+      border: 1px solid rgba(59, 130, 246, 0.2);
+      border-radius: var(--radius-md);
+      padding: 1.25rem;
+      margin-block: 1.75rem;
+      color: var(--text-secondary);
+    }
+
+    .highlight-box p {
+      color: var(--text-secondary);
+      margin-bottom: 0;
+    }
+
+    /* Footer */
+    .footer {
+      background-color: var(--bg-sunken);
+      border-top: var(--border);
+      padding-block: 3rem;
+      text-align: center;
+      font-size: 0.875rem;
+      color: var(--text-faint);
+    }
+
+    .footer a {
+      color: var(--text-muted);
+    }
+
+    .footer a:hover {
+      color: var(--text-primary);
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- Navigation -->
+  <nav class="nav">
+    <div class="nav-inner">
+      <a href="index.html" class="nav-logo">Sub<span>umbra</span></a>
+      <a href="index.html" class="nav-back">← Back to Home</a>
+    </div>
+  </nav>
+
+  <!-- Main Content -->
+  <main class="content-wrap">
+    <article class="card">
+      <h1>Privacy Policy</h1>
+      <p class="meta">Last Updated: May 17, 2026</p>
+
+      <p>This Privacy Policy explains how Subumbra ("we," "our," or "the project") handles data in relation to the website located at <strong>subumbra.dev</strong> and the Subumbra open-source software.</p>
+
+      <div class="highlight-box">
+        <p><strong>Core Privacy Principle:</strong> Subumbra is self-hosted software. We do not operate a centralized software-as-a-service (SaaS) platform. All data, API credentials, logs, and cryptographic material reside solely on servers and infrastructure controlled entirely by you (the operator). We have zero access to your data or deployments.</p>
+      </div>
+
+      <h2>1. The Informational Website (subumbra.dev)</h2>
+      <p>The website <strong>subumbra.dev</strong> is purely informational and acts as a landing page and documentation hub. When you visit this site:</p>
+      <ul>
+        <li><strong>No Personal Data Collection:</strong> We do not ask for, collect, or store any personal data (such as names, emails, IP addresses, or contact information).</li>
+        <li><strong>No Cookies or Marketing Trackers:</strong> We do not use advertising or analytical tracking cookies, pixel tags, or third-party web analytics (such as Google Analytics) to monitor your behavior.</li>
+        <li><strong>Cloudflare Security & CDN Proxy:</strong> To ensure high availability, load balancing, and protection against Distributed Denial of Service (DDoS) and bot attacks, this website is routed through Cloudflare's Content Delivery Network (CDN) proxy. Cloudflare may place technical, strictly necessary cookies (such as <code>__cf_bm</code> or <code>_cfuvid</code>) on your browser. These cookies are set outside of our direct control, do not collect personal identification details, and are used solely to mitigate server abuse and verify legitimate visitor traffic. For more information, please refer to <a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener noreferrer">Cloudflare's Privacy Policy</a>.</li>
+        <li><strong>Server Logs:</strong> Our web server may maintain basic technical access logs for security and performance purposes (such as HTTP request headers, response codes, and server response times). These technical logs do not link back to personal identities and are purged automatically.</li>
+      </ul>
+
+      <h2>2. The Open-Source Software (Self-Hosted)</h2>
+      <p>Subumbra is a split-trust security proxy designed to run in a self-hosted environment under your direct control (using Docker and your own Cloudflare Workers subscription).</p>
+      <ul>
+        <li><strong>Key Storage:</strong> All provider API keys and tokens are encrypted locally on your server using modern authenticated encryption (AES-GCM + RSA-4096-OAEP) and pushed into your private, isolated Cloudflare Workers KV namespace.</li>
+        <li><strong>Data Transit:</strong> Request payloads, response streams, and metadata flow directly from your client applications, through your local security proxy, to your Cloudflare Workers runtime, and then directly to the selected upstream AI model providers. No intermediary servers, third parties, or developer endpoints ever see this traffic.</li>
+        <li><strong>Telemetry:</strong> The Subumbra software contains <strong>no telemetric reporting, tracking scripts, or "phone-home" mechanisms</strong>. It functions as an entirely isolated network utility.</li>
+      </ul>
+
+      <h2>3. Third-Party Services & Upstream Providers</h2>
+      <p>When you use Subumbra to broker requests, the system forwards those requests directly to your configured upstream providers (such as OpenAI, Anthropic, Gemini, DeepSeek, etc.) and hosts the transient decryption logic inside your **Cloudflare Workers** tenant. The data processing and storage practices of those services are governed by their respective terms and privacy policies. We encourage you to review their compliance and privacy boundaries before routing traffic.</p>
+
+      <h2>4. California Consumer Privacy Act (CCPA/CPRA) Compliance</h2>
+      <p>Under the California Consumer Privacy Act (CCPA) and the California Privacy Rights Act (CPRA), because this website and open-source project do not collect, buy, sell, share, or store personal consumer information, there is no personal data to disclose, delete, or restrict. You are in full, sovereign control of your own data through your self-hosted infrastructure.</p>
+
+      <h2>5. European Union General Data Protection Regulation (GDPR)</h2>
+      <p>For visitors from the European Union or the European Economic Area (EEA), the project operates in full compliance with the GDPR. Since we do not process personal data on the informational website and have no access to the data residing on your self-hosted instances, we do not maintain a register of personal data, nor do we perform any user-profiling operations. </p>
+      <p>For your own self-hosted deployment, you act as the **Data Controller** (and Cloudflare acts as the **Data Processor**). You are responsible for ensuring that your handling of downstream users' data complies with applicable GDPR mandates.</p>
+
+      <h2>6. Changes to This Policy</h2>
+      <p>We may update this Privacy Policy from time to time to reflect changes in our software design or compliance requirements. Any updates will be pushed directly to this page along with an updated revision date.</p>
+
+      <h2>7. Contact Information</h2>
+      <p>If you have any questions about this Privacy Policy or the cryptographic design of the software, please reach out to the project author:</p>
+      <p>
+        Email: <a href="mailto:eric@polysemic.email">eric@polysemic.email</a><br>
+        GitHub: <a href="https://github.com/polysemic/Subumbra" target="_blank" rel="noopener noreferrer">github.com/polysemic/Subumbra</a>
+      </p>
+    </article>
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="wrap">
+      <p>© 2026 Subumbra · <a href="https://github.com/polysemic/Subumbra/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">MPL 2.0 License</a> · <a href="index.html">Back to Home</a></p>
+    </div>
+  </footer>
+
+</body>
+
+</html>

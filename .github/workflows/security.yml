@@ -12,7 +12,6 @@ on:
 
 permissions:
   contents: read
-  security-events: write  # needed to upload SARIF results to GitHub Security tab
 
 jobs:
 
@@ -37,7 +36,7 @@ jobs:
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: "3.12"
-      - run: pip install bandit
+      - run: pip install bandit==1.7.8
       - name: Run bandit
         run: |
           python3 -m bandit \
@@ -89,6 +88,9 @@ jobs:
   trivy:
     name: Filesystem + Dependency Scan (trivy)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Run trivy filesystem scan

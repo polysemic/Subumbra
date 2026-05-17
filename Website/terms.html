@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Terms of Service for Subumbra — Zero-Trust API Key Broker.">
+  <meta name="referrer" content="no-referrer">
+  <title>Terms of Service — Subumbra</title>
+  <style>
+    :root {
+      --bg-page: #061027;
+      --bg-surface: #1e293b;
+      --bg-raised: #263044;
+      --bg-sunken: #0f172a;
+      --border-subtle: #334155;
+      --border: 1px solid #334155;
+      --text-primary: #f1f5f9;
+      --text-secondary: #e2e8f0;
+      --text-muted: #94a3b8;
+      --text-faint: #64748b;
+      --blue: #3b82f6;
+      --blue-dim: #1d4ed8;
+      --font-sans: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      --font-mono: ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
+      --radius-md: 8px;
+      --radius-lg: 12px;
+      --max-w: 800px;
+      --nav-h: 60px;
+    }
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      background-color: var(--bg-page);
+      color: var(--text-secondary);
+      font-family: var(--font-sans);
+      font-size: 1rem;
+      line-height: 1.7;
+      overflow-x: hidden;
+    }
+
+    a {
+      color: var(--blue);
+      text-decoration: none;
+      transition: color 0.15s;
+    }
+
+    a:hover {
+      color: #93c5fd;
+    }
+
+    /* Navigation */
+    .nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      height: var(--nav-h);
+      background-color: rgba(6, 16, 39, 0.92);
+      border-bottom: var(--border);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+    }
+
+    .nav-inner {
+      max-width: 1160px;
+      margin-inline: auto;
+      padding-inline: clamp(1.25rem, 5vw, 2.5rem);
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .nav-logo {
+      font-size: 1.15rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      color: var(--text-primary);
+    }
+
+    .nav-logo span {
+      color: var(--blue);
+    }
+
+    .nav-back {
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      border: var(--border);
+      padding: 0.35rem 0.85rem;
+      border-radius: var(--radius-md);
+      transition: color 0.15s, border-color 0.15s, background-color 0.15s;
+    }
+
+    .nav-back:hover {
+      color: var(--text-primary);
+      border-color: var(--text-faint);
+      background-color: var(--bg-raised);
+    }
+
+    /* Content Layout */
+    .content-wrap {
+      max-width: var(--max-w);
+      margin: 4rem auto;
+      padding-inline: 1.5rem;
+    }
+
+    .card {
+      background-color: var(--bg-surface);
+      border: var(--border);
+      border-radius: var(--radius-lg);
+      padding: clamp(2rem, 6vw, 4rem);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+    }
+
+    h1 {
+      font-size: clamp(2rem, 5vw, 2.75rem);
+      font-weight: 800;
+      line-height: 1.1;
+      letter-spacing: -0.02em;
+      color: var(--text-primary);
+      margin-bottom: 0.5rem;
+    }
+
+    .meta {
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      color: var(--text-faint);
+      margin-bottom: 2.5rem;
+      border-bottom: var(--border);
+      padding-bottom: 1rem;
+    }
+
+    h2 {
+      font-size: 1.4rem;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin-top: 2rem;
+      margin-bottom: 0.85rem;
+      letter-spacing: -0.015em;
+    }
+
+    p {
+      color: var(--text-muted);
+      margin-bottom: 1.25rem;
+      text-wrap: pretty;
+    }
+
+    ul, ol {
+      color: var(--text-muted);
+      margin-bottom: 1.5rem;
+      padding-left: 1.5rem;
+    }
+
+    li {
+      margin-bottom: 0.5rem;
+    }
+
+    .highlight-box {
+      background-color: rgba(239, 68, 68, 0.05);
+      border: 1px solid rgba(239, 68, 68, 0.2);
+      border-radius: var(--radius-md);
+      padding: 1.25rem;
+      margin-block: 1.75rem;
+      color: var(--text-secondary);
+    }
+
+    .highlight-box p {
+      color: var(--text-secondary);
+      margin-bottom: 0;
+    }
+
+    /* Footer */
+    .footer {
+      background-color: var(--bg-sunken);
+      border-top: var(--border);
+      padding-block: 3rem;
+      text-align: center;
+      font-size: 0.875rem;
+      color: var(--text-faint);
+    }
+
+    .footer a {
+      color: var(--text-muted);
+    }
+
+    .footer a:hover {
+      color: var(--text-primary);
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- Navigation -->
+  <nav class="nav">
+    <div class="nav-inner">
+      <a href="index.html" class="nav-logo">Sub<span>umbra</span></a>
+      <a href="index.html" class="nav-back">← Back to Home</a>
+    </div>
+  </nav>
+
+  <!-- Main Content -->
+  <main class="content-wrap">
+    <article class="card">
+      <h1>Terms of Service</h1>
+      <p class="meta">Last Updated: May 17, 2026</p>
+
+      <p>Welcome to Subumbra. By accessing the website located at <strong>subumbra.dev</strong> or by using the Subumbra open-source software, you agree to comply with and be bound by the following Terms of Service.</p>
+
+      <h2>1. The Informational Website (subumbra.dev)</h2>
+      <p>The website at <strong>subumbra.dev</strong> is provided solely for informational, educational, and documentation purposes. Your access to and use of the informational content is subject to these terms. We reserve the right to modify, suspend, or update any technical documentation or deployment guides at our discretion and without prior notice.</p>
+
+      <h2>2. The Open-Source Software License</h2>
+      <p>The Subumbra software, templates, scripts, and Worker deployment code are licensed under the **Mozilla Public License 2.0 (MPL 2.0)**. Any usage, redistribution, modification, or inclusion of the source code is governed strictly by the terms and conditions outlined in the repository's <a href="https://github.com/polysemic/Subumbra/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">LICENSE</a> file.</p>
+
+      <div class="highlight-box">
+        <p><strong>Disclaimer of Warranty:</strong> The Subumbra software is provided strictly <strong>"AS IS"</strong>, without warranty of any kind, express or implied, including but not limited to the warranties of merchantability, fitness for a particular purpose, or non-infringement.</p>
+      </div>
+
+      <h2>3. Self-Hosted Responsibility & Security</h2>
+      <p>Subumbra is a split-trust, decentralized API credential broker. By deploying Subumbra, you explicitly acknowledge and agree to the following operational boundaries:</p>
+      <ul>
+        <li><strong>Infrastructure Control:</strong> You are entirely responsible for the security, hosting, and configuration of your self-hosted server (VPS) and your Cloudflare Workers tenant.</li>
+        <li><strong>Credential Safeguards:</strong> You are solely responsible for ensuring the secure custody of your encryption keys (specifically the RSA private/public keys and standard proxy master keys). The loss, corruption, or leak of these keys due to weak server permissions or public version control exposure remains your exclusive liability.</li>
+        <li><strong>Upstream Model Costs:</strong> You are solely responsible for all API usage costs, rate policies, or provider account suspensions incurred through the upstream providers (such as OpenAI, Anthropic, Gemini, etc.) configured inside your self-hosted instance.</li>
+      </ul>
+
+      <h2>4. Limitation of Liability</h2>
+      <p>To the maximum extent permitted by applicable law, in no event shall the author of Subumbra, the contributors, or any affiliated entities be liable for any direct, indirect, incidental, special, exemplary, or consequential damages (including, but not limited to, procurement of substitute services; loss of use, data, or profits; business interruption; or unauthorized credential exposure) however caused and on any theory of liability, whether in contract, strict liability, or tort (including negligence or otherwise) arising in any way out of the use of this website or software, even if advised of the possibility of such damage.</p>
+
+      <h2>5. Non-Affiliation</h2>
+      <p>This project is an independent open-source utility and is not affiliated, endorsed, sponsored, or certified by Cloudflare, Inc., OpenAI, Anthropic, Google, or any other third-party API provider. All product names, logos, and brands are the property of their respective trademark holders.</p>
+
+      <h2>6. Governing Law</h2>
+      <p>These Terms of Service, and any disputes arising from your use of the informational website at <strong>subumbra.dev</strong>, shall be governed by and construed in accordance with the laws of the jurisdiction in which the website operator resides, without giving effect to any principles of conflicts of law.</p>
+
+      <h2>7. Contact Information</h2>
+      <p>If you have any questions, bug reports, or legal inquiries regarding these Terms of Service, please reach out via the following channels:</p>
+      <p>
+        Email: <a href="mailto:eric@polysemic.email">eric@polysemic.email</a><br>
+        GitHub: <a href="https://github.com/polysemic/Subumbra" target="_blank" rel="noopener noreferrer">github.com/polysemic/Subumbra</a>
+      </p>
+    </article>
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="wrap">
+      <p>© 2026 Subumbra · <a href="https://github.com/polysemic/Subumbra/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">MPL 2.0 License</a> · <a href="index.html">Back to Home</a></p>
+    </div>
+  </footer>
+
+</body>
+
+</html>

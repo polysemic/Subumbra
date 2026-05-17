@@ -614,6 +614,23 @@
       text-transform: uppercase;
     }
 
+    a.provider-chip {
+      text-decoration: none;
+      color: inherit;
+      cursor: pointer;
+      transition: filter 0.15s, transform 0.15s;
+    }
+
+    a.provider-chip:hover {
+      filter: brightness(1.12);
+    }
+
+    .chip-adapter {
+      background: var(--bg-raised);
+      color: var(--text-secondary);
+      border: 1px solid var(--border-subtle);
+    }
+
     .chip-dot {
       width: 6px;
       height: 6px;
@@ -723,16 +740,94 @@
       overflow: hidden;
     }
 
-    @media (min-width: 700px) {
+    @media (min-width: 720px) {
       .how-grid {
         grid-template-columns: repeat(2, 1fr);
       }
     }
 
-    @media (min-width: 1000px) {
-      .how-grid {
-        grid-template-columns: repeat(4, 1fr);
-      }
+    .how-step .how-step-code + .how-step-code {
+      margin-top: 0.4rem;
+    }
+
+    .how-step-body a {
+      color: var(--blue);
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+
+    .how-step-body a:hover {
+      color: #93c5fd;
+    }
+
+    .how-after {
+      margin-top: clamp(2rem, 4vw, 2.75rem);
+      padding: 1.5rem 1.25rem;
+      background-color: var(--bg-surface);
+      border: var(--border);
+      border-radius: var(--radius-lg);
+      text-align: center;
+    }
+
+    .how-after-title {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin-bottom: 0.35rem;
+    }
+
+    .how-after-sub {
+      font-size: 0.88rem;
+      color: var(--text-muted);
+      margin-bottom: 1.25rem;
+    }
+
+    .how-commands {
+      margin-top: 1.75rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--border-subtle);
+      text-align: left;
+    }
+
+    .how-commands-title {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-faint);
+      margin-bottom: 0.75rem;
+    }
+
+    .how-cmd-line {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: #a5b4fc;
+      padding: 0.35rem 0;
+      border-bottom: 1px solid var(--bg-sunken);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem 0.75rem;
+      align-items: baseline;
+    }
+
+    .how-cmd-line:last-child {
+      border-bottom: none;
+    }
+
+    .how-cmd-bin {
+      color: #7dd3fc;
+      white-space: nowrap;
+    }
+
+    .how-cmd-desc {
+      color: var(--text-muted);
+      flex: 1;
+      min-width: 12ch;
+    }
+
+    .providers-label-spaced {
+      margin-top: 1.5rem;
     }
 
     .how-step {
@@ -763,6 +858,28 @@
       color: var(--text-muted);
       line-height: 1.55;
       flex: 1;
+    }
+
+    .how-step-body p {
+      margin: 0 0 0.55rem;
+    }
+
+    .how-step-body p:last-child {
+      margin-bottom: 0;
+    }
+
+    .how-step-subhead {
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-faint);
+      margin-top: 0.75rem;
+      margin-bottom: 0.35rem;
+    }
+
+    .how-step-subhead:first-child {
+      margin-top: 0;
     }
 
     .how-step-code {
@@ -1147,6 +1264,16 @@
       color: var(--text-ghost);
     }
 
+    .footer-bottom a {
+      color: var(--text-muted);
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+
+    .footer-bottom a:hover {
+      color: var(--text-secondary);
+    }
+
     .footer-badge {
       display: inline-flex;
       align-items: center;
@@ -1178,10 +1305,10 @@
           <li><a href="#features">Features</a></li>
           <li><a href="#security">Security</a></li>
           <li><a href="https://github.com/polysemic/Subumbra">GitHub</a></li>
-          <li><a href="/docs">Docs</a></li>
+          <li><a href="https://github.com/polysemic/Subumbra/tree/main/docs">Docs</a></li>
         </ul>
       </nav>
-      <a href="https://github.com/polysemic/Subumbra" class="nav-cta">Get Started ↗</a>
+      <a href="https://github.com/polysemic/Subumbra/releases" class="nav-cta">Get Started ↗</a>
     </div>
   </header>
 
@@ -1194,7 +1321,7 @@
         <div>
           <div class="hero-eyebrow">
             <span class="hero-eyebrow-dot"></span>
-            Open Source · Beta Preview
+            Open Source · Alpha
           </div>
           <h1 class="hero-title">
             Your API keys<br>
@@ -1208,7 +1335,7 @@
             authority remains part of the trust boundary.
           </p>
           <div class="hero-actions">
-            <a href="https://github.com/polysemic/Subumbra" class="btn-primary">Deploy with Docker ↗</a>
+            <a href="https://github.com/polysemic/Subumbra/releases" class="btn-primary">Download on GitHub ↗</a>
             <a href="#how-it-works" class="btn-secondary">See how it works</a>
           </div>
         </div>
@@ -1219,7 +1346,7 @@
           <!-- App: full width -->
           <div class="arch-box">
             <div class="arch-box-label">Your application</div>
-            <div class="arch-box-name">LiteLLM · OpenWebUI · AnythingLLM · LibreChat · any app</div>
+            <div class="arch-box-name">LiteLLM · Bifrost · Open WebUI · AnythingLLM · LibreChat · n8n · any HTTP client</div>
             <!-- <div class="arch-box-sub">Uses an adapter token · carries key_id in the /t/... path</div> -->
           </div>
 
@@ -1321,6 +1448,21 @@
         <span class="provider-chip chip-together"><span class="chip-dot"
             style="background:#c4b5fd;"></span>Together</span>
       </div>
+      <p class="providers-label providers-label-spaced">Built-in adapters</p>
+      <div class="providers-grid">
+        <a class="provider-chip chip-adapter" href="https://github.com/polysemic/Subumbra/tree/main/docs/apps/litellm"><span
+            class="chip-dot" style="background:#60a5fa;"></span>LiteLLM</a>
+        <a class="provider-chip chip-adapter" href="https://github.com/polysemic/Subumbra/tree/main/docs/apps/bifrost"><span
+            class="chip-dot" style="background:#34d399;"></span>Bifrost</a>
+        <a class="provider-chip chip-adapter" href="https://github.com/polysemic/Subumbra/tree/main/docs/apps/openwebui"><span
+            class="chip-dot" style="background:#a78bfa;"></span>Open WebUI</a>
+        <a class="provider-chip chip-adapter" href="https://github.com/polysemic/Subumbra/tree/main/docs/apps/anythingllm"><span
+            class="chip-dot" style="background:#f472b6;"></span>AnythingLLM</a>
+        <a class="provider-chip chip-adapter" href="https://github.com/polysemic/Subumbra/tree/main/docs/apps/librechat"><span
+            class="chip-dot" style="background:#fbbf24;"></span>LibreChat</a>
+        <a class="provider-chip chip-adapter" href="https://github.com/polysemic/Subumbra/tree/main/docs/apps/n8n"><span
+            class="chip-dot" style="background:#22d3ee;"></span>n8n</a>
+      </div>
     </div>
   </div>
 
@@ -1329,40 +1471,110 @@
     <div class="wrap">
       <div class="section-head">
         <p class="section-label">How it works</p>
-        <h2 class="section-title">One bootstrap. Encrypt All Your Secrets at Once</h2>
+        <h2 class="section-title">Download, configure, bootstrap, point your apps</h2>
         <p class="section-body">
-          A one-shot setup encrypts your keys and deploys the decryption
-          authority to Cloudflare. After that, your servers only ever hold useless ciphertext.
+          A one-shot <code style="font-family:var(--font-mono);font-size:0.85em;">./bootstrap.sh</code> encrypts provider
+          material and deploys enforcement to Cloudflare. After that, <code
+            style="font-family:var(--font-mono);font-size:0.85em;">subumbra-keys</code> on your side only stores ciphertext
+          envelopes and wrapped DEKs — never usable upstream secrets at rest.
         </p>
       </div>
       <div class="how-grid">
         <div class="how-step">
-          <div class="how-step-num">01 / Bootstrap</div>
-          <div class="how-step-title">Encrypt Your Current Secrets</div>
-          <div class="how-step-body">Run the bootstrap wrapper. Your API keys are encrypted directly into Subumbra, and
-            the setup flow keeps the plaintext path in memory only.</div>
+          <div class="how-step-num">01 / Get the code</div>
+          <div class="how-step-title">Download or clone</div>
+          <div class="how-step-body">Grab a release tarball from <a
+              href="https://github.com/polysemic/Subumbra/releases">GitHub Releases</a>, or clone the repo (fork first if
+            you plan to carry patches).</div>
+          <div class="how-step-code">git clone https://github.com/polysemic/Subumbra.git</div>
+          <div class="how-step-code">cd Subumbra</div>
+        </div>
+        <div class="how-step">
+          <div class="how-step-num">02 / Configure</div>
+          <div class="how-step-title">Manifest (and optional automation)</div>
+          <div class="how-step-body">Copy the minimal template to <code
+              style="font-family:var(--font-mono);font-size:0.85em;">subumbra.yaml</code> and edit providers, routing, and
+            adapter names. For CI or unattended runs, copy <code
+              style="font-family:var(--font-mono);font-size:0.85em;">.env.bootstrap.example</code> to <code
+              style="font-family:var(--font-mono);font-size:0.85em;">.env.bootstrap</code> and add Cloudflare credentials
+            plus the same <code style="font-family:var(--font-mono);font-size:0.85em;">secret_ref</code> values referenced
+            in the manifest.</div>
+          <div class="how-step-code">cp subumbra.minimal.yaml subumbra.yaml</div>
+          <div class="how-step-code">cp .env.bootstrap.example .env.bootstrap</div>
+        </div>
+        <div class="how-step">
+          <div class="how-step-num">03 / Bootstrap</div>
+          <div class="how-step-title">Encrypt and deploy</div>
+          <div class="how-step-body">
+            <p>Run <code style="font-family:var(--font-mono);font-size:0.85em;">./bootstrap.sh</code> on the host. Think
+              of it as the one “setup” button: it starts the bootstrap container, deploys or updates the Worker in
+              Cloudflare, encrypts your provider keys into the local store, and tells you when to bring the stack up —
+              without leaving a trail of plaintext secrets in the repo as part of that run.</p>
+            <p>If you use interactive mode, you answer prompts for Cloudflare credentials and each provider secret; those
+              answers stay in process memory for the session and are not written back into the project as cleartext.</p>
+            <p>If you already copied <code style="font-family:var(--font-mono);font-size:0.85em;">.env.bootstrap.example</code>
+              to <code style="font-family:var(--font-mono);font-size:0.85em;">.env.bootstrap</code> and filled it in, the
+              same script runs headlessly, then securely shreds that file after a successful pass so it does not linger on
+              disk.</p>
+            <p>When the script exits cleanly, your <code style="font-family:var(--font-mono);font-size:0.85em;">.env</code>
+              contains the adapter tokens the stack expects, encrypted material is on the volume, and the core containers
+              can start normally.</p>
+          </div>
           <div class="how-step-code">./bootstrap.sh</div>
         </div>
         <div class="how-step">
-          <div class="how-step-num">02 / Encrypt</div>
-          <div class="how-step-title">RSA-4096 + AES-256-GCM</div>
-          <div class="how-step-body">Each key gets a unique DEK wrapped by an RSA-4096 public key. AAD binding ties each
-            ciphertext to its key ID — transplant attacks fail.</div>
-          <div class="how-step-code">subumbra:v2:&lt;key_id&gt;<br>AES-256-GCM · OAEP-SHA256</div>
+          <div class="how-step-num">04 / Integrate</div>
+          <div class="how-step-title">Transparent proxy URL + adapter token</div>
+          <div class="how-step-body">
+            <p>Update your apps wherever they read provider settings — <code
+                style="font-family:var(--font-mono);font-size:0.85em;">.env</code> files, YAML or JSON config, admin UIs,
+              or secrets in your orchestrator. Where you used to paste the real vendor key and call the provider directly,
+              aim traffic at Subumbra and put the narrow adapter token in the credential field instead. The <code
+                style="font-family:var(--font-mono);font-size:0.85em;">key_id</code> from your manifest still goes in the URL
+              path right after <code style="font-family:var(--font-mono);font-size:0.85em;">/t/</code> (below, <code
+                style="font-family:var(--font-mono);font-size:0.85em;">anthropic_prod</code> is only an example).</p>
+          </div>
+          <div class="how-step-subhead">Docker apps using the subumbra network</div>
+          <div class="how-step-code">api_base: http://subumbra-proxy:8090/t/anthropic_prod</div>
+          <div class="how-step-subhead">Apps not using docker or the network</div>
+          <div class="how-step-code">api_base: http://127.0.0.1:10199/t/anthropic_prod</div>
+          <div class="how-step-subhead">Both use the adapter token</div>
+          <div class="how-step-code">api_key: ${SUBUMBRA_TOKEN_YOUR_ADAPTER}</div>
         </div>
-        <div class="how-step">
-          <div class="how-step-num">03 / Split</div>
-          <div class="how-step-title">Vault custody lives in Cloudflare</div>
-          <div class="how-step-body">A Cloudflare Durable Object generates and stores the private key material. Your
-            VPS keeps ciphertext and the exported public key only.</div>
-          <div class="how-step-code">SubumbraVault → CF DO storage<br>public_key.pem → your volume</div>
+      </div>
+      <div class="how-after">
+        <div class="how-after-title">Use your apps as usual</div>
+        <div class="how-after-sub">Same client libraries and workflows — swap base URL and substitute the narrow adapter
+          token from <code style="font-family:var(--font-mono);font-size:0.8em;">.env</code> for the real provider secret.
         </div>
-        <div class="how-step">
-          <div class="how-step-num">04 / Proxy</div>
-          <div class="how-step-title">Apps use adapter tokens</div>
-          <div class="how-step-body">Apps point at subumbra-proxy with the key_id in the path and an adapter token in
-            the auth slot. The vault decrypts inside Cloudflare, calls the provider, and releases the key from DO memory after the request.</div>
-          <div class="how-step-code">api_base: http://subumbra-proxy:8090/t/anthropic_prod<br>api_key: ${SUBUMBRA_TOKEN_APP}</div>
+        <div class="how-commands">
+          <div class="how-commands-title">Common bootstrap.sh commands</div>
+          <div class="how-cmd-line"><span class="how-cmd-bin">./bootstrap.sh --help</span><span class="how-cmd-desc">Full
+              option list (also <span class="how-cmd-bin">-h</span>)</span></div>
+          <div class="how-cmd-line"><span class="how-cmd-bin">./bootstrap.sh --rotate</span><span class="how-cmd-desc">Offline
+              per-key re-encryption with the on-disk public key</span></div>
+          <div class="how-cmd-line"><span class="how-cmd-bin">./bootstrap.sh --upgrade</span><span class="how-cmd-desc">Rebuild
+              images and recreate containers (no volume wipe)</span></div>
+          <div class="how-cmd-line"><span class="how-cmd-bin">./bootstrap.sh --provision &lt;key_id&gt;</span><span
+              class="how-cmd-desc">Targeted repair for one record</span></div>
+          <div class="how-cmd-line"><span class="how-cmd-bin">./bootstrap.sh --revoke-key &lt;key_id&gt;</span><span
+              class="how-cmd-desc">Revoke a key (optional <span class="how-cmd-bin">--offline</span> for local-only)</span></div>
+          <div class="how-cmd-line"><span class="how-cmd-bin">./bootstrap.sh --add-adapter &lt;key_id&gt; &lt;adapter_id&gt;</span><span
+              class="how-cmd-desc">Bind an adapter to an existing key</span></div>
+          <div class="how-cmd-line"><span class="how-cmd-bin">./bootstrap.sh --revoke-adapter &lt;key_id&gt; &lt;adapter_id&gt;</span><span
+              class="how-cmd-desc">Remove an adapter binding</span></div>
+          <div class="how-cmd-line"><span class="how-cmd-bin">./bootstrap.sh --publish-policy &lt;key_id&gt;</span><span
+              class="how-cmd-desc">Republish policy metadata to KV</span></div>
+          <div class="how-cmd-line"><span class="how-cmd-bin">./bootstrap.sh --push-registry</span><span class="how-cmd-desc">Push
+              local keys.json state to Cloudflare KV</span></div>
+          <div class="how-cmd-line"><span class="how-cmd-bin">./bootstrap.sh --list-key-ids</span><span class="how-cmd-desc">List
+              manifest key IDs</span></div>
+          <div class="how-cmd-line"><span class="how-cmd-bin">./bootstrap.sh --list-adapters</span><span class="how-cmd-desc">List
+              distinct adapter names from the manifest</span></div>
+          <div class="how-cmd-line"><span class="how-cmd-bin">./bootstrap.sh --status</span><span class="how-cmd-desc">Compare
+              manifest authority to deployed record state</span></div>
+          <div class="how-cmd-line"><span class="how-cmd-bin">./bootstrap.sh --nuke</span><span class="how-cmd-desc">Destructive:
+              reset vault keypairs and re-bootstrap from scratch</span></div>
         </div>
       </div>
     </div>
@@ -1393,8 +1605,9 @@
           <article class="feature-card">
             <div class="feature-icon fi-orange">🧩</div>
             <div class="feature-title">Live provider registry</div>
-            <div class="feature-body">Provider allowlists live in Cloudflare KV. Add or update providers without
-              redeploying the Worker. Custom providers fully supported.</div>
+            <div class="feature-body">You declare providers and policy in <code
+                style="font-family:var(--font-mono);font-size:0.8em;color:#7dd3fc;">subumbra.yaml</code>; bootstrap publishes
+              structured entries to Cloudflare KV so the Worker can validate every upstream target fail-closed.</div>
           </article>
           <article class="feature-card">
             <div class="feature-icon fi-purple">📊</div>
@@ -1404,15 +1617,19 @@
           </article>
           <article class="feature-card">
             <div class="feature-icon fi-cyan">🔒</div>
-            <div class="feature-title">Secure browser key entry</div>
-            <div class="feature-body">Add or rotate keys via the browser with ephemeral RSA session keypairs and
-              SubtleCrypto paste interception. Plaintext never touches the DOM.</div>
+            <div class="feature-title">Ciphertext-only at rest on your side</div>
+            <div class="feature-body">After bootstrap, real provider secrets are not returned to your servers for storage
+              or display. <code style="font-family:var(--font-mono);font-size:0.8em;color:#7dd3fc;">subumbra-keys</code> only
+              ever persists envelopes (ciphertext + wrapped DEKs). Apps and operators use narrow adapter tokens — not the
+              upstream key material.</div>
           </article>
           <article class="feature-card">
             <div class="feature-icon fi-yellow">🧱</div>
             <div class="feature-title">Multi-adapter support</div>
-            <div class="feature-body">Named adapters with scoped key access, independent tokens, and configurable
-              expiry. OpenWebUI, AnythingLLM, n8n, and custom apps all work.</div>
+            <div class="feature-body">Named adapters with scoped key access and independent tokens (for example <code
+                style="font-family:var(--font-mono);font-size:0.8em;color:#7dd3fc;">SUBUMBRA_TOKEN_LITELLM</code>). LiteLLM,
+              Bifrost, Open WebUI, AnythingLLM, LibreChat, n8n, and custom HTTP clients are supported via the transparent <code
+                style="font-family:var(--font-mono);font-size:0.8em;color:#7dd3fc;">/t</code> route.</div>
           </article>
         </div>
       </div>
@@ -1426,8 +1643,10 @@
         <p class="section-label">Security model</p>
         <h2 class="section-title">Designed so a partial compromise yields nothing useful.</h2>
         <p class="section-body">
-          The split-decrypt architecture means an attacker needs to compromise
-          both your infrastructure and Cloudflare simultaneously to recover a key.
+          Split trust means ciphertext and wrapped DEKs on your infrastructure are useless without the matching RSA
+          private key held in a Cloudflare Durable Object. A complete break requires defeating both sides — plus your
+          manifest-defined adapter and policy controls at the Worker boundary. Cloudflare and your deploy credentials
+          remain explicit trust boundaries.
         </p>
       </div>
       <div class="security-layout">
@@ -1435,49 +1654,63 @@
           <li class="security-item">
             <div class="security-check">✓</div>
             <div>
-              <div class="security-item-title">RSA-4096 + AES-256-GCM envelope encryption</div>
-              <div class="security-item-body">Per-record DEKs wrapped by RSA-4096. AAD binding prevents ciphertext
-                transplant between records.</div>
+              <div class="security-item-title">V3 hybrid envelope (RSA-4096 + AES-256-GCM)</div>
+              <div class="security-item-body">Per-record DEKs are wrapped with RSA-OAEP. Payloads are AES-256-GCM with
+                AAD <code style="font-family:var(--font-mono);font-size:0.78em;">subumbra:v3:&lt;key_id&gt;:&lt;policy_hash&gt;</code>,
+                binding ciphertext to the policy in effect at encryption time and blocking transplant or stale-policy replay.</div>
             </div>
           </li>
           <li class="security-item">
             <div class="security-check">✓</div>
             <div>
-              <div class="security-item-title">Private key stays in SubumbraVault DO custody</div>
-              <div class="security-item-body">Your VPS holds encrypted blobs — useless without the private key. Neither
-                side alone is enough.</div>
+              <div class="security-item-title">Private key in SubumbraVault DO custody</div>
+              <div class="security-item-body">RSA private material is generated and stored in a Durable Object vault; your
+                host only receives ciphertext envelopes, wrapped DEKs, and an exportable public key for offline rotation.
+                Neither side alone can recover a provider secret.</div>
             </div>
           </li>
           <li class="security-item">
             <div class="security-check">✓</div>
             <div>
-              <div class="security-item-title">Durable Object: one-time decrypt, ~100ms</div>
-              <div class="security-item-body">Decryption happens in an isolated CF Durable Object. The key is used to
-                call the provider and then released from DO memory. Every call is logged.</div>
+              <div class="security-item-title">Per-request decrypt in the vault DO</div>
+              <div class="security-item-body">For each allowed upstream call, the vault unwraps the DEK, decrypts the
+                provider material, applies the configured auth semantics to the outbound HTTPS request, and discards
+                plaintext from memory after the response path completes. This is a short-lived in-memory window — not a
+                durable copy on your servers.</div>
             </div>
           </li>
           <li class="security-item">
             <div class="security-check">✓</div>
             <div>
-              <div class="security-item-title">HMAC-signed, replay-protected fetches</div>
-              <div class="security-item-body">Every ciphertext fetch requires a per-request HMAC signature with a
-                single-use nonce and timestamp tolerance window.</div>
+              <div class="security-item-title">Adapter allowlists and capability gates</div>
+              <div class="security-item-body">Manifest <code style="font-family:var(--font-mono);font-size:0.78em;">allow.adapters</code>
+                binds each adapter token to specific records; policy can scope methods, paths, hosts, and capability class so a
+                compromised chat app cannot silently pivot to unrelated APIs.</div>
             </div>
           </li>
           <li class="security-item">
             <div class="security-check">✓</div>
             <div>
-              <div class="security-item-title">Fail-closed provider validation</div>
-              <div class="security-item-body">The Worker validates target hostnames and provider identity against a live
-                Cloudflare KV registry before decrypting. Mismatches hard-fail.</div>
+              <div class="security-item-title">HMAC-signed ciphertext fetches</div>
+              <div class="security-item-body"><code style="font-family:var(--font-mono);font-size:0.78em;">subumbra-proxy</code>
+                requests envelopes from <code style="font-family:var(--font-mono);font-size:0.78em;">subumbra-keys</code> with
+                per-request HMAC integrity and freshness controls so replayed or forged fetches fail closed.</div>
             </div>
           </li>
           <li class="security-item">
             <div class="security-check">✓</div>
             <div>
-              <div class="security-item-title">Durable structured audit log</div>
-              <div class="security-item-body">Every key fetch, denial, and rotation is written to a local SQLite audit
-                database with verdict, reason code, adapter ID, and remote IP.</div>
+              <div class="security-item-title">Fail-closed upstream validation</div>
+              <div class="security-item-body">The Worker resolves live registry metadata (from KV) for the requested record,
+                verifies hostname, provider label, and fingerprint alignment, and rejects mismatches before unwrap or decrypt.</div>
+            </div>
+          </li>
+          <li class="security-item">
+            <div class="security-check">✓</div>
+            <div>
+              <div class="security-item-title">Structured audit trail (local)</div>
+              <div class="security-item-body">The keys service records access attempts, denials, and lifecycle events to a
+                local SQLite-backed audit store — useful for operators without ever logging provider key material.</div>
             </div>
           </li>
         </ul>
@@ -1498,10 +1731,10 @@
               class="threat-verdict v-blocked">Blocked</span></div>
           <div class="threat-row"><span class="threat-name">Network interception (TLS)</span><span
               class="threat-verdict v-blocked">Blocked</span></div>
-          <div class="threat-row"><span class="threat-name">Adapter token leak</span><span
+          <div class="threat-row"><span class="threat-name">Skeleton-key adapter misuse (leaked token)</span><span
               class="threat-verdict v-mitigated">Mitigated</span></div>
-          <div class="threat-row"><span class="threat-name">UI XSS during key entry</span><span
-              class="threat-verdict v-mitigated">Mitigated</span></div>
+          <div class="threat-row"><span class="threat-name">Undetected malicious Worker deploy</span><span
+              class="threat-verdict v-partial">Partial</span></div>
           <div class="threat-row"><span class="threat-name">Host OS compromise</span><span
               class="threat-verdict v-partial">Partial</span></div>
         </div>
@@ -1517,8 +1750,8 @@
         <p class="cta-body">Self-hosted, open source, deployable in minutes. Your infrastructure. Your control. No
           plaintext key storage on your servers after bootstrap.</p>
         <div class="cta-actions">
-          <a href="https://github.com/polysemic/Subumbra" class="btn-primary">View on GitHub ↗</a>
-          <a href="/docs" class="btn-secondary">Read the docs</a>
+          <a href="https://github.com/polysemic/Subumbra" class="btn-primary">GitHub ↗</a>
+          <a href="https://github.com/polysemic/Subumbra/tree/main/docs" class="btn-secondary">Read the docs</a>
         </div>
         <div>
           <span class="cta-mono">./bootstrap.sh</span>
@@ -1540,7 +1773,7 @@
           <div class="footer-col-title">Project</div>
           <ul class="footer-links">
             <li><a href="https://github.com/polysemic/Subumbra">GitHub</a></li>
-            <li><a href="/docs">Documentation</a></li>
+            <li><a href="https://github.com/polysemic/Subumbra/tree/main/docs">Documentation</a></li>
             <li><a href="https://github.com/polysemic/Subumbra/releases">Releases</a></li>
             <li><a href="https://github.com/polysemic/Subumbra/issues">Issues</a></li>
           </ul>
@@ -1548,10 +1781,12 @@
         <div>
           <div class="footer-col-title">Resources</div>
           <ul class="footer-links">
-            <li><a href="/docs/quickstart">Quickstart</a></li>
-            <li><a href="/docs/architecture">Architecture</a></li>
-            <li><a href="/docs/adapters">Adapters</a></li>
-            <li><a href="/docs/security">Security model</a></li>
+            <li><a href="https://github.com/polysemic/Subumbra/blob/main/README.md">Quickstart (README)</a></li>
+            <li><a href="https://github.com/polysemic/Subumbra/blob/main/docs/subumbra-install.md">Installation</a></li>
+            <li><a href="https://github.com/polysemic/Subumbra/blob/main/docs/architecture.md">Architecture</a></li>
+            <li><a href="https://github.com/polysemic/Subumbra/tree/main/docs/apps">App integrations</a></li>
+            <li><a href="https://github.com/polysemic/Subumbra/blob/main/docs/security-overview.md">Security overview</a></li>
+            <li><a href="https://github.com/polysemic/Subumbra/blob/main/docs/adapter-contract.md">Adapter contract</a></li>
           </ul>
         </div>
         <div>
@@ -1559,15 +1794,15 @@
           <ul class="footer-links">
             <li><a href="https://github.com/polysemic/Subumbra/blob/main/PROJECT_STATUS.md">Project status</a></li>
             <li><a href="https://github.com/polysemic/Subumbra/blob/main/CLAUDE.md">Architecture notes</a></li>
-            <li><a href="https://github.com/polysemic/Subumbra/blob/main/LICENSE">MIT License</a></li>
+            <li><a href="https://github.com/polysemic/Subumbra/blob/main/LICENSE">MPL 2.0 License</a></li>
           </ul>
         </div>
       </div>
       <div class="footer-bottom">
-        <span>© 2026 Subumbra · MIT License · Open Source</span>
+        <span>© 2026 Subumbra · <a href="https://github.com/polysemic/Subumbra/blob/main/LICENSE">MPL 2.0</a> · <a href="privacy.html">Privacy Policy</a> · <a href="terms.html">Terms of Service</a> · Open Source</span>
         <span class="footer-badge">
           <span class="footer-badge-dot"></span>
-          V2 Asymmetric Envelope · RSA-4096 + AES-256-GCM
+          V3 envelope · RSA-4096 + AES-256-GCM
         </span>
       </div>
     </div>
