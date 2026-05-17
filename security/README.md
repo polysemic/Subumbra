@@ -75,6 +75,13 @@ Publish a sanitized Shannon summary from a workspace:
 scripts/security/publish-shannon-report.sh ~/shannon-subumbra/reports/<workspace>
 ```
 
+Install or verify the VPS public scan toolchain:
+
+```bash
+/opt/subumbra/scripts/security/install-public-scan-tools-vps.sh
+/opt/subumbra/scripts/security/install-public-scan-tools-vps.sh --check
+```
+
 Both helpers now write:
 
 - a dated historical copy under `security/reports/YYYY-MM/`

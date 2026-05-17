@@ -164,6 +164,24 @@ auto-falls back to local execution if `ssh subumbra` is not resolvable there.
 
 ---
 
+### `security/install-public-scan-tools-vps.sh`
+
+Installs or checks the user-space toolchain needed by the public security suite.
+It installs `bandit` and `pip-audit` into the user Python environment, creates
+Docker-backed shims for `gitleaks` and `trivy` under `~/bin`, and pre-pulls the
+container images used by Semgrep, Nuclei, and ZAP.
+
+```bash
+/opt/subumbra/scripts/security/install-public-scan-tools-vps.sh
+/opt/subumbra/scripts/security/install-public-scan-tools-vps.sh --check
+```
+
+**Intended outcome:** the VPS can run
+`/opt/subumbra/scripts/security/run-public-report-suite-vps.sh` without
+requiring ad hoc tool installs in the repo checkout itself.
+
+---
+
 ### `security/run-zap-vps.sh`
 
 Runs an OWASP ZAP baseline scan against the Subumbra staging target and writes

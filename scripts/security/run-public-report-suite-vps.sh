@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+export PATH="$HOME/bin:$HOME/.local/bin:$PATH"
 
 REMOTE_HOST="${REMOTE_HOST:-subumbra}"
 REMOTE_REPO="${REMOTE_REPO:-/opt/subumbra}"
@@ -64,6 +65,7 @@ should_run_locally() {
 REMOTE_RUNNER="${LOCAL_STAGE}/remote-suite.sh"
 cat > "${REMOTE_RUNNER}" <<'REMOTE'
 set -euo pipefail
+export PATH="$HOME/bin:$HOME/.local/bin:$PATH"
 
 remote_repo="${REMOTE_REPO:?}"
 branch="${BRANCH:?}"
