@@ -9,9 +9,16 @@ REMOTE_REPO="${REMOTE_REPO:-/opt/subumbra}"
 BRANCH="${BRANCH:-main}"
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 SUITE_NAME="${SUITE_NAME:-public-security-suite-${TIMESTAMP}}"
-REMOTE_ROOT="${REMOTE_ROOT:-\$HOME/security-scan-workspaces/${SUITE_NAME}}"
+REMOTE_ROOT="${REMOTE_ROOT:-~/security-scan-workspaces/${SUITE_NAME}}"
 LOCAL_STAGE="$(mktemp -d "${TMPDIR:-/tmp}/${SUITE_NAME}.XXXXXX")"
 INCLUDE_WEB_SCANS="${INCLUDE_WEB_SCANS:-1}"
+RUN_MODE="${RUN_MODE:-auto}"
+
+PUBLISH_HELPER="${SCRIPT_DIR}/publish-report-file.sh"
+if [[ ! -x "${PUBLISH_HELPER}" && -x "${REMOTE_REPO}/scripts/security/publish-report-file.sh" ]]; then
+  PUBLISH_HELPER="${REMOTE_REPO}/scripts/security/publish-report-file.sh"
+  REPO_ROOT="${REMOTE_REPO}"
+fi
 
 cleanup() {
   rm -rf "$LOCAL_STAGE"
@@ -25,20 +32,37 @@ require_cmd() {
   }
 }
 
-require_cmd ssh
-require_cmd scp
+require_cmd bash
 require_cmd python3
 
-echo "Running public security suite on VPS"
-echo "  host:   $REMOTE_HOST"
-echo "  repo:   $REMOTE_REPO"
-echo "  branch: $BRANCH"
-echo "  suite:  $SUITE_NAME"
-echo
-echo "This uses a clean staging clone under ~/ on the VPS so the scans do not dirty /opt/subumbra."
+resolve_home_path() {
+  local path="$1"
+  case "$path" in
+    "~") printf '%s\n' "$HOME" ;;
+    "~/"*) printf '%s/%s\n' "$HOME" "${path#~/}" ;;
+    *) printf '%s\n' "$path" ;;
+  esac
+}
 
-ssh "$REMOTE_HOST" \
-  "REMOTE_REPO='$REMOTE_REPO' BRANCH='$BRANCH' SUITE_NAME='$SUITE_NAME' REMOTE_ROOT='$REMOTE_ROOT' INCLUDE_WEB_SCANS='$INCLUDE_WEB_SCANS' bash -s" <<'REMOTE'
+should_run_locally() {
+  case "${RUN_MODE}" in
+    local) return 0 ;;
+    ssh) return 1 ;;
+    auto)
+      if ssh -o BatchMode=yes -o ConnectTimeout=5 "$REMOTE_HOST" "true" >/dev/null 2>&1; then
+        return 1
+      fi
+      git -C "$REMOTE_REPO" rev-parse --is-inside-work-tree >/dev/null 2>&1
+      ;;
+    *)
+      echo "ERROR: unsupported RUN_MODE: ${RUN_MODE} (expected auto, ssh, or local)" >&2
+      exit 1
+      ;;
+  esac
+}
+
+REMOTE_RUNNER="${LOCAL_STAGE}/remote-suite.sh"
+cat > "${REMOTE_RUNNER}" <<'REMOTE'
 set -euo pipefail
 
 remote_repo="${REMOTE_REPO:?}"
@@ -46,6 +70,11 @@ branch="${BRANCH:?}"
 suite_name="${SUITE_NAME:?}"
 remote_root="${REMOTE_ROOT:?}"
 include_web_scans="${INCLUDE_WEB_SCANS:-1}"
+
+case "${remote_root}" in
+  "~") remote_root="${HOME}" ;;
+  "~/"*) remote_root="${HOME}/${remote_root#~/}" ;;
+esac
 
 stage_dir="${remote_root}/repo"
 publish_dir="${remote_root}/publish"
@@ -283,12 +312,36 @@ printf 'remote_repo=%s\n' "${remote_repo}" >> "${remote_root}/suite-meta.txt"
 printf 'stage_dir=%s\n' "${stage_dir}" >> "${remote_root}/suite-meta.txt"
 printf 'target_url=%s\n' "${target_url}" >> "${remote_root}/suite-meta.txt"
 printf 'suite_name=%s\n' "${suite_name}" >> "${remote_root}/suite-meta.txt"
+printf 'remote_root=%s\n' "${remote_root}" >> "${remote_root}/suite-meta.txt"
 REMOTE
 
-mkdir -p "$LOCAL_STAGE/publish"
-scp -r "${REMOTE_HOST}:${REMOTE_ROOT}/publish/." "$LOCAL_STAGE/publish/" >/dev/null
-scp "${REMOTE_HOST}:${REMOTE_ROOT}/suite-status.tsv" "$LOCAL_STAGE/suite-status.tsv" >/dev/null
-scp "${REMOTE_HOST}:${REMOTE_ROOT}/suite-meta.txt" "$LOCAL_STAGE/suite-meta.txt" >/dev/null
+echo "Running public security suite on VPS"
+echo "  host:   $REMOTE_HOST"
+echo "  repo:   $REMOTE_REPO"
+echo "  branch: $BRANCH"
+echo "  suite:  $SUITE_NAME"
+echo
+echo "This uses a clean staging clone under ~/ on the VPS so the scans do not dirty /opt/subumbra."
+
+if should_run_locally; then
+  require_cmd cp
+  LOCAL_REMOTE_ROOT="$(resolve_home_path "$REMOTE_ROOT")"
+  echo "SSH to ${REMOTE_HOST} is unavailable or bypassed; running directly on this machine against ${REMOTE_REPO}."
+  REMOTE_REPO="$REMOTE_REPO" BRANCH="$BRANCH" SUITE_NAME="$SUITE_NAME" REMOTE_ROOT="$REMOTE_ROOT" INCLUDE_WEB_SCANS="$INCLUDE_WEB_SCANS" bash "${REMOTE_RUNNER}"
+  mkdir -p "$LOCAL_STAGE/publish"
+  cp -R "${LOCAL_REMOTE_ROOT}/publish/." "$LOCAL_STAGE/publish/"
+  cp "${LOCAL_REMOTE_ROOT}/suite-status.tsv" "$LOCAL_STAGE/suite-status.tsv"
+  cp "${LOCAL_REMOTE_ROOT}/suite-meta.txt" "$LOCAL_STAGE/suite-meta.txt"
+else
+  require_cmd ssh
+  require_cmd scp
+  ssh "$REMOTE_HOST" \
+    "REMOTE_REPO='$REMOTE_REPO' BRANCH='$BRANCH' SUITE_NAME='$SUITE_NAME' REMOTE_ROOT='$REMOTE_ROOT' INCLUDE_WEB_SCANS='$INCLUDE_WEB_SCANS' bash -s" < "${REMOTE_RUNNER}"
+  mkdir -p "$LOCAL_STAGE/publish"
+  scp -r "${REMOTE_HOST}:${REMOTE_ROOT}/publish/." "$LOCAL_STAGE/publish/" >/dev/null
+  scp "${REMOTE_HOST}:${REMOTE_ROOT}/suite-status.tsv" "$LOCAL_STAGE/suite-status.tsv" >/dev/null
+  scp "${REMOTE_HOST}:${REMOTE_ROOT}/suite-meta.txt" "$LOCAL_STAGE/suite-meta.txt" >/dev/null
+fi
 
 echo
 echo "Fetched publish-ready markdown sources to:"
@@ -313,7 +366,7 @@ while IFS=$'\t' read -r tool_slug exit_code; do
     continue
   fi
   output_name="${OUTPUT_NAMES[$tool_slug]:-${tool_slug}.md}"
-  "$SCRIPT_DIR/publish-report-file.sh" \
+  "$PUBLISH_HELPER" \
     "$src_file" \
     "$output_name" \
     "the VPS public security suite ${SUITE_NAME}"

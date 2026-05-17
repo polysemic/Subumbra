@@ -92,6 +92,16 @@ scans one by one, copies the publish-ready markdown back locally, and then
 publishes each report into both `security/reports/YYYY-MM/` and
 `security/reports/latest/`.
 
+If you are already on the VPS, run the repo copy directly instead:
+
+```bash
+/opt/subumbra/scripts/security/run-public-report-suite-vps.sh
+```
+
+In that case the script detects that `ssh subumbra` is unavailable and falls
+back to running locally on the VPS while still using a clean temporary clone
+under `~/security-scan-workspaces/`.
+
 ## Suggested VPS Report Layout
 
 - Shannon workspaces: `~/shannon-subumbra/reports/...`

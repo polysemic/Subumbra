@@ -153,12 +153,14 @@ then publishes the results into the repo security report folders.
 scripts/security/run-public-report-suite-vps.sh
 INCLUDE_WEB_SCANS=0 scripts/security/run-public-report-suite-vps.sh
 BRANCH=main REMOTE_HOST=subumbra scripts/security/run-public-report-suite-vps.sh
+/opt/subumbra/scripts/security/run-public-report-suite-vps.sh
 ```
 
 **Intended outcome:** a clean, serialized run of the public scan set
 (`gitleaks`, `bandit`, `pip-audit`, `trivy`, `semgrep`, `nuclei`, `zap`)
 without dirtying `/opt/subumbra`, because the scans run from a fresh VPS clone
-under `~/security-scan-workspaces/`.
+under `~/security-scan-workspaces/`. When run directly on the VPS, the script
+auto-falls back to local execution if `ssh subumbra` is not resolvable there.
 
 ---
 
