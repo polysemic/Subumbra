@@ -61,6 +61,8 @@ patterns = [
 for pattern, replacement in patterns:
     text = re.sub(pattern, replacement, text)
 
+text = re.sub(r'/(?:home|Users)/[A-Za-z0-9._-]+', '~', text)
+
 header = (
     f"> Sanitized report published from {source_label}.\n"
     f"> Source file: `{source_path}`\n\n"
