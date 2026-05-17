@@ -73,6 +73,16 @@ install_python_tools() {
   if [[ ! -x "$VENV_PYTHON" ]]; then
     python3 -m venv "$VENV_DIR"
   fi
+  if ! "$VENV_PYTHON" -m pip --version >/dev/null 2>&1; then
+    if "$VENV_PYTHON" -m ensurepip --upgrade >/dev/null 2>&1; then
+      :
+    else
+      echo "ERROR: scan venv was created without pip, and ensurepip is unavailable." >&2
+      echo "Install the distro venv support package, then rerun this script." >&2
+      echo "Suggested fix: sudo apt install python3-venv python3-full" >&2
+      exit 1
+    fi
+  fi
   "$VENV_PYTHON" -m pip install --upgrade pip
   "$VENV_PYTHON" -m pip install --upgrade bandit pip-audit
 }
