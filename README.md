@@ -203,7 +203,7 @@ subumbra/
 ## More docs
 
 - [Full install guide (Docker from scratch)](docs/subumbra-install.md)
-- [Cloudflare Tunnel + CF Access guide](docs/cloudflare-tunnel-access.md)
+- [Cloudflare setup guide](docs/cloudflare-setup.md)
 - [Provider templates reference](docs/provider-templates.md)
 - [Integration recipes (curl examples per provider)](docs/integration-recipes.md)
 - [Operator guide (day-2 operations, recovery)](docs/operator-guide.md)

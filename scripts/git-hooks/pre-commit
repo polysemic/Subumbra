@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Subumbra - opt-in Git pre-commit hook template
+#
+# Blocks local-only council files and scans staged changes for secrets.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+GITLEAKS_CONFIG="scripts/security/gitleaks/.gitleaks.toml"
+
+cd "${REPO_ROOT}"
+
+staged_paths="$(git diff --cached --name-only --diff-filter=ACMR || true)"
+blocked_paths="$(printf '%s\n' "${staged_paths}" | grep '^council/' || true)"
+
+if [[ -n "${blocked_paths}" ]]; then
+  echo "ERROR: refusing to commit local-only council files:" >&2
+  echo "${blocked_paths}" >&2
+  echo >&2
+  echo "Council materials must stay out of git." >&2
+  exit 1
+fi
+
+allowed_scripts='^scripts/council/(capture-probe\.sh|vps-proof-run\.sh|clean-run\.sh|preflight\.sh|reset\.sh|verify\.sh|fetch-run-artifacts\.sh|vps-sweep\.sh)$'
+blocked_scripts="$(
+  printf '%s\n' "${staged_paths}" \
+    | grep '^scripts/council/' \
+    | grep -Ev "${allowed_scripts}|^scripts/council/local/" \
+    || true
+)"
+
+if [[ -n "${blocked_scripts}" ]]; then
+  echo "ERROR: refusing to commit non-canonical scripts/council paths:" >&2
+  echo "${blocked_scripts}" >&2
+  echo >&2
+  echo "Place one-off local helpers under scripts/council/local/." >&2
+  exit 1
+fi
+
+echo "[subumbra pre-commit] Checking staged changes for secrets..."
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks protect --staged --verbose --config="${GITLEAKS_CONFIG}"
+elif command -v docker >/dev/null 2>&1; then
+  docker run --rm -v "${REPO_ROOT}:/path" -w /path zricethezav/gitleaks:latest protect --staged --verbose --config="${GITLEAKS_CONFIG}"
+else
+  echo "WARNING: gitleaks not found and Docker is unavailable; skipping staged secret scan." >&2
+fi
+
+exit 0

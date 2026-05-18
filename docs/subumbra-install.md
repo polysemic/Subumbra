@@ -446,7 +446,7 @@ inputs. See the recovery section in the
 ## Next
 
 - [docs/provider-templates.md](provider-templates.md)
-- [docs/cloudflare-tunnel-access.md](cloudflare-tunnel-access.md)
+- [docs/cloudflare-setup.md](cloudflare-setup.md)
 - [docs/subumbra-testing.md](subumbra-testing.md)
 - [docs/apps/litellm/install.md](apps/litellm/install.md)
 - [docs/operator-guide.md](operator-guide.md)
