@@ -75,6 +75,13 @@ them.
   `/setup/keygen`, `/internal/*`, `/manage/key/*`) now use Worker-side
   per-IP throttling with `429 rate_limit_exceeded_auth`, and built-in signed
   provider templates now ship active default `velocity` controls.
+- **r74 (planned/active implementation):** `scripts/subumbra-verify` is the
+  operator source-trust checker. It warns by default for unsigned branches or
+  lightweight tags, fails those only with `SUBUMBRA_REQUIRE_SIGNED_TAG=1`, and
+  treats `.env` residue as follows: non-empty `SUBUMBRA_SETUP_TOKEN`,
+  `MASTER_DECRYPTION_KEY`, or `WORKER_PRIVATE_KEY` is a failure; non-empty
+  `CF_API_TOKEN` is a warning; `TUNNEL_TOKEN`, `CF_ACCESS_CLIENT_ID`, and
+  `CF_ACCESS_CLIENT_SECRET` are expected runtime credentials.
 
 ---
 
@@ -100,6 +107,9 @@ them.
   runtime bring-up do not require probe provisioning.
 - `bootstrap.sh` now runs on the host, mounts repo-local `.env` into the
   bootstrap container, and shreds `.env.bootstrap` after a successful run.
+- `bootstrap.sh` runs `./scripts/subumbra-verify --preflight` before reading
+  `.env.bootstrap` or prompting for secrets. Local development can bypass that
+  source check with `SUBUMBRA_ALLOW_UNVERIFIED_SOURCE=I_ACCEPT_RISK`.
 - **R73 (planned/active implementation):** bootstrap can optionally create
   Cloudflare Tunnel, DNS, and CF Access resources from one expanded
   `CF_API_TOKEN`; non-secret Cloudflare resource IDs live in

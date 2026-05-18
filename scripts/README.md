@@ -79,6 +79,33 @@ any mismatch is printed and the script exits non-zero.
 
 ---
 
+### `subumbra-verify`
+
+Checks whether the local source and optional deployment state are safe to trust
+before entering bootstrap secrets.
+
+```bash
+./scripts/subumbra-verify --verbose
+./scripts/subumbra-verify --source-only --json
+SUBUMBRA_REQUIRE_SIGNED_TAG=1 ./scripts/subumbra-verify --source-only
+```
+
+Modes:
+
+- `--source-only`: Git/source checks only.
+- `--preflight`: bootstrap-safe source and local-state checks.
+- `--cloudflare`: also runs `scripts/subumbra-verify-deploy` for read-only
+  Worker drift verification; a token with **Workers Scripts: Read** is enough.
+- `--verbose`: prints safe check names and Git command descriptions.
+- `--json`: emits JSON lines with `PASS`, `WARN`, `FAIL`, or `SKIP`.
+
+`./bootstrap.sh` runs `./scripts/subumbra-verify --preflight` before it reads
+`.env.bootstrap` or prompts for secrets. Use
+`SUBUMBRA_ALLOW_UNVERIFIED_SOURCE=I_ACCEPT_RISK` only for intentional local
+development bypasses.
+
+---
+
 ### `subumbra-env-ingest.py`
 
 Generates a draft `subumbra.yaml.proposed` and `env.bootstrap.proposed` from
