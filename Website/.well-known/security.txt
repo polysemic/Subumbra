@@ -1,0 +1,5 @@
+Contact: https://github.com/polysemic/Subumbra/security
+Expires: 2027-05-17T00:00:00Z
+Preferred-Languages: en
+Canonical: https://subumbra.dev/.well-known/security.txt
+Policy: https://github.com/polysemic/Subumbra/security/policy

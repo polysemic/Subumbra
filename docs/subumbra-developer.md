@@ -1,521 +1,191 @@
-# Subumbra Developer Guide
+# Subumbra Developer & Contributor Guide
 
-*For repeated VPS testing, council rounds, clean resets, and operational
-management. This is the deep-dive reference for contributors and council members.*
-
----
-
-## 1. Branch Strategy
-
-One branch per round or test effort.
-
-```
-main                    ← stable / known-good
-VPS-Stabilization       ← active work branch (example)
-round-42-topic          ← future round
-```
-
-Avoid long-lived generic `dev` branches. Round branches make it easy to answer:
-what commit is the VPS actually running?
+*This document is the deep-dive reference for developers, contributors, and self-hosted operators looking to extend Subumbra, write custom adapters, contribute to the core codebase, or verify deployment integrity.*
 
 ---
 
-## 2. Local → GitHub → VPS Workflow
+## 1. Branch and Contribution Strategy
 
-### Local (where code changes happen)
+Subumbra follows strict semantic versioning and a clean-history development model.
 
-```bash
-git checkout main && git pull --ff-only
-git checkout -b round-42-topic
-# make changes
-git add <files>
-git commit -m "Round 42: description"
-git push -u origin round-42-topic
-```
+### Branch Conventions
+* **`main`**: The stable, production-ready branch. All releases are tagged commits from `main`.
+* **Feature Branches (`feature/<name>` or `fix/<name>`)**: All development work, bug fixes, and feature additions must happen in short-lived feature branches branched off `main`.
 
-Preferred rule: push the branch to GitHub before asking another LLM to test it.
-That keeps the VPS test target tied to a real commit SHA instead of a local-only
-workspace state.
+Avoid direct commits to `main` for complex upgrades. Instead, submit a Pull Request (PR) to facilitate peer review and allow automated integration testing to pass before merging.
 
-### VPS (pull + run + verify only)
+---
 
-```bash
-ssh subumbra
-cd /opt/subumbra
-git fetch origin
-git checkout round-42-topic
-git pull --ff-only
-git branch --show-current
-git rev-parse --short HEAD   # confirm expected SHA
-git status                   # must be clean
-```
+## 2. Local → Server Deployment Workflow
 
-For council verification reports, always record:
-
-- VPS path under test
-- branch name
-- commit SHA
-- whether the checkout was clean or required a temporary staging path
-
-Preferred verification rule:
-
-- use `/opt/subumbra` for normal VPS verification, or
-- use `./scripts/council/clean-run.sh` for isolated fresh-state proof
-
-Do not bounce casually between `/opt/subumbra` and ad hoc `~/subumbra-*test`
-checkouts in the same verification attempt. Pick one path, record it, and keep
-the run self-consistent.
-
-Operator-safety rules:
-
-- Treat `/opt/subumbra` as the canonical operator checkout, not disposable test space.
-- Do not delete, replace, empty, or repurpose `/opt/subumbra` when using a staging fallback.
-- Do not run `docker compose down`, `down -v`, or equivalent cleanup against the live `/opt/subumbra` stack during verification unless the approved lane explicitly requires an isolated fresh-install proof elsewhere.
-- If a fallback checkout is needed, create a one-off sibling path under your home directory and leave `/opt/subumbra` untouched.
-
-### If the VPS cannot pull the branch cleanly
-
-Use this only as a fallback when the branch is not yet reachable from GitHub or
-when you need to test a local commit exactly as-built.
-
-1. Create a local bundle:
-
-```bash
-git bundle create subumbra-round.bundle <branch-name>
-```
-
-2. Copy the bundle to the VPS:
-
-```bash
-scp subumbra-round.bundle subumbra:/tmp/
-```
-
-3. On the VPS, fetch and check out a one-off staging branch in a one-off path:
-
-```bash
-ssh subumbra
-mkdir -p ~/subumbra-stage-<round>-<agent>-<timestamp>
-cd ~/subumbra-stage-<round>-<agent>-<timestamp>
-git fetch /tmp/subumbra-round.bundle <branch-name>:<vps-test-branch>
-git checkout <vps-test-branch>
-```
-
-Document this in the verification report as a staging workaround, and delete the
-staging checkout after the run. Do not reuse long-lived `~/subumbra-r41test`
-style directories across verifiers.
-
-Staging fallback safety requirements:
-
-- The staging checkout exists only to prove the branch under test; it must not become the new long-lived VPS working directory.
-- Never move, rename, or sync the staging checkout onto `/opt/subumbra` as part of verification.
-- Never point destructive cleanup commands at `/opt/subumbra` while cleaning up staging paths.
-- Any stack teardown for fallback testing must target only the isolated staging project name or temp workspace created for that run.
-
-### If bootstrap files or harness files are missing on the VPS
-
-If a full smoke test requires live bootstrap inputs or the council harness is
-not present in the VPS checkout, use `scp` deliberately and document it. This
-is also the normal way to provide a round-local `council/<round>/verify-round.sh`
-hook on the VPS, because `council/` remains local-only and is not committed:
-
-```bash
-scp .env.bootstrap_bak subumbra:/tmp/
-scp -r council scripts/council subumbra:subumbra-stage/
-```
-
-This is acceptable for verification when:
-
-- the missing file is an operator input such as `.env.bootstrap_bak`, or
-- the missing file is harness scaffolding needed to run official proof capture
-
-Any such copy step must be logged in the verification report.
-
-### Copy proof artifacts back into the local round folder
-
-After a VPS proof run succeeds, copy back only the round-scoped proof and
-clean-run logs if the branch-local repo does not already contain them:
-
-```bash
-mkdir -p council/<round>/runs
-scp -r subumbra:/opt/subumbra/council/<round>/runs/<run-id> council/<round>/runs/
-```
-
-Or use the helper:
-
-```bash
-./scripts/council/fetch-run-artifacts.sh <round> <run-id>
-```
-
-If you want to fetch and then remove the remote run directory after confirming
-the local copy:
-
-```bash
-./scripts/council/fetch-run-artifacts.sh <round> <run-id> subumbra /opt/subumbra --delete-remote
-```
-
-Do not copy `/tmp/subumbra-clean-run-*` workspaces back to your machine. Those
-are disposable server-side scratch space and should be deleted by the harness
-or manually purged if `--keep-workspace` was used for debugging.
-
-### Optional round-local verification hooks
-
-`scripts/council/verify.sh` is the round-agnostic core verifier. If a round
-needs extra proof beyond the shared baseline, add one of these local hook files:
-
-- `council/<round>/verify-round.sh`
-- `council/<round>/verify-round-*.sh`
-
-The core verifier will run any matching hook scripts after the shared checks and
-capture each hook's stdout/stderr into the current run folder as:
-
-- `council/<round>/runs/<run-id>/verify-round.log`
-- `council/<round>/runs/<run-id>/verify-round-<name>.log`
-
-Hook scripts should write any round-specific proof artifacts into the provided
-run directory via the `VERIFY_ARTIFACT_DIR` environment variable.
-
-### Merge to main (only after VPS passes)
+### 1. Local Development (Where Code Changes Happen)
 
 ```bash
 git checkout main
 git pull --ff-only
-git merge --ff-only round-42-topic
-git push origin main
+git checkout -b feature/your-feature-name
+
+# Make your changes, edit code, and write tests
+git add <files>
+git commit -m "feat: short description of your change"
+git push -u origin feature/your-feature-name
 ```
+
+Before submitting a Pull Request, ensure that:
+* **Python tests and linting** are passing locally.
+* **Workflows are verified** with no static analysis warnings (e.g. no CodeQL, Bandit, or dependency alerts).
+* Your feature branch contains no uncommitted temporary files or local `.env` secrets.
+
+### 2. Isolated Deployment Testing (Clean Run Harness)
+
+Subumbra includes an automated integration testing harness under `scripts/council/` that simulates a completely fresh, zero-state installation from scratch to verify setup and bootstrap stability.
+
+To run the full clean-state integration test suite:
+
+```bash
+# ⚠️ Precondition: Stop any active containers first
+docker compose down -v
+
+# Run the clean install integration suite
+./scripts/council/clean-run.sh --build all
+```
+
+The harness does the following:
+1. Provisions a clean, isolated Docker environment.
+2. Builds the containers fresh from your current local source files.
+3. Runs the complete `./bootstrap.sh` pipeline (generating mock API keys and deploying a test Worker).
+4. Verifies transparent routing, secure vault isolation, and policy enforcement checks.
+5. Outputs a detailed timestamped audit report.
 
 ---
 
 ## 3. Rebuild / Restart Decision Tree
 
-| What changed | Action |
-|---|---|
-| Docs only | Nothing |
-| Mounted config / `.env` values | `docker compose up -d --force-recreate` |
-| Image-built service code | `docker compose up -d --build --force-recreate` |
-| Bootstrap / tokens / RSA key pair | Full bootstrap sequence (section 4) |
+When testing local edits on your development stack, use this reference to decide how to apply changes:
 
----
-
-## 3.5 Verification Workflow Policy
-
-Use different lanes for different goals. Do not pay the full fresh-install cost
-for every tiny edit, but do require one clean proof before asking other council
-members to verify.
-
-### Lane A — local development
-
-Use this while implementing and iterating quickly.
-
-- edit code locally
-- run the narrowest checks that prove the changed behavior
-- use `docker compose up -d --force-recreate` or `./scripts/council/reset.sh`
-  when the running state must be refreshed
-- do not run `clean-run.sh` for every small edit unless the round touches
-  install, bootstrap, reset, or proof-capture behavior
-
-### Lane B — pre-push certification
-
-Use this before handing the branch to another verifier.
-
-- finish the implementation locally
-- run targeted local checks first
-- if the round changes fresh-state behavior, user-facing install flow, or the
-  verification harness, run:
-
-```bash
-./scripts/council/clean-run.sh --round <round-dir-name> --agent <your-name>
-```
-
-> **Precondition:** local `clean-run.sh` fails immediately if any of
-> `subumbra-keys`, `subumbra-proxy`, or `subumbra-ui` are already running.
-> Stop the local stack first: `docker compose down` before running locally.
-> VPS clean-run is the preferred lane for this round anyway — use Lane C.
->
-> **Image rebuild:** if this round changed any image-built service
-> (`bootstrap/`, `ui/`, `subumbra-keys/`, `subumbra-proxy/`), pass
-> `--build <service>` so the workspace rebuilds from current source.
-> Otherwise the clean-run uses whatever image is cached on the host.
->
-> **Failing clean-run artifacts:** a failing `verify.sh` step still produces
-> a run folder (e.g. `runs/claude-20260416T181938/`). Fetch it alongside the
-> clean-run wrapper folder — both are useful for diagnosis.
-
-- fix any issues found by the clean run
-- rerun until the fresh-state path is clean
-- then push the branch
-
-This is the "do not waste the verifier's time" gate.
-
-Run a local clean run before push when the round changes any of:
-
-- `bootstrap/`
-- `scripts/council/reset.sh`
-- `scripts/council/verify.sh`
-- `scripts/council/clean-run.sh`
-- `docker-compose.yml`
-- docs that claim exact install or verification steps
-- token/bootstrap/fresh-install behavior
-
-### Lane C — VPS verification
-
-Use the VPS for the checks that cannot be reproduced credibly on the local
-machine, especially real-app or real-environment validation.
-
-- pull the branch on `/opt/subumbra`
-- run one fresh-state `clean-run.sh` for official verification when the round
-  requires certification-style proof
-- if that first clean run exposes a small fix, patch locally, push, pull, then
-  use `reset.sh` + `verify.sh` for focused follow-up reruns or diagnostics
-- rerun VPS `clean-run.sh` only if the fix changed bootstrap, install, reset,
-  or fresh-state behavior again
-
-Examples of VPS-only proof:
-
-- Open WebUI cutover
-- n8n workflow execution
-- standalone LiteLLM coexistence proof
-- any host-specific or multi-app validation not available locally
-
-### Practical default
-
-Use this default sequence unless the round explicitly requires something else:
-
-1. Implement locally.
-2. Run fast local checks.
-3. If the round touches fresh-state/install/harness behavior, run local
-   `clean-run.sh`.
-4. Push the branch only after that path is clean.
-5. Pull on the VPS.
-6. Run one fresh VPS `clean-run.sh` for official verification.
-7. Use `reset.sh` + `verify.sh` only for focused follow-up reruns unless the
-   fix changed fresh-state behavior again.
+| What Changed | Action Required | Command |
+|---|---|---|
+| **Documentation Only** | None | N/A |
+| **Mounted configuration, rules, or `.env` values** | Force Recreate | `docker compose up -d --force-recreate` |
+| **Service code (`proxy`, `ui`, `keys`, `probe`)** | Rebuild + Recreate | `docker compose up -d --build --force-recreate` |
+| **Bootstrap code, tokens, or core RSA key pairs** | Full Re-bootstrap | `./bootstrap.sh` |
 
 ---
 
 ## 4. Full Bootstrap Sequence
 
-Use after any change to bootstrap code, token rotation, or a clean reset:
+A full bootstrap is required for a new installation, after token expiration, or when modifying core encryption configurations:
 
 ```bash
-docker compose --profile bootstrap build bootstrap   # only if bootstrap code changed
+# 1. Copy the example manifest and configure your keys
+cp subumbra.example.yaml subumbra.yaml
+nano subumbra.yaml
+
+# 2. Rebuild the bootstrap container if bootstrap code changed
+docker compose --profile bootstrap build bootstrap
+
+# 3. Run the bootstrap runner
 ./bootstrap.sh
+
+# 4. Spin up the runtime services
 docker compose up -d --force-recreate
 ```
 
-If `.env` does not exist yet:
-
-```bash
-cp .env.example .env
-# set LITELLM_MASTER_KEY: openssl rand -hex 32
-```
-
 ---
 
-## 5. Full Reset — Clean Install From Scratch
+## 5. Day-2 Operational Commands
 
-Wipes all local state: containers, named volumes (keys.json, audit.db,
-runtime.env, kv-config.json, public_key.pem), built images, and credential
-files. Use when you want the server to behave exactly like a first-time install.
+Subumbra's `./bootstrap.sh` host wrapper supports several direct CLI commands to facilitate targeted Day-2 administrative tasks without needing a full state teardown.
 
+### 1. Adding a New Provider Key
+To provision an additional provider key without impacting existing encrypted keys:
+1. Open `subumbra.yaml` and configure/uncomment the new provider block.
+2. Run the bootstrap wrapper:
+   ```bash
+   ./bootstrap.sh
+   ```
+   *The bootstrap script detects existing encrypted state, keeps current keys completely intact, and only provisions the new key.*
+
+### 2. Rotating Provider Secrets (Offline)
+To rotate a provider's underlying API secret without interacting with Cloudflare (uses the local public key to re-encrypt):
 ```bash
-# Stop everything and remove named volumes
-docker compose down --remove-orphans -v
-
-# Remove built images
-docker compose down --rmi all 2>/dev/null || true
-docker rmi subumbra-bootstrap 2>/dev/null || true
-
-# Remove local credential and runtime files
-rm -f .env .env.bootstrap
+./bootstrap.sh --rotate
 ```
+*You will be prompted to enter the new secret key. The target record in `keys.json` is updated atomically with a new AES-256-GCM data encryption key (DEK) wrapped by the active RSA public key.*
 
-Then bootstrap fresh (section 4 above).
+### 3. Modifying Adapter Access Rules
+To add or remove an adapter's access to a specific key without re-encrypting the key:
+* **Add Adapter**:
+  ```bash
+  ./bootstrap.sh --add-adapter <key_id> <adapter_id>
+  ```
+* **Revoke Adapter**:
+  ```bash
+  ./bootstrap.sh --revoke-adapter <key_id> <adapter_id>
+  ```
+* **Re-publish Policy Updates**:
+  ```bash
+  ./bootstrap.sh --publish-policy <key_id>
+  ```
 
-> **Cloudflare state is NOT wiped by this reset.**
->
-> - The CF Worker, the SubumbraVault custody state, and the KV namespace remain in your Cloudflare
->   account.
-> - KV *content* (`subumbra_registry_v1`) is completely overwritten on every
->   bootstrap run — no leftovers from a previous set of keys.
-> - Bootstrap calls one-shot `/setup/keygen` so Cloudflare generates and retains
->   the active RSA key pair inside `SubumbraVault`; old ciphertext blobs from a
->   wiped volume are unrecoverable by a newly initialized vault state anyway.
->
-> **Edge case:** if you delete the KV namespace in the CF dashboard without
-> wiping the volume, bootstrap now re-checks the saved `kv-config.json`
-> namespace ID against the active Cloudflare account and falls back to the
-> existing title-scan/create path automatically.
->
-> Manual `kv-config.json` removal is no longer the normal fix path. Keep it as
-> a last-resort cleanup step only if the file itself is malformed:
-> ```bash
-> docker run --rm -v subumbra_keys_data:/data alpine rm /data/kv-config.json
-> ```
-> Then rerun bootstrap.
-
----
-
-## 5.5 VPS Sweep For Staging Leftovers
-
-Use this on the VPS when previous verification attempts left behind one-off
-staging directories, clean-run temp workspaces, or Docker resources tied to old
-staging project names.
-
-Inspect first:
-
-```bash
-./scripts/council/vps-sweep.sh
-```
-
-Purge the scoped leftovers:
-
-```bash
-./scripts/council/vps-sweep.sh --purge
-```
-
-Scope of this helper:
-
-- `~/subumbra-stage`
-- `~/subumbra-r41test*`
-- `/tmp/subumbra-clean-run-*`
-- Docker containers, networks, and volumes labeled with compose projects
-  `subumbra-clean-run`, `subumbra-stage`, or `subumbra-r41test`
-
-This helper is intended for verification leftovers only. It does not target the
-normal `/opt/subumbra` checkout or a standard long-lived stack unless those
-resources were started under one of the scoped staging project names above.
-
----
-
-## 6. Provider Registry Operations
-
-### Add or update a built-in provider without redeploying the Worker
-
-1. Update `worker/src/providers.json`
-2. Push the updated registry to Cloudflare KV:
-
+### 4. Direct Registry Synchronization
+If you need to push local policies directly to the Cloudflare KV database without rebuilding or restarting:
 ```bash
 ./bootstrap.sh --push-registry
 ```
 
-Visibility window: ~90 seconds (KV `cacheTtl: 30` + CF eventual consistency).
-
-### Add a custom provider permanently
-
-Run the interactive wizard — it collects `target_host`, `auth_header`,
-`auth_prefix`, and writes to `/app/data/custom-providers.json` on the volume.
-Custom entries merge with built-ins on every `--push-registry` run.
-
-### Minimal `.env.bootstrap` for `--push-registry` only
-
-```text
-CF_API_TOKEN=...
-CF_ACCOUNT_ID=...
-CF_WORKER_NAME=subumbra-proxy
+### 5. Revoking a Provider Key Entirely
+To delete a key and permanently block access to it at both the local sidecar and Worker boundaries:
+```bash
+./bootstrap.sh --revoke-key <key_id>
 ```
-
-No provider API keys needed for registry-only publishes.
 
 ---
 
-## 7. Rotation and Recovery
+## 6. Full Reset (Clean Install from Scratch)
 
-### Single-key rotation (one provider secret changed)
-
-```bash
-./bootstrap.sh --rotate
-```
-
-No service restart required after per-key rotation.
-
-### Full re-bootstrap (new RSA key pair, new tokens)
+To wipe all local development state and return the repository to a completely pristine, first-time-install state:
 
 ```bash
-./bootstrap.sh
-docker compose up -d --force-recreate
+# 1. Stop all containers and delete named volumes
+docker compose down --remove-orphans -v
+
+# 2. Clean cached images and bootstrap caches
+docker compose down --rmi all 2>/dev/null || true
+docker rmi subumbra-bootstrap 2>/dev/null || true
+
+# 3. Shred local credential and environment configuration files
+rm -f .env .env.bootstrap subumbra.yaml
 ```
 
-Re-enter every key you want to keep. Omitted keys are removed from the registry.
-After bootstrap completes, the repo-local `.env` retains the generated
-`SUBUMBRA_SETUP_TOKEN` for operator reference. The transient Cloudflare Worker
-secret is still deleted during bootstrap, so a direct post-bootstrap
-`POST /setup/keygen` with that saved token should return `403`.
-
-### Token drift recovery
-
-If containers are still using stale tokens after bootstrap:
-
-```bash
-docker compose up -d --force-recreate
-```
-
-### Emergency adapter expiry (subumbra-keys-side only)
-
-```bash
-./scripts/subumbra-expire-adapter.sh <adapter_id>
-docker compose up -d --force-recreate subumbra-keys
-```
-
-This blocks new subumbra record fetches for that adapter. It does **not** revoke
-Worker-side token authority. For full revocation, run full re-bootstrap.
+> [!NOTE]
+> **Cloudflare state is NOT deleted by a local reset.** 
+> The Cloudflare Worker script, Durable Object custody database, and KV namespace will remain intact on your Cloudflare account. However, running a new `./bootstrap.sh` after a reset will completely overwrite the KV namespace policies and generate fresh SQLite-backed vault instances, rendering previous encrypted ciphertexts safely unrecoverable.
 
 ---
 
-## 8. Cloudflare Operational Notes
+## 7. Security Hardening and PR Checks
 
-**Current observability defaults:**
+All code contributions must meet our strict repository safety rules. The following automated scans are executed on every pull request to protect the supply chain:
 
-```toml
-[observability]
-enabled            = true
-head_sampling_rate = 1
+### 1. Token Permissions (`contents: read`)
+All GitHub Actions workflows are restricted to read-only scopes. Workflows must never be granted global write permissions. If a job requires writing to Code Scanning (`security-events: write`), it must be declared explicitly at the **individual job level**.
+
+### 2. Dependency Pinning
+* **GitHub Actions**: Actions must be pinned to specific tags/commits.
+* **Pip Packages**: All installations in Dockerfiles and workflows must use exact semantic version pinning (e.g. `bandit==1.7.8` or via `requirements.txt`).
+
+### 3. Static Security Analysis (SAST)
+Before pushing commits, run local static scans to ensure no secrets, plaintext keys, or high-risk standard library calls are included:
+```bash
+# Run Bandit on the Python codebase
+bandit -r bootstrap/ subumbra-proxy/ ui/ -x tests/
 ```
 
-Invocation logs and tracing are off by default (billable; enable only for
-active debug sessions).
-
-**Pricing references:**
-
-- Workers Logs: `https://developers.cloudflare.com/workers/observability/logs/workers-logs/`
-- Durable Objects: `https://developers.cloudflare.com/durable-objects/platform/pricing/`
-
-**Tunnel routing note:** if the UI is exposed through cloudflared, route to the
-Docker-internal service name (`http://subumbra-ui:8080`), not `localhost:6563`.
-The UI binds to `127.0.0.1:6563` on the host but cloudflared inside the Docker
-network resolves via Docker DNS.
-
 ---
 
-## 9. Council Harness Reference
+## 8. Related Documentation
 
-See [`docs/subumbra-testing.md`](./subumbra-testing.md) for harness usage,
-evidence taxonomy, and the reporting template.
-
-Council workflow rules: [`council/COUNCIL.md`](../council/COUNCIL.md)
-
-Council prompt templates: [`council/COUNCIL_PROMPT.md`](../council/COUNCIL_PROMPT.md)
-
-Fresh-session context files (read before starting council work):
-
-1. `council/COUNCIL.md`
-2. `council/COUNCIL_PROMPT.md`
-3. `PROJECT_STATUS.md`
-4. `CLAUDE.md`
-5. `docs/council-memory.md`
-6. `docs/project-memory.md`
-7. Active round folder
-
----
-
-## 10. Pre-Test Checklist
-
-Before testing on the VPS, confirm:
-
-1. What branch am I on locally?
-2. Did I commit and push the changes?
-3. Did the VPS pull that branch and SHA?
-4. Did I rebuild/recreate if runtime code changed?
-5. Is `git status` clean on the VPS?
-6. Did I write down what passed or failed?
-7. If I used `scp`, bundle staging, or a temporary VPS checkout, did I log it?
-8. Did I copy PASS proof artifacts back into the local round folder?
+* **[Architecture Overview](../CLAUDE.md)**: Conceptual diagrams, design invariants, and threat mitigations.
+* **[Adapter Contract](./adapter-contract.md)**: Specifications for building or connecting downstream clients to the transparent proxy.
+* **[Testing Taxonomy](./subumbra-testing.md)**: Harness taxonomy, evidence capture, and diagnostic commands.

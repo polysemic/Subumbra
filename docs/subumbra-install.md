@@ -101,14 +101,16 @@ built-in templates and how to customize them.
 
 `bootstrap.sh` creates `.env` from `.env.example` automatically.
 
-You only need to copy the example file before bootstrap if you want to pre-set
-`CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`, or `TUNNEL_TOKEN`; if you
-wish to use a cloudflare-managed tunnel and/or Cloudflare Access.
-```bash
-cp .env.example .env
-```
+You do not need to pre-edit `.env` to use Cloudflare Tunnel or CF Access.
+`bootstrap.sh` creates `.env` from `.env.example` automatically on first run,
+and the interactive wizard now collects Cloudflare Tunnel and Access runtime
+credentials (`TUNNEL_TOKEN`, `CF_ACCESS_CLIENT_ID`,
+`CF_ACCESS_CLIENT_SECRET`) and writes them to `.env` for you.
 
-> Do not `source .env` after bootstrap, `SUBUMBRA_ADAPTER_REGISTRY` Bash mangles it.
+For automation (non-interactive) use, add these as optional lines in
+`.env.bootstrap` (see `.env.bootstrap.example` for the template).
+
+> Do not `source .env` after bootstrap — `SUBUMBRA_ADAPTER_REGISTRY` is a JSON blob that Bash mangles.
 
 ## 4. Cloudflare Prerequisites
 
@@ -146,6 +148,11 @@ later. Subumbra does **not** retain `CF_API_TOKEN` or `CF_ACCOUNT_ID` in `.env`.
 - `./bootstrap.sh --revoke-key <key_id> --offline` — marks key revoked in `keys.json` only; run
   without `--offline` afterward to sync KV.
 
+**CF credentials not required — runtime credential rotation only:**
+- `./bootstrap.sh --update-tunnel` — update `TUNNEL_TOKEN` in `.env`
+- `./bootstrap.sh --update-access` — update `CF_ACCESS_CLIENT_ID` /
+  `CF_ACCESS_CLIENT_SECRET` in `.env`
+
 ## 5. Run Bootstrap
 
 Subumbra bootstrap supports two operator paths. Choose one:
@@ -168,6 +175,18 @@ are hidden and not stored anywhere after bootstrap.
 Cloudflare API token: <hidden>
 Cloudflare account ID: <hidden>
 ```
+
+**Step 1b — Optional Cloudflare runtime credentials**
+
+If you use Cloudflare Tunnel and/or Cloudflare Access, the wizard can also
+collect:
+
+- `TUNNEL_TOKEN`
+- `CF_ACCESS_CLIENT_ID`
+- `CF_ACCESS_CLIENT_SECRET`
+
+These are optional. Leave them blank to skip, or provide them now so bootstrap
+writes them into `.env` automatically.
 
 **Step 2 — Worker name**
 
@@ -388,6 +407,7 @@ inputs. See the recovery section in the
 ## Next
 
 - [docs/provider-templates.md](provider-templates.md)
+- [docs/cloudflare-tunnel-access.md](cloudflare-tunnel-access.md)
 - [docs/subumbra-testing.md](subumbra-testing.md)
 - [docs/apps/litellm/install.md](apps/litellm/install.md)
 - [docs/operator-guide.md](operator-guide.md)

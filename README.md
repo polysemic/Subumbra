@@ -84,7 +84,8 @@ The wizard will ask you for:
 1. **Your Cloudflare API token** — paste it in (this isn't stored anywhere and is only used for the initial setup and to update the worker)
 2. **Your Cloudflare Account ID** — paste it in (this isn't stored anywhere and is only used for the initial setup and to update the worker)
 3. **A Worker name** — just press Enter to use the default (`subumbra-proxy`)
-4. **Your API keys** — for each provider in your `subumbra.yaml`, it will ask for the key
+4. **Optional Cloudflare Tunnel / Access runtime credentials** — if you use them, provide `TUNNEL_TOKEN` and/or the CF Access service token pair here; otherwise leave them blank
+5. **Your API keys** — for each provider in your `subumbra.yaml`, it will ask for the key
 
 **Automated Alternative:** If you filled `.env.bootstrap`, all prompts will be skipped and the wizard will use the values from the file.
  
@@ -202,6 +203,7 @@ subumbra/
 ## More docs
 
 - [Full install guide (Docker from scratch)](docs/subumbra-install.md)
+- [Cloudflare Tunnel + CF Access guide](docs/cloudflare-tunnel-access.md)
 - [Provider templates reference](docs/provider-templates.md)
 - [Integration recipes (curl examples per provider)](docs/integration-recipes.md)
 - [Operator guide (day-2 operations, recovery)](docs/operator-guide.md)

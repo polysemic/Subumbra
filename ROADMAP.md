@@ -2,21 +2,20 @@
 
 This is the **operator- and contributor-facing** backlog: planned work, open ideas, and long-range possibilities. **Nothing here is a fixed sequence**—order shifts with real installs, incidents, and feedback. Items are grouped so similar work can be scheduled together when you pick the next round.
 
+Current planning direction after `1.0.0-alpha`:
+
+- **Core Subumbra hardening and product simplification** are the active priority:
+  observability, policy lifecycle, management API, secure UI.
+- Cloudflare is now a **completed optional capability** — see the appendix for
+  `r73` (auto-provisioning, planned) and deferred/watch items.
+- Future Cloudflare work is **debug- or request-driven only** unless a new round
+  explicitly reopens it.
+
 ---
 
 ## Near-term priority candidates
 
 _Work that tends to reduce operator time-to-diagnosis or closes obvious foot-guns._
-
-### Cloudflare Tunnel and Cloudflare Access (higher priority)
-
-_Operator goal: expose the dashboard (and optionally other services) through Cloudflare without shipping the UI on `0.0.0.0`, with strong edge auth. Full "one-click" Access policy creation is account-specific; plan for **repeatable docs first**, then **optional helpers** where the API is stable._
-
-- **End-to-end guide + checklist** — create or extend an operator-facing doc (e.g. `docs/subumbra-install.md` or a dedicated `docs/cloudflare-tunnel-access.md`): Cloudflare Zero Trust → Tunnel → route to **`http://subumbra-ui:8080`** on the Docker **internal** network (not host `127.0.0.1:6563` — see `docs/subumbra-developer.md` tunnel routing note); `TUNNEL_TOKEN` in `.env`; `docker compose --profile tunnel up -d`; verify UI and Worker paths independently.
-- **CF Access for the UI** — document Access application (hostname), allowed IdPs, and **leave `UI_USERNAME` / `UI_PASSWORD` unset** so the container does not double-auth; align with `README.md` / `docs/operator-guide.md` matrix rows.
-- **CF Access in front of the Worker (optional)** — when used, operators need `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` on **proxy** (and probe) so service tokens are sent; cross-link CRITICAL-3 behavior (`PROJECT_STATUS.md`) so misconfiguration is diagnosable.
-- **Automate what is safe to automate** — optional script or `make`/compose target that: validates `TUNNEL_TOKEN` / Access-related env vars are set; prints a generated **public hostname** checklist; emits **config snippets** (ingress rules, env block) for copy-paste. Reserve **API-driven** Access app or policy creation for a later round only if you accept maintaining Cloudflare account/zone assumptions.
-- **Proof / smoke path** — add a short "Tunnel + Access verification" subsection to testing docs: expected headers, 401 vs 200 on `/api/status`, and a note to tail `cloudflared` logs.
 
 ### Observability, health, and logging
 
@@ -55,7 +54,7 @@ _Operator goal: expose the dashboard (and optionally other services) through Clo
 - **No-restart / low-friction verbs** — e.g. `--add-provider`, `--add-key`, `--remove-key`, `--remove-provider`, `--scope-to-apps` (needs KV/manifest authority design, not slogans).
 - **`--delete-key` / lifecycle** — after registry + KV story is pinned.
 - **Hot reload** — optional reload of `keys.json` (or equivalent) without full stack restart (risk vs simplicity).
-- **Wrangler / CF CLI collision** — detect existing installs/credentials to avoid overwrite surprises.
+- **Wrangler / CF CLI collision** — detect existing installs/credentials to avoid overwrite surprises; if `r72` moves more Cloudflare lifecycle to direct API + runtime-managed state, revisit whether this remains relevant.
 - **`subumbra-clean-run` / proof harness** — ensure KV binding/content parity where proofs expect registry material.
 - **Bootstrap dead-code / tombstones** — remove or wire unreachable stubs in `subumbra-bootstrap.py`; optional removal of legacy callback artifacts pending three-way recon (`litellm/custom_callbacks.py` policy).
 - **`scripts/subumbra-env-ingest.py`** — signed-template defaults integration.
@@ -113,25 +112,13 @@ _The live Flask app is **read-only** today (`GET` health, dashboard, status); wr
 
 ---
 
-## Cloudflare, registry, and cost visibility
-
-- **Registry layout** — split monolithic KV vs per-provider namespaces for add/delete/telemetry (large design + migration).
-- **Per-provider bootstrap add** — add single provider using same trust model as initial bootstrap.
-- **Workers Observability** — document when to enable logs/traces and cost links ([Workers logs pricing](https://developers.cloudflare.com/workers/observability/logs/workers-logs/), [Durable Objects pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/)).
-- **Analytics Engine** — optional metrics sink for request volumes / errors.
-- **Real-time logs** — operator playbooks using CF real-time log tail.
-- **Future billing hints** — correlate log volume to rough cost alerts (vision-level).
-- **Workers VPC** — multi-server topology: one Subumbra footprint, many app hosts ([Workers VPC](https://developers.cloudflare.com/workers-vpc/)).
-- **Durable Objects platform notes** — Data Studio availability; watch **Cloudflare Actors** (`cloudflare/actors`) for roadmap fit.
-
----
-
 ## Networking, topology, and "where Subumbra runs"
 
 - **Split topology** — apps on VPS, Subumbra on laptop (or reverse), Termux phones, Oracle VPS tests—documented patterns with realistic security notes.
 - **Alternatives** — Tailscale, Kubernetes, Docker Swarm as *integration recipes*, not supported products, unless adopted later.
 - **`.env` on host** — reduce accidental `git push` exposure (architecture tension with compose bind mounts; needs a designed story, not a one-line fix).
 - **Rename / obfuscate** — service names, ports, deleting `bootstrap.sh` after first run: security-through-obscurity tradeoffs vs operational clarity.
+- **Endpoint / authority modularization (later)** — long-term direction: make Cloudflare one supported authority/exposure backend among several, but only after the current Cloudflare lifecycle is finished and the core trust boundary is better stabilized. This is a separate architecture arc, not part of `r72`.
 
 ---
 
@@ -179,4 +166,49 @@ _Items completed after the 1.0.0-alpha release. Add entries here as work ships._
 
 ---
 
-*Last updated: 2026-05-15 — cleaned for 1.0.0-alpha release; removed all pre-release completed items; added post-release completed section at bottom.*
+*Last updated: 2026-05-17 — reprioritized around `r72-cloudflare-updates` finish-out, then core hardening first.*
+
+---
+
+## Appendix: Cloudflare integration (completed, planned, and deferred)
+
+_Cloudflare is a completed optional deployment path. Active development here is
+debug- or request-driven only. The items below are tracked for reference._
+
+### Completed in r72-cloudflare-runtime-ux
+
+- Wizard and `.env.bootstrap` ingestion of `TUNNEL_TOKEN`,
+  `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`
+- Bootstrap writes runtime Cloudflare credentials to `.env` automatically
+- Day-2 commands `./bootstrap.sh --update-tunnel` and
+  `./bootstrap.sh --update-access`
+- `docs/cloudflare-tunnel-access.md` — BYOC operator guide
+- `docs/subumbra-install.md` updated to remove pre-bootstrap copy workaround
+
+### Planned in r73-cloudflare-autoprovision (not yet scheduled)
+
+- API-driven Tunnel provisioning (create tunnel + DNS CNAME) behind explicit
+  wizard opt-in
+- API-driven CF Access provisioning (app + policy + service token) behind opt-in
+- `data/cf-resources.json` idempotency manifest
+- `./bootstrap.sh --nuke-cloudflare` teardown command
+- Two-tiered CF API token scope: BYOC (narrow) vs auto-provision (expanded, with
+  explicit operator consent)
+- New `cf-api-provision` verification harness lane (must be defined before
+  `r73` approved plan is written)
+
+### Deferred indefinitely (not scheduled)
+
+- Workers VPC (multi-server topology)
+- Cloudflare Actors / Durable Objects platform notes (research watch)
+- Workers Observability cost tracking and log-tail playbooks
+- Analytics Engine / real-time logs
+- CF-native auth/admin rate limiting (R71 follow-up; reopen if needed)
+- Registry layout (split monolithic KV vs per-provider namespaces)
+- Per-provider bootstrap add
+
+### Accepted limitations (not re-litigated)
+
+- **CRITICAL-3**: CF Access header strip applies at the Worker edge only
+  (inside the CF network); Worker does not strip CF Access headers before
+  upstream provider calls. Accepted architectural constraint.
