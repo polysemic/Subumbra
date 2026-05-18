@@ -206,12 +206,17 @@ cleanup_capture() {
 
 # --- Preflight ---
 
-./scripts/council/preflight.sh > "$preflight_file" 2>&1 || exit_codes[preflight]=$?
-exit_codes[preflight]="${exit_codes[preflight]:-0}"
-if [[ "${exit_codes[preflight]}" -ne 0 ]]; then
-    write_summary
-    write_manifest
-    exit 1
+if [[ "${VERIFY_SKIP_PREFLIGHT:-0}" == "1" ]]; then
+    printf '# PROOF: preflight skipped — VERIFY_SKIP_PREFLIGHT=1 (cf-api-provision mode bootstraps inside verify-round.sh)\n' > "$preflight_file"
+    exit_codes[preflight]=0
+else
+    ./scripts/council/preflight.sh > "$preflight_file" 2>&1 || exit_codes[preflight]=$?
+    exit_codes[preflight]="${exit_codes[preflight]:-0}"
+    if [[ "${exit_codes[preflight]}" -ne 0 ]]; then
+        write_summary
+        write_manifest
+        exit 1
+    fi
 fi
 
 # --- Baseline: P9.5 — UI status ---

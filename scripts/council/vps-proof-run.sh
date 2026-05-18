@@ -4,13 +4,15 @@ set -euo pipefail
 usage() {
     cat <<'EOF'
 Usage:
-  scripts/council/vps-proof-run.sh --round <round> --agent <llm> --branch <branch> --mode existing-stack|fresh-install [--host subumbra] [--repo /opt/subumbra] [--build <service...>] [--deploy-worker] [--dry-run]
+  scripts/council/vps-proof-run.sh --round <round> --agent <llm> --branch <branch> --mode existing-stack|fresh-install|cf-api-provision [--host subumbra] [--repo /opt/subumbra] [--build <service...>] [--deploy-worker] [--cf-tunnel-root-domain <domain>] [--dry-run]
 
-  --deploy-worker   After existing-stack docker compose up, run Wrangler deploy from the bootstrap image (requires CF_API_TOKEN in the invoking environment; forwarded to the remote session).
+  --deploy-worker         After existing-stack docker compose up, run Wrangler deploy from the bootstrap image (requires CF_API_TOKEN in the invoking environment; forwarded to the remote session).
+  --cf-tunnel-root-domain Required for cf-api-provision mode. Sets VERIFY_CF_TUNNEL_ROOT_DOMAIN for verify-round.sh (e.g. example.com).
 
 Modes:
-  existing-stack  Verify an already initialized VPS deployment. Does not run bootstrap.sh and does not tear down the live stack.
-  fresh-install   Run an isolated first-install proof in a temp workspace. Uses a unique Worker name and cleans up isolated proof resources.
+  existing-stack     Verify an already initialized VPS deployment. Does not run bootstrap.sh and does not tear down the live stack.
+  fresh-install      Run an isolated first-install proof in a temp workspace. Uses a unique Worker name and cleans up isolated proof resources.
+  cf-api-provision   Run a Cloudflare API lifecycle proof in an isolated staging workspace. Relies on verify-round.sh to bootstrap, create live CF resources, and call --nuke-cloudflare for teardown. Requires CF_API_TOKEN with Tunnel+DNS+Access scopes and --cf-tunnel-root-domain.
 
 Runs one live-VPS verifier proof:
   local sync of council/<round>/ -> VPS
@@ -32,6 +34,7 @@ remote_repo="/opt/subumbra"
 build_targets=()
 dry_run=0
 deploy_worker=0
+cf_tunnel_root_domain=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -79,6 +82,10 @@ while [[ $# -gt 0 ]]; do
             deploy_worker=1
             shift
             ;;
+        --cf-tunnel-root-domain)
+            cf_tunnel_root_domain="${2:-}"
+            shift 2
+            ;;
         -h|--help)
             usage
             exit 0
@@ -96,13 +103,19 @@ if [[ -z "$round" || -z "$agent" || -z "$branch" || -z "$mode" ]]; then
 fi
 
 case "$mode" in
-    existing-stack|fresh-install) ;;
+    existing-stack|fresh-install|cf-api-provision) ;;
     *)
-        echo "ERROR: --mode must be existing-stack or fresh-install" >&2
+        echo "ERROR: --mode must be existing-stack, fresh-install, or cf-api-provision" >&2
         usage >&2
         exit 1
         ;;
 esac
+
+if [[ "$mode" == "cf-api-provision" && -z "$cf_tunnel_root_domain" ]]; then
+    echo "ERROR: --cf-tunnel-root-domain is required for cf-api-provision mode" >&2
+    usage >&2
+    exit 1
+fi
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/../.." && pwd)"
@@ -133,7 +146,7 @@ scp -r "${repo_root}/council/${round}" "${remote_host}:${remote_repo}/council/" 
 
 set +e
 ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=20 "$remote_host" \
-    "ROUND='$round' AGENT='$agent' BRANCH='$branch' MODE='$mode' RUN_ID='$run_id' REPO='$remote_repo' BUILD_TARGETS='$build_targets_string' DRY_RUN='$dry_run' DEPLOY_WORKER='$deploy_worker' CF_API_TOKEN='${CF_API_TOKEN:-}' bash -s" >"$local_ssh_log" 2>&1 <<'REMOTE'
+    "ROUND='$round' AGENT='$agent' BRANCH='$branch' MODE='$mode' RUN_ID='$run_id' REPO='$remote_repo' BUILD_TARGETS='$build_targets_string' DRY_RUN='$dry_run' DEPLOY_WORKER='$deploy_worker' CF_API_TOKEN='${CF_API_TOKEN:-}' VERIFY_CF_TUNNEL_ROOT_DOMAIN='${cf_tunnel_root_domain:-}' bash -s" >"$local_ssh_log" 2>&1 <<'REMOTE'
 set -euo pipefail
 
 round="${ROUND:?ROUND required}"
@@ -163,13 +176,13 @@ case "$mode" in
     existing-stack)
         cleanup_policy="preserve-live-stack"
         ;;
-    fresh-install)
+    fresh-install|cf-api-provision)
         cleanup_policy="remove-isolated-proof"
         # Docker Compose project names must be lowercase (ISO timestamps contain T/Z).
         compose_project="scr-${run_id//[^a-zA-Z0-9]/-}"
         compose_project="$(printf '%s' "$compose_project" | tr '[:upper:]' '[:lower:]')"
         worker_name="$compose_project"
-        workdir="" # Must be set by prepare_fresh_workspace
+        workdir="" # Must be set by prepare_fresh_workspace / prepare_cf_api_workspace
         ;;
     *)
         echo "ERROR: unsupported mode: $mode" >&2
@@ -316,7 +329,7 @@ precheck() {
         return 1
     fi
 
-    if [[ "$mode" == "fresh-install" && ! -f .env.bootstrap_bak && ! -f .env.bootstrap ]]; then
+    if [[ ("$mode" == "fresh-install" || "$mode" == "cf-api-provision") && ! -f .env.bootstrap_bak && ! -f .env.bootstrap ]]; then
         echo "ERROR: .env.bootstrap_bak or .env.bootstrap required" >&2
         return 1
     fi
@@ -355,6 +368,64 @@ apply_worker_name() {
         sed -i "s|^CF_WORKER_NAME=.*|CF_WORKER_NAME=${worker_name}|" "$file"
     else
         printf '\nCF_WORKER_NAME=%s\n' "$worker_name" >> "$file"
+    fi
+}
+
+prepare_cf_api_workspace() {
+    # cf-api-provision: prepare an isolated staging workspace under $HOME, not
+    # under ${repo}/temp/. verify-round.sh explicitly rejects paths under
+    # /opt/subumbra*, so the workspace must live outside the repo root.
+    # verify-round.sh handles bootstrap, CF resource creation, and nuke itself.
+    workdir="$(mktemp -d "${HOME}/subumbra-cf-proof-${run_id}-XXXXXX")"
+    rsync -a \
+        --exclude='.git/' \
+        --exclude='council/*/runs/' \
+        --exclude='local-archive/' \
+        --exclude='temp/' \
+        "${repo}/" "${workdir}/"
+    cp -R "${repo}/council/${round}" "${workdir}/council/"
+    cd "$workdir"
+    if [[ -f .env.bootstrap_bak ]]; then
+        cp .env.bootstrap_bak .env.bootstrap
+    fi
+    if [[ -f "council/${round}/bootstrap-overlay.env" ]]; then
+        {
+            echo
+            echo "# overlay from council/${round}/bootstrap-overlay.env"
+            cat "council/${round}/bootstrap-overlay.env"
+        } >> .env.bootstrap
+    fi
+    apply_worker_name .env.bootstrap
+    export COMPOSE_PROJECT_NAME="$compose_project"
+    export CF_WORKER_NAME="$worker_name"
+    export VERIFY_SKIP_PREFLIGHT=1
+    export VERIFY_CF_TUNNEL_ROOT_DOMAIN="${VERIFY_CF_TUNNEL_ROOT_DOMAIN:-}"
+    if [[ -z "${VERIFY_CF_TUNNEL_ROOT_DOMAIN:-}" ]]; then
+        echo "ERROR: VERIFY_CF_TUNNEL_ROOT_DOMAIN must be set for cf-api-provision mode (pass --cf-tunnel-root-domain)" >&2
+        return 1
+    fi
+    # Prefix container names so the proof run doesn't conflict with the live stack.
+    sed -i \
+        -e "s/^    container_name: subumbra-keys$/    container_name: ${compose_project}-subumbra-keys/" \
+        -e "s/^    container_name: subumbra-proxy$/    container_name: ${compose_project}-subumbra-proxy/" \
+        -e "s/^    container_name: subumbra-ui$/    container_name: ${compose_project}-subumbra-ui/" \
+        "${workdir}/docker-compose.yml"
+    # Allocate a free host port for the proof proxy; strip the UI port.
+    proof_proxy_port="$(python3 -c "import socket; s=socket.socket(); s.bind(('127.0.0.1',0)); p=s.getsockname()[1]; s.close(); print(p)")"
+    python3 - "${workdir}/docker-compose.yml" "$proof_proxy_port" <<'PY'
+import re, sys
+text = open(sys.argv[1]).read()
+text = re.sub(r'\n    ports:\n(      - "127\.0\.0\.1:\d+:8080"[^\n]*\n)', '\n', text)
+text = re.sub(r'(      - "127\.0\.0\.1:)\d+(:8090")', rf'\g<1>{sys.argv[2]}\2', text)
+open(sys.argv[1], "w").write(text)
+PY
+    export SUBUMBRA_KEYS_CONTAINER="${compose_project}-subumbra-keys"
+    export SUBUMBRA_PROXY_CONTAINER="${compose_project}-subumbra-proxy"
+    export SUBUMBRA_UI_CONTAINER="${compose_project}-subumbra-ui"
+    export SUBUMBRA_PROXY_HOST_PORT="$proof_proxy_port"
+    if [[ -n "$build_targets_string" ]]; then
+        # shellcheck disable=SC2086
+        docker compose build $build_targets_string
     fi
 }
 
@@ -496,6 +567,9 @@ case "$mode" in
         ;;
     existing-stack)
         run_stage remote-update update_existing_stack
+        ;;
+    cf-api-provision)
+        run_stage remote-workspace prepare_cf_api_workspace
         ;;
     *)
         echo "ERROR: unsupported mode in install/update dispatch: $mode" >&2
