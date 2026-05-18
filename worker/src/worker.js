@@ -1527,11 +1527,8 @@ async function handleAuthPing(request, env) {
     return rateLimitResponse;
   }
 
-  const auth = await authorizeRequest(request, env);
-  if (!auth.ok) {
-    return auth.response;
-  }
-
+  // CF Access is the auth gate for this endpoint; no Subumbra token required.
+  // Reaching here means CF Access passed the request through.
   return jsonResponse({ status: "ok", timestamp: new Date().toISOString() }, 200);
 }
 

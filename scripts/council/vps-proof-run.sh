@@ -409,6 +409,7 @@ prepare_cf_api_workspace() {
         -e "s/^    container_name: subumbra-keys$/    container_name: ${compose_project}-subumbra-keys/" \
         -e "s/^    container_name: subumbra-proxy$/    container_name: ${compose_project}-subumbra-proxy/" \
         -e "s/^    container_name: subumbra-ui$/    container_name: ${compose_project}-subumbra-ui/" \
+        -e "s/^    container_name: cloudflared$/    container_name: ${compose_project}-cloudflared/" \
         "${workdir}/docker-compose.yml"
     # Allocate a free host port for the proof proxy; strip the UI port.
     proof_proxy_port="$(python3 -c "import socket; s=socket.socket(); s.bind(('127.0.0.1',0)); p=s.getsockname()[1]; s.close(); print(p)")"
