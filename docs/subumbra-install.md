@@ -107,6 +107,10 @@ and the interactive wizard now collects Cloudflare Tunnel and Access runtime
 credentials (`TUNNEL_TOKEN`, `CF_ACCESS_CLIENT_ID`,
 `CF_ACCESS_CLIENT_SECRET`) and writes them to `.env` for you.
 
+You also do not have to use Cloudflare auto-provisioning. `r73` keeps the
+bring-your-own-credentials path fully supported: you can provide existing
+Tunnel / Access runtime secrets and skip Cloudflare lifecycle creation.
+
 For automation (non-interactive) use, add these as optional lines in
 `.env.bootstrap` (see `.env.bootstrap.example` for the template).
 
@@ -126,6 +130,15 @@ You need:
 - `CF_ACCOUNT_ID`
 - a Worker name, e.g. `subumbra-proxy`
 - Workers Paid Plan enabled
+
+If you want bootstrap to create Tunnel / DNS / Access resources for you, also
+prepare:
+
+- `CF_ZONE_ID`
+- `CF_TUNNEL_HOSTNAME`
+- one expanded `CF_API_TOKEN` that covers Worker deploy, KV edit, Tunnel
+  lifecycle, DNS edit for the selected zone, and Access app / policy /
+  service-token lifecycle
 
 The interactive bootstrap wizard prompts for these values. Treat
 `CF_API_TOKEN` and `CF_ACCOUNT_ID` as bootstrap/deploy authority for Worker, KV,
@@ -152,6 +165,8 @@ later. Subumbra does **not** retain `CF_API_TOKEN` or `CF_ACCOUNT_ID` in `.env`.
 - `./bootstrap.sh --update-tunnel` — update `TUNNEL_TOKEN` in `.env`
 - `./bootstrap.sh --update-access` — update `CF_ACCESS_CLIENT_ID` /
   `CF_ACCESS_CLIENT_SECRET` in `.env`
+- `./bootstrap.sh --nuke-cloudflare` — deletes Cloudflare-managed Tunnel / DNS /
+  Access resources tracked in `data/cf-resources.json`
 
 ## 5. Run Bootstrap
 
@@ -187,6 +202,18 @@ collect:
 
 These are optional. Leave them blank to skip, or provide them now so bootstrap
 writes them into `.env` automatically.
+
+**Step 1c — Optional Cloudflare auto-provisioning**
+
+If you want bootstrap to create Cloudflare resources for you instead of using
+BYOC runtime secrets, the wizard can also collect:
+
+- `CF_ZONE_ID`
+- `CF_TUNNEL_HOSTNAME`
+- optional naming overrides for Tunnel / Access resources
+
+Use this only when you want bootstrap-managed Cloudflare lifecycle. If you
+already have a Tunnel token or Access service token, BYOC remains valid.
 
 **Step 2 — Worker name**
 
@@ -259,6 +286,18 @@ cp .env.bootstrap.example .env.bootstrap
 CF_API_TOKEN=REPLACE_ME       # API token with Workers Scripts: Edit and Workers KV Storage: Edit
 CF_ACCOUNT_ID=REPLACE_ME      # your Cloudflare account ID
 CF_WORKER_NAME=subumbra-proxy # the Cloudflare Worker script name to deploy
+
+# Optional Cloudflare auto-provision inputs
+# CF_ZONE_ID=REPLACE_ME
+# CF_TUNNEL_NAME=subumbra-proxy-tunnel
+# CF_TUNNEL_HOSTNAME=subumbra.example.com
+# CF_ACCESS_APP_NAME=subumbra-proxy-worker-access
+# CF_SERVICE_TOKEN_NAME=subumbra-proxy-service-token
+
+# Optional BYOC runtime credentials
+# TUNNEL_TOKEN=REPLACE_ME
+# CF_ACCESS_CLIENT_ID=REPLACE_ME
+# CF_ACCESS_CLIENT_SECRET=REPLACE_ME
 
 # ── Bootstrap tuning (optional) ───────────────────────────────────────────────
 TOKEN_TTL_DAYS=365            # how long adapter tokens are valid before expiry (see note below)
@@ -407,7 +446,7 @@ inputs. See the recovery section in the
 ## Next
 
 - [docs/provider-templates.md](provider-templates.md)
-- [docs/cloudflare-tunnel-access.md](cloudflare-tunnel-access.md)
+- [docs/cloudflare-setup.md](cloudflare-setup.md)
 - [docs/subumbra-testing.md](subumbra-testing.md)
 - [docs/apps/litellm/install.md](apps/litellm/install.md)
 - [docs/operator-guide.md](operator-guide.md)

@@ -182,6 +182,17 @@ Before pushing commits, run local static scans to ensure no secrets, plaintext k
 bandit -r bootstrap/ subumbra-proxy/ ui/ -x tests/
 ```
 
+### 4. Opt-in Pre-push and Pre-commit Hooks
+
+To prevent accidental leaks before code leaves a workstation, Subumbra provides
+opt-in Git hook templates under `scripts/git-hooks/`.
+
+* **Default checks**: staged Gitleaks secret scanning on commit, plus
+  commit-range Gitleaks scanning on push.
+* **Optional full pre-push suite**: set `SUBUMBRA_GITHOOK_FULL_SCAN=1` to also
+  run Bandit, pip-audit, and Trivy before pushing.
+* **Setup**: see the opt-in guide in [scripts/git-hooks/README.md](../scripts/git-hooks/README.md).
+
 ---
 
 ## 8. Related Documentation

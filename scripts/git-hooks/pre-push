@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+# Subumbra - opt-in Git pre-push hook template
+#
+# Default: scan only the commit range being pushed with Gitleaks.
+# Optional full suite: set SUBUMBRA_GITHOOK_FULL_SCAN=1 to also run Bandit,
+# pip-audit, and Trivy. Shannon is intentionally excluded.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+GITLEAKS_CONFIG="scripts/security/gitleaks/.gitleaks.toml"
+FULL_SCAN="${SUBUMBRA_GITHOOK_FULL_SCAN:-0}"
+
+cd "${REPO_ROOT}"
+
+commit_range=""
+while read -r local_ref local_sha remote_ref remote_sha; do
+  if [[ "${local_sha}" == "0000000000000000000000000000000000000000" ]]; then
+    continue
+  fi
+  if [[ "${remote_sha}" == "0000000000000000000000000000000000000000" ]]; then
+    base_ref="origin/main"
+    if ! git rev-parse --verify "${base_ref}" &> /dev/null; then
+      base_ref="main"
+    fi
+    commit_range="${base_ref}..${local_sha}"
+  else
+    commit_range="${remote_sha}..${local_sha}"
+  fi
+done
+
+if [[ -z "${commit_range}" ]]; then
+  echo "[subumbra pre-push] No pushed commit range detected; skipping."
+  exit 0
+fi
+
+echo "[subumbra pre-push] Running security checks"
+echo "Commit range: ${commit_range}"
+
+PASS=()
+FAIL=()
+SKIP=()
+
+run_scan_script() {
+  local name="$1"
+  local script_path="$2"
+
+  echo ""
+  echo "----------------------------------------"
+  echo " Scan: ${name}"
+  echo "----------------------------------------"
+
+  if [[ ! -f "${script_path}" ]]; then
+    echo "WARNING: scanner script not found: ${script_path}"
+    SKIP+=("${name}")
+    return
+  fi
+
+  set +e
+  bash "${script_path}"
+  rc=$?
+  set -e
+
+  if [[ $rc -eq 0 ]]; then
+    PASS+=("${name}")
+  else
+    FAIL+=("${name}")
+  fi
+}
+
+echo ""
+echo "----------------------------------------"
+echo " Scan: Gitleaks (secrets)"
+echo "----------------------------------------"
+GITLEAKS_CMD=""
+if command -v gitleaks >/dev/null 2>&1; then
+  GITLEAKS_CMD="gitleaks"
+elif command -v docker >/dev/null 2>&1; then
+  GITLEAKS_CMD="docker run --rm -v ${REPO_ROOT}:/path -w /path zricethezav/gitleaks:latest"
+fi
+
+if [[ -n "${GITLEAKS_CMD}" ]]; then
+  set +e
+  if [[ "${GITLEAKS_CMD}" == "gitleaks" ]]; then
+    gitleaks detect --log-opts="${commit_range}" --verbose --config="${GITLEAKS_CONFIG}"
+    leaks_rc=$?
+  else
+    docker run --rm -v "${REPO_ROOT}:/path" -w /path zricethezav/gitleaks:latest detect --log-opts="${commit_range}" --verbose --config="${GITLEAKS_CONFIG}"
+    leaks_rc=$?
+  fi
+  set -e
+
+  if [[ $leaks_rc -eq 0 ]]; then
+    PASS+=("Gitleaks (secrets)")
+  else
+    FAIL+=("Gitleaks (secrets)")
+  fi
+else
+  echo "WARNING: gitleaks not found and Docker is unavailable; skipping secret scan."
+  SKIP+=("Gitleaks (secrets)")
+fi
+
+if [[ "${FULL_SCAN}" == "1" ]]; then
+  run_scan_script "Bandit (Python SAST)" "${REPO_ROOT}/scripts/security/bandit/scan.sh"
+  run_scan_script "pip-audit (dependency CVEs)" "${REPO_ROOT}/scripts/security/pip-audit/scan.sh"
+  run_scan_script "Trivy (filesystem + dependencies)" "${REPO_ROOT}/scripts/security/trivy/scan.sh"
+else
+  echo ""
+  echo "[subumbra pre-push] Heavy scans skipped by default."
+  echo "Set SUBUMBRA_GITHOOK_FULL_SCAN=1 to also run Bandit, pip-audit, and Trivy."
+fi
+
+echo ""
+echo "----------------------------------------"
+echo " Pre-Push Security Summary"
+echo "----------------------------------------"
+for t in "${PASS[@]+"${PASS[@]}"}";  do echo "  PASS  $t"; done
+for t in "${FAIL[@]+"${FAIL[@]}"}";  do echo "  FAIL  $t"; done
+for t in "${SKIP[@]+"${SKIP[@]}"}";  do echo "  SKIP  $t"; done
+
+if [[ ${#FAIL[@]} -gt 0 ]]; then
+  echo ""
+  echo "ERROR: push rejected due to security check failures."
+  exit 1
+fi
+
+echo ""
+echo "[subumbra pre-push] Checks passed. Proceeding with push."
+exit 0

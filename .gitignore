@@ -31,6 +31,7 @@ scripts/legacy/
 # Encrypted key blobs — safe cryptographically, but no reason to commit
 subumbra-keys/keys.json
 subumbra-keys/data/
+data/cf-resources.json
 
 # Security scan output — generated locally, not committed (CI re-runs on every push)
 scripts/security/*/reports/*.json

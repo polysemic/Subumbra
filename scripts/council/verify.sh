@@ -206,12 +206,17 @@ cleanup_capture() {
 
 # --- Preflight ---
 
-./scripts/council/preflight.sh > "$preflight_file" 2>&1 || exit_codes[preflight]=$?
-exit_codes[preflight]="${exit_codes[preflight]:-0}"
-if [[ "${exit_codes[preflight]}" -ne 0 ]]; then
-    write_summary
-    write_manifest
-    exit 1
+if [[ "${VERIFY_SKIP_PREFLIGHT:-0}" == "1" ]]; then
+    printf '# PROOF: preflight skipped — VERIFY_SKIP_PREFLIGHT=1 (cf-api-provision mode bootstraps inside verify-round.sh)\n' > "$preflight_file"
+    exit_codes[preflight]=0
+else
+    ./scripts/council/preflight.sh > "$preflight_file" 2>&1 || exit_codes[preflight]=$?
+    exit_codes[preflight]="${exit_codes[preflight]:-0}"
+    if [[ "${exit_codes[preflight]}" -ne 0 ]]; then
+        write_summary
+        write_manifest
+        exit 1
+    fi
 fi
 
 # --- Baseline: P9.5 — UI status ---
@@ -250,29 +255,40 @@ fi
 
 # --- Baseline: P9.6 — Worker invalid token ---
 
-worker_args=(
-    -H "Content-Type: application/json"
-    -H "X-Subumbra-Token: invalid-token"
-    -d '{}'
-)
-if [[ -n "$cf_access_client_id" ]]; then
-    worker_args+=(-H "CF-Access-Client-Id: ${cf_access_client_id}")
-    worker_args+=(-H "CF-Access-Client-Secret: ${cf_access_client_secret}")
-fi
-run_curl_capture \
-    POST \
-    "${worker_url}/proxy" \
-    "${worker_args[@]}"
-write_artifact \
-    "${artifact_dir}/p9-6-worker-invalid-token.txt" \
-    "curl --compressed -sS -N -D - -o - -X POST ${worker_url}/proxy -H 'Content-Type: application/json' -H 'X-Subumbra-Token: invalid-token' -d '{}'"
-exit_codes[p9_6]="$capture_exit"
-if [[ "$capture_exit" -eq 0 && "$capture_status" == "401" ]]; then
-    results[p9_6]="PASS"
+if [[ "${VERIFY_SKIP_PREFLIGHT:-0}" == "1" ]]; then
+    {
+        printf '%s\n' '# PROOF: cf-api-provision mode — staging worker URL set after round hooks'
+        printf '%s\n' 'status: SKIP'
+        printf '%s\n' 'reason: staging-worker-url-not-yet-available'
+        printf '%s\n' 'note: equivalent check (invalid-token → 401) covered by verify-round.sh worker-auth-with-access proof'
+    } >"${artifact_dir}/p9-6-worker-invalid-token.txt"
+    results[p9_6]="SKIP"
+    exit_codes[p9_6]=0
 else
-    results[p9_6]="FAIL"
+    worker_args=(
+        -H "Content-Type: application/json"
+        -H "X-Subumbra-Token: invalid-token"
+        -d '{}'
+    )
+    if [[ -n "$cf_access_client_id" ]]; then
+        worker_args+=(-H "CF-Access-Client-Id: ${cf_access_client_id}")
+        worker_args+=(-H "CF-Access-Client-Secret: ${cf_access_client_secret}")
+    fi
+    run_curl_capture \
+        POST \
+        "${worker_url}/proxy" \
+        "${worker_args[@]}"
+    write_artifact \
+        "${artifact_dir}/p9-6-worker-invalid-token.txt" \
+        "curl --compressed -sS -N -D - -o - -X POST ${worker_url}/proxy -H 'Content-Type: application/json' -H 'X-Subumbra-Token: invalid-token' -d '{}'"
+    exit_codes[p9_6]="$capture_exit"
+    if [[ "$capture_exit" -eq 0 && "$capture_status" == "401" ]]; then
+        results[p9_6]="PASS"
+    else
+        results[p9_6]="FAIL"
+    fi
+    cleanup_capture
 fi
-cleanup_capture
 
 # --- Round-local hooks ---
 
