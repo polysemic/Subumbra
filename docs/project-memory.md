@@ -100,6 +100,13 @@ them.
   runtime bring-up do not require probe provisioning.
 - `bootstrap.sh` now runs on the host, mounts repo-local `.env` into the
   bootstrap container, and shreds `.env.bootstrap` after a successful run.
+- **R73 (planned/active implementation):** bootstrap can optionally create
+  Cloudflare Tunnel, DNS, and CF Access resources from one expanded
+  `CF_API_TOKEN`; non-secret Cloudflare resource IDs live in
+  `data/cf-resources.json`, while generated `TUNNEL_TOKEN`,
+  `CF_ACCESS_CLIENT_ID`, and `CF_ACCESS_CLIENT_SECRET` are written to `.env`.
+- `./bootstrap.sh --nuke-cloudflare` is the supported teardown verb for
+  Cloudflare resources tracked in `data/cf-resources.json`.
 - The repo-local `.env` retains `SUBUMBRA_SETUP_TOKEN` as an operator reference
   value after bootstrap completes. The corresponding transient Cloudflare Worker
   secret is deleted by bootstrap before it exits; `.env`'s `SUBUMBRA_SETUP_TOKEN`

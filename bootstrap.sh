@@ -19,7 +19,7 @@ fi
 mode=""
 for arg in "$@"; do
     case "$arg" in
-        --upgrade|--nuke|--rotate|--push-registry|--provision|--revoke-key|--add-adapter|--revoke-adapter|--publish-policy|--update-tunnel|--update-access|--help|-h|--list-key-ids|--list-adapters|--status)
+        --upgrade|--nuke|--rotate|--push-registry|--provision|--revoke-key|--add-adapter|--revoke-adapter|--publish-policy|--update-tunnel|--update-access|--nuke-cloudflare|--help|-h|--list-key-ids|--list-adapters|--status)
             mode="$arg"
             break
             ;;
@@ -99,6 +99,11 @@ fi
 # Day-2 commands may prompt for Cloudflare credentials or runtime token values.
 # Use -it when the host has a TTY; use -T for CI/pipes (set CF_* in the environment).
 bootstrap_rc=0
+if [[ "$mode" == "--nuke-cloudflare" ]]; then
+    echo ""
+    echo "▶  Stopping cloudflared before Tunnel teardown"
+    docker compose stop cloudflared >/dev/null 2>&1 || true
+fi
 if [[ "$mode" == "--rotate" || "$mode" == "--nuke" || -z "$mode" ]]; then
     if [[ -t 0 ]]; then
         run_io_flags=(-it)
@@ -109,7 +114,7 @@ if [[ "$mode" == "--rotate" || "$mode" == "--nuke" || -z "$mode" ]]; then
         "${volume_args[@]}" \
         "${env_args[@]}" \
         bootstrap "$@" || bootstrap_rc=$?
-elif [[ "$mode" == "--push-registry" || "$mode" == "--provision" || "$mode" == "--revoke-key" || "$mode" == "--add-adapter" || "$mode" == "--revoke-adapter" || "$mode" == "--publish-policy" || "$mode" == "--update-tunnel" || "$mode" == "--update-access" || "$mode" == "--status" ]]; then
+elif [[ "$mode" == "--push-registry" || "$mode" == "--provision" || "$mode" == "--revoke-key" || "$mode" == "--add-adapter" || "$mode" == "--revoke-adapter" || "$mode" == "--publish-policy" || "$mode" == "--update-tunnel" || "$mode" == "--update-access" || "$mode" == "--nuke-cloudflare" || "$mode" == "--status" ]]; then
     if [[ -t 0 ]]; then
         run_io_flags=(-it)
     else

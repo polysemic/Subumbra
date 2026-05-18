@@ -102,6 +102,7 @@ ADAPTER_ID_RE = re.compile(r'^[a-z0-9][a-z0-9_-]{0,61}[a-z0-9]$')
 DATA_DIR        = Path(os.environ.get("DATA_DIR", "/app/data"))
 KEYS_FILE       = DATA_DIR / "keys.json"
 RUNTIME_ENV_OUT = DATA_DIR / "runtime.env"
+CF_RESOURCES_FILE = DATA_DIR / "cf-resources.json"
 PUBLIC_KEY_FILE = DATA_DIR / "public_key.pem"
 SYSTEM_INTEGRITY_FILE = DATA_DIR / "system-integrity.json"
 HOST_ENV_FILE   = Path("/app/host-env")
@@ -429,18 +430,681 @@ def _read_env_file_value(path: Path, key: str) -> str:
     return ""
 
 
+def _read_runtime_credential_value(key: str) -> str:
+    value = os.environ.get(key, "").strip()
+    if value:
+        return value
+    return _read_env_file_value(HOST_ENV_FILE, key).strip()
+
+
+def _cf_api_request(
+    method: str,
+    path: str,
+    cf_api_token: str,
+    *,
+    account_id: str | None = None,
+    zone_id: str | None = None,
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if bool(account_id) == bool(zone_id):
+        raise BootstrapFlowError("Cloudflare API request requires exactly one of account_id or zone_id")
+    if not path.startswith("/"):
+        raise BootstrapFlowError(f"Cloudflare API path must start with '/': {path!r}")
+    if account_id:
+        url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}{path}"
+    else:
+        url = f"https://api.cloudflare.com/client/v4/zones/{zone_id}{path}"
+    data = None
+    headers = {"Authorization": f"Bearer {cf_api_token}", "Content-Type": "application/json"}
+    if payload is not None:
+        data = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    request = urllib.request.Request(url, data=data, method=method, headers=headers)
+    try:
+        with urllib.request.urlopen(request) as resp:
+            raw = resp.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        raise BootstrapFlowError(
+            f"Cloudflare API {method} {path} failed: HTTP {exc.code}\n"
+            f"--- response body ---\n{body}"
+        ) from exc
+    except Exception as exc:
+        raise BootstrapFlowError(f"Cloudflare API {method} {path} failed: {exc}") from exc
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise BootstrapFlowError(
+            f"Cloudflare API {method} {path} returned invalid JSON: {exc}"
+        ) from exc
+    if not isinstance(parsed, dict):
+        raise BootstrapFlowError(f"Cloudflare API {method} {path} returned invalid payload")
+    if not parsed.get("success"):
+        errors = parsed.get("errors")
+        raise BootstrapFlowError(
+            f"Cloudflare API {method} {path} reported failure\n"
+            f"--- errors ---\n{json.dumps(errors, indent=2)}"
+        )
+    return parsed
+
+
+def _load_cf_resources() -> dict[str, Any]:
+    if not CF_RESOURCES_FILE.exists() or not CF_RESOURCES_FILE.is_file():
+        return {}
+    try:
+        parsed = json.loads(CF_RESOURCES_FILE.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        raise BootstrapFlowError(f"Failed to read {CF_RESOURCES_FILE}: {exc}") from exc
+    if not isinstance(parsed, dict):
+        raise BootstrapFlowError(f"{CF_RESOURCES_FILE} must contain a JSON object")
+    return parsed
+
+
+def _write_cf_resources(payload: dict[str, Any]) -> None:
+    try:
+        fd = os.open(str(CF_RESOURCES_FILE), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as fh:
+            json.dump(payload, fh, indent=2, sort_keys=True)
+            fh.write("\n")
+    except OSError as exc:
+        raise BootstrapFlowError(f"Failed to write {CF_RESOURCES_FILE}: {exc}") from exc
+    ok(f"Cloudflare resource manifest written via {CF_RESOURCES_FILE}")
+
+
+def _clear_cf_resources() -> None:
+    try:
+        if CF_RESOURCES_FILE.exists():
+            CF_RESOURCES_FILE.unlink()
+    except OSError as exc:
+        raise BootstrapFlowError(f"Failed to remove {CF_RESOURCES_FILE}: {exc}") from exc
+
+
+def _cf_create_tunnel(cf_api_token: str, account_id: str, tunnel_name: str) -> tuple[str, str]:
+    parsed = _cf_api_request(
+        "POST",
+        "/cfd_tunnel",
+        cf_api_token,
+        account_id=account_id,
+        payload={"name": tunnel_name, "config_src": "cloudflare"},
+    )
+    result = parsed.get("result") or {}
+    tunnel_id = str(result.get("id", "")).strip()
+    tunnel_token = str(result.get("token", "")).strip()
+    if not tunnel_id or not tunnel_token:
+        raise BootstrapFlowError("Cloudflare Tunnel create response missing id or token")
+    return tunnel_id, tunnel_token
+
+
+def _cf_find_tunnel_by_name(cf_api_token: str, account_id: str, tunnel_name: str) -> str | None:
+    parsed = _cf_api_request("GET", "/cfd_tunnel", cf_api_token, account_id=account_id)
+    result = parsed.get("result") or []
+    if not isinstance(result, list):
+        raise BootstrapFlowError("Cloudflare Tunnel list returned invalid payload")
+    for entry in result:
+        if isinstance(entry, dict) and str(entry.get("name", "")).strip() == tunnel_name:
+            tunnel_id = str(entry.get("id", "")).strip()
+            if tunnel_id:
+                return tunnel_id
+    return None
+
+
+def _cf_create_dns_cname(cf_api_token: str, zone_id: str, hostname: str, tunnel_id: str) -> str:
+    parsed = _cf_api_request(
+        "POST",
+        "/dns_records",
+        cf_api_token,
+        zone_id=zone_id,
+        payload={
+            "type": "CNAME",
+            "name": hostname,
+            "content": f"{tunnel_id}.cfargotunnel.com",
+            "proxied": True,
+        },
+    )
+    result = parsed.get("result") or {}
+    dns_record_id = str(result.get("id", "")).strip()
+    if not dns_record_id:
+        raise BootstrapFlowError("Cloudflare DNS create response missing id")
+    return dns_record_id
+
+
+def _cf_create_access_app(cf_api_token: str, account_id: str, app_name: str, hostname: str) -> str:
+    parsed = _cf_api_request(
+        "POST",
+        "/access/apps",
+        cf_api_token,
+        account_id=account_id,
+        payload={"name": app_name, "domain": hostname, "type": "self_hosted"},
+    )
+    result = parsed.get("result") or {}
+    access_app_id = str(result.get("id", "")).strip()
+    if not access_app_id:
+        raise BootstrapFlowError("Cloudflare Access app create response missing id")
+    return access_app_id
+
+
+def _cf_create_access_policy(
+    cf_api_token: str,
+    account_id: str,
+    access_app_id: str,
+    policy_name: str,
+) -> str:
+    parsed = _cf_api_request(
+        "POST",
+        f"/access/apps/{access_app_id}/policies",
+        cf_api_token,
+        account_id=account_id,
+        payload={
+            "name": policy_name,
+            "decision": "non_identity",
+            "include": [{"any_valid_service_token": {}}],
+            "session_duration": "24h",
+        },
+    )
+    result = parsed.get("result") or {}
+    access_policy_id = str(result.get("id", "")).strip()
+    if not access_policy_id:
+        raise BootstrapFlowError("Cloudflare Access policy create response missing id")
+    return access_policy_id
+
+
+def _cf_create_service_token(
+    cf_api_token: str,
+    account_id: str,
+    token_name: str,
+) -> tuple[str, str, str]:
+    parsed = _cf_api_request(
+        "POST",
+        "/access/service_tokens",
+        cf_api_token,
+        account_id=account_id,
+        payload={"name": token_name},
+    )
+    result = parsed.get("result") or {}
+    service_token_id = str(result.get("id", "")).strip()
+    client_id = str(result.get("client_id", "")).strip()
+    client_secret = str(result.get("client_secret", "")).strip()
+    if not service_token_id or not client_id or not client_secret:
+        raise BootstrapFlowError("Cloudflare Access service token create response missing required fields")
+    return service_token_id, client_id, client_secret
+
+
+def _cf_delete_tunnel(cf_api_token: str, account_id: str, tunnel_id: str) -> None:
+    try:
+        _cf_api_request("DELETE", f"/cfd_tunnel/{tunnel_id}", cf_api_token, account_id=account_id)
+    except BootstrapFlowError as exc:
+        if "HTTP 404" in str(exc):
+            return
+        raise
+
+
+def _cf_delete_dns_record(cf_api_token: str, zone_id: str, dns_record_id: str) -> None:
+    try:
+        _cf_api_request("DELETE", f"/dns_records/{dns_record_id}", cf_api_token, zone_id=zone_id)
+    except BootstrapFlowError as exc:
+        if "HTTP 404" in str(exc):
+            return
+        raise
+
+
+def _cf_delete_access_app(cf_api_token: str, account_id: str, access_app_id: str) -> None:
+    try:
+        _cf_api_request("DELETE", f"/access/apps/{access_app_id}", cf_api_token, account_id=account_id)
+    except BootstrapFlowError as exc:
+        if "HTTP 404" in str(exc):
+            return
+        raise
+
+
+def _cf_delete_access_policy(cf_api_token: str, account_id: str, access_policy_id: str) -> None:
+    resources = _load_cf_resources()
+    access_app_id = str(resources.get("access_app_id", "")).strip()
+    if not access_app_id:
+        raise BootstrapFlowError("Cloudflare resource manifest missing access_app_id for policy delete")
+    try:
+        _cf_api_request(
+            "DELETE",
+            f"/access/apps/{access_app_id}/policies/{access_policy_id}",
+            cf_api_token,
+            account_id=account_id,
+        )
+    except BootstrapFlowError as exc:
+        if "HTTP 404" in str(exc):
+            return
+        raise
+
+
+def _cf_delete_service_token(cf_api_token: str, account_id: str, service_token_id: str) -> None:
+    try:
+        _cf_api_request(
+            "DELETE",
+            f"/access/service_tokens/{service_token_id}",
+            cf_api_token,
+            account_id=account_id,
+        )
+    except BootstrapFlowError as exc:
+        if "HTTP 404" in str(exc):
+            return
+        raise
+
+
+def _stop_cloudflared_if_running() -> None:
+    docker_path = shutil.which("docker")
+    if not docker_path:
+        info("docker not available in bootstrap runtime; assuming host wrapper already stopped cloudflared")
+        return
+    result = subprocess.run(
+        [docker_path, "compose", "stop", "cloudflared"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        info("Stopped cloudflared before Tunnel delete")
+        return
+    combined = f"{result.stdout}\n{result.stderr}".strip()
+    if "No such service" in combined or "not running" in combined:
+        info("cloudflared not running; nothing to stop before Tunnel delete")
+        return
+    raise BootstrapFlowError(
+        "Failed to stop cloudflared before Tunnel delete\n"
+        f"--- stdout ---\n{result.stdout}\n"
+        f"--- stderr ---\n{result.stderr}"
+    )
+
+
 def _worker_control_headers(setup_token: str) -> dict[str, str]:
     headers = {
         "Authorization": f"Bearer {setup_token}",
         "Content-Type": "application/json",
         "User-Agent": "curl/8.5.0",
     }
-    access_client_id = os.environ.get("CF_ACCESS_CLIENT_ID", "").strip()
-    access_client_secret = os.environ.get("CF_ACCESS_CLIENT_SECRET", "").strip()
+    access_client_id = _read_runtime_credential_value("CF_ACCESS_CLIENT_ID")
+    access_client_secret = _read_runtime_credential_value("CF_ACCESS_CLIENT_SECRET")
     if access_client_id and access_client_secret:
         headers["CF-Access-Client-Id"] = access_client_id
         headers["CF-Access-Client-Secret"] = access_client_secret
     return headers
+
+
+def _sanitize_cf_name_component(value: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9-]+", "-", value.strip()).strip("-")
+    return cleaned or "subumbra"
+
+
+def _default_cf_tunnel_name(cf_worker_name: str) -> str:
+    return f"{_sanitize_cf_name_component(cf_worker_name)}-tunnel"
+
+
+def _default_cf_access_app_name(cf_worker_name: str) -> str:
+    return f"{_sanitize_cf_name_component(cf_worker_name)}-worker-access"
+
+
+def _default_cf_service_token_name(cf_worker_name: str) -> str:
+    return f"{_sanitize_cf_name_component(cf_worker_name)}-service-token"
+
+
+def _load_cf_autoprovision_from_sources(
+    *,
+    runtime_creds: dict[str, str],
+    cf_worker_name: str,
+) -> dict[str, str]:
+    zone_id = os.environ.get("CF_ZONE_ID", "").strip()
+    tunnel_hostname = os.environ.get("CF_TUNNEL_HOSTNAME", "").strip()
+    tunnel_name = os.environ.get("CF_TUNNEL_NAME", "").strip()
+    access_app_name = os.environ.get("CF_ACCESS_APP_NAME", "").strip()
+    service_token_name = os.environ.get("CF_SERVICE_TOKEN_NAME", "").strip()
+
+    tunnel_requested = bool(tunnel_hostname and not runtime_creds.get("TUNNEL_TOKEN", "").strip())
+    access_requested = bool(
+        not (
+            runtime_creds.get("CF_ACCESS_CLIENT_ID", "").strip()
+            and runtime_creds.get("CF_ACCESS_CLIENT_SECRET", "").strip()
+        )
+        and (access_app_name or service_token_name or tunnel_requested)
+    )
+
+    if not tunnel_requested and not access_requested:
+        return {}
+
+    if (tunnel_requested or access_requested) and not zone_id:
+        die(
+            "CF_ZONE_ID is required when Cloudflare auto-provisioning is requested.\n"
+            "  Provide CF_ZONE_ID in .env.bootstrap or interactive input, or supply BYOC runtime secrets instead."
+        )
+
+    if tunnel_requested and not tunnel_hostname:
+        die(
+            "CF_TUNNEL_HOSTNAME is required when Cloudflare Tunnel auto-provisioning is requested.\n"
+            "  Provide CF_TUNNEL_HOSTNAME or supply TUNNEL_TOKEN manually."
+        )
+
+    return {
+        "CF_ZONE_ID": zone_id,
+        "CF_TUNNEL_HOSTNAME": tunnel_hostname,
+        "CF_TUNNEL_NAME": tunnel_name or _default_cf_tunnel_name(cf_worker_name),
+        "CF_ACCESS_APP_NAME": access_app_name or _default_cf_access_app_name(cf_worker_name),
+        "CF_SERVICE_TOKEN_NAME": service_token_name or _default_cf_service_token_name(cf_worker_name),
+        "AUTO_PROVISION_TUNNEL": "1" if tunnel_requested else "0",
+        "AUTO_PROVISION_ACCESS": "1" if access_requested else "0",
+    }
+
+
+def _cf_object_exists(
+    path: str,
+    cf_api_token: str,
+    *,
+    account_id: str | None = None,
+    zone_id: str | None = None,
+) -> bool:
+    try:
+        _cf_api_request(
+            "GET",
+            path,
+            cf_api_token,
+            account_id=account_id,
+            zone_id=zone_id,
+        )
+        return True
+    except BootstrapFlowError as exc:
+        if "HTTP 404" in str(exc):
+            return False
+        raise
+
+
+def _clear_cloudflare_runtime_creds() -> None:
+    _sync_host_env_file(
+        {
+            "TUNNEL_TOKEN": "",
+            "CF_ACCESS_CLIENT_ID": "",
+            "CF_ACCESS_CLIENT_SECRET": "",
+        }
+    )
+
+
+def _provision_cloudflare_resources(
+    cf_creds: dict[str, str],
+    cf_autoprovision: dict[str, str],
+    cf_runtime_creds: dict[str, str],
+) -> tuple[dict[str, str], dict[str, Any]]:
+    if not cf_autoprovision:
+        return cf_runtime_creds, _load_cf_resources()
+
+    cf_api_token = cf_creds["CF_API_TOKEN"]
+    account_id = cf_creds["CF_ACCOUNT_ID"]
+    zone_id = cf_autoprovision["CF_ZONE_ID"]
+    tunnel_name = cf_autoprovision["CF_TUNNEL_NAME"]
+    tunnel_hostname = cf_autoprovision["CF_TUNNEL_HOSTNAME"]
+    access_app_name = cf_autoprovision["CF_ACCESS_APP_NAME"]
+    service_token_name = cf_autoprovision["CF_SERVICE_TOKEN_NAME"]
+    auto_tunnel = cf_autoprovision.get("AUTO_PROVISION_TUNNEL") == "1"
+    auto_access = cf_autoprovision.get("AUTO_PROVISION_ACCESS") == "1"
+    worker_url = _read_env_file_value(HOST_ENV_FILE, "CF_WORKER_URL").strip()
+    worker_host = urllib.parse.urlparse(worker_url).hostname or ""
+    if auto_access and not worker_host:
+        raise BootstrapFlowError(
+            "Cannot auto-provision Cloudflare Access without CF_WORKER_URL in host .env"
+        )
+
+    manifest = _load_cf_resources()
+    manifest_changed = False
+    tunnel_created = False
+    dns_created = False
+    access_app_created = False
+    access_policy_created = False
+    service_token_created = False
+    wrote_tunnel_token = False
+    wrote_access_creds = False
+
+    tunnel_id = str(manifest.get("tunnel_id", "")).strip()
+    dns_record_id = str(manifest.get("dns_record_id", "")).strip()
+    access_app_id = str(manifest.get("access_app_id", "")).strip()
+    access_policy_id = str(manifest.get("access_policy_id", "")).strip()
+    service_token_id = str(manifest.get("service_token_id", "")).strip()
+
+    if auto_tunnel:
+        if tunnel_id and _cf_object_exists(f"/cfd_tunnel/{tunnel_id}", cf_api_token, account_id=account_id):
+            info(f"Reusing tracked Cloudflare Tunnel {tunnel_id}")
+            if not _read_runtime_credential_value("TUNNEL_TOKEN"):
+                raise BootstrapFlowError(
+                    "Cloudflare Tunnel manifest entry exists but TUNNEL_TOKEN is absent from .env.\n"
+                    "  Supply TUNNEL_TOKEN manually or run ./bootstrap.sh --nuke-cloudflare."
+                )
+        else:
+            tunnel_id = ""
+            found_tunnel_id = _cf_find_tunnel_by_name(cf_api_token, account_id, tunnel_name)
+            if found_tunnel_id:
+                if not _read_runtime_credential_value("TUNNEL_TOKEN"):
+                    raise BootstrapFlowError(
+                        "A Cloudflare Tunnel with the requested name already exists, but its token cannot be recovered.\n"
+                        "  Supply TUNNEL_TOKEN manually or run ./bootstrap.sh --nuke-cloudflare."
+                    )
+                tunnel_id = found_tunnel_id
+                manifest_changed = True
+                info(f"Adopted existing Cloudflare Tunnel by name: {tunnel_id}")
+            else:
+                tunnel_id, tunnel_token = _cf_create_tunnel(cf_api_token, account_id, tunnel_name)
+                ok(f"Created Cloudflare Tunnel {tunnel_id}")
+                try:
+                    _sync_host_env_file({"TUNNEL_TOKEN": tunnel_token})
+                except SystemExit as exc:
+                    raise BootstrapFlowError(
+                        "Failed to persist generated TUNNEL_TOKEN to host .env.\n"
+                        f"  Orphaned tunnel_id={tunnel_id}\n"
+                        "  Cloudflare does not re-display Tunnel tokens after creation."
+                    ) from exc
+                cf_runtime_creds["TUNNEL_TOKEN"] = tunnel_token
+                tunnel_created = True
+                wrote_tunnel_token = True
+                manifest_changed = True
+            manifest["tunnel_id"] = tunnel_id
+            manifest["zone_id"] = zone_id
+            manifest["tunnel_name"] = tunnel_name
+            manifest["tunnel_hostname"] = tunnel_hostname
+
+        if dns_record_id and _cf_object_exists(f"/dns_records/{dns_record_id}", cf_api_token, zone_id=zone_id):
+            info(f"Reusing tracked Cloudflare DNS record {dns_record_id}")
+        elif tunnel_id:
+            try:
+                dns_record_id = _cf_create_dns_cname(cf_api_token, zone_id, tunnel_hostname, tunnel_id)
+            except BootstrapFlowError:
+                if tunnel_created:
+                    _cf_delete_tunnel(cf_api_token, account_id, tunnel_id)
+                    if wrote_tunnel_token:
+                        _sync_host_env_file({"TUNNEL_TOKEN": ""})
+                    cf_runtime_creds.pop("TUNNEL_TOKEN", None)
+                raise
+            ok(f"Created Cloudflare DNS record {dns_record_id}")
+            dns_created = True
+            manifest_changed = True
+            manifest["dns_record_id"] = dns_record_id
+
+    if auto_access:
+        if access_app_id and _cf_object_exists(f"/access/apps/{access_app_id}", cf_api_token, account_id=account_id):
+            info(f"Reusing tracked Cloudflare Access app {access_app_id}")
+        else:
+            try:
+                access_app_id = _cf_create_access_app(cf_api_token, account_id, access_app_name, worker_host)
+            except BootstrapFlowError:
+                if dns_created:
+                    _cf_delete_dns_record(cf_api_token, zone_id, dns_record_id)
+                if tunnel_created:
+                    _cf_delete_tunnel(cf_api_token, account_id, tunnel_id)
+                    _sync_host_env_file({"TUNNEL_TOKEN": ""})
+                    cf_runtime_creds.pop("TUNNEL_TOKEN", None)
+                raise
+            ok(f"Created Cloudflare Access app {access_app_id}")
+            access_app_created = True
+            manifest_changed = True
+            manifest["access_app_id"] = access_app_id
+            manifest["access_app_name"] = access_app_name
+
+        if access_policy_id and _cf_object_exists(
+            f"/access/apps/{access_app_id}/policies/{access_policy_id}",
+            cf_api_token,
+            account_id=account_id,
+        ):
+            info(f"Reusing tracked Cloudflare Access policy {access_policy_id}")
+        else:
+            try:
+                access_policy_id = _cf_create_access_policy(
+                    cf_api_token,
+                    account_id,
+                    access_app_id,
+                    f"{access_app_name}-service-auth",
+                )
+            except BootstrapFlowError:
+                if access_app_created:
+                    _cf_delete_access_app(cf_api_token, account_id, access_app_id)
+                if dns_created:
+                    _cf_delete_dns_record(cf_api_token, zone_id, dns_record_id)
+                if tunnel_created:
+                    _cf_delete_tunnel(cf_api_token, account_id, tunnel_id)
+                clear_map: dict[str, str] = {}
+                if wrote_tunnel_token:
+                    clear_map["TUNNEL_TOKEN"] = ""
+                    cf_runtime_creds.pop("TUNNEL_TOKEN", None)
+                if wrote_access_creds:
+                    clear_map["CF_ACCESS_CLIENT_ID"] = ""
+                    clear_map["CF_ACCESS_CLIENT_SECRET"] = ""
+                    cf_runtime_creds.pop("CF_ACCESS_CLIENT_ID", None)
+                    cf_runtime_creds.pop("CF_ACCESS_CLIENT_SECRET", None)
+                if clear_map:
+                    _sync_host_env_file(clear_map)
+                raise
+            ok(f"Created Cloudflare Access service_auth policy {access_policy_id}")
+            access_policy_created = True
+            manifest_changed = True
+            manifest["access_policy_id"] = access_policy_id
+            _write_cf_resources(manifest)
+
+        if service_token_id and _cf_object_exists(
+            f"/access/service_tokens/{service_token_id}",
+            cf_api_token,
+            account_id=account_id,
+        ):
+            info(f"Reusing tracked Cloudflare Access service token {service_token_id}")
+            existing_secret = _read_runtime_credential_value("CF_ACCESS_CLIENT_SECRET")
+            if not existing_secret:
+                raise BootstrapFlowError(
+                    "Cloudflare Access service token exists in manifest, but CF_ACCESS_CLIENT_SECRET is absent from .env.\n"
+                    "  Recreate the token or run ./bootstrap.sh --nuke-cloudflare."
+                )
+            cf_runtime_creds["CF_ACCESS_CLIENT_ID"] = _read_runtime_credential_value("CF_ACCESS_CLIENT_ID")
+            cf_runtime_creds["CF_ACCESS_CLIENT_SECRET"] = existing_secret
+        else:
+            try:
+                service_token_id, client_id, client_secret = _cf_create_service_token(
+                    cf_api_token,
+                    account_id,
+                    service_token_name,
+                )
+            except BootstrapFlowError:
+                if access_policy_created:
+                    manifest["access_app_id"] = access_app_id
+                    _cf_delete_access_policy(cf_api_token, account_id, access_policy_id)
+                if access_app_created:
+                    _cf_delete_access_app(cf_api_token, account_id, access_app_id)
+                if dns_created:
+                    _cf_delete_dns_record(cf_api_token, zone_id, dns_record_id)
+                if tunnel_created:
+                    _cf_delete_tunnel(cf_api_token, account_id, tunnel_id)
+                clear_map: dict[str, str] = {}
+                if wrote_tunnel_token:
+                    clear_map["TUNNEL_TOKEN"] = ""
+                    cf_runtime_creds.pop("TUNNEL_TOKEN", None)
+                if wrote_access_creds:
+                    clear_map["CF_ACCESS_CLIENT_ID"] = ""
+                    clear_map["CF_ACCESS_CLIENT_SECRET"] = ""
+                    cf_runtime_creds.pop("CF_ACCESS_CLIENT_ID", None)
+                    cf_runtime_creds.pop("CF_ACCESS_CLIENT_SECRET", None)
+                if clear_map:
+                    _sync_host_env_file(clear_map)
+                raise
+            ok(f"Created Cloudflare Access service token {service_token_id}")
+            try:
+                _sync_host_env_file(
+                    {
+                        "CF_ACCESS_CLIENT_ID": client_id,
+                        "CF_ACCESS_CLIENT_SECRET": client_secret,
+                    }
+                )
+            except SystemExit as exc:
+                raise BootstrapFlowError(
+                    "Failed to persist generated CF Access service token to host .env.\n"
+                    f"  Orphaned access_app_id={access_app_id}\n"
+                    f"  Orphaned access_policy_id={access_policy_id}\n"
+                    f"  Orphaned service_token_id={service_token_id}\n"
+                    "  Cloudflare does not re-display Access service token secrets after creation."
+                ) from exc
+            cf_runtime_creds["CF_ACCESS_CLIENT_ID"] = client_id
+            cf_runtime_creds["CF_ACCESS_CLIENT_SECRET"] = client_secret
+            service_token_created = True
+            wrote_access_creds = True
+            manifest_changed = True
+            manifest["service_token_id"] = service_token_id
+            manifest["service_token_name"] = service_token_name
+
+    if manifest_changed:
+        manifest["zone_id"] = zone_id
+        _write_cf_resources(manifest)
+    return cf_runtime_creds, manifest
+
+
+def run_nuke_cloudflare() -> None:
+    print(BANNER, flush=True)
+    step("Nuke Cloudflare-managed Tunnel / DNS / Access resources")
+    manifest = _load_cf_resources()
+    if not manifest:
+        die(f"No Cloudflare resource manifest found at {CF_RESOURCES_FILE}; refusing to act.")
+
+    cf_creds = _get_push_registry_cf_creds()
+    zone_id = str(manifest.get("zone_id", "")).strip()
+    if not zone_id:
+        die(f"Cloudflare resource manifest {CF_RESOURCES_FILE} is missing zone_id")
+
+    _stop_cloudflared_if_running()
+
+    service_token_id = str(manifest.get("service_token_id", "")).strip()
+    access_policy_id = str(manifest.get("access_policy_id", "")).strip()
+    access_app_id = str(manifest.get("access_app_id", "")).strip()
+    dns_record_id = str(manifest.get("dns_record_id", "")).strip()
+    tunnel_id = str(manifest.get("tunnel_id", "")).strip()
+
+    if service_token_id:
+        _cf_delete_service_token(cf_creds["CF_API_TOKEN"], cf_creds["CF_ACCOUNT_ID"], service_token_id)
+        ok(f"Deleted Cloudflare Access service token {service_token_id}")
+    if access_policy_id:
+        manifest["access_app_id"] = access_app_id
+        _write_cf_resources(manifest)
+        _cf_delete_access_policy(cf_creds["CF_API_TOKEN"], cf_creds["CF_ACCOUNT_ID"], access_policy_id)
+        ok(f"Deleted Cloudflare Access policy {access_policy_id}")
+    if access_app_id:
+        _cf_delete_access_app(cf_creds["CF_API_TOKEN"], cf_creds["CF_ACCOUNT_ID"], access_app_id)
+        ok(f"Deleted Cloudflare Access app {access_app_id}")
+    if dns_record_id:
+        _cf_delete_dns_record(cf_creds["CF_API_TOKEN"], zone_id, dns_record_id)
+        ok(f"Deleted Cloudflare DNS record {dns_record_id}")
+    if tunnel_id:
+        last_error: BootstrapFlowError | None = None
+        for attempt in range(5):
+            try:
+                _cf_delete_tunnel(cf_creds["CF_API_TOKEN"], cf_creds["CF_ACCOUNT_ID"], tunnel_id)
+            except BootstrapFlowError as exc:
+                last_error = exc
+                if "HTTP 409" in str(exc) or "active connection" in str(exc).lower():
+                    time.sleep(2)
+                    continue
+                raise
+            else:
+                ok(f"Deleted Cloudflare Tunnel {tunnel_id}")
+                last_error = None
+                break
+        if last_error is not None:
+            raise last_error
+
+    _clear_cloudflare_runtime_creds()
+    _clear_cf_resources()
+    ok("Cleared Cloudflare runtime secrets from host .env")
+    ok(f"Removed {CF_RESOURCES_FILE}")
 
 
 def _infer_cf_worker_name_from_worker_url(url: str) -> str:
@@ -2143,6 +2807,7 @@ def _load_manifest_bootstrap() -> tuple[
     dict[str, list[str]],
     int,
     dict[str, str],
+    dict[str, str],
     dict[str, bool],
     dict[str, dict[str, Any]],
 ]:
@@ -2163,9 +2828,13 @@ def _load_manifest_bootstrap() -> tuple[
     )
     cf_runtime_creds: dict[str, str] = {}
     for var in ("TUNNEL_TOKEN", "CF_ACCESS_CLIENT_ID", "CF_ACCESS_CLIENT_SECRET"):
-        val = os.environ.get(var, "").strip()
+        val = _read_runtime_credential_value(var)
         if val:
             cf_runtime_creds[var] = val
+    cf_autoprovision = _load_cf_autoprovision_from_sources(
+        runtime_creds=cf_runtime_creds,
+        cf_worker_name=cf_creds["CF_WORKER_NAME"],
+    )
 
     declared_adapter_ids: list[str] = []
     seen_declared: set[str] = set()
@@ -2212,6 +2881,7 @@ def _load_manifest_bootstrap() -> tuple[
         key_adapters_by_key_id,
         token_ttl_days,
         cf_runtime_creds,
+        cf_autoprovision,
         unique_key_flags,
         policy_by_key_id,
     )
@@ -2254,6 +2924,7 @@ def run_interactive_wizard(
     dict[str, list[str]],
     dict[str, list[str]],
     int,
+    dict[str, str],
     dict[str, str],
     dict[str, bool],
     dict[str, dict[str, Any]],
@@ -2309,6 +2980,7 @@ def run_interactive_wizard(
     }
     ok("Cloudflare credentials captured (values not printed)")
     cf_runtime_creds: dict[str, str] = {}
+    cf_autoprovision: dict[str, str] = {}
 
     step("Cloudflare Tunnel runtime token (optional)")
     existing_tunnel = _read_env_file_value(HOST_ENV_FILE, "TUNNEL_TOKEN").strip()
@@ -2345,6 +3017,52 @@ def run_interactive_wizard(
             _wizard_collect_cf_access(cf_runtime_creds)
     else:
         _wizard_collect_cf_access(cf_runtime_creds)
+
+    step("Cloudflare auto-provisioning (optional)")
+    auto_tunnel_choice = "n"
+    auto_access_choice = "n"
+    if not cf_runtime_creds.get("TUNNEL_TOKEN"):
+        auto_tunnel_choice = input(
+            "  Auto-provision Cloudflare Tunnel / DNS? [y/N]: "
+        ).strip().lower()
+    if not (
+        cf_runtime_creds.get("CF_ACCESS_CLIENT_ID")
+        and cf_runtime_creds.get("CF_ACCESS_CLIENT_SECRET")
+    ):
+        auto_access_choice = input(
+            "  Auto-provision CF Access app / policy / service token? [y/N]: "
+        ).strip().lower()
+    if auto_tunnel_choice in ("y", "yes") or auto_access_choice in ("y", "yes"):
+        while True:
+            zone_id = _prompt_hidden_line("Cloudflare zone ID")
+            if zone_id:
+                break
+            print("  ✗  Zone ID cannot be empty.\n")
+        tunnel_hostname = ""
+        if auto_tunnel_choice in ("y", "yes"):
+            while True:
+                tunnel_hostname = input("  Cloudflare Tunnel hostname (e.g. subumbra.example.com): ").strip()
+                if tunnel_hostname:
+                    break
+                print("  ✗  Tunnel hostname cannot be empty when Tunnel auto-provisioning is requested.\n")
+        cf_autoprovision = {
+            "CF_ZONE_ID": zone_id,
+            "CF_TUNNEL_HOSTNAME": tunnel_hostname,
+            "CF_TUNNEL_NAME": input(
+                f"  Tunnel name [default: {_default_cf_tunnel_name(cf_worker_name)}]: "
+            ).strip() or _default_cf_tunnel_name(cf_worker_name),
+            "CF_ACCESS_APP_NAME": input(
+                f"  Access app name [default: {_default_cf_access_app_name(cf_worker_name)}]: "
+            ).strip() or _default_cf_access_app_name(cf_worker_name),
+            "CF_SERVICE_TOKEN_NAME": input(
+                f"  Access service token name [default: {_default_cf_service_token_name(cf_worker_name)}]: "
+            ).strip() or _default_cf_service_token_name(cf_worker_name),
+            "AUTO_PROVISION_TUNNEL": "1" if auto_tunnel_choice in ("y", "yes") else "0",
+            "AUTO_PROVISION_ACCESS": "1" if auto_access_choice in ("y", "yes") else "0",
+        }
+        ok("Cloudflare auto-provisioning inputs captured (values not printed)")
+    else:
+        info("Cloudflare auto-provisioning skipped — BYOC runtime secrets only")
 
     step("Loading manifest records")
     records = _load_manifest_records()
@@ -2430,6 +3148,7 @@ def run_interactive_wizard(
         key_adapters_by_key_id,
         token_ttl_days,
         cf_runtime_creds,
+        cf_autoprovision,
         unique_key_flags,
         policy_by_key_id,
         shred_paths,
@@ -3726,6 +4445,7 @@ def main() -> None:
                 key_adapters_by_key_id,
                 token_ttl_days,
                 cf_runtime_creds,
+                cf_autoprovision,
                 unique_key_flags,
                 policy_by_key_id,
             ) = _load_manifest_bootstrap()
@@ -3755,6 +4475,7 @@ def main() -> None:
                 key_adapters_by_key_id,
                 token_ttl_days,
                 cf_runtime_creds,
+                cf_autoprovision,
                 unique_key_flags,
                 policy_by_key_id,
                 shred_paths,
@@ -3766,6 +4487,7 @@ def main() -> None:
         shred_paths = []
         if not MANIFEST_FILE.exists():
             cf_runtime_creds = {}
+            cf_autoprovision = {}
             policy_index = _load_policy_index()
             policy_by_key_id = {}
             for key_id, (provider, target_host, _auth_header, _auth_prefix, _secret_ref) in api_keys.items():
@@ -3964,6 +4686,29 @@ def main() -> None:
         host_env_updates["CF_WORKER_URL"] = worker_url
         _sync_host_env_file(host_env_updates)
         ok("Cleared local public-key artifacts after CF reset")
+
+    if cf_autoprovision:
+        step("Auto-provisioning Cloudflare Tunnel / DNS / Access resources")
+        try:
+            cf_runtime_creds, _manifest_payload = _provision_cloudflare_resources(
+                cf_creds,
+                cf_autoprovision,
+                cf_runtime_creds,
+            )
+        except BootstrapFlowError as exc:
+            die(str(exc))
+        host_env_updates = _build_host_env_updates(
+            adapter_registry=adapter_registry,
+            allowed_keys_by_adapter=allowed_keys_by_adapter,
+            adapter_tokens=adapter_tokens,
+            subumbra_hmac_key=subumbra_hmac_key,
+            management_token=management_token,
+            worker_url=worker_url,
+            worker_name=cf_creds["CF_WORKER_NAME"],
+            setup_token=setup_token,
+            cf_runtime_creds=cf_runtime_creds,
+        )
+        _sync_host_env_file(host_env_updates)
 
     # ── Step 5a: Phase 1 — /setup/keygen per vault instance (before secrets) ─
     step("Phase 1 — vault /setup/keygen (per vault instance)")
@@ -4258,6 +5003,7 @@ Options:
                               and regenerates everything from scratch
   --rotate                    Rotate upstream keys for existing records
   --push-registry             Push keys.json state directly to Cloudflare KV
+  --nuke-cloudflare           Delete Cloudflare-managed Tunnel / DNS / Access resources
   --provision <key_id>        Targeted provisioning/repair for a single key
   --revoke-key <key_id>       Revoke a key (deletes from KV; --offline updates local keys.json only)
   --add-adapter <key_id>      Add an adapter binding to an existing key
@@ -4317,6 +5063,7 @@ if __name__ == "__main__":
         "--publish-policy",
         "--update-tunnel",
         "--update-access",
+        "--nuke-cloudflare",
         "--status",
     )
     selected_modes = sum(flag in sys.argv for flag in mode_flags)
@@ -4366,5 +5113,7 @@ if __name__ == "__main__":
         run_update_tunnel()
     elif "--update-access" in sys.argv:
         run_update_access()
+    elif "--nuke-cloudflare" in sys.argv:
+        run_nuke_cloudflare()
     else:
         main()
