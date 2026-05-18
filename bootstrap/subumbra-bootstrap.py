@@ -429,6 +429,20 @@ def _read_env_file_value(path: Path, key: str) -> str:
     return ""
 
 
+def _worker_control_headers(setup_token: str) -> dict[str, str]:
+    headers = {
+        "Authorization": f"Bearer {setup_token}",
+        "Content-Type": "application/json",
+        "User-Agent": "curl/8.5.0",
+    }
+    access_client_id = os.environ.get("CF_ACCESS_CLIENT_ID", "").strip()
+    access_client_secret = os.environ.get("CF_ACCESS_CLIENT_SECRET", "").strip()
+    if access_client_id and access_client_secret:
+        headers["CF-Access-Client-Id"] = access_client_id
+        headers["CF-Access-Client-Secret"] = access_client_secret
+    return headers
+
+
 def _infer_cf_worker_name_from_worker_url(url: str) -> str:
     """Best-effort worker script name from a Workers *.workers.dev URL."""
     url = url.strip()
@@ -2680,11 +2694,7 @@ def call_setup_keygen(worker_url: str, setup_token: str, vault_instance: str) ->
             f"{worker_url.rstrip('/')}/setup/keygen",
             data=body,
             method="POST",
-            headers={
-                "Authorization": f"Bearer {setup_token}",
-                "Content-Type": "application/json",
-                "User-Agent": "curl/8.5.0",
-            },
+            headers=_worker_control_headers(setup_token),
         )
         try:
             with urllib.request.urlopen(req) as resp:
@@ -2732,11 +2742,7 @@ def _call_internal_vault_status(worker_url: str, setup_token: str, vault_instanc
             f"{worker_url.rstrip('/')}/internal/vault-status",
             data=body,
             method="POST",
-            headers={
-                "Authorization": f"Bearer {setup_token}",
-                "Content-Type": "application/json",
-                "User-Agent": "curl/8.5.0",
-            },
+            headers=_worker_control_headers(setup_token),
         )
         try:
             with urllib.request.urlopen(req) as resp:
@@ -2781,11 +2787,7 @@ def _call_internal_vault_reset(worker_url: str, setup_token: str, vault_instance
             f"{worker_url.rstrip('/')}/internal/vault-reset",
             data=body,
             method="POST",
-            headers={
-                "Authorization": f"Bearer {setup_token}",
-                "Content-Type": "application/json",
-                "User-Agent": "curl/8.5.0",
-            },
+            headers=_worker_control_headers(setup_token),
         )
         try:
             with urllib.request.urlopen(req) as resp:
@@ -3762,8 +3764,8 @@ def main() -> None:
             sys.exit(0)
     if not use_wizard:
         shred_paths = []
-        cf_runtime_creds = {}
         if not MANIFEST_FILE.exists():
+            cf_runtime_creds = {}
             policy_index = _load_policy_index()
             policy_by_key_id = {}
             for key_id, (provider, target_host, _auth_header, _auth_prefix, _secret_ref) in api_keys.items():
