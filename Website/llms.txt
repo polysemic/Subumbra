@@ -1,0 +1,24 @@
+# Subumbra
+
+Subumbra is an open-source split-trust API key broker and proxy for self-hosted AI apps and provider integrations.
+
+Primary website:
+- https://subumbra.dev/
+
+Core public pages:
+- https://subumbra.dev/
+- https://subumbra.dev/privacy.html
+- https://subumbra.dev/terms.html
+
+Source and documentation:
+- https://github.com/polysemic/Subumbra
+
+Summary:
+- Protects provider API keys by keeping apps away from raw upstream secrets
+- Uses a Cloudflare Worker plus local services for split-trust mediation
+- Designed for self-hosters and early alpha testers
+
+Important notes:
+- Alpha software; interfaces and docs may change
+- Website content is informational and high-level
+- Canonical technical detail lives in the GitHub repository and docs
