@@ -2101,17 +2101,24 @@ def _kv_wait_for_json_value(
     max_attempts: int = 18,
     delay_seconds: int = 5,
 ) -> dict[str, Any]:
+    info(
+        f"Checking Cloudflare KV propagation for {key_name!r} "
+        f"(eventual consistency; may take up to {max_attempts} attempts)"
+    )
     for attempt in range(1, max_attempts + 1):
         parsed = _kv_get_json_value(cf_creds, namespace_id, key_name)
         if parsed is not None:
             return parsed
         if attempt < max_attempts:
             info(
-                f"Structured KV key {key_name!r} not visible yet; "
-                f"retrying ({attempt}/{max_attempts})"
+                f"Cloudflare KV propagation delay for {key_name!r} is still normal; "
+                f"rechecking consistency ({attempt}/{max_attempts})"
             )
             time.sleep(delay_seconds)
-    die(f"Structured KV key {key_name!r} did not become visible after publication")
+    die(
+        f"Cloudflare KV key {key_name!r} did not become readable after publication.\n"
+        f"  Consistency check exhausted {max_attempts} attempts."
+    )
 
 
 def _kv_delete_key(cf_creds: dict[str, str], namespace_id: str, key_name: str) -> None:
