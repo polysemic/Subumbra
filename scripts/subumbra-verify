@@ -1,0 +1,354 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+
+SENSITIVE_FILES = [
+    "bootstrap.sh",
+    "bootstrap/subumbra-bootstrap.py",
+    "worker/src/worker.js",
+    "worker/wrangler.toml",
+    "docker-compose.yml",
+    "scripts/subumbra-verify",
+    "scripts/subumbra-verify-deploy",
+    "scripts/security/gitleaks/.gitleaks.toml",
+    ".github/workflows/security.yml",
+    ".githooks/pre-commit",
+]
+
+STATUSES = {"PASS", "WARN", "FAIL", "SKIP"}
+BREAK_GLASS_VALUE = "I_ACCEPT_RISK"
+
+
+@dataclass
+class CheckResult:
+    check: str
+    status: str
+    detail: str
+
+    def __post_init__(self) -> None:
+        if self.status not in STATUSES:
+            raise ValueError(f"invalid status {self.status!r}")
+
+
+class Verifier:
+    def __init__(self, args: argparse.Namespace) -> None:
+        self.args = args
+        self.results: list[CheckResult] = []
+        self.repo_root: Path | None = None
+
+    def command_note(self, command: list[str] | str) -> None:
+        if self.args.verbose and not self.args.json:
+            if isinstance(command, list):
+                print("+ " + " ".join(command))
+            else:
+                print("+ " + command)
+
+    def add(self, check: str, status: str, detail: str) -> None:
+        result = CheckResult(check, status, detail)
+        self.results.append(result)
+        if self.args.json:
+            print(json.dumps(result.__dict__, separators=(",", ":")))
+        else:
+            print(f"{status:4} {check}: {detail}")
+
+    def run_git(self, git_args: list[str], check: bool = False) -> subprocess.CompletedProcess[str]:
+        cmd = ["git", *git_args]
+        self.command_note(cmd)
+        return subprocess.run(
+            cmd,
+            cwd=self.repo_root or Path.cwd(),
+            text=True,
+            capture_output=True,
+            check=check,
+        )
+
+    def resolve_repo(self) -> None:
+        self.command_note(["git", "rev-parse", "--show-toplevel"])
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            text=True,
+            capture_output=True,
+        )
+        if result.returncode != 0:
+            self.add("git-worktree", "FAIL", "not inside a Git worktree")
+            return
+        self.repo_root = Path(result.stdout.strip()).resolve()
+        self.add("git-worktree", "PASS", str(self.repo_root))
+
+    def source_checks(self) -> None:
+        self.resolve_repo()
+        if self.repo_root is None:
+            return
+
+        commit = self.run_git(["rev-parse", "--short", "HEAD"])
+        if commit.returncode == 0:
+            self.add("git-commit", "PASS", commit.stdout.strip())
+        else:
+            self.add("git-commit", "FAIL", "unable to resolve HEAD")
+
+        self.check_tag()
+        self.check_diff("git-unstaged-sensitive-clean", ["diff", "--name-only", "--", *SENSITIVE_FILES])
+        self.check_diff("git-staged-sensitive-clean", ["diff", "--cached", "--name-only", "--", *SENSITIVE_FILES])
+        self.check_sensitive_files()
+
+    def check_tag(self) -> None:
+        strict = os.environ.get("SUBUMBRA_REQUIRE_SIGNED_TAG", "").strip() == "1"
+        tag = self.run_git(["describe", "--tags", "--exact-match", "HEAD"])
+        if tag.returncode != 0:
+            self.add(
+                "git-tag-signature",
+                "FAIL" if strict else "WARN",
+                "HEAD is not exactly at a tag",
+            )
+            return
+
+        tag_name = tag.stdout.strip()
+        obj_type = self.run_git(["cat-file", "-t", tag_name])
+        if obj_type.returncode != 0:
+            self.add("git-tag-signature", "FAIL" if strict else "WARN", f"unable to inspect tag {tag_name}")
+            return
+        if obj_type.stdout.strip() != "tag":
+            self.add(
+                "git-tag-signature",
+                "FAIL" if strict else "WARN",
+                f"{tag_name} is a lightweight tag",
+            )
+            return
+
+        verify = self.run_git(["verify-tag", tag_name])
+        if verify.returncode == 0:
+            self.add("git-tag-signature", "PASS", f"{tag_name} signature verified")
+        else:
+            detail = (verify.stderr or verify.stdout).strip().splitlines()
+            message = detail[0] if detail else f"{tag_name} signature not verified"
+            self.add("git-tag-signature", "FAIL" if strict else "WARN", message)
+
+    def check_diff(self, check_name: str, git_args: list[str]) -> None:
+        result = self.run_git(git_args)
+        if result.returncode != 0:
+            self.add(check_name, "FAIL", "git diff command failed")
+            return
+        changed = [line for line in result.stdout.splitlines() if line.strip()]
+        if changed:
+            self.add(check_name, "FAIL", "changed sensitive files: " + ", ".join(changed))
+        else:
+            self.add(check_name, "PASS", "no sensitive-file changes")
+
+    def check_sensitive_files(self) -> None:
+        for rel_path in SENSITIVE_FILES:
+            tracked = self.run_git(["ls-files", "--error-unmatch", rel_path])
+            if tracked.returncode != 0:
+                self.add(f"git-tracked:{rel_path}", "FAIL", "sensitive file is not tracked")
+                continue
+            self.add(f"git-tracked:{rel_path}", "PASS", "tracked")
+
+            head_hash = self.run_git(["rev-parse", f"HEAD:{rel_path}"])
+            work_hash = self.run_git(["hash-object", rel_path])
+            if head_hash.returncode != 0 or work_hash.returncode != 0:
+                self.add(f"git-object-match:{rel_path}", "FAIL", "unable to compare Git object hash")
+                continue
+            if head_hash.stdout.strip() != work_hash.stdout.strip():
+                self.add(f"git-object-match:{rel_path}", "FAIL", "working tree differs from HEAD")
+            else:
+                self.add(f"git-object-match:{rel_path}", "PASS", "matches HEAD")
+
+    def local_state_checks(self) -> None:
+        if self.repo_root is None:
+            return
+        self.check_manifest()
+        self.check_keys_json()
+        self.check_env_file()
+        self.check_cf_resources()
+
+    def check_manifest(self) -> None:
+        yaml_path = self.repo_root / "subumbra.yaml"
+        json_path = self.repo_root / "subumbra.json"
+        if yaml_path.exists():
+            try:
+                import yaml  # type: ignore
+
+                yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+                self.add("manifest-parse", "PASS", "subumbra.yaml parses")
+            except Exception as exc:
+                self.add("manifest-parse", "FAIL", f"subumbra.yaml parse error: {exc}")
+            return
+        if json_path.exists():
+            try:
+                json.loads(json_path.read_text(encoding="utf-8"))
+                self.add("manifest-parse", "PASS", "subumbra.json parses")
+            except json.JSONDecodeError as exc:
+                self.add("manifest-parse", "FAIL", f"subumbra.json parse error: {exc}")
+            return
+        self.add("manifest-parse", "WARN" if not self.args.preflight else "SKIP", "no operator manifest present")
+
+    def check_keys_json(self) -> None:
+        path = self.repo_root / "data" / "keys.json"
+        if not path.exists():
+            self.add("keys-json-v3", "SKIP", "data/keys.json absent")
+            return
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            self.add("keys-json-v3", "FAIL", f"data/keys.json parse error: {exc}")
+            return
+        if not isinstance(payload, dict):
+            self.add("keys-json-v3", "FAIL", "data/keys.json top-level value is not an object")
+            return
+        required = {"ciphertext", "wrapped_dek", "pub_key_fp", "policy_hash"}
+        failures: list[str] = []
+        for key_id, record in payload.items():
+            if not isinstance(record, dict):
+                failures.append(str(key_id))
+                continue
+            if record.get("enc_version") != 3 or not required.issubset(record):
+                failures.append(str(key_id))
+        if failures:
+            self.add("keys-json-v3", "FAIL", "invalid V3 records: " + ", ".join(failures[:10]))
+        else:
+            self.add("keys-json-v3", "PASS", f"{len(payload)} V3 record(s) validated")
+
+    def check_env_file(self) -> None:
+        path = self.repo_root / ".env"
+        if not path.exists():
+            self.add("env-residue", "SKIP", ".env absent")
+            return
+        values = load_dotenv(path)
+        fail_keys = [key for key in ("SUBUMBRA_SETUP_TOKEN", "MASTER_DECRYPTION_KEY", "WORKER_PRIVATE_KEY") if values.get(key, "").strip()]
+        warn_keys = [key for key in ("CF_API_TOKEN",) if values.get(key, "").strip()]
+        if fail_keys:
+            self.add("env-residue", "FAIL", "non-empty bootstrap/decrypt residue: " + ", ".join(fail_keys))
+            return
+        if warn_keys:
+            self.add("env-residue", "WARN", "unexpected high-authority runtime .env key: " + ", ".join(warn_keys))
+            return
+        self.add("env-residue", "PASS", "no bootstrap-only residue detected")
+
+    def check_cf_resources(self) -> None:
+        path = self.repo_root / "data" / "cf-resources.json"
+        if not path.exists():
+            self.add("cf-resources-shape", "SKIP", "data/cf-resources.json absent")
+            return
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            self.add("cf-resources-shape", "FAIL", f"data/cf-resources.json parse error: {exc}")
+            return
+        bad_keys = sorted(find_secret_like_keys(payload))
+        if bad_keys:
+            self.add("cf-resources-shape", "FAIL", "secret-like key names: " + ", ".join(bad_keys[:10]))
+        else:
+            self.add("cf-resources-shape", "PASS", "no secret-like resource key names")
+
+    def cloudflare_checks(self) -> None:
+        if self.repo_root is None:
+            return
+        env_values = load_dotenv(self.repo_root / ".env")
+        token = os.environ.get("CF_API_TOKEN", "").strip() or env_values.get("CF_API_TOKEN", "").strip()
+        account = os.environ.get("CF_ACCOUNT_ID", "").strip() or env_values.get("CF_ACCOUNT_ID", "").strip()
+        if not token or not account:
+            self.add("cloudflare-worker-drift", "SKIP", "CF_API_TOKEN or CF_ACCOUNT_ID absent")
+            return
+        cmd = [str(self.repo_root / "scripts" / "subumbra-verify-deploy")]
+        self.command_note(cmd)
+        result = subprocess.run(cmd, cwd=self.repo_root, text=True, capture_output=True)
+        output = sanitize_output((result.stdout + "\n" + result.stderr).strip())
+        if result.returncode == 0:
+            self.add("cloudflare-worker-drift", "PASS", output or "integrity verified")
+        elif result.returncode == 2:
+            self.add("cloudflare-worker-drift", "FAIL", output or "integrity drift detected")
+        else:
+            self.add("cloudflare-worker-drift", "FAIL", output or f"subumbra-verify-deploy exit {result.returncode}")
+
+    def run(self) -> int:
+        if self.args.preflight and os.environ.get("SUBUMBRA_ALLOW_UNVERIFIED_SOURCE", "").strip() == BREAK_GLASS_VALUE:
+            self.add(
+                "preflight-break-glass",
+                "WARN",
+                "SUBUMBRA_ALLOW_UNVERIFIED_SOURCE=I_ACCEPT_RISK set; source verification skipped",
+            )
+            return 0
+
+        self.source_checks()
+        if not self.args.source_only:
+            self.local_state_checks()
+        if self.args.cloudflare:
+            self.cloudflare_checks()
+        return 1 if any(result.status == "FAIL" for result in self.results) else 0
+
+
+def load_dotenv(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    if not path.exists():
+        return values
+    for raw_line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        values[key.strip()] = value
+    return values
+
+
+def find_secret_like_keys(value: Any, prefix: str = "") -> set[str]:
+    matches: set[str] = set()
+    if isinstance(value, dict):
+        for key, child in value.items():
+            key_text = str(key)
+            lowered = key_text.lower()
+            current = f"{prefix}.{key_text}" if prefix else key_text
+            if (
+                ("api_token" in lowered or "token" in lowered or "secret" in lowered)
+                and not lowered.endswith("_id")
+                and not lowered.endswith("_name")
+            ):
+                matches.add(current)
+            matches.update(find_secret_like_keys(child, current))
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            matches.update(find_secret_like_keys(child, f"{prefix}[{index}]"))
+    return matches
+
+
+def sanitize_output(text: str) -> str:
+    if not text:
+        return ""
+    lines = []
+    for line in text.splitlines():
+        if "authorization:" in line.lower():
+            continue
+        lines.append(line[:300])
+    return " | ".join(lines)[:1000]
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Verify Subumbra source and deployment trust signals.")
+    parser.add_argument("--source-only", action="store_true", help="run Git/source checks only")
+    parser.add_argument("--preflight", action="store_true", help="run bootstrap-safe preflight checks")
+    parser.add_argument("--cloudflare", action="store_true", help="include read-only live Worker drift check")
+    parser.add_argument("--verbose", action="store_true", help="print safe command/check names before execution")
+    parser.add_argument("--json", action="store_true", help="emit one JSON object per check")
+    args = parser.parse_args(argv)
+    if args.source_only and args.cloudflare:
+        parser.error("--source-only and --cloudflare cannot be combined")
+    return args
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    return Verifier(args).run()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -68,6 +68,22 @@ if [[ -z "$manifest_file" ]]; then
     exit 1
 fi
 
+case "$mode" in
+    --help|-h|--list-key-ids|--list-adapters|--status)
+        echo "▶  Skipping source preflight for read-only mode: ${mode}"
+        ;;
+    *)
+        if [[ "${SUBUMBRA_ALLOW_UNVERIFIED_SOURCE:-}" == "I_ACCEPT_RISK" ]]; then
+            echo "WARNING: SUBUMBRA_ALLOW_UNVERIFIED_SOURCE=I_ACCEPT_RISK set." >&2
+            echo "WARNING: Skipping Subumbra source verification before secret-handling bootstrap path." >&2
+            echo "WARNING: If local source is compromised, secrets entered during this run may be exposed." >&2
+        else
+            echo "▶  Running Subumbra source preflight"
+            ./scripts/subumbra-verify --preflight
+        fi
+        ;;
+esac
+
 if [[ -f "$bootstrap_file" ]]; then
     while IFS= read -r line; do
         [[ -n "$line" ]] || continue

@@ -172,7 +172,40 @@ later. Subumbra does **not** retain `CF_API_TOKEN` or `CF_ACCOUNT_ID` in `.env`.
 
 Subumbra bootstrap supports two operator paths. Choose one:
 
-### 5a. Interactive RAM-only (recommended for first-time setup)
+### 5a. Verify source before secrets
+
+Run the verifier before entering Cloudflare or provider credentials:
+
+```bash
+./scripts/subumbra-verify --verbose
+```
+
+`./bootstrap.sh` runs `./scripts/subumbra-verify --preflight` automatically
+before it reads `.env.bootstrap`, prompts for secrets, or starts the bootstrap
+container. This check validates the Git worktree, sensitive source files,
+manifest shape, optional key-state shape, and obvious bootstrap-secret residue
+without printing secret values.
+
+For a stricter release-style check, use:
+
+```bash
+SUBUMBRA_REQUIRE_SIGNED_TAG=1 ./scripts/subumbra-verify --source-only
+```
+
+Current alpha tags are lightweight, so strict signed-tag mode will fail until a
+future release uses signed annotated tags. By default, unsigned branches and
+lightweight tags are warnings so development and council branches remain usable.
+
+For read-only live Worker drift verification after install, use a Cloudflare API
+token with **Workers Scripts: Read** plus `CF_ACCOUNT_ID`:
+
+```bash
+export CF_API_TOKEN=...
+export CF_ACCOUNT_ID=...
+./scripts/subumbra-verify --cloudflare
+```
+
+### 5b. Interactive RAM-only (recommended for first-time setup)
 
 ```bash
 ./bootstrap.sh
@@ -268,7 +301,7 @@ If a previous bootstrap left Cloudflare vault or KV state behind, the wizard
 stops and asks for explicit confirmation before wiping it. Pass `--nuke` to
 skip that prompt in non-interactive automation only when you intend a full reset.
 
-### 5b. Automation path (`.env.bootstrap`)
+### 5c. Automation path (`.env.bootstrap`)
 
 Use this path if you already have provider keys in a file, are scripting
 installation, or are migrating from an existing deployment.

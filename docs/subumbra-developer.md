@@ -91,6 +91,22 @@ docker compose --profile bootstrap build bootstrap
 docker compose up -d --force-recreate
 ```
 
+`./bootstrap.sh` runs `./scripts/subumbra-verify --preflight` before it reads
+`.env.bootstrap` or prompts for secrets. Development branches and council
+branches usually are not signed release tags, so the verifier warns rather than
+failing by default when no signed annotated tag is present. To require a signed
+tag in a release workflow, set `SUBUMBRA_REQUIRE_SIGNED_TAG=1`.
+
+For local development only, you can bypass the bootstrap preflight:
+
+```bash
+SUBUMBRA_ALLOW_UNVERIFIED_SOURCE=I_ACCEPT_RISK ./bootstrap.sh
+```
+
+Use that override only when you intentionally changed local source. It disables
+the pre-secret source check for the bootstrap path and prints a warning because
+secrets entered during that run could be exposed if local source is compromised.
+
 ---
 
 ## 5. Day-2 Operational Commands

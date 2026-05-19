@@ -52,6 +52,16 @@ configured) applies only to buffered response types (`application/json`,
 `text/plain`). Server-sent event streams pass through without pattern
 matching. This is a known limitation.
 
+**Local source must be trusted before bootstrap.** Split custody does not help
+if a compromised checkout changes `bootstrap.sh`, the bootstrap Python code, or
+the Worker before you enter Cloudflare and provider credentials. Run
+`./scripts/subumbra-verify --verbose` before bootstrap; the host wrapper also
+runs `./scripts/subumbra-verify --preflight` before reading `.env.bootstrap` or
+prompting for secrets. The verifier checks Git state, selected sensitive files,
+local state shape, and optional Worker deployment drift. It cannot prove its
+own honesty without an external trust root such as a signed release tag,
+trusted commit, or separately verified release artifact.
+
 ---
 
 ## Threat model
@@ -63,6 +73,7 @@ The following threats are structurally addressed in the current release:
 | Compromised adapter token requests any key | `allow.adapters` binds each token to specific `key_id`s; `capability_class` limits what APIs can be called |
 | Prompt-injection causes an LLM app to call unintended APIs | `capability_class` + `allow.path_prefixes` and `allow.methods` enforce scope at the Worker boundary |
 | Stolen Cloudflare deploy token replaces the Worker | Bootstrap captures a SHA-256 of the deployed bundle; `subumbra-verify-deploy` detects drift |
+| Local source modified before bootstrap | `scripts/subumbra-verify` checks sensitive source files and bootstrap runs it before reading secrets |
 | Ciphertext replayed across different keys or policies | V3 AAD binding (`subumbra:v3:<key_id>:<policy_hash>`) — decryption fails if key or policy don't match |
 | Policy tampered with in Cloudflare KV | AAD binding causes decryption to fail if the stored policy hash no longer matches the ciphertext seal |
 | Response body exfiltrates a secret | `response.deny_patterns` (optional) scans buffered responses; streaming is not scanned |

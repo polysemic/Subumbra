@@ -75,6 +75,16 @@ full inline policy form in `subumbra.example.yaml`.
 
 ### Step 4 — Run the setup wizard
 
+Before entering Cloudflare or provider secrets, run the local trust check:
+
+```bash
+./scripts/subumbra-verify --verbose
+```
+
+`./bootstrap.sh` also runs a preflight source check automatically before it reads
+`.env.bootstrap` or prompts for secrets. The verifier warns on unsigned or
+lightweight Git tags by default; strict signed-tag enforcement is opt-in.
+
 ```bash
 ./bootstrap.sh
 ```
