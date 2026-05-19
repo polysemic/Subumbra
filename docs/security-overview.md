@@ -64,6 +64,34 @@ trusted commit, or separately verified release artifact.
 
 ---
 
+## Release signing and trust roots
+
+Subumbra has two different signing roles, and they should stay separate:
+
+- **Template catalog signing** uses the offline Ed25519 key for the signed
+  provider template catalog.
+- **Release signing** should use a separate dedicated key for Git release tags.
+
+Do **not** reuse the template catalog private key for Git release tags. Keeping
+those trust roots separate limits the blast radius if one signing key is ever
+compromised.
+
+The intended release model is:
+
+- maintainers sign release tags with the **private release-signing key**
+- operators verify release tags with the corresponding **public key**
+
+For operator convenience, the release public key should be published both:
+
+- outside the repo, such as GitHub signing-key settings
+- inside the repo at [docs/release-signing-key.pub](release-signing-key.pub)
+
+The in-repo copy is a convenience, not the only trust anchor. For higher
+assurance, operators should compare the repo copy against an out-of-band source
+they already trust before relying on strict signed-tag verification.
+
+---
+
 ## Threat model
 
 The following threats are structurally addressed in the current release:
@@ -98,7 +126,6 @@ The following are known gaps or deferred work:
 | `subumbra.yaml` | Contains `key_id` labels and `secret_ref` names — low sensitivity but gitignored by convention |
 | `keys.json` | Encrypted ciphertext — safe cryptographically, but no reason to expose |
 | `public_key*.pem` | RSA public keys — not secret, but no reason to commit |
-| `council/catalog-release-key.pem` | Ed25519 private key for template signing — never commit |
 
 All of the above are covered by `.gitignore`. Do not force-add them.
 

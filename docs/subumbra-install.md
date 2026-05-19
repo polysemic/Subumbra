@@ -5,7 +5,30 @@
 **Prerequisites:** complete the host baseline in
 [docs/vps-deployment.md](vps-deployment.md) first.
 
-## 1. Install Docker Engine + Compose
+## 1. Get Your Cloudflare Credentials First
+
+Before you set up Docker or run bootstrap, prepare the minimum Cloudflare
+values Subumbra needs:
+
+- `CF_API_TOKEN`
+- `CF_ACCOUNT_ID`
+- a Worker name, for example `subumbra-proxy`
+- an active Workers Paid plan (A free plan may work. I have not tested this and you may run into limitations.)
+
+For the basic Worker + KV path, your API token should have:
+
+- `Workers Scripts: Edit`
+- `Workers KV Storage: Edit`
+
+Create the token from:
+
+- https://dash.cloudflare.com/profile/api-tokens
+
+If you want the step-by-step Cloudflare walkthrough, optional Tunnel / Access
+setup, or bootstrap auto-provision details, see
+[docs/cloudflare-setup.md](cloudflare-setup.md).
+
+## 2. Install Docker Engine + Compose
 
 Follow the official Docker guide for your distro:
 
@@ -19,7 +42,7 @@ docker compose version
 docker run --rm hello-world
 ```
 
-## 2. Clone Into `/opt/subumbra`
+## 3. Clone Into `/opt/subumbra`
 
 ```bash
 git clone https://github.com/polysemic/Subumbra.git /opt/subumbra
@@ -27,7 +50,7 @@ cd /opt/subumbra
 ```
 > If `/opt` is restricted on your system, you may need `sudo mkdir -p /opt/subumbra && sudo chown -R "$USER":"$USER" /opt/subumbra` first, then run the clone.
 
-## 2a. Create the shared Docker network
+## 3a. Create the shared Docker network
 
 Subumbra's proxy container joins a pre-existing Docker network (`subumbra-net`)
 so that app containers on other Compose stacks (LiteLLM, OpenWebUI, etc.) can
@@ -72,7 +95,7 @@ If you cannot or prefer not to modify the app's network config, use the host
 port `http://127.0.0.1:10199/t/<key_id>/...` instead — no network changes
 needed.
 
-## 2b. Create `subumbra.yaml` (gitignored)
+## 3b. Create `subumbra.yaml` (gitignored)
 
 `subumbra.yaml` is **not committed** (see `.gitignore`). You **must** create it
 locally before bootstrap or the compose mount will point at a missing file and
@@ -92,12 +115,12 @@ Edit `subumbra.yaml` to match your providers, apps and policies. The **minimal**
 file shows the simplest form: one or more LLM providers using signed built-in
 templates. The **example** file lists every built-in template plus one inline
 policy row showing all required and optional fields. Use minimal to get running
-fast; use the example when you want full control over policy.
+fast; use the example when you want full control over policy and add custom providers.
 
 See [docs/provider-templates.md](provider-templates.md) for the full list of
 built-in templates and how to customize them.
 
-## 3. Core `.env`
+## 4. Core `.env`
 
 `bootstrap.sh` creates `.env` from `.env.example` automatically.
 
@@ -107,8 +130,7 @@ and the interactive wizard now collects Cloudflare Tunnel and Access runtime
 credentials (`TUNNEL_TOKEN`, `CF_ACCESS_CLIENT_ID`,
 `CF_ACCESS_CLIENT_SECRET`) and writes them to `.env` for you.
 
-You also do not have to use Cloudflare auto-provisioning. `r73` keeps the
-bring-your-own-credentials path fully supported: you can provide existing
+You also do not have to use Cloudflare auto-provisioning. You can provide existing
 Tunnel / Access runtime secrets and skip Cloudflare lifecycle creation.
 
 For automation (non-interactive) use, add these as optional lines in
@@ -116,69 +138,31 @@ For automation (non-interactive) use, add these as optional lines in
 
 > Do not `source .env` after bootstrap — `SUBUMBRA_ADAPTER_REGISTRY` is a JSON blob that Bash mangles.
 
-## 4. Cloudflare Prerequisites
-
-You need:
-
-- `CF_API_TOKEN` and Your Cloudflare Account Id (`CF_ACCOUNT_ID`)
-- It is recommended that you use a User API Token from:
-  https://dash.cloudflare.com/profile/api-tokens
-- Use the Edit Cloudflare Workers, if not already enabled, select: 
-  - `Workers KV Storage: Edit`
-  - `Workers Scripts: Edit`
-  - give it a name like `subumbra-deploy`.
-- `CF_ACCOUNT_ID`
-- a Worker name, e.g. `subumbra-proxy`
-- Workers Paid Plan enabled
-
-If you want bootstrap to create Tunnel / DNS / Access resources for you, also
-prepare:
-
-- `CF_ZONE_ID`
-- `CF_TUNNEL_HOSTNAME`
-- one expanded `CF_API_TOKEN` that covers Worker deploy, KV edit, Tunnel
-  lifecycle, DNS edit for the selected zone, and Access app / policy /
-  service-token lifecycle
-
-The interactive bootstrap wizard prompts for these values. Treat
-`CF_API_TOKEN` and `CF_ACCOUNT_ID` as bootstrap/deploy authority for Worker, KV,
-and secret changes; keep it separate from any persistent runtime secrets you enable
-later. Subumbra does **not** retain `CF_API_TOKEN` or `CF_ACCOUNT_ID` in `.env`.
-
-**CF credentials required** (deploys to or reads from Cloudflare):
-- `./bootstrap.sh` — full bootstrap; deploys Worker, pushes KV and secrets
-- `./bootstrap.sh --nuke` — destructive re-bootstrap; resets Cloudflare vault state first
-- `./bootstrap.sh --provision <key_id>` — targeted key repair; pushes KV entry for one key
-- `./bootstrap.sh --push-registry` — syncs local `keys.json` state to Cloudflare KV
-- `./bootstrap.sh --revoke-key <key_id>` — removes key from live KV (omit `--offline` flag)
-- `./bootstrap.sh --add-adapter <key_id> <adapter_id>` — re-encrypts and pushes updated policy
-- `./bootstrap.sh --revoke-adapter <key_id> <adapter_id>` — re-encrypts and pushes updated policy
-- `./bootstrap.sh --publish-policy <key_id>` — republishes a key's policy and adapters to KV
-
-**CF credentials not required** (local operations only):
-- `./bootstrap.sh --rotate` — re-encrypts using the on-disk RSA public key.
-- `./bootstrap.sh --upgrade` — rebuilds Docker images and recreates containers.
-- `./bootstrap.sh --revoke-key <key_id> --offline` — marks key revoked in `keys.json` only; run
-  without `--offline` afterward to sync KV.
-
-**CF credentials not required — runtime credential rotation only:**
-- `./bootstrap.sh --update-tunnel` — update `TUNNEL_TOKEN` in `.env`
-- `./bootstrap.sh --update-access` — update `CF_ACCESS_CLIENT_ID` /
-  `CF_ACCESS_CLIENT_SECRET` in `.env`
-- `./bootstrap.sh --nuke-cloudflare` — deletes Cloudflare-managed Tunnel / DNS /
-  Access resources tracked in `data/cf-resources.json`
-
 ## 5. Run Bootstrap
 
 Subumbra bootstrap supports two operator paths. Choose one:
 
-### 5a. Verify source before secrets
+### 5a. Optional security check: verify source integrity before entering secrets
 
-Run the verifier before entering Cloudflare or provider credentials:
+This step is optional, but recommended if you want extra confidence that the
+checkout you are about to bootstrap has not drifted in obvious or risky ways
+before you paste in Cloudflare or provider credentials.
+
+Run:
 
 ```bash
 ./scripts/subumbra-verify --verbose
 ```
+
+This verifies things like:
+
+- the Git worktree state
+- unexpected drift in sensitive source files
+- basic manifest / local state shape
+- obvious leftover bootstrap secrets in local files
+
+It is a read-only integrity check. It does **not** print your secret values or
+send anything to Cloudflare.
 
 `./bootstrap.sh` runs `./scripts/subumbra-verify --preflight` automatically
 before it reads `.env.bootstrap`, prompts for secrets, or starts the bootstrap
@@ -195,6 +179,10 @@ SUBUMBRA_REQUIRE_SIGNED_TAG=1 ./scripts/subumbra-verify --source-only
 Current alpha tags are lightweight, so strict signed-tag mode will fail until a
 future release uses signed annotated tags. By default, unsigned branches and
 lightweight tags are warnings so development and council branches remain usable.
+
+Once signed annotated releases are in use, operators can import the published
+release public key from [docs/release-signing-key.pub](release-signing-key.pub)
+and use that as part of their local tag-verification setup.
 
 For read-only live Worker drift verification after install, use a Cloudflare API
 token with **Workers Scripts: Read** plus `CF_ACCOUNT_ID`:
@@ -419,20 +407,6 @@ docker compose up -d --force-recreate
 docker compose ps
 ```
 
-### Image-only updates (no re-bootstrap)
-
-After `git pull` (or equivalent), rebuild runtime and bootstrap images and
-recreate containers without touching Docker volumes:
-
-```bash
-./bootstrap.sh --upgrade
-```
-
-This does **not** run Cloudflare bootstrap, rotate keys, or change `.env`
-(except that running containers pick up the current `.env` from disk). Optional
-`subumbra-probe` / `cloudflared` use Compose profiles — rebuild or restart those
-separately if you use them (see comments in `docker-compose.yml`).
-
 Expected services:
 
 - `subumbra-keys` (healthy)
@@ -475,6 +449,62 @@ full re-bootstrap with the original `subumbra.yaml` and `.env.bootstrap`
 inputs. See the recovery section in the
 [operator guide](operator-guide.md).
 
+## 9. Bootstrap And Day-2 Command Reference
+
+Use this section after Subumbra is already installed and you want a quick
+reference for the main bootstrap and maintenance commands.
+
+If you want bootstrap to create Tunnel / DNS / Access resources for you, also
+prepare:
+
+- `CF_ZONE_ID`
+- `CF_TUNNEL_HOSTNAME`
+- one expanded `CF_API_TOKEN` that covers Worker deploy, KV edit, Tunnel
+  lifecycle, DNS edit for the selected zone, and Access app / policy /
+  service-token lifecycle
+
+The interactive bootstrap wizard prompts for these values when needed. Treat
+`CF_API_TOKEN` and `CF_ACCOUNT_ID` as bootstrap/deploy authority for Worker, KV,
+and secret changes; keep them separate from any persistent runtime secrets you
+enable later. Subumbra does **not** retain `CF_API_TOKEN` or `CF_ACCOUNT_ID` in
+`.env`.
+
+**CF credentials required** (deploys to or reads from Cloudflare):
+
+- `./bootstrap.sh` — full bootstrap; deploys Worker, pushes KV and secrets
+- `./bootstrap.sh --nuke` — destructive re-bootstrap; resets Cloudflare vault state first
+- `./bootstrap.sh --provision <key_id>` — targeted key repair; pushes KV entry for one key
+- `./bootstrap.sh --push-registry` — syncs local `keys.json` state to Cloudflare KV
+- `./bootstrap.sh --revoke-key <key_id>` — removes key from live KV (omit `--offline` flag)
+- `./bootstrap.sh --add-adapter <key_id> <adapter_id>` — re-encrypts and pushes updated policy
+- `./bootstrap.sh --revoke-adapter <key_id> <adapter_id>` — re-encrypts and pushes updated policy
+- `./bootstrap.sh --publish-policy <key_id>` — republishes a key's policy and adapters to KV
+
+**CF credentials not required** (local operations only):
+
+- `./bootstrap.sh --rotate` — re-encrypts using the on-disk RSA public key
+- `./bootstrap.sh --upgrade` — rebuilds Docker images and recreates containers
+- `./bootstrap.sh --revoke-key <key_id> --offline` — marks key revoked in `keys.json` only; run without `--offline` afterward to sync KV
+
+**CF credentials not required — runtime credential rotation only:**
+
+- `./bootstrap.sh --update-tunnel` — update `TUNNEL_TOKEN` in `.env`
+- `./bootstrap.sh --update-access` — update `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` in `.env`
+- `./bootstrap.sh --nuke-cloudflare` — deletes Cloudflare-managed Tunnel / DNS / Access resources tracked in `data/cf-resources.json`
+
+### Image-only updates (no re-bootstrap)
+
+After `git pull` (or equivalent), rebuild runtime and bootstrap images and
+recreate containers without touching Docker volumes:
+
+```bash
+./bootstrap.sh --upgrade
+```
+
+This does **not** run Cloudflare bootstrap, rotate keys, or change `.env`
+(except that running containers pick up the current `.env` from disk). Optional
+`subumbra-probe` / `cloudflared` use Compose profiles — rebuild or restart those
+separately if you use them (see comments in `docker-compose.yml`).
 
 ## Next
 

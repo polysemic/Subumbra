@@ -2,12 +2,12 @@
 
 This is the **operator- and contributor-facing** backlog: planned work, open ideas, and long-range possibilities. **Nothing here is a fixed sequence**—order shifts with real installs, incidents, and feedback. Items are grouped so similar work can be scheduled together when you pick the next round.
 
-Current planning direction after `1.0.0-alpha`:
+Current planning direction after `1.1.0-alpha`:
 
 - **Core Subumbra hardening and product simplification** are the active priority:
   observability, policy lifecycle, management API, secure UI.
 - Cloudflare is now a **completed optional capability** — see the appendix for
-  `r73` (auto-provisioning, planned) and deferred/watch items.
+  the shipped `r72`/`r73` lifecycle work and deferred/watch items.
 - Future Cloudflare work is **debug- or request-driven only** unless a new round
   explicitly reopens it.
 
@@ -162,7 +162,7 @@ These are **tracked as limitations or watch items**, not a promise to "fix soon"
 
 ## Completed (post-release)
 
-_Items completed after the 1.0.0-alpha release. Add entries here as work ships._
+_Items completed after the 1.1.0-alpha release. Add entries here as work ships._
 
 ---
 
@@ -185,17 +185,17 @@ debug- or request-driven only. The items below are tracked for reference._
 - `docs/cloudflare-tunnel-access.md` — BYOC operator guide
 - `docs/subumbra-install.md` updated to remove pre-bootstrap copy workaround
 
-### Planned in r73-cloudflare-autoprovision (not yet scheduled)
+### Completed in r73-cloudflare-autoprovision
 
 - API-driven Tunnel provisioning (create tunnel + DNS CNAME) behind explicit
   wizard opt-in
 - API-driven CF Access provisioning (app + policy + service token) behind opt-in
 - `data/cf-resources.json` idempotency manifest
 - `./bootstrap.sh --nuke-cloudflare` teardown command
-- Two-tiered CF API token scope: BYOC (narrow) vs auto-provision (expanded, with
-  explicit operator consent)
+- Expanded CF API token scope for auto-provisioning, with explicit operator
+  opt-in
 - New `cf-api-provision` verification harness lane (must be defined before
-  `r73` approved plan is written)
+  live Cloudflare lifecycle proof runs
 
 ### Deferred indefinitely (not scheduled)
 
