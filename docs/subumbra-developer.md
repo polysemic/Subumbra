@@ -36,7 +36,12 @@ Before submitting a Pull Request, ensure that:
 * **Workflows are verified** with no static analysis warnings (e.g. no CodeQL, Bandit, or dependency alerts).
 * Your feature branch contains no uncommitted temporary files or local `.env` secrets.
 
-### 2. Isolated Deployment Testing (Clean Run Harness)
+### 2. Testing Policy for New Functionality
+As a formal project policy: **When major new functionality is added to Subumbra, automated tests of that functionality MUST be added to the test suite.**
+* If you modify core routing, vault cryptography, or edge policies, you must verify your changes using the clean run integration harness.
+* New functionality must include evidence (such as a council `*-verification.md` report or local test harness output) demonstrating that the feature passes tests before merging.
+
+### 3. Isolated Deployment Testing (Clean Run Harness)
 
 Subumbra includes an automated integration testing harness under `scripts/council/` that simulates a completely fresh, zero-state installation from scratch to verify setup and bootstrap stability.
 
