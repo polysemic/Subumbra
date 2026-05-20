@@ -2,7 +2,7 @@
 
 This is the **operator- and contributor-facing** backlog: planned work, open ideas, and long-range possibilities. **Nothing here is a fixed sequence**—order shifts with real installs, incidents, and feedback. Items are grouped so similar work can be scheduled together when you pick the next round.
 
-Current planning direction after `1.1.0-alpha`:
+Current planning direction after `1.1.1-alpha`:
 
 - **Core Subumbra hardening and product simplification** are the active priority:
   observability, policy lifecycle, management API, secure UI.
@@ -162,11 +162,11 @@ These are **tracked as limitations or watch items**, not a promise to "fix soon"
 
 ## Completed (post-release)
 
-_Items completed after the 1.1.0-alpha release. Add entries here as work ships._
+_Items completed after the 1.1.1-alpha release. Add entries here as work ships._
 
 ---
 
-*Last updated: 2026-05-17 — reprioritized around `r72-cloudflare-updates` finish-out, then core hardening first.*
+*Last updated: 2026-05-20 — `1.1.1-alpha` patch release keeps core hardening and product simplification as the active direction.*
 
 ---
 
