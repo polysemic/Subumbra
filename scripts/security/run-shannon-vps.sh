@@ -3,6 +3,7 @@ set -euo pipefail
 
 PROFILE="${1:-auth}"
 STAGE_DIR="${STAGE_DIR:-$HOME/subumbra-staging}"
+REPO_DIR="${REPO_DIR:-/opt/subumbra}"
 SHANNON_DIR="${SHANNON_DIR:-$HOME/shannon-subumbra}"
 STAGE_PROXY_PORT="${STAGE_PROXY_PORT:-10299}"
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -33,6 +34,11 @@ if [[ ! -d "$STAGE_DIR" ]]; then
   exit 1
 fi
 
+if [[ ! -d "$REPO_DIR/.git" ]]; then
+  echo "ERROR: REPO_DIR is not a git repository: $REPO_DIR" >&2
+  exit 1
+fi
+
 if [[ ! -f "$CONFIG_FILE" ]]; then
   echo "ERROR: config file not found: $CONFIG_FILE" >&2
   exit 1
@@ -58,13 +64,14 @@ curl -fsS "http://127.0.0.1:${STAGE_PROXY_PORT}/health" >/dev/null
 
 echo "Running Shannon profile '$PROFILE'"
 echo "Target URL: $TARGET_URL"
-echo "Repo path:   $STAGE_DIR"
+echo "Repo path:   $REPO_DIR"
+echo "Stage dir:   $STAGE_DIR"
 echo "Workspace:   $WORKSPACE_NAME"
 echo "Output dir:  $OUTPUT_DIR"
 
 npx @keygraph/shannon start \
   -u "$TARGET_URL" \
-  -r "$STAGE_DIR" \
+  -r "$REPO_DIR" \
   -c "$CONFIG_FILE" \
   -w "$WORKSPACE_NAME" \
   -o "$OUTPUT_DIR"
