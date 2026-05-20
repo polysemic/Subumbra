@@ -14,9 +14,16 @@ SHANNON_WORKSPACE_ROOT="${SHANNON_WORKSPACE_ROOT:-$HOME/.shannon/workspaces}"
 REAL_WORKSPACE_DIR="$SHANNON_WORKSPACE_ROOT/$WORKSPACE_NAME"
 
 case "$PROFILE" in
-  auth|authz|ssrf|auth-proxy-lite|auth-worker-lite|authz-worker-lite) ;;
+  auth|authz|ssrf|\
+  auth-proxy-lite|auth-worker-lite|authz-worker-lite|\
+  ssrf-worker-lite|ssrf-proxy-lite|\
+  keys-auth-lite|response-injection-lite|ui-auth-lite) ;;
   *)
-    echo "ERROR: profile must be one of: auth, authz, ssrf, auth-proxy-lite, auth-worker-lite, authz-worker-lite" >&2
+    echo "ERROR: profile must be one of:" >&2
+    echo "  Full:  auth, authz, ssrf" >&2
+    echo "  Lite:  auth-proxy-lite, auth-worker-lite, authz-worker-lite" >&2
+    echo "         ssrf-worker-lite, ssrf-proxy-lite" >&2
+    echo "         keys-auth-lite, response-injection-lite, ui-auth-lite" >&2
     exit 1
     ;;
 esac

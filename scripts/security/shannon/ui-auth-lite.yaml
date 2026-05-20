@@ -1,0 +1,31 @@
+description: "Subumbra staging UI auth pass. Focus on dashboard token handling, SSE streaming endpoint, and read-only API access controls."
+vuln_classes: [auth]
+
+pipeline:
+  retry_preset: subscription
+  max_concurrent_pipelines: 1
+
+rules_of_engagement: |
+  - Target only the staging UI service port.
+  - Keep testing focused on UI bearer token validation and read-only API boundaries.
+  - Do not brute-force credentials.
+  - Throttle to under 2 requests per second.
+
+rules:
+  focus:
+    - description: "UI auth wrapper and route handlers"
+      type: code_path
+      value: "ui/app.py"
+    - description: "UI dashboard index"
+      type: url_path
+      value: "/"
+    - description: "UI status API"
+      type: url_path
+      value: "/api/status"
+    - description: "UI SSE events stream"
+      type: url_path
+      value: "/api/events"
+
+report:
+  min_severity: low
+  min_confidence: medium

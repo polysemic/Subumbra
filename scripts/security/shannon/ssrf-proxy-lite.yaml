@@ -1,0 +1,28 @@
+description: "Subumbra staging proxy-only SSRF pass. Focus on transparent route target construction and request forwarding."
+vuln_classes: [ssrf]
+
+pipeline:
+  retry_preset: subscription
+  max_concurrent_pipelines: 1
+
+rules_of_engagement: |
+  - Target only the staging proxy URL.
+  - Do not scan arbitrary internet hosts.
+  - Keep testing focused on transparent route target URL construction and forwarding behavior.
+  - Throttle to under 2 requests per second.
+
+rules:
+  focus:
+    - description: "Proxy request packaging and target URL construction"
+      type: code_path
+      value: "subumbra-proxy/app.py"
+    - description: "Proxy dependency surface"
+      type: code_path
+      value: "subumbra-proxy/requirements.txt"
+    - description: "Transparent proxy route"
+      type: url_path
+      value: "/t"
+
+report:
+  min_severity: low
+  min_confidence: medium

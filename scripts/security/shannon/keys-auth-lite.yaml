@@ -1,0 +1,31 @@
+description: "Subumbra staging keys service auth pass. Focus on adapter token resolution, HMAC validation, nonce replay protection, and record access controls."
+vuln_classes: [auth]
+
+pipeline:
+  retry_preset: subscription
+  max_concurrent_pipelines: 1
+
+rules_of_engagement: |
+  - Target only the staging keys service (internal network port).
+  - Keep testing focused on token validation, HMAC checks, and nonce replay behavior.
+  - Do not brute-force credentials.
+  - Throttle to under 2 requests per second.
+
+rules:
+  focus:
+    - description: "Keys service auth and access control logic"
+      type: code_path
+      value: "subumbra-keys/app.py"
+    - description: "Keys list endpoint"
+      type: url_path
+      value: "/keys"
+    - description: "Keys record fetch endpoint"
+      type: url_path
+      value: "/keys/{key_id}"
+    - description: "Keys stats endpoint"
+      type: url_path
+      value: "/stats"
+
+report:
+  min_severity: low
+  min_confidence: medium
