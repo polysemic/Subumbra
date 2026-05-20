@@ -1,5 +1,5 @@
 # PROJECT_STATUS
-*Current state — updated 2026-05-18 (r74 source-trust verifier CLOSED)*
+*Current state — updated 2026-05-20 (r75-shannon-patch implementation)*
 
 ---
 
@@ -8,7 +8,7 @@
 V3 Asymmetric Envelope Encryption (deployed, all three council verifiers PASS).
 
 - Asymmetric hybrid envelope: RSA-4096 wraps a per-record AES-256-GCM DEK; neither side can decrypt alone
-- AAD binding: `subumbra:v3:<key_id>:<policy_hash>` prevents ciphertext transplant and policy replay
+- AAD binding: `subumbra:v3:<key_id>:<policy_hash>` prevents ciphertext transplant and policy replay; as of r75 the Worker uses the live registry `policy_hash` as the decrypt-time authority rather than trusting the client-supplied request field
 - Private key in CF Durable Object SQLite custody (non-extractable); public key on host for offline rotation
 - Manifest-owned provider authority: operators declare routing, auth, and capability in `subumbra.yaml` (preferred) or `subumbra.json`; no hardcoded catalog at runtime
 - **YAML manifest support (r67):** Bootstrap accepts `subumbra.yaml` or `subumbra.json`; local `./templates/<name>.yaml` operator workspace checked before signed built-in catalog
@@ -145,6 +145,7 @@ Current pin: `main-latest@sha256:7c311546c25e7bb6e8cafede9fcd3d0d622ac636b5c9418
 | r72-cloudflare-updates | 2026-05-18 (CLOSED) | Cloudflare runtime UX: bootstrap now ingests optional BYOC `TUNNEL_TOKEN`, `CF_ACCESS_CLIENT_ID`, and `CF_ACCESS_CLIENT_SECRET`; interactive bootstrap offers optional Tunnel/Access prompts with reuse of existing `.env` values; new day-2 `./bootstrap.sh --update-tunnel` and `./bootstrap.sh --update-access` verbs update runtime credentials without a full re-bootstrap; new `docs/cloudflare-tunnel-access.md` landed; Cloudflare planning moved out of active themes. VPS `fresh-install` proofs **PASS**: `claude-vps-20260518T010954Z`, `gemini-vps-20260518T014318Z` (SHA `e4279e9`). Archive: `council/closed/r72-cloudflare-updates/`. |
 | r73-cloudflare-autoprovision | 2026-05-18 (CLOSED) | Cloudflare lifecycle finish-out: bootstrap can auto-provision Cloudflare Tunnel, DNS CNAME, Access app, service-auth policy, and service token from one expanded `CF_API_TOKEN`; generated runtime credentials are written to `.env`, non-secret resource IDs are tracked in `data/cf-resources.json`, and `./bootstrap.sh --nuke-cloudflare` stops `cloudflared`, deletes tracked Cloudflare resources, clears runtime credentials, and removes the manifest. New `cf-api-provision` proof lane added to council workflow. VPS isolated proofs **PASS**: `claude-vps-20260518T063801Z`, `gemini-vps-20260518T131058Z` (verified SHA `703a610`; post-proof docs/hook/security workflow commits accepted as non-runtime hygiene). Archive: `council/closed/r73-cloudflare-autoprovision/`. |
 | r74-subumbra-verify | 2026-05-18 (CLOSED) | Source-trust verifier: new `scripts/subumbra-verify` checks Git/source state, sensitive-file drift, optional local state shape, `.env` residue, `cf-resources.json` secret-like keys, and optional read-only Worker drift via `subumbra-verify-deploy`; `bootstrap.sh` runs `--preflight` before `.env.bootstrap` or secret prompts, with explicit `SUBUMBRA_ALLOW_UNVERIFIED_SOURCE=I_ACCEPT_RISK` break-glass. Docs updated for normal, strict signed-tag, and developer flows. VPS `existing-stack` proofs **PASS**: `claude-vps-20260519T000507Z`, `gemini-vps-20260519T000056Z` (SHA `c013518`). Archive: `council/closed/r74-subumbra-verify/`. |
+| r75-shannon-patch | 2026-05-20 | Shannon follow-up hardening: Worker `/proxy` now ignores client-supplied `policy_hash` for decrypt-time AAD selection and uses the live registry `policy_hash` instead, restoring server-authoritative V3 replay binding. |
 
 ---
 

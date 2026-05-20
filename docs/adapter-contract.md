@@ -96,7 +96,7 @@ Request body (JSON, all fields required unless noted):
 | `intent` | object, optional | Optional request-side attestation metadata. Transparent-path callers may supply this via the `X-Subumbra-Intent-*` headers documented below; direct callers may send the canonical top-level object themselves. |
 | `wrapped_dek` | string | RSA-OAEP-wrapped per-record DEK, base64 |
 | `pub_key_fp` | string | SHA-256 fingerprint of the RSA key pair used for wrapping (`sha256:<hex>`) |
-| `policy_hash` | string | V3 policy-binding hash from the live record |
+| `policy_hash` | string | V3 policy-binding hash from the live record; clients still send it in the request shape, but the Worker uses the live registry `policy_hash` as the decrypt-time authority |
 | `key_id` | string | Record identity; used as AAD: `subumbra:v3:<key_id>:<policy_hash>` |
 | `enc_version` | number | Must be `3`; V2 records are hard-rejected |
 | `vault_instance` | string | Target vault instance for decrypt/rotate routing |
@@ -176,8 +176,10 @@ The Worker enforces these security invariants before any upstream request is mad
 5. **Decryption** — the `SubumbraVault` Durable Object loads the custody row it
    generated during `/setup/keygen`, RSA-OAEP unwraps the per-record DEK, and
    AES-256-GCM decrypts the ciphertext with V3 policy-binding AAD
-   `subumbra:v3:<key_id>:<policy_hash>`. The request `pub_key_fp` must match
-   the vault-stored public-key fingerprint.
+   `subumbra:v3:<key_id>:<policy_hash>`. The Worker uses the live registry
+   `policy_hash` as the decrypt-time authority even though the compatible
+   request shape still carries a `policy_hash` field. The request `pub_key_fp`
+   must match the vault-stored public-key fingerprint.
 
 6. **Auth injection** — the Durable Object reads `auth.scheme` from the live
    policy entry and dispatches upstream auth as follows:

@@ -127,6 +127,10 @@ them.
 - R45-3 V3 records bind ciphertext with
   `subumbra:v3:<key_id>:<policy_hash>`, where `policy_hash` is computed from
   the baseline-bound policy object rather than the full policy document.
+- R75 keeps the V3 request shape unchanged for compatibility, but the Worker now
+  ignores client-provided `policy_hash` when constructing the Durable Object
+  decrypt call and always uses the live registry `policy_hash` as the
+  decrypt-time AAD authority.
 - Worker-side V2 records remain readable only through the R45-4 grace window;
   `--rotate-policy` performs Worker-mediated re-encryption without host
   plaintext recovery.

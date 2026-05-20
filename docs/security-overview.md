@@ -102,8 +102,8 @@ The following threats are structurally addressed in the current release:
 | Prompt-injection causes an LLM app to call unintended APIs | `capability_class` + `allow.path_prefixes` and `allow.methods` enforce scope at the Worker boundary |
 | Stolen Cloudflare deploy token replaces the Worker | Bootstrap captures a SHA-256 of the deployed bundle; `subumbra-verify-deploy` detects drift |
 | Local source modified before bootstrap | `scripts/subumbra-verify` checks sensitive source files and bootstrap runs it before reading secrets |
-| Ciphertext replayed across different keys or policies | V3 AAD binding (`subumbra:v3:<key_id>:<policy_hash>`) — decryption fails if key or policy don't match |
-| Policy tampered with in Cloudflare KV | AAD binding causes decryption to fail if the stored policy hash no longer matches the ciphertext seal |
+| Ciphertext replayed across different keys or policies | V3 AAD binding (`subumbra:v3:<key_id>:<policy_hash>`) — the Worker uses the live registry `policy_hash` as decrypt-time authority, so decryption fails if key or policy don't match |
+| Policy tampered with in Cloudflare KV | The Worker uses the live registry `policy_hash` for decrypt-time AAD, so ciphertext sealed under an older policy hash no longer decrypts until it is re-encrypted under the new policy |
 | Response body exfiltrates a secret | `response.deny_patterns` (optional) scans buffered responses; streaming is not scanned |
 
 The following are known gaps or deferred work:
