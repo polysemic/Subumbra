@@ -49,7 +49,7 @@ if [[ -z "$TARGET_URL" && -f "$STAGE_DIR/.env" ]]; then
 fi
 
 if [[ -z "$TARGET_URL" ]]; then
-  TARGET_URL="http://host.docker.internal:${STAGE_PROXY_PORT}"
+  TARGET_URL="http://172.17.0.1:${STAGE_PROXY_PORT}"
 fi
 
 if [[ ! -f "$HOME/.shannon/config.toml" ]] && [[ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]] && [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then

@@ -34,7 +34,7 @@ replacements = {
     "container_name: subumbra-bootstrap": "container_name: subumbra-staging-bootstrap",
     "container_name: cloudflared": "container_name: subumbra-staging-cloudflared",
     '- "127.0.0.1:6563:8080"': f'- "127.0.0.1:{ui_port}:8080"',
-    '- "127.0.0.1:10199:8090"': f'- "127.0.0.1:{proxy_port}:8090"',
+    '- "127.0.0.1:10199:8090"': f'- "0.0.0.0:{proxy_port}:8090"',
 }
 for old, new in replacements.items():
     text = text.replace(old, new)
