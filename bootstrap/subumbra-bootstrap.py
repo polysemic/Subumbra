@@ -70,6 +70,8 @@ import urllib.parse
 import urllib.request
 from base64 import b64encode
 from datetime import datetime, timedelta, timezone
+from email import policy
+from email.parser import BytesParser
 from pathlib import Path
 from typing import Any, Iterable, NoReturn
 
@@ -1899,11 +1901,88 @@ def _write_system_integrity(worker_name: str, worker_url: str, bundle_sha256: st
     SYSTEM_INTEGRITY_FILE.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
-def _hash_worker_bundle(work_dir: Path) -> str:
-    entrypoint = work_dir / "src" / "worker.js"
-    if not entrypoint.exists():
-        die(f"worker entrypoint missing from deploy bundle: {entrypoint}")
-    return hashlib.sha256(entrypoint.read_bytes()).hexdigest()
+def _cf_api_json(path: str, cf_creds: dict[str, str]) -> Any:
+    request = urllib.request.Request(
+        f"https://api.cloudflare.com/client/v4{path}",
+        headers={
+            "Authorization": f"Bearer {cf_creds['CF_API_TOKEN']}",
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        die(f"Cloudflare API request failed with HTTP {exc.code}")
+    except urllib.error.URLError as exc:
+        die(f"Cloudflare API request failed: {exc.reason}")
+
+
+def _cf_api_bytes(path: str, cf_creds: dict[str, str]) -> tuple[bytes, str]:
+    request = urllib.request.Request(
+        f"https://api.cloudflare.com/client/v4{path}",
+        headers={"Authorization": f"Bearer {cf_creds['CF_API_TOKEN']}"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return response.read(), response.headers.get("Content-Type", "")
+    except urllib.error.HTTPError as exc:
+        die(f"Cloudflare content fetch failed with HTTP {exc.code}")
+    except urllib.error.URLError as exc:
+        die(f"Cloudflare content fetch failed: {exc.reason}")
+
+
+def _latest_worker_version_id(cf_creds: dict[str, str], worker_name: str) -> str:
+    payload = _cf_api_json(
+        f"/accounts/{cf_creds['CF_ACCOUNT_ID']}/workers/scripts/{worker_name}/deployments",
+        cf_creds,
+    )
+    deployments = payload.get("result", payload).get("deployments")
+    if not isinstance(deployments, list) or not deployments:
+        die("no live worker deployment found after deploy")
+    latest = deployments[0]
+    versions = latest.get("versions")
+    if isinstance(versions, list) and versions:
+        version_id = versions[0].get("version_id")
+        if isinstance(version_id, str) and version_id:
+            return version_id
+    version_id = latest.get("version_id")
+    if isinstance(version_id, str) and version_id:
+        return version_id
+    die("unable to resolve live worker version after deploy")
+
+
+def _extract_worker_hash_bytes(body: bytes, content_type: str) -> bytes:
+    if "multipart/form-data" not in content_type.lower():
+        return body
+    message = BytesParser(policy=policy.default).parsebytes(
+        f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode("utf-8") + body
+    )
+    parts = list(message.iter_parts())
+    if not parts:
+        return body
+    entrypoint = message.get("cf-entrypoint")
+    if entrypoint:
+        for part in parts:
+            filename = part.get_filename()
+            if filename == entrypoint:
+                payload = part.get_payload(decode=True)
+                if payload is not None:
+                    return payload
+    for part in parts:
+        payload = part.get_payload(decode=True)
+        if payload is not None:
+            return payload
+    return body
+
+
+def _fetch_live_worker_bundle_hash(cf_creds: dict[str, str], worker_name: str) -> str:
+    version_id = _latest_worker_version_id(cf_creds, worker_name)
+    body, content_type = _cf_api_bytes(
+        f"/accounts/{cf_creds['CF_ACCOUNT_ID']}/workers/scripts/{worker_name}/content/v2?version={version_id}",
+        cf_creds,
+    )
+    return hashlib.sha256(_extract_worker_hash_bytes(body, content_type)).hexdigest()
 
 
 def _resolve_policy_for_key(
@@ -3681,8 +3760,6 @@ def deploy_worker(
         work_dir = tmp_dir / "worker"
         namespace_id = _create_or_reuse_kv_namespace(cf_creds)
         _append_provider_registry_kv_binding(work_dir / "wrangler.toml", namespace_id)
-        bundle_sha256 = _hash_worker_bundle(work_dir)
-
         # ── deploy ────────────────────────────────────────────────────────────
         step(f"Deploying CF Worker '{worker_name}'")
         deploy_out = _run(
@@ -3773,6 +3850,7 @@ def deploy_worker(
 
 
         worker_url = _build_worker_url(worker_name, deploy_out)
+        bundle_sha256 = _fetch_live_worker_bundle_hash(cf_creds, worker_name)
         _write_system_integrity(worker_name, worker_url, bundle_sha256)
 
     return worker_url

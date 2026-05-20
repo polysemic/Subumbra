@@ -1822,7 +1822,7 @@ async function handleProxy(request, env) {
     vaultInstance,
     encVersion: version,
     policyId: policy_id ?? registryEntry.policy_id,
-    policyHash: policy_hash ?? registryEntry.policy_hash,
+    policyHash: registryEntry.policy_hash,
     targetUrl: target_url,
     method: method ?? "POST",
     headers: cleanHeaders,

@@ -76,10 +76,23 @@ cp -f scripts/security/shannon/*.yaml "$SHANNON_DIR/configs/"
 cat > "$SHANNON_DIR/README.txt" <<EOF
 Shannon helper workspace for Subumbra staging.
 
-Configs:
+Full passes (broader scope, higher token cost):
   $SHANNON_DIR/configs/auth.yaml
   $SHANNON_DIR/configs/authz.yaml
   $SHANNON_DIR/configs/ssrf.yaml
+
+Lite passes (narrow scope, lower token cost):
+  auth-worker-lite    Worker token verification and auth routes
+  auth-proxy-lite     Proxy bearer-token handling
+  authz-worker-lite   Worker adapter/key/policy boundaries
+  ssrf-worker-lite    Worker target_url validation and upstream routing
+  ssrf-proxy-lite     Proxy transparent route target construction
+  keys-auth-lite      Keys service adapter token and HMAC validation
+  response-injection-lite  Worker response handling and deny_patterns
+  ui-auth-lite        UI dashboard token and read-only API access
+
+Run:
+  PROFILE=<name> bash $STAGE_DIR/scripts/security/run-shannon-vps.sh <profile>
 
 Reports:
   $SHANNON_DIR/reports/

@@ -5,6 +5,28 @@ All notable changes to Subumbra should be summarized here.
 This file is intentionally concise. For longer release writeups, operator notes,
 and release-specific context, see `docs/releases/`.
 
+## 1.1.1-alpha - 2026-05-20
+
+### Changed
+
+- The Worker now uses the live registry `policy_hash` as the decrypt-time
+  authority for V3 `/proxy` requests instead of trusting a client-supplied
+  value.
+- Security, project-memory, and adapter-contract docs now explicitly describe
+  the server-authoritative `policy_hash` behavior.
+
+### Security
+
+- Patched a policy-binding integrity gap identified during Shannon-assisted
+  review of the staging Worker path.
+- Verified on staging that tampering the client `policy_hash` no longer affects
+  decrypt-time behavior; valid requests still succeed and invalid adapter tokens
+  still return `401 unauthorized`.
+- Published a sanitized public Shannon summary at
+  `security/reports/2026-05/shannon-r75-summary.md`, including tested scope,
+  high-level method, blocked external auth-bypass attempts, the confirmed
+  runtime finding, and the shipped patch outcome.
+
 ## 1.1.0-alpha - 2026-05-19
 
 ### Added
