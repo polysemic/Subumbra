@@ -194,11 +194,11 @@ The Worker enforces these security invariants before any upstream request is mad
 
 8. **Streaming** — `POST /proxy` streams the Durable Object response body back
    to the caller unchanged, except when `response.deny_patterns` is configured
-   and the response `Content-Type` is `application/json` or `text/plain`. In
-   those cases the Worker buffers the response, scans it, and either returns
-   the full body or a terse `response_deny_pattern_match` denial. `text/event-stream`
-   and all other content types are always streamed through without buffering.
-   Callers that do not configure `response.deny_patterns` experience no change.
+   and the response is a buffered response type. In those cases the Worker
+   buffers the response, scans it, and either returns the full body or a terse
+   `response_deny_pattern_match` denial. `text/event-stream` bypasses
+   buffering and scanning explicitly. Callers that do not configure
+   `response.deny_patterns` experience no change.
 
 9. **Body-size enforcement** — `allow.max_body_bytes` is enforced against the
    UTF-8 byte length of the JSON-serialized outbound body.
@@ -443,9 +443,9 @@ must parse without error if present.
 
 - R48 activates request-side `intent.trust.*` guardrails.
 - R48-5 activates `intent.policy_match` enforcement and `response.deny_patterns`
-  scanning for buffered response types (`application/json`, `text/plain`).
-  Streaming responses (`text/event-stream` and all other types) pass through
-  unchanged; streaming-path response scanning is explicitly deferred.
+  scanning for buffered response types. Streaming responses
+  (`text/event-stream`) pass through unchanged; streaming-path response
+  scanning is explicitly deferred.
 - `intent_required` is inferred: if `intent.trust` is configured and non-empty,
   `intent` must be present in the request.
 - R49 activates `velocity` enforcement. See **Velocity and Circuit Breakers** below.
