@@ -1327,6 +1327,12 @@ def _normalize_policy_doc(doc: dict[str, Any], source: str) -> dict[str, Any]:
         _policy_die(source, "allow.content_types must be a non-empty array")
     for idx, content_type in enumerate(content_types):
         _policy_require_string(content_type, source, f"allow.content_types[{idx}]")
+    request_headers = allow.get("request_headers")
+    if request_headers is not None:
+        if not isinstance(request_headers, list):
+            _policy_die(source, "allow.request_headers must be an array")
+        for idx, header_name in enumerate(request_headers):
+            _policy_require_string(header_name, source, f"allow.request_headers[{idx}]")
     max_body_bytes = allow.get("max_body_bytes")
     if not isinstance(max_body_bytes, int) or isinstance(max_body_bytes, bool) or max_body_bytes <= 0:
         _policy_die(source, "allow.max_body_bytes must be a positive integer")
@@ -1372,6 +1378,12 @@ def _normalize_policy_doc(doc: dict[str, Any], source: str) -> dict[str, Any]:
     if response is not None:
         if not isinstance(response, dict):
             _policy_die(source, "response must be an object")
+        allow_headers = response.get("allow_headers")
+        if allow_headers is not None:
+            if not isinstance(allow_headers, list):
+                _policy_die(source, "response.allow_headers must be an array")
+            for idx, header_name in enumerate(allow_headers):
+                _policy_require_string(header_name, source, f"response.allow_headers[{idx}]")
         deny_patterns = response.get("deny_patterns")
         if deny_patterns is not None:
             if not isinstance(deny_patterns, list):
@@ -2687,6 +2699,7 @@ def compute_policy_hash(policy_doc: dict[str, Any]) -> str:
             "path_prefixes": sorted(allow["path_prefixes"]),
             "content_types": sorted(allow["content_types"]),
             "max_body_bytes": allow["max_body_bytes"],
+            "request_headers": sorted(allow.get("request_headers", [])),
         },
     }
     if "header_name" in auth:

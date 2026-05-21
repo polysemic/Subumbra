@@ -30,6 +30,7 @@ allow:
   path_prefixes: [/v1/messages, /v1/models]
   content_types: [application/json]
   max_body_bytes: 8388608   # 8MB — covers Claude 200K context in JSON; verify at docs.anthropic.com
+  request_headers: [content-type, accept, anthropic-version]
 
 # ── Optional — uncomment as needed ─────────────────────────────────────────
 # deny:
@@ -41,6 +42,23 @@ allow:
 #     allowed_content_sources: []
 # response:
 #   deny_patterns: [sk-ant-]
+response:
+  allow_headers:
+    - content-type
+    - request-id
+    - retry-after
+    - anthropic-ratelimit-input-tokens-limit
+    - anthropic-ratelimit-input-tokens-remaining
+    - anthropic-ratelimit-input-tokens-reset
+    - anthropic-ratelimit-output-tokens-limit
+    - anthropic-ratelimit-output-tokens-remaining
+    - anthropic-ratelimit-output-tokens-reset
+    - anthropic-ratelimit-requests-limit
+    - anthropic-ratelimit-requests-remaining
+    - anthropic-ratelimit-requests-reset
+    - anthropic-ratelimit-tokens-limit
+    - anthropic-ratelimit-tokens-remaining
+    - anthropic-ratelimit-tokens-reset
 velocity:
   adapter_rpm: 120
   key_rpm: 600

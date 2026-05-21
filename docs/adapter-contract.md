@@ -91,7 +91,7 @@ Request body (JSON, all fields required unless noted):
 | `provider` | string | Provider identity; must match the live provider-registry entry for the `target_url` hostname |
 | `target_url` | string | Full `https://` URL including path and query — adapter-owned |
 | `method` | string | HTTP method for the upstream call (e.g. `"POST"`) |
-| `headers` | object | Headers to forward to the upstream; adapter must include all provider-required headers (e.g. `content-type`, `anthropic-version`); the Worker strips hop-by-hop headers before forwarding |
+| `headers` | object | Headers to forward to the upstream; adapter must include all provider-required headers (e.g. `content-type`, `anthropic-version`); the Worker first strips invariant hop-by-hop/internal headers, then applies `allow.request_headers` when that field is present and non-empty |
 | `body` | JSON-serializable or null | Request body; must be null for GET/HEAD; see payload limitation below |
 | `intent` | object, optional | Optional request-side attestation metadata. Transparent-path callers may supply this via the `X-Subumbra-Intent-*` headers documented below; direct callers may send the canonical top-level object themselves. |
 | `wrapped_dek` | string | RSA-OAEP-wrapped per-record DEK, base64 |
@@ -190,9 +190,18 @@ The Worker enforces these security invariants before any upstream request is mad
    The adapter never receives or sees the decrypted API key.
 
 7. **Header stripping** — the Worker strips all hop-by-hop headers and all
-   `X-Subumbra-*` / `CF-Access-*` headers before the upstream fetch.
+   `X-Subumbra-*` / `CF-Access-*` headers before the upstream fetch. If
+   `allow.request_headers` is present and non-empty in the live policy, the
+   Worker then forwards only those explicitly listed request headers
+   (case-insensitive). Policies that omit `allow.request_headers` keep the
+   current pass-through behavior after invariant stripping.
 
-8. **Streaming** — `POST /proxy` streams the Durable Object response body back
+8. **Response headers** — after invariant stripping, the Worker/proxy path
+   preserves only `response.allow_headers` when that field is present and
+   non-empty in the live policy. Policies that omit `response.allow_headers`
+   keep the current pass-through behavior after invariant stripping.
+
+9. **Streaming** — `POST /proxy` streams the Durable Object response body back
    to the caller unchanged, except when `response.deny_patterns` is configured
    and the response is a buffered response type. In those cases the Worker
    buffers the response, scans it, and either returns the full body or a terse
@@ -200,7 +209,7 @@ The Worker enforces these security invariants before any upstream request is mad
    buffering and scanning explicitly. Callers that do not configure
    `response.deny_patterns` experience no change.
 
-9. **Body-size enforcement** — `allow.max_body_bytes` is enforced against the
+10. **Body-size enforcement** — `allow.max_body_bytes` is enforced against the
    UTF-8 byte length of the JSON-serialized outbound body.
 
 ---

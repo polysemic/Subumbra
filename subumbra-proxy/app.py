@@ -318,6 +318,25 @@ def split_secure_path(path: str) -> tuple[str | None, str]:
     return key_id or None, remainder
 
 
+def effective_response_allow_headers(record: dict[str, Any] | None) -> set[str] | None:
+    if not isinstance(record, dict):
+        return None
+    policy = record.get("policy")
+    if not isinstance(policy, dict):
+        return None
+    response = policy.get("response")
+    if not isinstance(response, dict):
+        return None
+    allow_headers = response.get("allow_headers")
+    if not isinstance(allow_headers, list) or not allow_headers:
+        return None
+    allowed: set[str] = set()
+    for header_name in allow_headers:
+        if isinstance(header_name, str) and header_name:
+            allowed.add(header_name.lower())
+    return allowed or None
+
+
 async def proxy_via_worker(
     key_id: str,
     target_url: str,
@@ -376,11 +395,17 @@ async def proxy_via_worker(
     )
     worker_resp = await CLIENT.send(worker_req, stream=True)
 
-    response_headers = {
-        key: value
-        for key, value in worker_resp.headers.items()
-        if key.lower() not in STRIP_HEADERS
-    }
+    response_allow_headers = effective_response_allow_headers(record)
+    response_headers: dict[str, str] = {}
+    for key, value in worker_resp.headers.items():
+        lower = key.lower()
+        if lower in STRIP_HEADERS:
+            continue
+        if response_allow_headers is not None and lower not in response_allow_headers:
+            continue
+        response_headers[key] = value
+    if "x-subumbra-provider" in worker_resp.headers:
+        response_headers["x-subumbra-provider"] = worker_resp.headers["x-subumbra-provider"]
 
     if worker_resp.status_code >= 400:
         body_bytes = await worker_resp.aread()
