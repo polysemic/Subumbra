@@ -765,6 +765,7 @@ export class SubumbraVault {
         method: method ?? "POST",
         headers: upstreamHeaders,
         body: body != null ? JSON.stringify(body) : undefined,
+        redirect: "manual",
       });
     } catch {
       fetchFailed = true;
@@ -1845,10 +1846,10 @@ async function handleProxy(request, env) {
   responseHeaders.set("X-Subumbra-Provider", registryEntry.provider_id);  // audit trail
 
   const denyPatterns = registryEntry.deny_patterns;
-  const contentType = doResponse.headers.get("content-type") ?? "";
+  const contentType = (doResponse.headers.get("content-type") ?? "").toLowerCase();
   const shouldScan =
     denyPatterns.length > 0 &&
-    (contentType.startsWith("application/json") || contentType.startsWith("text/plain"));
+    !contentType.startsWith("text/event-stream");
 
   if (shouldScan) {
     let responseBody;
@@ -1858,8 +1859,9 @@ async function handleProxy(request, env) {
       console.error("subumbra: response_read_error key_id=%s", key_id);
       return jsonError("response_read_error", 403);
     }
+    const scanBody = responseBody.toLowerCase();
     for (let i = 0; i < denyPatterns.length; i++) {
-      if (responseBody.includes(denyPatterns[i])) {
+      if (scanBody.includes(denyPatterns[i].toLowerCase())) {
         console.warn(
           "subumbra: policy deny reason=response_deny_pattern_match adapter=%s key_id=%s pattern_index=%d",
           auth.adapterId,
