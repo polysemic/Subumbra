@@ -655,6 +655,7 @@ def get_key(key_id: str) -> tuple[Response, int]:
         "policy_id": entry.get("policy_id"),
         "policy_hash": entry.get("policy_hash"),
         "vault_instance": entry.get("vault_instance"),
+        "policy": entry.get("policy"),
     }), 200
 
 
