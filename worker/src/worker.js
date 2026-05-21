@@ -608,6 +608,7 @@ export class SubumbraVault {
       authScheme,
       authHeaderName,
       authQueryParam,
+      responseAllowHeaders: responseAllowHeadersRaw,
       adapterId,
       velocity,
     } = payload;
@@ -851,7 +852,8 @@ export class SubumbraVault {
 
     const responseHeaders = new Headers();
     const responseAllowHeaders = new Set(
-      registryEntry.response_allow_headers.map((headerName) => headerName.toLowerCase()),
+      (Array.isArray(responseAllowHeadersRaw) ? responseAllowHeadersRaw : [])
+        .map((headerName) => headerName.toLowerCase()),
     );
     for (const [k, v] of upstreamResponse.headers.entries()) {
       const lower = k.toLowerCase();
@@ -1856,6 +1858,7 @@ async function handleProxy(request, env) {
     authScheme: registryEntry.auth_scheme,
     authHeaderName: registryEntry.auth_header_name ?? null,
     authQueryParam: registryEntry.auth_query_param ?? null,
+    responseAllowHeaders: registryEntry.response_allow_headers,
     adapterId: auth.adapterId,
     velocity: registryEntry.velocity,
   });
