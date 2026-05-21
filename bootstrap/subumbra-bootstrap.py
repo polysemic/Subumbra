@@ -2699,9 +2699,10 @@ def compute_policy_hash(policy_doc: dict[str, Any]) -> str:
             "path_prefixes": sorted(allow["path_prefixes"]),
             "content_types": sorted(allow["content_types"]),
             "max_body_bytes": allow["max_body_bytes"],
-            "request_headers": sorted(allow.get("request_headers", [])),
         },
     }
+    if "request_headers" in allow:
+        baseline_obj["allow"]["request_headers"] = sorted(allow["request_headers"])
     if "header_name" in auth:
         baseline_obj["auth"]["header_name"] = auth["header_name"]
     if "query_param" in auth:
