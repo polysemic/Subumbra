@@ -82,6 +82,12 @@ them.
   `MASTER_DECRYPTION_KEY`, or `WORKER_PRIVATE_KEY` is a failure; non-empty
   `CF_API_TOKEN` is a warning; `TUNNEL_TOKEN`, `CF_ACCESS_CLIENT_ID`, and
   `CF_ACCESS_CLIENT_SECRET` are expected runtime credentials.
+- **r77 (2026-05-21):** Policies may now declare explicit
+  `allow.request_headers` and `response.allow_headers`. When present, Subumbra
+  applies those allowlists after invariant header stripping; when absent, it
+  preserves prior pass-through behavior for backwards compatibility. Signed
+  built-in defaults for these fields currently ship only for Anthropic,
+  OpenAI, and Groq.
 
 ---
 
