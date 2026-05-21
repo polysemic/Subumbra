@@ -89,7 +89,7 @@ source of truth if this guide and the runtime ever disagree.
 Subumbra uses **Policy-Bound Encryption** (technically AES-GCM with AAD). When you bootstrap a key, the rules you define (like which apps can use it and what paths are allowed) are cryptographically bound to the encrypted secret.
 
 - **The Benefit**: If someone gains access to your Cloudflare KV and tries to "edit" your policy to give themselves more access, they will **fail**. The Worker will detect that the policy no longer matches the "seal" on the key and will refuse to decrypt it.
-- **The Operator Workflow**: Because of this seal, whenever you change a critical field in your manifest (like increasing `max_body_bytes` or changing a `target.host`), you **must re-run `./bootstrap.sh`**. Bootstrap will re-encrypt the secret using the new policy hash and update the "seal" in the cloud.
+- **The Operator Workflow**: Because of this seal, whenever you change a critical field in your manifest (like increasing `max_body_bytes`, changing `allow.request_headers`, or changing a `target.host`), you **must re-run `./bootstrap.sh`**. Bootstrap will re-encrypt the secret using the new policy hash and update the "seal" in the cloud.
 
 ---
 
@@ -269,6 +269,21 @@ Successful `./bootstrap.sh --provision <key_id>`, `--add-adapter`,
 `--revoke-adapter`, or `--publish-policy <key_id>` runs intentionally retain
 the file so you can finish additional secure mutation steps; shred it manually
 when repairs are complete.
+
+Header policy notes for day-2 changes:
+
+- `allow.request_headers` controls which adapter-supplied request headers are
+  forwarded after Subumbra strips invariant internal/hop-by-hop headers.
+- `response.allow_headers` controls which upstream response headers are exposed
+  after the same invariant strip pass.
+- If either field is omitted or left empty, current pass-through behavior is
+  preserved for backwards compatibility.
+- Anthropic requires `anthropic-version` on relevant requests. Optional headers
+  such as `anthropic-beta` are not forwarded unless you add them explicitly to
+  `allow.request_headers`.
+- After changing either header list in `subumbra.yaml` or a user-owned
+  template, run `./bootstrap.sh --publish-policy <key_id>` for each affected
+  key so the live registry picks up the new policy.
 
 ## 4. Run Bootstrap
 

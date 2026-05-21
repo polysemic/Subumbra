@@ -29,6 +29,7 @@ allow:
   path_prefixes: [/v1/chat, /v1/completions, /v1/models]
   content_types: [application/json]
   max_body_bytes: 8388608   # 8MB — covers GPT-4o 128K context in JSON; verify at platform.openai.com
+  request_headers: [content-type, accept]
 
 # ── Optional — uncomment as needed ─────────────────────────────────────────
 # deny:
@@ -40,6 +41,17 @@ allow:
 #     allowed_content_sources: []
 # response:
 #   deny_patterns: [sk-]
+response:
+  allow_headers:
+    - content-type
+    - x-request-id
+    - retry-after
+    - x-ratelimit-limit-requests
+    - x-ratelimit-limit-tokens
+    - x-ratelimit-remaining-requests
+    - x-ratelimit-remaining-tokens
+    - x-ratelimit-reset-requests
+    - x-ratelimit-reset-tokens
 velocity:
   adapter_rpm: 120
   key_rpm: 600

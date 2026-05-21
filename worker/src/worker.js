@@ -130,8 +130,12 @@ async function getRegistryEntry(env, keyId) {
     allow_path_prefixes: Array.isArray(allow.path_prefixes) ? allow.path_prefixes : [],
     allow_content_types: Array.isArray(allow.content_types) ? allow.content_types : [],
     allow_max_body_bytes: typeof allow.max_body_bytes === "number" ? allow.max_body_bytes : null,
+    allow_request_headers: Array.isArray(allow.request_headers) ? allow.request_headers : [],
     intent: policy.intent && typeof policy.intent === "object" ? policy.intent : null,
     deny_patterns: Array.isArray(policy.response?.deny_patterns) ? policy.response.deny_patterns : [],
+    response_allow_headers: Array.isArray(policy.response?.allow_headers)
+      ? policy.response.allow_headers
+      : [],
     velocity: policy.velocity && typeof policy.velocity === "object"
       ? {
           adapter_rpm: typeof policy.velocity.adapter_rpm === "number" ? policy.velocity.adapter_rpm : null,
@@ -604,6 +608,7 @@ export class SubumbraVault {
       authScheme,
       authHeaderName,
       authQueryParam,
+      responseAllowHeaders: responseAllowHeadersRaw,
       adapterId,
       velocity,
     } = payload;
@@ -846,10 +851,22 @@ export class SubumbraVault {
     }
 
     const responseHeaders = new Headers();
+    const responseAllowHeaders = new Set(
+      (Array.isArray(responseAllowHeadersRaw) ? responseAllowHeadersRaw : [])
+        .map((headerName) => headerName.toLowerCase()),
+    );
     for (const [k, v] of upstreamResponse.headers.entries()) {
-      if (!HOP_BY_HOP_HEADERS.has(k.toLowerCase())) {
-        responseHeaders.set(k, v);
+      const lower = k.toLowerCase();
+      if (HOP_BY_HOP_HEADERS.has(lower)) {
+        continue;
       }
+      if (
+        responseAllowHeaders.size > 0 &&
+        !responseAllowHeaders.has(lower)
+      ) {
+        continue;
+      }
+      responseHeaders.set(k, v);
     }
 
     return new Response(upstreamResponse.body, {
@@ -1811,6 +1828,16 @@ async function handleProxy(request, env) {
       }
     }
   }
+  if (registryEntry.allow_request_headers.length > 0) {
+    const requestAllowHeaders = new Set(
+      registryEntry.allow_request_headers.map((headerName) => headerName.toLowerCase()),
+    );
+    for (const k of Object.keys(cleanHeaders)) {
+      if (!requestAllowHeaders.has(k.toLowerCase())) {
+        delete cleanHeaders[k];
+      }
+    }
+  }
 
   // ── 5. Forward encrypted envelope to Durable Object ───────────────────────
   const doStub = getVaultStub(env, vaultInstance);
@@ -1831,6 +1858,7 @@ async function handleProxy(request, env) {
     authScheme: registryEntry.auth_scheme,
     authHeaderName: registryEntry.auth_header_name ?? null,
     authQueryParam: registryEntry.auth_query_param ?? null,
+    responseAllowHeaders: registryEntry.response_allow_headers,
     adapterId: auth.adapterId,
     velocity: registryEntry.velocity,
   });
