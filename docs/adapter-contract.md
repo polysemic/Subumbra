@@ -89,7 +89,7 @@ Request body (JSON, all fields required unless noted):
 |---|---|---|
 | `ciphertext` | string | AES-256-GCM encrypted API key, base64; from subumbra-keys record |
 | `provider` | string | Provider identity; must match the live provider-registry entry for the `target_url` hostname |
-| `target_url` | string | Full `https://` URL including path and query — adapter-owned |
+| `target_url` | string | Full `https://` URL including path and query — adapter-owned; omitted port or explicit `:443` allowed, any other port rejected with `403` |
 | `method` | string | HTTP method for the upstream call (e.g. `"POST"`) |
 | `headers` | object | Headers to forward to the upstream; adapter must include all provider-required headers (e.g. `content-type`, `anthropic-version`); the Worker first strips invariant hop-by-hop/internal headers, then applies `allow.request_headers` when that field is present and non-empty |
 | `body` | JSON-serializable or null | Request body; must be null for GET/HEAD; see payload limitation below |
@@ -161,8 +161,10 @@ The Worker enforces these security invariants before any upstream request is mad
    before parsing the body.
 
 2. **SSRF prevention** — `target_url` hostname must appear in the live provider
-   registry stored in Cloudflare KV; unlisted hostnames are rejected with 403.
-   Rejected with a warning log, no details surfaced to the caller.
+   registry stored in Cloudflare KV, and the port must be omitted or resolve to
+   the default HTTPS port (`443`); unlisted hostnames or any other port are
+   rejected with 403. Rejected with a warning log, no details surfaced to the
+   caller.
 
 3. **Provider/host consistency** — declared `provider` must match the live
    registry entry for the `target_url` hostname; mismatch rejected with 400.
@@ -235,6 +237,7 @@ All error responses use `Content-Type: application/json` with body
 |---|---|
 | Token missing or invalid | 401 |
 | `target_url` not in the live provider registry | 403 |
+| `target_url` uses a non-default HTTPS port | 403 |
 | Provider/host mismatch | 400 |
 | Missing or malformed required field | 400 |
 | V2 `enc_version` (deprecated) | 410 |

@@ -1667,6 +1667,14 @@ async function handleProxy(request, env) {
     console.warn("subumbra: SSRF attempt — rejected target_url %s for key_id=%s", parsedTarget.hostname, key_id);
     return jsonError("target_url not allowed", 403);
   }
+  if (parsedTarget.port !== "" && parsedTarget.port !== "443") {
+    console.warn(
+      "subumbra: SSRF port attempt — port=%s key_id=%s",
+      parsedTarget.port,
+      key_id,
+    );
+    return jsonError("target_url port not allowed", 403);
+  }
   console.info("subumbra: enc_version=3 key_id=%s", key_id);
 
   const policyIntent =
