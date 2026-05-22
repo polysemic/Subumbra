@@ -95,6 +95,13 @@ them.
   broad operator view through a registry capability flag
   `can_list_all_keys: true` on `subumbra-ui`; adapters without that flag remain
   scoped.
+- **r80 (2026-05-22):** `subumbra-keys` now applies a SQLite-backed auth-path
+  limiter before token comparison, returning exact `429 {"error":"rate limit exceeded"}`
+  plus `Retry-After: 60` on burst abuse. Nonce replay protection is now global
+  across key IDs through a data-preserving migration to a single-column nonce
+  primary key, and the `subumbra-keys` / `subumbra-proxy` / `subumbra-probe`
+  HMAC contract is now a length-prefixed canonical string rather than the older
+  ambiguous colon-joined format.
 
 ---
 

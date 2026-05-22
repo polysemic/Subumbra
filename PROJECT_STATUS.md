@@ -1,5 +1,5 @@
 # PROJECT_STATUS
-*Current state — updated 2026-05-22 (r79-keys-auth-scoping close-out)*
+*Current state — updated 2026-05-22 (r80-keys-auth-hardening close-out)*
 
 ---
 
@@ -150,6 +150,7 @@ Current pin: `main-latest@sha256:7c311546c25e7bb6e8cafede9fcd3d0d622ac636b5c9418
 | r77-response-header-policy | 2026-05-21 (CLOSED) | Header-policy hardening: policy/schema/runtime now support explicit `allow.request_headers` and `response.allow_headers`, Worker and proxy response forwarding now enforce those allowlists when present, built-in signed template defaults landed for Anthropic, OpenAI, and Groq, and response filtering now depends on `subumbra-keys` returning the embedded `policy` object to proxy callers. Verification `existing-stack` proofs **PASS**: `claude-vps-20260521T175331Z`, `gemini-vps-20260521T174803Z` (SHA `86f3cca`). Archive: `council/closed/r77-response-header-policy/`. |
 | r78-ssrf-port-validation | 2026-05-21 (CLOSED) | SSRF port lockdown: Worker `/proxy` now rejects `target_url` ports other than default/explicit `443`, while preserving normal HTTPS behavior and explicit `:443`; `docs/adapter-contract.md` was updated to document the port constraint. VPS `existing-stack` proofs **PASS**: `claude-vps-20260521T212334Z`, `gemini-vps-20260521T212334Z` (SHA `1600a54`). Archive: `council/closed/r78-ssrf-port-validation/`. |
 | r79-keys-auth-scoping | 2026-05-22 (CLOSED) | Keys-service auth scoping: `subumbra-keys` now sends `Cache-Control: no-store` on all responses, scopes `/keys`, `/stats`, and `/audit` to adapter `allowed_keys` by default, and normalizes `GET /keys/<id>` denied vs nonexistent responses to the same HTTP 403 body. The UI preserves broad operational visibility through the new `can_list_all_keys` capability, parsed in `subumbra-keys` and published for `subumbra-ui` by bootstrap. VPS `existing-stack` proofs **PASS**: `claude-vps-20260522T040931Z`, `gemini-vps-20260522T041351Z` (SHA `e9ad6ca`). Archive: `council/closed/r79-keys-auth-scoping/`. |
+| r80-keys-auth-hardening | 2026-05-22 (CLOSED) | Keys auth hardening: `subumbra-keys` now enforces SQLite-backed auth-path throttling with exact `429 {"error":"rate limit exceeded"}` plus `Retry-After: 60`, nonce replay is globally blocked through a data-preserving single-column nonce migration, and the HMAC signer/verifier contract is now length-prefixed across `subumbra-keys`, `subumbra-proxy`, `subumbra-probe`, and `docs/adapter-contract.md`. Verification outcome: Gemini VPS proof **PASS** (`gemini-vps-20260522T054220Z`); Claude VPS proof confirmed the shipped behavior with one accepted `HARNESS_ISSUE` on a first-run-only migration-log grep (`claude-vps-20260522T054751Z`). Archive: `council/closed/r80-keys-auth-hardening/`. |
 
 ---
 
