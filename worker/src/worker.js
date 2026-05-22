@@ -743,9 +743,13 @@ export class SubumbraVault {
     }
 
     const cleanUrl = new URL(targetUrl);
-    cleanUrl.searchParams.delete("key");
-    cleanUrl.searchParams.delete("api_key");
-    cleanUrl.searchParams.delete("apikey");
+    cleanUrl.username = "";
+    cleanUrl.password = "";
+    cleanUrl.hash = "";
+    for (const p of ["key", "api_key", "apikey", "api-key", "apiKey",
+                     "access_token", "token", "auth_token", "Authorization", "secret"]) {
+      cleanUrl.searchParams.delete(p);
+    }
 
     if (authScheme === "bearer") {
       upstreamHeaders.set("authorization", `Bearer ${apiKey}`);
