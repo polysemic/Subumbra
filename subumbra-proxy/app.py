@@ -141,12 +141,20 @@ def resolve_adapter_token(token: str) -> tuple[str, dict[str, Any]] | None:
     return matched
 
 
-def subumbra_headers(key_id: str, *, adapter_token: str | None = None) -> dict[str, str]:
+def subumbra_headers(
+    key_id: str,
+    *,
+    adapter_id: str,
+    adapter_token: str | None = None,
+) -> dict[str, str]:
     timestamp = str(int(time.time()))
     nonce = secrets.token_hex(16)
     signature = hmac.new(
         SUBUMBRA_HMAC_KEY.encode(),
-        f"{len(key_id)}:{key_id}:{len(timestamp)}:{timestamp}:{len(nonce)}:{nonce}".encode(),
+        (
+            f"{len(adapter_id)}:{adapter_id}:{len(key_id)}:{key_id}:"
+            f"{len(timestamp)}:{timestamp}:{len(nonce)}:{nonce}"
+        ).encode(),
         hashlib.sha256,
     ).hexdigest()
     return {
@@ -157,10 +165,16 @@ def subumbra_headers(key_id: str, *, adapter_token: str | None = None) -> dict[s
     }
 
 
-async def fetch_record(client, key_id: str, *, adapter_token: str | None = None):
+async def fetch_record(
+    client,
+    key_id: str,
+    *,
+    adapter_id: str,
+    adapter_token: str | None = None,
+):
     response = await client.get(
         f"{SUBUMBRA_KEYS_URL}/keys/{key_id}",
-        headers=subumbra_headers(key_id, adapter_token=adapter_token),
+        headers=subumbra_headers(key_id, adapter_id=adapter_id, adapter_token=adapter_token),
     )
     if response.status_code == 403:
         raise SubumbraForbiddenError("forbidden")
@@ -361,7 +375,12 @@ async def proxy_via_worker(
 
     if record is None:
         try:
-            record = await fetch_record(CLIENT, key_id, adapter_token=adapter_token)
+            record = await fetch_record(
+                CLIENT,
+                key_id,
+                adapter_id=adapter_id or "",
+                adapter_token=adapter_token,
+            )
         except httpx.ConnectError:
             LOG.error("subumbra failure key_id=%s error=subumbra-keys unreachable", key_id)
             raise HTTPException(502, detail="subumbra-keys unreachable")
@@ -530,7 +549,12 @@ async def handle_transparent_request(path: str, request: Request):
             raise HTTPException(400, detail="invalid JSON body")
 
     try:
-        record = await fetch_record(CLIENT, key_id, adapter_token=adapter_token)
+        record = await fetch_record(
+            CLIENT,
+            key_id,
+            adapter_id=adapter_id,
+            adapter_token=adapter_token,
+        )
     except httpx.ConnectError:
         LOG.error("subumbra failure key_id=%s error=subumbra-keys unreachable", key_id)
         raise HTTPException(502, detail="subumbra-keys unreachable")

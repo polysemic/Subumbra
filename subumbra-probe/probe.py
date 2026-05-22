@@ -10,6 +10,7 @@ import httpx
 
 SUBUMBRA_ACCESS_TOKEN = os.environ.get("SUBUMBRA_ACCESS_TOKEN", "")
 SUBUMBRA_HMAC_KEY = os.environ.get("SUBUMBRA_HMAC_KEY", "")
+SUBUMBRA_ADAPTER_ID = os.environ.get("SUBUMBRA_ADAPTER_ID", "").strip()
 SUBUMBRA_KEYS_URL = os.environ.get("SUBUMBRA_KEYS_URL", "")
 PROBE_ALLOWED_KEYS = os.environ.get("PROBE_ALLOWED_KEYS", "")
 
@@ -39,12 +40,22 @@ def resolve_probe_key_ids():
     return key_ids
 
 
+def require_adapter_id():
+    if not SUBUMBRA_ADAPTER_ID:
+        fail("missing required env vars: SUBUMBRA_ADAPTER_ID")
+    return SUBUMBRA_ADAPTER_ID
+
+
 def subumbra_headers(key_id):
+    adapter_id = require_adapter_id()
     timestamp = str(int(time.time()))
     nonce = secrets.token_hex(16)
     signature = hmac.new(
         SUBUMBRA_HMAC_KEY.encode(),
-        f"{len(key_id)}:{key_id}:{len(timestamp)}:{timestamp}:{len(nonce)}:{nonce}".encode(),
+        (
+            f"{len(adapter_id)}:{adapter_id}:{len(key_id)}:{key_id}:"
+            f"{len(timestamp)}:{timestamp}:{len(nonce)}:{nonce}"
+        ).encode(),
         hashlib.sha256,
     ).hexdigest()
     return {
