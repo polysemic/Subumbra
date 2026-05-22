@@ -53,7 +53,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from threading import Lock
+from threading import Lock, RLock
 
 from flask import Flask, Response, jsonify, request
 
@@ -187,7 +187,7 @@ if _expired_at_startup:
 # ─────────────────────────────────────────────────────────────────────────────
 
 _stats_lock = Lock()
-_session_lock = Lock()
+_session_lock = RLock()
 _audit_write_count: int = 0
 _audit_prune_logged: bool = False
 _nonce_write_count: int = 0
