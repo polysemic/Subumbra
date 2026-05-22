@@ -88,6 +88,13 @@ them.
   preserves prior pass-through behavior for backwards compatibility. Signed
   built-in defaults for these fields currently ship only for Anthropic,
   OpenAI, and Groq.
+- **r79 (2026-05-22):** `subumbra-keys` now scopes `/keys`, `/stats`, and
+  `/audit` to the caller's `allowed_keys` by default, normalizes
+  `GET /keys/<id>` denied-vs-missing lookups to the same HTTP 403 body, and
+  applies `Cache-Control: no-store` to all responses. The dashboard keeps its
+  broad operator view through a registry capability flag
+  `can_list_all_keys: true` on `subumbra-ui`; adapters without that flag remain
+  scoped.
 
 ---
 

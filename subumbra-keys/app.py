@@ -115,6 +115,7 @@ def _load_adapter_registry(raw: str) -> dict[str, dict]:
         allowed_keys = config.get("allowed_keys")
         can_list_keys = config.get("can_list_keys")
         can_read_stats = config.get("can_read_stats")
+        can_list_all_keys = config.get("can_list_all_keys", False)
         issued_at_raw, issued_at_dt = _parse_registry_timestamp(adapter_id, "issued_at", config.get("issued_at"))
         expires_at_raw, expires_at_dt = _parse_registry_timestamp(adapter_id, "expires_at", config.get("expires_at"))
 
@@ -133,6 +134,7 @@ def _load_adapter_registry(raw: str) -> dict[str, dict]:
             "allowed_keys": allowed_keys,
             "can_list_keys": can_list_keys,
             "can_read_stats": can_read_stats,
+            "can_list_all_keys": bool(can_list_all_keys),
             "issued_at": issued_at_raw,
             "expires_at": expires_at_raw,
             "issued_at_dt": issued_at_dt,
@@ -443,6 +445,12 @@ def _err(msg: str, code: int) -> tuple[Response, int]:
     return jsonify({"error": msg}), code
 
 
+@app.after_request
+def _set_cache_headers(response: Response) -> Response:
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 # ── routes ────────────────────────────────────────────────────────────────────
 
 @app.get("/health")
@@ -501,7 +509,11 @@ def list_keys() -> tuple[Response, int]:
         return _err("audit unavailable", 503)
 
     payload = []
+    allowed = set(adapter["allowed_keys"])
+    list_all = adapter.get("can_list_all_keys", False)
     for kid, meta in keys.items():
+        if not list_all and kid not in allowed:
+            continue
         policy = meta.get("policy") or {}
         auth = policy.get("auth") or {}
         target = policy.get("target") or {}
@@ -591,9 +603,10 @@ def get_key(key_id: str) -> tuple[Response, int]:
         )
         return _err(message, status)
 
-    if key_id not in adapter["allowed_keys"]:
+    keys = _load_keys()
+    if key_id not in keys or key_id not in adapter["allowed_keys"]:
         log.warning(
-            "get_key: forbidden adapter=%s key_id=%s remote=%s",
+            "get_key: not found or forbidden adapter=%s key_id=%s remote=%s",
             adapter["adapter_id"],
             key_id,
             remote,
@@ -603,23 +616,10 @@ def get_key(key_id: str) -> tuple[Response, int]:
             key_id=key_id,
             endpoint="get_key",
             verdict="deny",
-            reason_code="key_scope_denied",
+            reason_code="key_not_found_or_denied",
             remote=remote,
         )
-        return _err("forbidden", 403)
-
-    keys = _load_keys()
-    if key_id not in keys:
-        log.warning("get_key: not found key_id=%s remote=%s", key_id, remote)
-        _record_audit(
-            adapter_id=adapter["adapter_id"],
-            key_id=key_id,
-            endpoint="get_key",
-            verdict="deny",
-            reason_code="key_not_found",
-            remote=remote,
-        )
-        return _err("key not found", 404)
+        return _err("key not found or not permitted", 403)
 
     entry = keys[key_id]
     if entry.get("revoked") is True:
@@ -702,9 +702,12 @@ def stats() -> tuple[Response, int]:
         log.warning("stats_read_error endpoint=stats error=%s", exc)
         return _err("audit unavailable", 503)
 
+    allowed = set(adapter["allowed_keys"])
+    list_all = adapter.get("can_list_all_keys", False)
     per_key = [
         {"key_id": kid, "request_count": cnt, "last_access": last_ts}
         for kid, (cnt, last_ts) in usage.items()
+        if list_all or kid in allowed
     ]
 
     return jsonify({
@@ -757,6 +760,15 @@ def audit() -> tuple[Response, int]:
 
     where_clauses: list[str] = []
     query_params: list[str] = []
+    allowed = adapter["allowed_keys"]
+    list_all = adapter.get("can_list_all_keys", False)
+    if not list_all:
+        if allowed:
+            placeholders = ",".join("?" * len(allowed))
+            where_clauses.append(f"(key_id IS NULL OR key_id IN ({placeholders}))")
+            query_params.extend(allowed)
+        else:
+            where_clauses.append("key_id IS NULL")
     if key_id_filter:
         where_clauses.append("key_id = ?")
         query_params.append(key_id_filter)

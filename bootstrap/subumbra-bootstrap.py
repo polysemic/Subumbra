@@ -2573,6 +2573,7 @@ def _build_adapter_registry(
             "allowed_keys": [],
             "can_list_keys": True,
             "can_read_stats": True,
+            "can_list_all_keys": True,
             "issued_at": issued_at,
             "expires_at": expires_at,
         },
