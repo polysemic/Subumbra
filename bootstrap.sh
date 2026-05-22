@@ -57,6 +57,17 @@ fi
 declare -a volume_args=()
 declare -a env_args=()
 
+# Forward Cloudflare credentials from the host environment into the container
+# so non-interactive day-2 commands (--session, --push-registry, etc.) work
+# without requiring .env.bootstrap or an interactive TTY when CF_API_TOKEN and
+# CF_ACCOUNT_ID are already exported in the host shell (e.g. CI, verify-round.sh).
+if [[ -n "${CF_API_TOKEN:-}" ]]; then
+    env_args+=(-e "CF_API_TOKEN=${CF_API_TOKEN}")
+fi
+if [[ -n "${CF_ACCOUNT_ID:-}" ]]; then
+    env_args+=(-e "CF_ACCOUNT_ID=${CF_ACCOUNT_ID}")
+fi
+
 volume_args+=(-v "$repo_root/$env_file:/app/host-env:rw")
 volume_args+=(-v "$repo_root/$manifest_file:/app/manifest:ro")
 if [[ -d "$repo_root/templates" ]]; then
