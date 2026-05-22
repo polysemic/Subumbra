@@ -428,6 +428,16 @@ def _init_session_db() -> sqlite3.Connection | None:
 _session_conn = _init_session_db()
 
 
+def _ensure_session_conn() -> sqlite3.Connection | None:
+    global _session_conn
+    if _session_conn is not None:
+        return _session_conn
+    with _session_lock:
+        if _session_conn is None:
+            _session_conn = _init_session_db()
+        return _session_conn
+
+
 def _decode_scope_json(raw_value: object) -> list[str] | None:
     if raw_value is None:
         return None
@@ -454,24 +464,26 @@ def _session_row_to_dict(row: sqlite3.Row) -> dict[str, object]:
 
 
 def _expire_sessions_if_needed() -> None:
-    if _session_conn is None:
+    conn = _ensure_session_conn()
+    if conn is None:
         return
     with _session_lock:
-        _session_conn.execute(
+        conn.execute(
             """
             UPDATE sessions
             SET status = 'expired'
             WHERE status = 'active' AND datetime(expires_at) < datetime('now')
             """
         )
-        _session_conn.commit()
+        conn.commit()
 
 
 def _get_lockdown_enabled() -> bool:
-    if _session_conn is None:
+    conn = _ensure_session_conn()
+    if conn is None:
         return True
     try:
-        row = _session_conn.execute(
+        row = conn.execute(
             "SELECT lockdown_enabled FROM lockdown_config WHERE id = 1"
         ).fetchone()
     except sqlite3.Error as exc:
@@ -483,11 +495,12 @@ def _get_lockdown_enabled() -> bool:
 
 
 def _get_active_session() -> sqlite3.Row | None:
-    if _session_conn is None:
+    conn = _ensure_session_conn()
+    if conn is None:
         return None
     try:
         _expire_sessions_if_needed()
-        return _session_conn.execute(
+        return conn.execute(
             """
             SELECT session_id, name, allowed_adapters, allowed_keys, max_queries,
                    queries_used, created_at, expires_at, status
@@ -503,9 +516,10 @@ def _get_active_session() -> sqlite3.Row | None:
 
 
 def _list_recent_sessions(limit: int = 10) -> list[dict[str, object]]:
-    if _session_conn is None:
+    conn = _ensure_session_conn()
+    if conn is None:
         return []
-    rows = _session_conn.execute(
+    rows = conn.execute(
         """
         SELECT session_id, name, allowed_adapters, allowed_keys, max_queries,
                queries_used, created_at, expires_at, status
@@ -519,11 +533,12 @@ def _list_recent_sessions(limit: int = 10) -> list[dict[str, object]]:
 
 
 def _try_consume_session_query(session_id: str, max_queries: int) -> bool:
-    if _session_conn is None:
+    conn = _ensure_session_conn()
+    if conn is None:
         return False
     with _session_lock:
         _expire_sessions_if_needed()
-        cursor = _session_conn.execute(
+        cursor = conn.execute(
             """
             UPDATE sessions
             SET queries_used = queries_used + 1
@@ -533,7 +548,7 @@ def _try_consume_session_query(session_id: str, max_queries: int) -> bool:
             """,
             (session_id, max_queries),
         )
-        _session_conn.commit()
+        conn.commit()
         return cursor.rowcount == 1
 
 
@@ -1268,9 +1283,6 @@ def sessions() -> tuple[Response, int]:
             remote=remote,
         )
         return _err("forbidden", 403)
-
-    if _session_conn is None:
-        return _err("session unavailable", 503)
 
     active_session = _get_active_session()
     try:
