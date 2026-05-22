@@ -855,7 +855,7 @@ def stats() -> tuple[Response, int]:
     adapter = adapter_result
     if not adapter["can_read_stats"]:
         log.warning(
-            "stats: forbidden adapter=%s remote=%s",
+            "stats: forbidden adapter=%s remote=%s reason=stats_scope_denied",
             adapter["adapter_id"],
             remote,
         )
@@ -913,7 +913,7 @@ def audit() -> tuple[Response, int]:
     adapter = adapter_result
     if not adapter["can_read_stats"]:
         log.warning(
-            "audit: forbidden adapter=%s remote=%s",
+            "audit: forbidden adapter=%s remote=%s reason=audit_scope_denied",
             adapter["adapter_id"],
             remote,
         )
