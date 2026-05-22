@@ -50,7 +50,7 @@ Signature algorithm:
 
 ```text
 HMAC-SHA256(
-  f"{len(key_id)}:{key_id}:{len(timestamp)}:{timestamp}:{len(nonce)}:{nonce}",
+  f"{len(adapter_id)}:{adapter_id}:{len(key_id)}:{key_id}:{len(timestamp)}:{timestamp}:{len(nonce)}:{nonce}",
   SUBUMBRA_HMAC_KEY
 )
 ```

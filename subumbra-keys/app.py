@@ -13,7 +13,7 @@ Auth model:
     X-Subumbra-Timestamp: <unix epoch, seconds>
     X-Subumbra-Nonce: <single-use hex nonce>
     X-Subumbra-Signature: HMAC-SHA256(
-        f"{len(key_id)}:{key_id}:{len(timestamp)}:{timestamp}:{len(nonce)}:{nonce}",
+        f"{len(adapter_id)}:{adapter_id}:{len(key_id)}:{key_id}:{len(timestamp)}:{timestamp}:{len(nonce)}:{nonce}",
         SUBUMBRA_HMAC_KEY,
     )
 
@@ -301,7 +301,7 @@ def _ensure_nonce_schema(conn: sqlite3.Connection) -> None:
 
 def _record_auth_attempt(remote: str) -> tuple[bool, int]:
     if _audit_conn is None:
-        return True, 0
+        return False, -1
 
     now_ts = int(time.time())
     window_start = now_ts - _RATE_LIMIT_WINDOW_SECONDS + 1
@@ -329,7 +329,7 @@ def _record_auth_attempt(remote: str) -> tuple[bool, int]:
             _audit_conn.commit()
         except sqlite3.Error as exc:
             log.warning("rate_limit_store_error remote=%s error=%s", remote, exc)
-            return True, 0
+            return False, -1
 
     return count <= SUBUMBRA_RATE_LIMIT_RPM, count
 
@@ -394,18 +394,27 @@ def _sqlite_per_key_usage_map() -> dict[str, tuple[int, str | None]]:
     return {str(row[0]): (int(row[1]), row[2]) for row in rows}
 
 
-def _sqlite_recent_log_last50() -> list[dict]:
+def _sqlite_recent_log_last50(allowed_keys: set[str], list_all: bool) -> list[dict]:
     """Last 50 audit rows, oldest-first within the window (matches former deque order)."""
     if _audit_conn is None:
         return []
-    rows = _audit_conn.execute(
-        """
+    if not list_all and not allowed_keys:
+        return []
+
+    query = """
         SELECT timestamp, adapter_id, endpoint, key_id, verdict, reason_code, remote
         FROM audit_events
+    """
+    params: tuple[str, ...] = ()
+    if not list_all:
+        placeholders = ",".join("?" * len(allowed_keys))
+        query += f" WHERE key_id IN ({placeholders})"
+        params = tuple(sorted(allowed_keys))
+    query += """
         ORDER BY id DESC
         LIMIT 50
-        """
-    ).fetchall()
+    """
+    rows = _audit_conn.execute(query, params).fetchall()
     recent: list[dict] = [
         {
             "timestamp": r[0],
@@ -473,6 +482,14 @@ def _resolve_adapter() -> dict | _AdapterDenial:
     """Resolve X-Subumbra-Token to an adapter config using constant-time comparison."""
     remote = request.remote_addr or ""
     allowed, attempt_count = _record_auth_attempt(remote)
+    if attempt_count == -1:
+        return _AdapterDenial(
+            adapter_id=None,
+            reason_code="audit_unavailable",
+            status_code=503,
+            message="service unavailable",
+            retry_after=None,
+        )
     if not allowed:
         log.warning(
             "rate_limit_exceeded remote=%s attempts=%d window_seconds=%d",
@@ -506,7 +523,7 @@ def _resolve_adapter() -> dict | _AdapterDenial:
     return matched
 
 
-def _hmac_ok(key_id: str, nonce: str) -> tuple[bool, str]:
+def _hmac_ok(adapter_id: str, key_id: str, nonce: str) -> tuple[bool, str]:
     """
     Validate per-request HMAC signature for ciphertext endpoints.
     Returns (valid: bool, reason_code: str).
@@ -532,7 +549,10 @@ def _hmac_ok(key_id: str, nonce: str) -> tuple[bool, str]:
 
     expected = hmac.new(
         SUBUMBRA_HMAC_KEY,
-        f"{len(key_id)}:{key_id}:{len(timestamp_str)}:{timestamp_str}:{len(nonce)}:{nonce}".encode(),
+        (
+            f"{len(adapter_id)}:{adapter_id}:{len(key_id)}:{key_id}:"
+            f"{len(timestamp_str)}:{timestamp_str}:{len(nonce)}:{nonce}"
+        ).encode(),
         hashlib.sha256,
     ).hexdigest()
 
@@ -715,9 +735,9 @@ def get_key(key_id: str) -> tuple[Response, int]:
 
     adapter = adapter_result
     nonce = request.headers.get("X-Subumbra-Nonce", "")
-    valid, reason = _hmac_ok(key_id, nonce)
+    valid, reason = _hmac_ok(adapter["adapter_id"], key_id, nonce)
     if not valid:
-        status = 400 if reason in {"nonce_missing", "nonce_too_long", "subumbra_header_missing", "timestamp_invalid"} else 401
+        status = 400 if reason == "subumbra_header_missing" else 401
         log.warning("get_key: rejected key_id=%s remote=%s reason=%s", key_id, remote, reason)
         _record_audit(
             adapter_id=adapter["adapter_id"],
@@ -779,6 +799,17 @@ def get_key(key_id: str) -> tuple[Response, int]:
             remote=remote,
         )
         return _err("key revoked", 403)
+    if entry.get("paused") is True:
+        log.warning("get_key: paused key_id=%s remote=%s", key_id, remote)
+        _record_audit(
+            adapter_id=adapter["adapter_id"],
+            key_id=key_id,
+            endpoint="get_key",
+            verdict="deny",
+            reason_code="key_paused",
+            remote=remote,
+        )
+        return _err("key paused", 403)
 
     log.info("get_key: served key_id=%s remote=%s", key_id, remote)
     _record_audit(
@@ -824,7 +855,7 @@ def stats() -> tuple[Response, int]:
     adapter = adapter_result
     if not adapter["can_read_stats"]:
         log.warning(
-            "stats: forbidden adapter=%s remote=%s",
+            "stats: forbidden adapter=%s remote=%s reason=stats_scope_denied",
             adapter["adapter_id"],
             remote,
         )
@@ -843,13 +874,13 @@ def stats() -> tuple[Response, int]:
 
     try:
         usage = _sqlite_per_key_usage_map()
-        recent = _sqlite_recent_log_last50()
+        allowed = set(adapter["allowed_keys"])
+        list_all = adapter.get("can_list_all_keys", False)
+        recent = _sqlite_recent_log_last50(allowed, list_all)
     except sqlite3.Error as exc:
         log.warning("stats_read_error endpoint=stats error=%s", exc)
         return _err("audit unavailable", 503)
 
-    allowed = set(adapter["allowed_keys"])
-    list_all = adapter.get("can_list_all_keys", False)
     per_key = [
         {"key_id": kid, "request_count": cnt, "last_access": last_ts}
         for kid, (cnt, last_ts) in usage.items()
@@ -882,7 +913,7 @@ def audit() -> tuple[Response, int]:
     adapter = adapter_result
     if not adapter["can_read_stats"]:
         log.warning(
-            "audit: forbidden adapter=%s remote=%s",
+            "audit: forbidden adapter=%s remote=%s reason=audit_scope_denied",
             adapter["adapter_id"],
             remote,
         )
@@ -911,10 +942,10 @@ def audit() -> tuple[Response, int]:
     if not list_all:
         if allowed:
             placeholders = ",".join("?" * len(allowed))
-            where_clauses.append(f"(key_id IS NULL OR key_id IN ({placeholders}))")
+            where_clauses.append(f"key_id IN ({placeholders})")
             query_params.extend(allowed)
         else:
-            where_clauses.append("key_id IS NULL")
+            return jsonify({"events": []}), 200
     if key_id_filter:
         where_clauses.append("key_id = ?")
         query_params.append(key_id_filter)
