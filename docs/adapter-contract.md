@@ -49,7 +49,10 @@ X-Subumbra-Signature: <hex hmac>
 Signature algorithm:
 
 ```text
-HMAC-SHA256(f"{key_id}:{timestamp}:{nonce}", SUBUMBRA_HMAC_KEY)
+HMAC-SHA256(
+  f"{len(key_id)}:{key_id}:{len(timestamp)}:{timestamp}:{len(nonce)}:{nonce}",
+  SUBUMBRA_HMAC_KEY
+)
 ```
 
 Replay protection:
