@@ -444,9 +444,9 @@ def _read_runtime_credential_value(key: str) -> str:
 def _open_session_db() -> sqlite3.Connection:
     try:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
-        os.chmod(DATA_DIR, 0o777)
+        os.chmod(DATA_DIR, 0o755)
         if SESSIONS_DB_FILE.exists():
-            os.chmod(SESSIONS_DB_FILE, 0o666)
+            os.chmod(SESSIONS_DB_FILE, 0o644)
         conn = sqlite3.connect(SESSIONS_DB_FILE, timeout=30)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA busy_timeout=10000")
@@ -485,7 +485,7 @@ def _open_session_db() -> sqlite3.Connection:
             """
         )
         conn.commit()
-        os.chmod(SESSIONS_DB_FILE, 0o666)
+        os.chmod(SESSIONS_DB_FILE, 0o644)
         return conn
     except (OSError, sqlite3.Error) as exc:
         die(f"Failed to open session database {SESSIONS_DB_FILE}: {exc}")
