@@ -19,7 +19,7 @@ fi
 mode=""
 for arg in "$@"; do
     case "$arg" in
-        --upgrade|--nuke|--rotate|--push-registry|--provision|--revoke-key|--add-adapter|--revoke-adapter|--publish-policy|--update-tunnel|--update-access|--nuke-cloudflare|--help|-h|--list-key-ids|--list-adapters|--status)
+        --upgrade|--nuke|--rotate|--push-registry|--session|--provision|--revoke-key|--add-adapter|--revoke-adapter|--publish-policy|--update-tunnel|--update-access|--nuke-cloudflare|--help|-h|--list-key-ids|--list-adapters|--status)
             mode="$arg"
             break
             ;;
@@ -130,7 +130,7 @@ if [[ "$mode" == "--rotate" || "$mode" == "--nuke" || -z "$mode" ]]; then
         "${volume_args[@]}" \
         "${env_args[@]}" \
         bootstrap "$@" || bootstrap_rc=$?
-elif [[ "$mode" == "--push-registry" || "$mode" == "--provision" || "$mode" == "--revoke-key" || "$mode" == "--add-adapter" || "$mode" == "--revoke-adapter" || "$mode" == "--publish-policy" || "$mode" == "--update-tunnel" || "$mode" == "--update-access" || "$mode" == "--nuke-cloudflare" || "$mode" == "--status" ]]; then
+elif [[ "$mode" == "--push-registry" || "$mode" == "--session" || "$mode" == "--provision" || "$mode" == "--revoke-key" || "$mode" == "--add-adapter" || "$mode" == "--revoke-adapter" || "$mode" == "--publish-policy" || "$mode" == "--update-tunnel" || "$mode" == "--update-access" || "$mode" == "--nuke-cloudflare" || "$mode" == "--status" ]]; then
     if [[ -t 0 ]]; then
         run_io_flags=(-it)
     else

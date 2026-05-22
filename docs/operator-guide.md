@@ -258,6 +258,9 @@ Cloudflare authority lifecycle at this stage:
   intentionally **not** retained in runtime `.env`, so you must re-supply it
   for later Cloudflare-backed day-2 operations such as
   `scripts/subumbra-verify-deploy`.
+- The same Cloudflare authority is now also required for `./bootstrap.sh --session start`
+  and `./bootstrap.sh --session end`, because those commands mutate Worker-side
+  `session_token:<adapter_id>` KV state.
 - `SUBUMBRA_SETUP_TOKEN` is the one-shot bootstrap authority for
   `/setup/keygen`. After a successful full bootstrap, the Worker rejects that
   route even if you still have a host-side reference copy.
@@ -517,6 +520,10 @@ coverage is now:
 ./bootstrap.sh --publish-policy <key_id>
 ./bootstrap.sh --status
 ./bootstrap.sh --rotate
+./bootstrap.sh --session start --name my-window --adapters all --keys all --ttl 1h
+./bootstrap.sh --session end
+./bootstrap.sh --session status
+./bootstrap.sh --session list
 ```
 
 - `--revoke-key` marks the fat record as revoked, deletes the live `key:<id>`
@@ -548,6 +555,24 @@ coverage is now:
 - `--status` is a read-only drift check. It compares the manifest-derived
   `policy_hash` for each declared key against the stored fat record and prints
   `UP_TO_DATE`, `POLICY_DRIFT`, `NOT_DEPLOYED`, or `REVOKED` per key.
+- `--session start` opens exactly one active session at a time. `--ttl` is
+  mandatory, `--adapters <csv|all>` is required, `--keys <csv|all>` defaults to
+  `all`, and `--max-queries` is optional. While no session is active, the system
+  rests in global lockdown and `GET /keys/<id>` plus Worker `POST /proxy` both
+  fail closed with `system_locked`.
+- `--session end` deletes the Worker-side `session_token:<adapter_id>` KV gate
+  and marks the local session closed.
+- `--session status` prints current lockdown state, active session scope, TTL
+  remaining, and current query usage.
+- `--session list` prints recent session history from `sessions.db`.
+
+Read-only session visibility:
+
+- `GET /sessions` on `subumbra-keys` returns `lockdown_enabled`, the current
+  active session, and recent session history for adapters with
+  `can_read_stats=true`.
+- The dashboard now displays locked vs active state, current adapter/key scope,
+  TTL remaining, and `queries_used / max_queries` when a cap is present.
 
 Pause/unpause is the one Worker-native write path in this round. After a
 successful `/manage/key/pause` or `/manage/key/unpause`, allow up to 90 seconds

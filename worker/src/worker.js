@@ -1565,6 +1565,14 @@ async function handleProxy(request, env) {
     return jsonError("worker not configured", 503);
   }
 
+  const sessionActive = await env.PROVIDER_REGISTRY_KV.get(
+    `session_token:${auth.adapterId}`
+  );
+  if (!sessionActive) {
+    console.warn("subumbra: system_locked adapter=%s", auth.adapterId);
+    return jsonError("system_locked", 403);
+  }
+
   // ── 2. Parse request body ─────────────────────────────────────────────────
   let body;
   try {

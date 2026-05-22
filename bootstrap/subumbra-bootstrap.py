@@ -58,6 +58,7 @@ import yaml
 import re
 import secrets
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -112,6 +113,7 @@ WORKER_SRC      = Path("/app/worker")
 MANIFEST_FILE   = Path("/app/manifest")
 USER_TEMPLATES_DIR = Path("/app/user-templates")
 KV_CONFIG_FILE = DATA_DIR / "kv-config.json"
+SESSIONS_DB_FILE = DATA_DIR / "sessions.db"
 
 # RAM-only secrets collected in interactive wizard mode (never written to disk here).
 _WIZARD_SECRETS: dict[str, str] = {}
@@ -437,6 +439,221 @@ def _read_runtime_credential_value(key: str) -> str:
     if value:
         return value
     return _read_env_file_value(HOST_ENV_FILE, key).strip()
+
+
+def _open_session_db() -> sqlite3.Connection:
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(SESSIONS_DB_FILE, timeout=30)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA busy_timeout=10000")
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS sessions (
+                session_id        TEXT PRIMARY KEY,
+                name              TEXT,
+                allowed_adapters  TEXT,
+                allowed_keys      TEXT,
+                max_queries       INTEGER,
+                queries_used      INTEGER NOT NULL DEFAULT 0,
+                created_at        TEXT NOT NULL,
+                expires_at        TEXT NOT NULL,
+                status            TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS lockdown_config (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                lockdown_enabled INTEGER NOT NULL DEFAULT 1
+            )
+            """
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO lockdown_config (id, lockdown_enabled) VALUES (1, 1)"
+        )
+        conn.execute(
+            """
+            UPDATE sessions
+            SET status = 'expired'
+            WHERE status = 'active' AND datetime(expires_at) < datetime('now')
+            """
+        )
+        conn.commit()
+        return conn
+    except (OSError, sqlite3.Error) as exc:
+        die(f"Failed to open session database {SESSIONS_DB_FILE}: {exc}")
+
+
+def _session_scope_to_db_value(values: list[str] | None) -> str | None:
+    if values is None:
+        return None
+    if not values:
+        die("session scope lists cannot be empty")
+    return json.dumps(values, separators=(",", ":"))
+
+
+def _session_scope_from_db_value(raw_value: object) -> list[str] | None:
+    if raw_value is None:
+        return None
+    if not isinstance(raw_value, str) or not raw_value:
+        die("session database contains invalid scope encoding")
+    try:
+        parsed = json.loads(raw_value)
+    except json.JSONDecodeError as exc:
+        die(f"session database contains invalid scope JSON: {exc}")
+    if not isinstance(parsed, list) or not parsed or any(not isinstance(item, str) or not item for item in parsed):
+        die("session database contains invalid scope list")
+    return parsed
+
+
+def _session_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "session_id": row["session_id"],
+        "name": row["name"],
+        "allowed_adapters": _session_scope_from_db_value(row["allowed_adapters"]),
+        "allowed_keys": _session_scope_from_db_value(row["allowed_keys"]),
+        "max_queries": row["max_queries"],
+        "queries_used": row["queries_used"],
+        "created_at": row["created_at"],
+        "expires_at": row["expires_at"],
+        "status": row["status"],
+    }
+
+
+def _get_active_session_row(conn: sqlite3.Connection) -> sqlite3.Row | None:
+    conn.execute(
+        """
+        UPDATE sessions
+        SET status = 'expired'
+        WHERE status = 'active' AND datetime(expires_at) < datetime('now')
+        """
+    )
+    conn.commit()
+    return conn.execute(
+        """
+        SELECT session_id, name, allowed_adapters, allowed_keys, max_queries,
+               queries_used, created_at, expires_at, status
+        FROM sessions
+        WHERE status = 'active'
+        ORDER BY created_at DESC
+        LIMIT 1
+        """
+    ).fetchone()
+
+
+def _load_runtime_adapter_registry() -> dict[str, dict[str, Any]]:
+    raw = _read_runtime_credential_value("SUBUMBRA_ADAPTER_REGISTRY")
+    if not raw:
+        die("SUBUMBRA_ADAPTER_REGISTRY missing from runtime environment / host .env")
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        die(f"SUBUMBRA_ADAPTER_REGISTRY invalid JSON: {exc}")
+    if not isinstance(parsed, dict) or not parsed:
+        die("SUBUMBRA_ADAPTER_REGISTRY must be a non-empty JSON object")
+    return parsed
+
+
+def _load_active_session_static_adapters() -> dict[str, dict[str, Any]]:
+    registry = _load_runtime_adapter_registry()
+    active_adapters: dict[str, dict[str, Any]] = {}
+    for adapter_id, config in registry.items():
+        if not isinstance(adapter_id, str) or not adapter_id:
+            continue
+        if not isinstance(config, dict):
+            continue
+        allowed_keys = config.get("allowed_keys")
+        if isinstance(allowed_keys, list) and allowed_keys:
+            active_adapters[adapter_id] = config
+    if not active_adapters:
+        die("No static key-fetch-capable adapters found in SUBUMBRA_ADAPTER_REGISTRY")
+    return active_adapters
+
+
+def _load_live_key_ids() -> list[str]:
+    keys_payload = _load_keys_payload_or_die()
+    key_ids = [key_id for key_id, record in keys_payload.items() if not _is_revoked_record(record)]
+    if not key_ids:
+        die("No live key IDs found in keys.json")
+    return sorted(key_ids)
+
+
+def _parse_session_duration_seconds(raw: str) -> int:
+    value = raw.strip().lower()
+    if not value:
+        die("--ttl requires a non-empty duration")
+    match = re.fullmatch(r"(\d+)([smhd])", value)
+    if not match:
+        die("--ttl must use one of the forms <int>s, <int>m, <int>h, or <int>d")
+    amount = int(match.group(1))
+    unit = match.group(2)
+    if amount <= 0:
+        die("--ttl must be greater than zero")
+    multipliers = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+    return amount * multipliers[unit]
+
+
+def _parse_session_csv_arg(raw: str, *, field_name: str) -> list[str] | None:
+    value = raw.strip()
+    if value.lower() == "all":
+        return None
+    parsed = [item.strip() for item in value.split(",") if item.strip()]
+    if not parsed:
+        die(f"{field_name} cannot be empty")
+    return parsed
+
+
+def _session_args(flag_name: str) -> list[str]:
+    if "--session" not in sys.argv:
+        return []
+    idx = sys.argv.index("--session")
+    return sys.argv[idx + 1 :]
+
+
+def _session_arg_value(args: list[str], flag_name: str) -> str | None:
+    if flag_name not in args:
+        return None
+    idx = args.index(flag_name)
+    try:
+        value = args[idx + 1]
+    except IndexError:
+        die(f"{flag_name} requires a value")
+    if value.startswith("--"):
+        die(f"{flag_name} requires a value")
+    return value
+
+
+def _kv_put_text_value(
+    cf_creds: dict[str, str],
+    namespace_id: str,
+    key_name: str,
+    value: str,
+    *,
+    expiration_ttl: int,
+) -> None:
+    url = _kv_value_url(cf_creds, namespace_id, key_name)
+    if expiration_ttl > 0:
+        url += f"?expiration_ttl={expiration_ttl}"
+    request = urllib.request.Request(
+        url,
+        data=value.encode("utf-8"),
+        method="PUT",
+        headers={"Authorization": f"Bearer {cf_creds['CF_API_TOKEN']}"},
+    )
+    try:
+        with urllib.request.urlopen(request):
+            return
+    except urllib.error.HTTPError as exc:
+        body_text = exc.read().decode("utf-8", errors="replace")
+        die(
+            f"Failed to write structured KV key {key_name!r}: HTTP {exc.code}\n"
+            f"--- response body ---\n{body_text}"
+        )
+    except Exception as exc:
+        die(f"Failed to write structured KV key {key_name!r}: {exc}")
 
 
 def _cf_api_request(
@@ -4069,6 +4286,225 @@ def run_status() -> None:
         sys.exit(1)
 
 
+def _resolve_session_adapter_scope(raw_adapters: str) -> tuple[list[str], list[str] | None]:
+    static_adapters = _load_active_session_static_adapters()
+    selected = _parse_session_csv_arg(raw_adapters, field_name="--adapters")
+    if selected is None:
+        concrete = sorted(static_adapters.keys())
+        return concrete, None
+
+    resolved: list[str] = []
+    for adapter_id in selected:
+        if adapter_id not in static_adapters:
+            die(f"Unknown or non-key-fetch-capable adapter_id {adapter_id!r} for --adapters")
+        resolved.append(adapter_id)
+    return sorted(dict.fromkeys(resolved)), sorted(dict.fromkeys(resolved))
+
+
+def _resolve_session_key_scope(raw_keys: str | None) -> list[str] | None:
+    selected = _parse_session_csv_arg(raw_keys or "all", field_name="--keys")
+    if selected is None:
+        return None
+
+    live_key_ids = set(_load_live_key_ids())
+    resolved: list[str] = []
+    for key_id in selected:
+        if key_id not in live_key_ids:
+            die(f"Unknown key_id {key_id!r} for --keys")
+        resolved.append(key_id)
+    return sorted(dict.fromkeys(resolved))
+
+
+def _format_session_scope(values: list[str] | None, *, empty_label: str = "all") -> str:
+    if values is None:
+        return empty_label
+    return ",".join(values)
+
+
+def _print_session_row(prefix: str, row_dict: dict[str, Any]) -> None:
+    print(f"{prefix}session_id={row_dict['session_id']}")
+    print(f"{prefix}name={row_dict['name'] or ''}")
+    print(f"{prefix}status={row_dict['status']}")
+    print(f"{prefix}allowed_adapters={_format_session_scope(row_dict['allowed_adapters'])}")
+    print(f"{prefix}allowed_keys={_format_session_scope(row_dict['allowed_keys'])}")
+    print(f"{prefix}max_queries={row_dict['max_queries'] if row_dict['max_queries'] is not None else 'unlimited'}")
+    print(f"{prefix}queries_used={row_dict['queries_used']}")
+    print(f"{prefix}created_at={row_dict['created_at']}")
+    print(f"{prefix}expires_at={row_dict['expires_at']}")
+
+
+def run_session_start() -> None:
+    args = _session_args("--session")
+    if not args or args[0] != "start":
+        die("--session start requires the 'start' subcommand immediately after --session")
+
+    ttl_raw = _session_arg_value(args, "--ttl")
+    if ttl_raw is None:
+        die("--session start requires --ttl <duration>")
+    adapters_raw = _session_arg_value(args, "--adapters")
+    if adapters_raw is None:
+        die("--session start requires --adapters <csv|all>")
+
+    name = (_session_arg_value(args, "--name") or "").strip() or None
+    keys_raw = _session_arg_value(args, "--keys")
+    max_queries_raw = _session_arg_value(args, "--max-queries")
+    ttl_seconds = _parse_session_duration_seconds(ttl_raw)
+    concrete_adapter_ids, stored_adapter_scope = _resolve_session_adapter_scope(adapters_raw)
+    stored_key_scope = _resolve_session_key_scope(keys_raw)
+    max_queries: int | None = None
+    if max_queries_raw is not None:
+        try:
+            max_queries = int(max_queries_raw)
+        except ValueError:
+            die("--max-queries must be an integer")
+        if max_queries <= 0:
+            die("--max-queries must be greater than zero")
+
+    conn = _open_session_db()
+    active_session = _get_active_session_row(conn)
+    if active_session is not None:
+        die("An active session already exists; close it with ./bootstrap.sh --session end first.")
+
+    now = datetime.now(timezone.utc)
+    created_at = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    expires_at = (now + timedelta(seconds=ttl_seconds)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    session_id = secrets.token_hex(16)
+
+    cf_creds = _get_push_registry_cf_creds()
+    namespace_id = _load_kv_namespace_id()
+
+    conn.execute(
+        """
+        INSERT INTO sessions (
+            session_id, name, allowed_adapters, allowed_keys, max_queries,
+            queries_used, created_at, expires_at, status
+        ) VALUES (?, ?, ?, ?, ?, 0, ?, ?, 'pending')
+        """,
+        (
+            session_id,
+            name,
+            _session_scope_to_db_value(stored_adapter_scope),
+            _session_scope_to_db_value(stored_key_scope),
+            max_queries,
+            created_at,
+            expires_at,
+        ),
+    )
+    conn.commit()
+
+    written_keys: list[str] = []
+    try:
+        for adapter_id in concrete_adapter_ids:
+            kv_key = f"session_token:{adapter_id}"
+            _kv_put_text_value(
+                cf_creds,
+                namespace_id,
+                kv_key,
+                "1",
+                expiration_ttl=ttl_seconds,
+            )
+            written_keys.append(kv_key)
+
+        conn.execute(
+            "UPDATE sessions SET status = 'active' WHERE session_id = ?",
+            (session_id,),
+        )
+        conn.commit()
+    except SystemExit:
+        for kv_key in written_keys:
+            try:
+                _kv_delete_key(cf_creds, namespace_id, kv_key)
+            except SystemExit:
+                pass
+        conn.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
+        conn.commit()
+        raise
+
+    ok(f"Started session {session_id}")
+    info(f"expires_at={expires_at}")
+    info(f"allowed_adapters={_format_session_scope(stored_adapter_scope)}")
+    info(f"allowed_keys={_format_session_scope(stored_key_scope)}")
+    if max_queries is not None:
+        info(f"max_queries={max_queries}")
+
+
+def run_session_end() -> None:
+    args = _session_args("--session")
+    if not args or args[0] != "end":
+        die("--session end requires the 'end' subcommand immediately after --session")
+
+    conn = _open_session_db()
+    active_session = _get_active_session_row(conn)
+    if active_session is None:
+        die("No active session exists.")
+
+    session_dict = _session_row_to_dict(active_session)
+    cf_creds = _get_push_registry_cf_creds()
+    namespace_id = _load_kv_namespace_id()
+
+    adapter_scope = session_dict["allowed_adapters"]
+    if adapter_scope is None:
+        adapter_ids = sorted(_load_active_session_static_adapters().keys())
+    else:
+        adapter_ids = adapter_scope
+
+    for adapter_id in adapter_ids:
+        _kv_delete_key(cf_creds, namespace_id, f"session_token:{adapter_id}")
+
+    conn.execute(
+        "UPDATE sessions SET status = 'closed' WHERE session_id = ? AND status = 'active'",
+        (session_dict["session_id"],),
+    )
+    conn.commit()
+    ok(f"Closed session {session_dict['session_id']}")
+
+
+def run_session_status() -> None:
+    args = _session_args("--session")
+    if not args or args[0] != "status":
+        die("--session status requires the 'status' subcommand immediately after --session")
+
+    conn = _open_session_db()
+    row = conn.execute("SELECT lockdown_enabled FROM lockdown_config WHERE id = 1").fetchone()
+    lockdown_enabled = True if row is None else bool(row["lockdown_enabled"])
+    active_session = _get_active_session_row(conn)
+
+    print(f"lockdown_enabled={str(lockdown_enabled).lower()}")
+    if active_session is None:
+        print("active_session=none")
+        return
+
+    session_dict = _session_row_to_dict(active_session)
+    expires_at_dt = datetime.fromisoformat(str(session_dict["expires_at"]))
+    remaining = max(0, int((expires_at_dt - datetime.now(timezone.utc)).total_seconds()))
+    print("active_session=present")
+    _print_session_row("", session_dict)
+    print(f"ttl_remaining_seconds={remaining}")
+
+
+def run_session_list() -> None:
+    args = _session_args("--session")
+    if not args or args[0] != "list":
+        die("--session list requires the 'list' subcommand immediately after --session")
+
+    conn = _open_session_db()
+    rows = conn.execute(
+        """
+        SELECT session_id, name, allowed_adapters, allowed_keys, max_queries,
+               queries_used, created_at, expires_at, status
+        FROM sessions
+        ORDER BY created_at DESC
+        LIMIT 20
+        """
+    ).fetchall()
+    if not rows:
+        print("no_sessions")
+        return
+    for idx, row in enumerate(rows, start=1):
+        print(f"[{idx}]")
+        _print_session_row("  ", _session_row_to_dict(row))
+
+
 def run_revoke_key(target_key_id: str) -> None:
     offline = "--offline" in sys.argv
     keys_payload = _load_keys_payload_or_die()
@@ -5109,6 +5545,7 @@ Options:
   --add-adapter <key_id>      Add an adapter binding to an existing key
   --revoke-adapter <key_id>   Revoke an adapter binding from an existing key
   --publish-policy <key_id>   Republish a key's policy/adapters to KV
+  --session <subcommand>      Session lifecycle: start | end | status | list
 
 For a full initial bootstrap, run without arguments.
 """)
@@ -5155,6 +5592,7 @@ if __name__ == "__main__":
         die("--rotate-policy has been removed. Re-run full bootstrap for policy, routing, or adapter-binding changes.")
     mode_flags = (
         "--push-registry",
+        "--session",
         "--rotate",
         "--provision",
         "--revoke-key",
@@ -5173,6 +5611,21 @@ if __name__ == "__main__":
         die("--nuke is supported only for full bootstrap")
     if "--push-registry" in sys.argv:
         run_push_registry()
+    elif "--session" in sys.argv:
+        args = _session_args("--session")
+        if not args:
+            die("--session requires one of: start, end, status, list")
+        subcommand = args[0]
+        if subcommand == "start":
+            run_session_start()
+        elif subcommand == "end":
+            run_session_end()
+        elif subcommand == "status":
+            run_session_status()
+        elif subcommand == "list":
+            run_session_list()
+        else:
+            die("--session requires one of: start, end, status, list")
     elif "--revoke-key" in sys.argv:
         try:
             target_key_id = sys.argv[sys.argv.index("--revoke-key") + 1]

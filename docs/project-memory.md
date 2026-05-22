@@ -102,6 +102,12 @@ them.
   primary key, and the `subumbra-keys` / `subumbra-proxy` / `subumbra-probe`
   HMAC contract is now a length-prefixed canonical string rather than the older
   ambiguous colon-joined format.
+- **r82 (2026-05-22, implementation landed / verification pending):**
+  Subumbra now has a locked resting state for new deployments. `subumbra-keys`
+  persists local session state in `sessions.db`, `GET /keys/<id>` and Worker
+  `POST /proxy` both deny while no active session exists, and operators open
+  one bounded session at a time with `./bootstrap.sh --session start ...`.
+  Read-only session visibility is exposed through `GET /sessions` and the UI.
 
 ---
 
