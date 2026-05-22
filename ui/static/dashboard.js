@@ -74,6 +74,16 @@ function fmtBooleanLabel(value) {
   return value ? "Yes" : "No";
 }
 
+function fmtDurationSeconds(totalSeconds) {
+  const seconds = Math.max(0, Number(totalSeconds) || 0);
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  if (h > 0) return `${h}h ${m}m ${s}s`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
 function renderTagList(id, values, emptyLabel = "—") {
   const el = $(id);
   if (!el) return;
@@ -154,6 +164,60 @@ function renderSummary(data) {
   }
 }
 
+function renderSession(data) {
+  const panel = $("session-panel");
+  const dot = $("session-dot");
+  const text = $("session-text");
+  const ttl = $("session-ttl");
+  if (!panel || !dot || !text || !ttl) return;
+
+  const session = data.active_session;
+  if (data.session_available === false) {
+    panel.hidden = false;
+    dot.className = "session-dot expired";
+    text.textContent = data.session_error ?? "session status unavailable";
+    ttl.textContent = "—";
+    ttl.className = "session-ttl";
+    return;
+  }
+
+  if (!data.lockdown_enabled) {
+    panel.hidden = false;
+    dot.className = "session-dot loading";
+    text.textContent = "lockdown disabled";
+    ttl.textContent = "—";
+    ttl.className = "session-ttl";
+    return;
+  }
+
+  if (!session) {
+    panel.hidden = false;
+    dot.className = "session-dot expired";
+    text.textContent = "system locked — no active session";
+    ttl.textContent = "locked";
+    ttl.className = "session-ttl";
+    return;
+  }
+
+  const expiresAt = session.expires_at ? new Date(session.expires_at) : null;
+  const remainingSeconds = expiresAt ? Math.floor((expiresAt.getTime() - Date.now()) / 1000) : 0;
+  const scopeAdapters = Array.isArray(session.allowed_adapters) && session.allowed_adapters.length
+    ? session.allowed_adapters.join(", ")
+    : "all adapters";
+  const scopeKeys = Array.isArray(session.allowed_keys) && session.allowed_keys.length
+    ? session.allowed_keys.join(", ")
+    : "all keys";
+  const quotaLabel = session.max_queries == null
+    ? "unlimited queries"
+    : `${session.queries_used}/${session.max_queries} queries`;
+
+  panel.hidden = false;
+  dot.className = "session-dot active";
+  text.textContent = `${session.name || session.session_id} — ${scopeAdapters} — ${scopeKeys} — ${quotaLabel}`;
+  ttl.textContent = fmtDurationSeconds(remainingSeconds);
+  ttl.className = "session-ttl" + (remainingSeconds <= SESSION_WARN_SECS ? " warn" : "");
+}
+
 function renderKeys(keys) {
   const grid = $("keys-grid");
   if (!keys.length) {
@@ -217,6 +281,7 @@ function applyStatus(data) {
   _status = data;
   renderHealth(data);
   renderErrorBanner(data);
+  renderSession(data);
   renderSummary(data);
   renderKeys(data.keys);
   renderLog(data.recent_log, data.audit_available !== false);

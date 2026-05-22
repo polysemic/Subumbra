@@ -146,7 +146,7 @@ scp -r "${repo_root}/council/${round}" "${remote_host}:${remote_repo}/council/" 
 
 set +e
 ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=20 "$remote_host" \
-    "ROUND='$round' AGENT='$agent' BRANCH='$branch' MODE='$mode' RUN_ID='$run_id' REPO='$remote_repo' BUILD_TARGETS='$build_targets_string' DRY_RUN='$dry_run' DEPLOY_WORKER='$deploy_worker' CF_API_TOKEN='${CF_API_TOKEN:-}' VERIFY_CF_TUNNEL_ROOT_DOMAIN='${cf_tunnel_root_domain:-}' bash -s" >"$local_ssh_log" 2>&1 <<'REMOTE'
+    "ROUND='$round' AGENT='$agent' BRANCH='$branch' MODE='$mode' RUN_ID='$run_id' REPO='$remote_repo' BUILD_TARGETS='$build_targets_string' DRY_RUN='$dry_run' DEPLOY_WORKER='$deploy_worker' CF_API_TOKEN='${CF_API_TOKEN:-}' CF_ACCOUNT_ID='${CF_ACCOUNT_ID:-}' VERIFY_CF_TUNNEL_ROOT_DOMAIN='${cf_tunnel_root_domain:-}' bash -s" >"$local_ssh_log" 2>&1 <<'REMOTE'
 set -euo pipefail
 
 round="${ROUND:?ROUND required}"

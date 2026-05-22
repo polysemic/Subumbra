@@ -228,6 +228,9 @@ def api_status():
     if audit_available and audit_data:
         audit_events = audit_data.get("events", [])
 
+    session_data, session_err = _subumbra_get("/sessions")
+    active_session = (session_data or {}).get("active_session") if session_err is None else None
+
     merged_keys = []
     for key in keys_list:
         kid = key["key_id"]
@@ -270,6 +273,10 @@ def api_status():
         "stats_available": stats_err is None,
         "audit_available": audit_available,
         "audit_error": None if audit_available else audit_err,
+        "lockdown_enabled": (session_data or {}).get("lockdown_enabled", True) if session_err is None else True,
+        "session_available": session_err is None,
+        "session_error": session_err,
+        "active_session": active_session,
         "keys_loaded": len(merged_keys),
         "keys": merged_keys,
         "recent_log": audit_events,

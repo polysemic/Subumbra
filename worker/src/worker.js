@@ -743,9 +743,13 @@ export class SubumbraVault {
     }
 
     const cleanUrl = new URL(targetUrl);
-    cleanUrl.searchParams.delete("key");
-    cleanUrl.searchParams.delete("api_key");
-    cleanUrl.searchParams.delete("apikey");
+    cleanUrl.username = "";
+    cleanUrl.password = "";
+    cleanUrl.hash = "";
+    for (const p of ["key", "api_key", "apikey", "api-key", "apiKey",
+                     "access_token", "token", "auth_token", "Authorization", "secret"]) {
+      cleanUrl.searchParams.delete(p);
+    }
 
     if (authScheme === "bearer") {
       upstreamHeaders.set("authorization", `Bearer ${apiKey}`);
@@ -1563,6 +1567,14 @@ async function handleProxy(request, env) {
   if (!env.PROVIDER_REGISTRY_KV || !env.SUBUMBRA_VAULT) {
     console.error("subumbra: worker bindings not configured (run bootstrap)");
     return jsonError("worker not configured", 503);
+  }
+
+  const sessionActive = await env.PROVIDER_REGISTRY_KV.get(
+    `session_token:${auth.adapterId}`
+  );
+  if (!sessionActive) {
+    console.warn("subumbra: system_locked adapter=%s", auth.adapterId);
+    return jsonError("system_locked", 403);
   }
 
   // ── 2. Parse request body ─────────────────────────────────────────────────
