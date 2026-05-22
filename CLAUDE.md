@@ -105,6 +105,12 @@ subumbra/
         └── index.html
 ```
 
+## Dependency Maintenance Note
+
+- Subumbra prefers exact pinned Python dependencies and pip-compiled hashed lockfiles.
+- When security scans flag a transitive dependency, re-check whether the parent package has published an updated tested stack before carrying a long-lived override.
+- Periodically review both direct pins and any temporary transitive pins so the repo does not stay indefinitely behind upstream dependency maintenance.
+
 ## Key Design Decisions
 
 ### Docker Networking
