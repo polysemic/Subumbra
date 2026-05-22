@@ -12,10 +12,13 @@ Auth model:
   prevent replay attacks:
     X-Subumbra-Timestamp: <unix epoch, seconds>
     X-Subumbra-Nonce: <single-use hex nonce>
-    X-Subumbra-Signature: HMAC-SHA256(f"{key_id}:{timestamp}:{nonce}", SUBUMBRA_HMAC_KEY)
+    X-Subumbra-Signature: HMAC-SHA256(
+        f"{len(key_id)}:{key_id}:{len(timestamp)}:{timestamp}:{len(nonce)}:{nonce}",
+        SUBUMBRA_HMAC_KEY,
+    )
 
   The timestamp must be within ±TIMESTAMP_TOLERANCE seconds of server time,
-  and the nonce must be unique per key fetch.
+  and the nonce must be globally unique per key fetch.
 
 Keys file (written by bootstrap, read-only at runtime):
   /app/data/keys.json
@@ -63,8 +66,11 @@ KEYS_FILE = DATA_DIR / "keys.json"
 AUDIT_DIR = Path(os.environ.get("AUDIT_DIR", "/app/audit"))
 AUDIT_DB_PATH = AUDIT_DIR / "audit.db"
 AUDIT_MAX_ROWS = int(os.environ.get("AUDIT_MAX_ROWS", "10000"))
+SUBUMBRA_RATE_LIMIT_RPM = int(os.environ.get("SUBUMBRA_RATE_LIMIT_RPM", "60"))
 if AUDIT_MAX_ROWS <= 0:
     AUDIT_MAX_ROWS = 10000
+if SUBUMBRA_RATE_LIMIT_RPM <= 0:
+    SUBUMBRA_RATE_LIMIT_RPM = 60
 
 _required = ("SUBUMBRA_ADAPTER_REGISTRY", "SUBUMBRA_HMAC_KEY")
 for _var in _required:
@@ -76,6 +82,9 @@ for _var in _required:
 class _AdapterDenial:
     adapter_id: str | None
     reason_code: str
+    status_code: int = 401
+    message: str = "unauthorized"
+    retry_after: str | None = None
 
 
 def _parse_registry_timestamp(adapter_id: str, field: str, raw_value: object) -> tuple[str, datetime]:
@@ -180,6 +189,10 @@ _stats_lock = Lock()
 _audit_write_count: int = 0
 _audit_prune_logged: bool = False
 _nonce_write_count: int = 0
+_auth_attempt_write_count: int = 0
+_RATE_LIMIT_WINDOW_SECONDS = 60
+_RATE_LIMIT_PRUNE_SLACK_SECONDS = 5
+_RATE_LIMIT_PRUNE_EVERY = 20
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -219,6 +232,108 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _current_nonce_schema(conn: sqlite3.Connection) -> tuple[set[str], list[str]]:
+    rows = conn.execute("PRAGMA table_info(subumbra_nonces)").fetchall()
+    columns = {str(row[1]) for row in rows}
+    pk_columns = [str(row[1]) for row in sorted(rows, key=lambda row: int(row[5])) if int(row[5])]
+    return columns, pk_columns
+
+
+def _create_nonce_table(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS subumbra_nonces (
+            nonce TEXT NOT NULL PRIMARY KEY CHECK(length(nonce) BETWEEN 1 AND 64),
+            created_at INTEGER NOT NULL
+        )
+        """
+    )
+
+
+def _ensure_nonce_schema(conn: sqlite3.Connection) -> None:
+    columns, pk_columns = _current_nonce_schema(conn)
+    if not columns:
+        _create_nonce_table(conn)
+        return
+    if columns == {"nonce", "created_at"} and pk_columns == ["nonce"]:
+        return
+
+    conn.execute("BEGIN IMMEDIATE")
+    migrated = False
+    try:
+        columns, pk_columns = _current_nonce_schema(conn)
+        if columns == {"nonce", "created_at"} and pk_columns == ["nonce"]:
+            conn.commit()
+            return
+        expected_legacy_columns = {"nonce", "key_id", "created_at"}
+        if columns != expected_legacy_columns or pk_columns != ["nonce", "key_id"]:
+            raise sqlite3.Error(
+                f"unexpected subumbra_nonces schema columns={sorted(columns)} pk={pk_columns}"
+            )
+        conn.execute("DROP TABLE IF EXISTS subumbra_nonces_new")
+        conn.execute(
+            """
+            CREATE TABLE subumbra_nonces_new (
+                nonce TEXT NOT NULL PRIMARY KEY CHECK(length(nonce) BETWEEN 1 AND 64),
+                created_at INTEGER NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO subumbra_nonces_new (nonce, created_at)
+            SELECT nonce, MAX(created_at)
+            FROM subumbra_nonces
+            GROUP BY nonce
+            """
+        )
+        conn.execute("DROP TABLE subumbra_nonces")
+        conn.execute("ALTER TABLE subumbra_nonces_new RENAME TO subumbra_nonces")
+        conn.commit()
+        migrated = True
+    except Exception:
+        conn.rollback()
+        raise
+
+    if migrated:
+        log.info("nonce_schema_migrated old=composite_pk new=single_pk")
+
+
+def _record_auth_attempt(remote: str) -> tuple[bool, int]:
+    if _audit_conn is None:
+        return True, 0
+
+    now_ts = int(time.time())
+    window_start = now_ts - _RATE_LIMIT_WINDOW_SECONDS + 1
+    prune_before = now_ts - _RATE_LIMIT_WINDOW_SECONDS - _RATE_LIMIT_PRUNE_SLACK_SECONDS
+
+    with _stats_lock:
+        global _auth_attempt_write_count
+        try:
+            _audit_conn.execute(
+                "INSERT INTO auth_attempts (remote, ts) VALUES (?, ?)",
+                (remote, now_ts),
+            )
+            _auth_attempt_write_count += 1
+            if _auth_attempt_write_count % _RATE_LIMIT_PRUNE_EVERY == 0:
+                _audit_conn.execute(
+                    "DELETE FROM auth_attempts WHERE ts < ?",
+                    (prune_before,),
+                )
+            count = int(
+                _audit_conn.execute(
+                    "SELECT COUNT(*) FROM auth_attempts WHERE remote = ? AND ts >= ?",
+                    (remote, window_start),
+                ).fetchone()[0]
+            )
+            _audit_conn.commit()
+        except sqlite3.Error as exc:
+            log.warning("rate_limit_store_error remote=%s error=%s", remote, exc)
+            return True, 0
+
+    return count <= SUBUMBRA_RATE_LIMIT_RPM, count
+
+
 def _init_audit_db() -> sqlite3.Connection | None:
     try:
         AUDIT_DIR.mkdir(parents=True, exist_ok=True)
@@ -241,14 +356,16 @@ def _init_audit_db() -> sqlite3.Connection | None:
         )
         conn.execute(
             """
-            CREATE TABLE IF NOT EXISTS subumbra_nonces (
-                nonce TEXT NOT NULL CHECK(length(nonce) BETWEEN 1 AND 64),
-                key_id TEXT NOT NULL,
-                created_at INTEGER NOT NULL,
-                PRIMARY KEY (nonce, key_id)
+            CREATE TABLE IF NOT EXISTS auth_attempts (
+                remote TEXT NOT NULL,
+                ts INTEGER NOT NULL
             )
             """
         )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_auth_attempts_remote_ts ON auth_attempts(remote, ts)"
+        )
+        _ensure_nonce_schema(conn)
         conn.commit()
         return conn
     except (OSError, sqlite3.Error) as exc:
@@ -354,6 +471,23 @@ def _record_audit(
 
 def _resolve_adapter() -> dict | _AdapterDenial:
     """Resolve X-Subumbra-Token to an adapter config using constant-time comparison."""
+    remote = request.remote_addr or ""
+    allowed, attempt_count = _record_auth_attempt(remote)
+    if not allowed:
+        log.warning(
+            "rate_limit_exceeded remote=%s attempts=%d window_seconds=%d",
+            remote,
+            attempt_count,
+            _RATE_LIMIT_WINDOW_SECONDS,
+        )
+        return _AdapterDenial(
+            adapter_id=None,
+            reason_code="rate_limit_exceeded",
+            status_code=429,
+            message="rate limit exceeded",
+            retry_after=str(_RATE_LIMIT_WINDOW_SECONDS),
+        )
+
     token = request.headers.get("X-Subumbra-Token", "")
     matched: dict | None = None
     for adapter in SUBUMBRA_ADAPTER_REGISTRY.values():
@@ -398,7 +532,7 @@ def _hmac_ok(key_id: str, nonce: str) -> tuple[bool, str]:
 
     expected = hmac.new(
         SUBUMBRA_HMAC_KEY,
-        f"{key_id}:{timestamp_str}:{nonce}".encode(),
+        f"{len(key_id)}:{key_id}:{len(timestamp_str)}:{timestamp_str}:{len(nonce)}:{nonce}".encode(),
         hashlib.sha256,
     ).hexdigest()
 
@@ -421,10 +555,10 @@ def _nonce_ok(key_id: str, nonce: str) -> tuple[bool, str]:
         try:
             cursor = _audit_conn.execute(
                 """
-                INSERT OR IGNORE INTO subumbra_nonces (nonce, key_id, created_at)
-                VALUES (?, ?, ?)
+                INSERT OR IGNORE INTO subumbra_nonces (nonce, created_at)
+                VALUES (?, ?)
                 """,
-                (nonce, key_id, created_at),
+                (nonce, created_at),
             )
             _audit_conn.commit()
             if cursor.rowcount == 0:
@@ -443,6 +577,16 @@ def _nonce_ok(key_id: str, nonce: str) -> tuple[bool, str]:
 
 def _err(msg: str, code: int) -> tuple[Response, int]:
     return jsonify({"error": msg}), code
+
+
+def _denial_response(denial: _AdapterDenial) -> tuple[Response, int]:
+    if denial.reason_code == "rate_limit_exceeded":
+        response, status = _err("rate limit exceeded", 429)
+    else:
+        response, status = _err(denial.message, denial.status_code)
+    if denial.retry_after is not None:
+        response.headers["Retry-After"] = denial.retry_after
+    return response, status
 
 
 @app.after_request
@@ -480,9 +624,11 @@ def list_keys() -> tuple[Response, int]:
         )
         if adapter_result.reason_code == "adapter_expired":
             log.warning("list_keys: rejected — expired token adapter=%s remote=%s", adapter_result.adapter_id, remote)
+        elif adapter_result.reason_code == "rate_limit_exceeded":
+            log.warning("list_keys: rejected — rate limited remote=%s", remote)
         else:
             log.warning("list_keys: rejected — bad token remote=%s", remote)
-        return _err("unauthorized", 401)
+        return _denial_response(adapter_result)
 
     adapter = adapter_result
     if not adapter["can_list_keys"]:
@@ -565,7 +711,7 @@ def get_key(key_id: str) -> tuple[Response, int]:
             reason_code=adapter_result.reason_code,
             remote=remote,
         )
-        return _err("unauthorized", 401)
+        return _denial_response(adapter_result)
 
     adapter = adapter_result
     nonce = request.headers.get("X-Subumbra-Nonce", "")
@@ -673,7 +819,7 @@ def stats() -> tuple[Response, int]:
             reason_code=adapter_result.reason_code,
             remote=remote,
         )
-        return _err("unauthorized", 401)
+        return _denial_response(adapter_result)
 
     adapter = adapter_result
     if not adapter["can_read_stats"]:
@@ -731,7 +877,7 @@ def audit() -> tuple[Response, int]:
             reason_code=adapter_result.reason_code,
             remote=remote,
         )
-        return _err("unauthorized", 401)
+        return _denial_response(adapter_result)
 
     adapter = adapter_result
     if not adapter["can_read_stats"]:

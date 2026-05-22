@@ -146,7 +146,7 @@ def subumbra_headers(key_id: str, *, adapter_token: str | None = None) -> dict[s
     nonce = secrets.token_hex(16)
     signature = hmac.new(
         SUBUMBRA_HMAC_KEY.encode(),
-        f"{key_id}:{timestamp}:{nonce}".encode(),
+        f"{len(key_id)}:{key_id}:{len(timestamp)}:{timestamp}:{len(nonce)}:{nonce}".encode(),
         hashlib.sha256,
     ).hexdigest()
     return {
