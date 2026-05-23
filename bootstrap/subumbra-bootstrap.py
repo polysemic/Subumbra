@@ -128,6 +128,7 @@ CATALOG_RELEASE_PUBKEY_HEX: str = (
 )
 
 _CATALOG_CACHE: dict[str, dict] | None = None
+_ADAPTER_CATALOG_CACHE: dict[str, dict] | None = None
 
 STRUCTURED_KV_SCHEMA_VERSION = "1"
 
@@ -1808,6 +1809,7 @@ def _load_and_verify_catalog() -> dict[str, dict]:
             die(f"Template {name!r} top-level YAML value must be an object")
         result[name] = template_doc
 
+    adapter_result: dict[str, dict] = {}
     for entry in catalog_doc.get("adapters", []):
         name = entry["name"]
         file_path = CATALOG_DIR / entry["file"]
@@ -1823,9 +1825,21 @@ def _load_and_verify_catalog() -> dict[str, dict]:
             die(f"Adapter template {name!r} YAML is invalid: {exc}")
         if not isinstance(template_doc, dict):
             die(f"Adapter template {name!r} top-level YAML value must be an object")
+        adapter_result[name] = template_doc
 
+    global _ADAPTER_CATALOG_CACHE
+    _ADAPTER_CATALOG_CACHE = adapter_result
     _CATALOG_CACHE = result
     return _CATALOG_CACHE
+
+
+def _load_adapter_catalog() -> dict[str, dict]:
+    """Return adapter name → adapter template dict.
+    Calls _load_and_verify_catalog() first so signature and SHA-256 are always verified."""
+    global _ADAPTER_CATALOG_CACHE
+    if _ADAPTER_CATALOG_CACHE is None:
+        _load_and_verify_catalog()
+    return _ADAPTER_CATALOG_CACHE or {}
 
 
 def _expand_template_into_policy(
@@ -5966,7 +5980,8 @@ Usage: ./bootstrap.sh [OPTIONS]
 Options:
   --help, -h                  Show this help message and exit
   --list-key-ids              List all key IDs defined in the manifest (subumbra.yaml)
-  --list-adapters             List all unique adapters defined in the manifest (subumbra.yaml)
+  --list-adapters             List supported integrations with token status and authorized keys
+  --show <adapter_id>         Print paste-ready setup config for a specific integration
   --status                    Compare manifest authority to deployed record state
   --upgrade                   Rebuild images and recreate containers
   --nuke                      Destructive run: destroys existing Cloudflare Vault keypairs
@@ -6007,16 +6022,175 @@ def print_key_ids() -> None:
         sys.exit(1)
 
 
+_ADAPTER_CATEGORY_LABELS: dict[str, str] = {
+    "llm_frontend": "LLM Frontends",
+    "llm_gateway":  "LLM Gateways",
+    "automation":   "Automation",
+    "cms":          "CMS & Ecommerce",
+    "ecommerce":    "Ecommerce",
+    "internal":     "Internal",
+}
+_ADAPTER_CATEGORY_ORDER = ["llm_frontend", "llm_gateway", "automation", "cms", "ecommerce", "internal"]
+
+
+def _adapter_authorized_key_ids(allow_adapters: list[str], records: list[dict]) -> list[str]:
+    """Return key_ids from the manifest whose effective_adapters overlap with allow_adapters."""
+    allow_set = set(allow_adapters)
+    return [r["key_id"] for r in records if set(r.get("effective_adapters", [])) & allow_set]
+
+
 def print_adapters() -> None:
     try:
+        catalog = _load_adapter_catalog()
         records = _load_manifest_records()
-        adapters: set[str] = set()
-        for r in records:
-            adapters.update(r["effective_adapters"])
-        for a in sorted(adapters):
-            print(a)
     except SystemExit:
         sys.exit(1)
+
+    # Fallback: if no catalog (e.g. user-templates only), print bare manifest adapters
+    if not catalog:
+        all_adapters: set[str] = set()
+        for r in records:
+            all_adapters.update(r.get("effective_adapters", []))
+        for a in sorted(all_adapters):
+            print(a)
+        return
+
+    # Group catalog entries by category
+    by_category: dict[str, list[dict]] = {}
+    for entry in catalog.values():
+        cat = entry.get("category", "internal")
+        by_category.setdefault(cat, []).append(entry)
+
+    configured = sum(
+        1 for e in catalog.values()
+        if _read_env_file_value(HOST_ENV_FILE, e.get("default_token_env_var", "")).strip()
+    )
+    print(f"\nSubumbra integrations — {configured}/{len(catalog)} configured\n")
+
+    for cat in _ADAPTER_CATEGORY_ORDER:
+        entries = by_category.get(cat)
+        if not entries:
+            continue
+        print(f"  {_ADAPTER_CATEGORY_LABELS.get(cat, cat)}")
+        for entry in sorted(entries, key=lambda e: e.get("display_name", e["adapter_id"])):
+            aid        = entry["adapter_id"]
+            dname      = entry.get("display_name", aid)
+            token_var  = entry.get("default_token_env_var", "")
+            token_val  = _read_env_file_value(HOST_ENV_FILE, token_var).strip() if token_var else ""
+            allow_adps = entry.get("allow_adapters", [])
+            key_ids    = _adapter_authorized_key_ids(allow_adps, records)
+
+            if token_val:
+                token_str = f"{token_val[:8]}..."
+                key_str   = ", ".join(key_ids) if key_ids else "(no keys authorized)"
+                status    = "✓"
+            else:
+                token_str = "(not configured)"
+                key_str   = ""
+                status    = "-"
+
+            if key_str:
+                print(f"    {status} {aid:<16} {dname:<20} {token_str:<16} keys: {key_str}")
+            else:
+                print(f"    {status} {aid:<16} {dname:<20} {token_str}")
+        print()
+
+    print("  Run: ./bootstrap.sh --show <adapter_id>  for paste-ready setup")
+    print()
+
+
+def print_show_adapter(adapter_id: str) -> None:
+    try:
+        catalog = _load_adapter_catalog()
+        records = _load_manifest_records()
+    except SystemExit:
+        sys.exit(1)
+
+    if adapter_id not in catalog:
+        known = ", ".join(sorted(catalog)) if catalog else "(none)"
+        die(f"Adapter {adapter_id!r} not found in catalog. Known: {known}")
+
+    entry      = catalog[adapter_id]
+    dname      = entry.get("display_name", adapter_id)
+    cat        = entry.get("category", "")
+    cat_label  = _ADAPTER_CATEGORY_LABELS.get(cat, cat)
+    docs_path  = entry.get("docs_path", "")
+    token_var  = entry.get("default_token_env_var", "")
+    token_val  = _read_env_file_value(HOST_ENV_FILE, token_var).strip() if token_var else ""
+    allow_adps = entry.get("allow_adapters", [])
+    key_ids    = _adapter_authorized_key_ids(allow_adps, records)
+    fmt        = entry.get("config_format", {})
+    fmt_type   = fmt.get("type", "env_file")
+    fmt_target = fmt.get("target", "")
+    fields     = fmt.get("fields", [])
+    notes      = entry.get("config_notes", "").strip()
+
+    # Substitute placeholders
+    primary_key = key_ids[0] if key_ids else "{key_id}"
+
+    def sub(val: str) -> str:
+        return val.replace("{adapter_token}", token_val or "{adapter_token}") \
+                  .replace("{key_id}", primary_key)
+
+    print(f"\n=== {dname} ===")
+    print(f"Category : {cat_label}")
+    if docs_path:
+        print(f"Guide    : {docs_path}")
+    if not token_val:
+        print(f"Status   : not configured — run bootstrap to generate {token_var or 'adapter token'}")
+    else:
+        print(f"Token    : {token_val[:8]}...  (from {token_var})")
+    if key_ids:
+        print(f"Keys     : {', '.join(key_ids)}")
+    else:
+        print("Keys     : (no keys authorized for this adapter in subumbra.yaml)")
+
+    if not fields:
+        print("\n  No config_format fields defined — see the guide above.")
+        if notes:
+            print(f"\n  Note: {notes}")
+        return
+
+    target_hint = f" into {fmt_target}" if fmt_target else ""
+    print()
+    if fmt_type == "env_file":
+        print(f"  Paste{target_hint}:\n")
+        for f in fields:
+            val  = f["value"] if f.get("static") else sub(f["value"])
+            note = f"  # {f['note']}" if f.get("note") else ""
+            print(f"  {f['name']}={val}{note}")
+    elif fmt_type == "yaml_file":
+        print(f"  Paste{target_hint}:\n")
+        if key_ids and len(key_ids) > 1:
+            # Expand one block per key_id
+            for kid in key_ids:
+                def sub_kid(val: str) -> str:
+                    return val.replace("{adapter_token}", token_val or "{adapter_token}") \
+                              .replace("{key_id}", kid)
+                print(f"  # --- {kid} ---")
+                for f in fields:
+                    val  = f["value"] if f.get("static") else sub_kid(f["value"])
+                    note = f"  # {f['note']}" if f.get("note") else ""
+                    print(f"  {f['name']}: {val}{note}")
+                print()
+        else:
+            for f in fields:
+                val  = f["value"] if f.get("static") else sub(f["value"])
+                note = f"  # {f['note']}" if f.get("note") else ""
+                print(f"  {f['name']}: {val}{note}")
+    else:  # ui
+        print(f"  Enter{target_hint}:\n")
+        for f in fields:
+            val  = f["value"] if f.get("static") else sub(f["value"])
+            note = f"  ({f['note']})" if f.get("note") else ""
+            print(f"  {f['name']:<28} {val}  {note}")
+
+    if len(key_ids) > 1:
+        print(f"\n  Multiple keys available: {', '.join(key_ids)}")
+        print("  Change the key_id in the path to switch providers.")
+    if notes:
+        print(f"\n  Note: {notes}")
+    print()
 
 
 if __name__ == "__main__":
@@ -6028,6 +6202,12 @@ if __name__ == "__main__":
         sys.exit(0)
     elif "--list-adapters" in sys.argv:
         print_adapters()
+        sys.exit(0)
+    elif "--show" in sys.argv:
+        idx = sys.argv.index("--show")
+        if idx + 1 >= len(sys.argv):
+            die("--show requires an adapter_id argument, e.g. --show anythingllm")
+        print_show_adapter(sys.argv[idx + 1])
         sys.exit(0)
     elif "--status" in sys.argv:
         run_status()

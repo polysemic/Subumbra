@@ -1,6 +1,26 @@
 adapter_id: librechat
-config_snippet_notes: Set LibreChat endpoint baseURL to http://subumbra-proxy:8090/t/<key_id>/...
-  per provider (see docs/apps/librechat/).
-suggested_allow_adapters:
-- librechat-app
-token_env_var: LIBRECHAT_SUBUMBRA_ADAPTER_TOKEN
+display_name: LibreChat
+category: llm_frontend
+docs_path: docs/apps/librechat/
+allow_adapters:
+  - librechat-app
+default_token_env_var: SUBUMBRA_TOKEN_LIBRECHAT
+verified: true
+config_format:
+  type: yaml_file
+  target: librechat.yaml   # LibreChat deployment directory
+  fields:
+    - name: endpoints.anthropic.apiKey
+      value: "${SUBUMBRA_TOKEN_LIBRECHAT}"
+      note: "Native Anthropic endpoint uses the adapter token directly"
+    - name: endpoints.custom[].apiKey
+      value: "${SUBUMBRA_TOKEN_LIBRECHAT}"
+      note: "Same token for all custom (OpenAI-compatible) endpoints"
+    - name: endpoints.custom[].baseURL
+      value: "http://subumbra-proxy:8090/t/{key_id}/v1"
+      note: "One endpoint per key_id; Groq uses /openai/v1, Anthropic uses bare path"
+config_notes: >
+  LibreChat config has many provider-specific path variations. Use
+  docs/apps/librechat/templates/librechat.yaml as the starting point — it
+  has all provider patterns pre-filled. The env var ${SUBUMBRA_TOKEN_LIBRECHAT}
+  must be available in the LibreChat container environment.

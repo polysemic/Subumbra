@@ -19,7 +19,7 @@ fi
 mode=""
 for arg in "$@"; do
     case "$arg" in
-        --upgrade|--nuke|--rotate|--push-registry|--session|--provision|--revoke-key|--add-adapter|--revoke-adapter|--publish-policy|--update-tunnel|--update-access|--nuke-cloudflare|--help|-h|--list-key-ids|--list-adapters|--status)
+        --upgrade|--nuke|--rotate|--push-registry|--session|--provision|--revoke-key|--add-adapter|--revoke-adapter|--publish-policy|--update-tunnel|--update-access|--nuke-cloudflare|--help|-h|--list-key-ids|--list-adapters|--show|--status)
             mode="$arg"
             break
             ;;
@@ -80,7 +80,7 @@ if [[ -z "$manifest_file" ]]; then
 fi
 
 case "$mode" in
-    --help|-h|--list-key-ids|--list-adapters|--status)
+    --help|-h|--list-key-ids|--list-adapters|--show|--status)
         echo "▶  Skipping source preflight for read-only mode: ${mode}"
         ;;
     *)

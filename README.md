@@ -1,5 +1,6 @@
 # Subumbra — Keep Your API Keys Safe
 
+[![DeepWiki](https://img.shields.io/badge/DeepWiki-polysemic%2FSubumbra-blue)](https://deepwiki.com/polysemic/Subumbra)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/polysemic/Subumbra/badge)](https://scorecard.dev/viewer/?uri=github.com/polysemic/Subumbra)
 [![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](LICENSE)
 

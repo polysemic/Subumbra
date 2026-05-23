@@ -1,7 +1,23 @@
 adapter_id: anythingllm
-config_snippet_notes: Point AnythingLLM OpenAI-compatible base URL at http://subumbra-proxy:8090/t/<key_id>/v1
-  (or provider-specific suffix per AnythingLLM docs). Use the adapter token value
-  as the API key.
-suggested_allow_adapters:
-- anythingllm-app
-token_env_var: ANYTHINGLLM_SUBUMBRA_ADAPTER_TOKEN
+display_name: AnythingLLM
+category: llm_frontend
+docs_path: docs/apps/anythingllm/
+allow_adapters:
+  - anythingllm-app
+default_token_env_var: SUBUMBRA_TOKEN_ANYTHINGLLM
+verified: true
+config_format:
+  type: env_file
+  target: .env   # AnythingLLM deployment directory
+  fields:
+    - name: GENERIC_OPEN_AI_API_KEY
+      value: "{adapter_token}"
+      note: "Adapter token — not a real OpenAI key"
+    - name: GENERIC_OPEN_AI_EMBEDDING_API_KEY
+      value: "{adapter_token}"
+      note: "Same adapter token for embedding requests"
+    - name: GENERIC_OPEN_AI_BASE_PATH
+      value: "http://subumbra-proxy:8090/t/{key_id}/v1"
+      note: "Replace {key_id} with your configured key, e.g. openai_prod"
+    - name: EMBEDDING_BASE_PATH
+      value: "http://subumbra-proxy:8090/t/{key_id}/v1"

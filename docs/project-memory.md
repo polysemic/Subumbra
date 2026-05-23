@@ -111,7 +111,7 @@ them.
   Bug fixed during verification: `_session_lock` changed from `Lock()` to `RLock()`
   to prevent deadlock in `_try_consume_session_query()`. VPS proof PASS
   (`claude-vps-20260522T213055Z`, SHA `fab1ffc`).
-- **r83 (2026-05-23, implementation pending verification):**
+- **r83 (2026-05-23, closed):**
   Session state now supports multiple concurrent active sessions, but each
   session remains an isolated individual grouping. Bootstrap rejects a new
   session before any KV mutation if its effective `(adapter_id, key_id)`
@@ -121,7 +121,9 @@ them.
   and future tenancy-facing tracing. `GET /sessions` and the dashboard now use
   an `active_sessions` list instead of the older singular `active_session`
   contract, and `./bootstrap.sh --session end` now supports `<session_id>` and
-  `--all`.
+  `--all`. Verification source of truth: Claude VPS proof PASS
+  (`claude-vps-20260523T042453Z`) plus Gemini merged-main proof PASS
+  (`gemini-vps-20260523T053924Z`, SHA `8febbac`).
 
 ---
 

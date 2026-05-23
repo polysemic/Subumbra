@@ -1,6 +1,23 @@
 adapter_id: litellm
-config_snippet_notes: Set LiteLLM api_base to http://subumbra-proxy:8090/t/<key_id>/...
-  for each provider block; api_key is the Subumbra adapter token.
-suggested_allow_adapters:
-- litellm
-token_env_var: LITELLM_SUBUMBRA_ADAPTER_TOKEN
+display_name: LiteLLM
+category: llm_gateway
+docs_path: docs/apps/litellm/
+allow_adapters:
+  - litellm
+default_token_env_var: SUBUMBRA_TOKEN_LITELLM
+verified: true
+config_format:
+  type: yaml_file
+  target: config.yaml   # LiteLLM proxy config
+  fields:
+    - name: model_list[].litellm_params.api_key
+      value: "${SUBUMBRA_TOKEN_LITELLM}"
+      note: "Same adapter token for every model entry"
+    - name: model_list[].litellm_params.api_base
+      value: "http://subumbra-proxy:8090/t/{key_id}"
+      note: "Each model gets its own key_id in the path"
+config_notes: >
+  Provider path suffixes vary: Anthropic uses bare /t/{key_id}, OpenAI adds /v1,
+  Groq adds /openai/v1, OpenRouter adds /api/v1. See
+  docs/apps/litellm/templates/config.yaml for the full multi-provider pattern
+  with all suffixes pre-filled.

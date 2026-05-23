@@ -1,6 +1,19 @@
 adapter_id: probe
-config_snippet_notes: subumbra-probe uses SUBUMBRA_ACCESS_TOKEN from compose env;
-  map to an adapter_id listed in allow.adapters for the keys you probe.
-suggested_allow_adapters:
-- subumbra-probe
-token_env_var: SUBUMBRA_TOKEN_PROBE
+display_name: Subumbra Probe
+category: internal
+docs_path: docs/
+allow_adapters:
+  - subumbra-probe
+default_token_env_var: SUBUMBRA_TOKEN_PROBE
+verified: true
+config_format:
+  type: env_file
+  target: .env   # Subumbra core deployment directory
+  fields:
+    - name: SUBUMBRA_ACCESS_TOKEN
+      value: "{adapter_token}"
+      note: "Bootstrap sets this automatically as SUBUMBRA_TOKEN_PROBE"
+config_notes: >
+  The probe is a Subumbra-internal diagnostic container, not a third-party app.
+  Bootstrap generates its token automatically — no manual setup needed.
+  This template exists so --list-adapters displays it alongside external apps.
