@@ -2,8 +2,8 @@
 
 *How to install and run the core Subumbra stack on a fresh Ubuntu 24.04 VPS.*
 
-**Prerequisites:** complete the host baseline in
-[docs/vps-deployment.md](vps-deployment.md) first.
+**Tested using the VPS Setup Below:**
+[docs/vps-deployment.md](vps-deployment.md)
 
 ## 1. Get Your Cloudflare Credentials First
 
@@ -449,6 +449,53 @@ full re-bootstrap with the original `subumbra.yaml` and `.env.bootstrap`
 inputs. See the recovery section in the
 [operator guide](operator-guide.md).
 
+## 8a. Sessions — Opening the Key Vault
+
+Once the stack is up and verified, you are ready to use it — but there is one more thing to know: **Subumbra is locked by default.**
+
+Your apps are configured and can reach the proxy, but no API keys will be handed out until you open a session. If you try to make a request right now, it will fail with `system_locked`. This is intentional — it means a stolen adapter token or a compromised app cannot do anything when a session isn't active.
+
+### Opening a session
+
+```bash
+./bootstrap.sh --session start --ttl 8h --adapters all
+```
+
+This opens an 8-hour window. All your configured apps can now fetch keys and make requests through Subumbra. When the time runs out, the session closes automatically and the system goes back into lockdown.
+
+Breaking down the options:
+
+| Option | What it does |
+|--------|-------------|
+| `--ttl 8h` | How long to keep the session open. Use `s` (seconds), `m` (minutes), `h` (hours), or `d` (days). For example: `30m`, `2h`, `1d`. |
+| `--adapters all` | Which apps to open. Use `all` to open everything, or a comma-separated list like `litellm,openwebui` to restrict to specific apps. |
+| `--keys all` | (Optional) Which key IDs to allow. Defaults to `all` if you leave it out. |
+| `--name work-session` | (Optional) A human-readable label to identify the session in logs. |
+| `--max-queries 100` | (Optional) Auto-close the session after this many requests. |
+
+If you run `--session start` on a terminal without `--ttl` and `--adapters`, an interactive wizard will guide you through the choices.
+
+### Checking and closing sessions
+
+```bash
+./bootstrap.sh --session status       # see lockdown state and all currently open sessions
+./bootstrap.sh --session list         # see recent session history
+./bootstrap.sh --session end          # close the active session (shows a picker if there are multiple)
+./bootstrap.sh --session end --all    # close every active session immediately
+```
+
+### Multiple concurrent sessions
+
+You can have more than one session open at the same time, as long as their adapter/key coverage doesn't overlap. For example, one session for `litellm` and a separate one for `n8n`, each with different TTLs.
+
+### Why no permanent "always open" setting?
+
+There isn't one. The lockdown is always there — sessions are how you temporarily lift it. This means that if your server is ever compromised while no session is active, the attacker cannot fetch any keys. It also gives you a clear audit trail of when keys were accessible and to which apps.
+
+If you want something effectively always-on for a home lab, open a long session (e.g. `--ttl 30d`) and renew it before it expires. Just be aware that a long TTL means a longer window of exposure if something goes wrong.
+
+---
+
 ## 9. Bootstrap And Day-2 Command Reference
 
 Use this section after Subumbra is already installed and you want a quick
@@ -480,11 +527,32 @@ enable later. Subumbra does **not** retain `CF_API_TOKEN` or `CF_ACCOUNT_ID` in
 - `./bootstrap.sh --revoke-adapter <key_id> <adapter_id>` — re-encrypts and pushes updated policy
 - `./bootstrap.sh --publish-policy <key_id>` — republishes a key's policy and adapters to KV
 
+**Session commands** (CF credentials required — writes gates to Cloudflare KV):
+
+- `./bootstrap.sh --session start` — open a session; interactive wizard if `--ttl` or `--adapters` are omitted on a TTY
+  - `--ttl <duration>` — required; how long to stay open (`30m`, `2h`, `8h`, `1d`, etc.)
+  - `--adapters <csv|all>` — required; which apps to allow (`all`, or `litellm,openwebui`, etc.)
+  - `--keys <csv|all>` — optional; which key IDs to allow (defaults to `all`)
+  - `--name <label>` — optional; human-readable label shown in session logs
+  - `--max-queries <n>` — optional; auto-close after this many requests
+- `./bootstrap.sh --session end` — close the active session (shows a picker on TTY if multiple sessions are open)
+  - `--all` — close every active session immediately
+  - `./bootstrap.sh --session end <session_id>` — close one specific session by ID
+- `./bootstrap.sh --session status` — print current lockdown state and details of all active sessions
+- `./bootstrap.sh --session list` — show recent session history from the local database
+
 **CF credentials not required** (local operations only):
 
 - `./bootstrap.sh --rotate` — re-encrypts using the on-disk RSA public key
 - `./bootstrap.sh --upgrade` — rebuilds Docker images and recreates containers
 - `./bootstrap.sh --revoke-key <key_id> --offline` — marks key revoked in `keys.json` only; run without `--offline` afterward to sync KV
+
+**CF credentials not required — read-only inspection:**
+
+- `./bootstrap.sh --status` — compare your manifest (`subumbra.yaml`) against deployed records; prints `UP_TO_DATE`, `POLICY_DRIFT`, `NOT_DEPLOYED`, or `REVOKED` per key
+- `./bootstrap.sh --list-key-ids` — list all key IDs defined in `subumbra.yaml`
+- `./bootstrap.sh --list-adapters` — list all supported app integrations, which ones have active tokens, and which key IDs each adapter is authorized for
+- `./bootstrap.sh --show <adapter_id>` — print a paste-ready config block for a specific app integration (e.g. `--show litellm`, `--show openwebui`)
 
 **CF credentials not required — runtime credential rotation only:**
 

@@ -11,7 +11,7 @@ V3 Asymmetric Envelope Encryption (deployed, all three council verifiers PASS).
 - AAD binding: `subumbra:v3:<key_id>:<policy_hash>` prevents ciphertext transplant and policy replay; as of r75 the Worker uses the live registry `policy_hash` as the decrypt-time authority rather than trusting the client-supplied request field
 - Private key in CF Durable Object SQLite custody (non-extractable); public key on host for offline rotation
 - Manifest-owned provider authority: operators declare routing, auth, and capability in `subumbra.yaml` (preferred) or `subumbra.json`; no hardcoded catalog at runtime
-- **YAML manifest support (r67):** Bootstrap accepts `subumbra.yaml` or `subumbra.json`; local `./templates/<name>.yaml` operator workspace checked before signed built-in catalog
+- **YAML manifest support (r67):** Bootstrap accepts `subumbra.yaml`; local `./templates/<name>.yaml` operator workspace checked before signed built-in catalog
 - V1 symmetric `MASTER_DECRYPTION_KEY` path fully removed; V2 records hard-rejected by Worker
 - **Session lockdown (r82, verified):** new deployments now initialize a local `sessions.db` with `lockdown_enabled=1`; `GET /keys/<id>` and Worker `POST /proxy` both fail closed until the operator opens one bounded session with `./bootstrap.sh --session start ...`, and read-only session state is visible through `GET /sessions` and the dashboard.
 - **Multi-session isolation (r83, verified):** bootstrap now allows multiple concurrent active sessions when their effective `(adapter_id, key_id)` coverage stays disjoint, writes per-session shadow KV keys shaped as `session_token:<session_id>:<adapter_id>`, maintains adapter-level Worker gates as `active_adapter:<adapter_id>`, and exposes list-shaped `active_sessions` state to `subumbra-keys` clients and the dashboard.
@@ -20,17 +20,13 @@ V3 Asymmetric Envelope Encryption (deployed, all three council verifiers PASS).
 
 ## Vision
 
-Subumbra is intended to become a universal zero-trust key broker, not a
-LiteLLM-specific add-on. Every layer should be treated as potentially
-compromised: app servers, containers, config files, and hosts should never be
-trusted with enough material to recover provider secrets in usable form on
-their own.
+Subumbra is intended to become a universal zero-trust key broker. Every layer should be treated as potentially compromised: app servers, containers, config files, and hosts should never be trusted with enough material to recover provider secrets in usable form on their own.
 
 The long-term architecture goal is:
 
 - Core: `subumbra-keys` + Cloudflare Worker decrypt/proxy contract
 - Provider policy: explicit host/auth allowlist and request validation
-- App-owned integrations: `subumbra-proxy` as the current reference surface, with standalone LiteLLM as the first proven example and other apps following the same pattern
+- App-owned integrations: `subumbra-proxy` as the current reference surface.
 
 The design standard is that a partial compromise should yield only useless
 fragments. Applications should request narrow capability through hardened
@@ -62,10 +58,6 @@ Deferred by council consensus.
 
 **1. CRITICAL-3 — ACCEPTED**
 CF Access header strip is enforced at Worker edge only. Accepted as architectural constraint.
-
-**2. LiteLLM image pin**
-Current pin: `main-latest@sha256:7c311546c25e7bb6e8cafede9fcd3d0d622ac636b5c9418befaa32e85dfb0186`
-(LiteLLM `1.82.6`, verified 2026-03-29). Re-verify before updating.
 
 ---
 

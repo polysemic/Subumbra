@@ -18,13 +18,12 @@ Subumbra is a **security proxy** that sits between your apps (like LiteLLM, Open
 
 You'll need:
 
-- A Linux server (VPS or homelab) with **Docker** installed. Anything with Docker should work, but I have only tested on Ubuntu 24.04 LTS.
+- A Linux server (VPS or homelab) with **Docker** installed. Any Linux Distro with Docker should work, but I have only tested on Ubuntu 24.04 LTS.
+> Don't have Docker yet? Follow the [full install guide](docs/subumbra-install.md) first.
 - A [**Cloudflare account**](https://cloudflare.com) with the **Workers Paid plan** ($5/month) — this is where your keys are held encrypted. It may work with a free account, but this is not guaranteed.
 - A **Cloudflare API token** (created at [dash.cloudflare.com/profile/api-tokens](https://dash.cloudflare.com/profile/api-tokens) — use "Edit Cloudflare Workers" template, add `Workers KV Storage: Edit`)
 - Your **Cloudflare Account ID** (visible in the URL when you're logged into Cloudflare or after creating your API token)
 - At least one provider API key (e.g. an OpenAI key starting with `sk-...`)
-
-> Don't have Docker yet? Follow the [full install guide](docs/subumbra-install.md) first.
 
 ---
 
@@ -157,6 +156,36 @@ App-specific setup guides:
 - **OpenWebUI:** [docs/apps/openwebui/install.md](docs/apps/openwebui/install.md)
 - **AnythingLLM:** [docs/apps/anythingllm/install.md](docs/apps/anythingllm/install.md)
 - **Bifrost / LibreChat / n8n:** [docs/apps/](docs/apps/)
+
+---
+
+## Sessions — opening the key vault
+
+After setup, Subumbra starts in **locked mode**. Your apps are configured and connected, but no API keys will be handed out until you open a session. Think of it like a time-lock safe: you open it for as long as you need, then it closes automatically when time is up.
+
+To open a session and let your apps make requests:
+
+```bash
+./bootstrap.sh --session start --ttl 8h --adapters all
+```
+
+This opens an 8-hour window for all your configured apps. When the time runs out, the session closes on its own. You can also be more specific — only certain apps, only certain keys:
+
+```bash
+./bootstrap.sh --session start --ttl 2h --adapters litellm,openwebui --keys openai_prod
+```
+
+To check what's currently open, or close a session early:
+
+```bash
+./bootstrap.sh --session status       # see what's open right now
+./bootstrap.sh --session end          # close the active session
+./bootstrap.sh --session end --all    # close everything immediately
+```
+
+**Why locked by default?** If your server is ever breached or an adapter token is stolen while no session is active, the attacker gets nothing — the keys stay locked. Sessions mean your keys are only accessible for exactly as long as you need them.
+
+There is no permanent "always open" mode. The lockdown is intentional and always there — sessions are how you temporarily lift it.
 
 ---
 

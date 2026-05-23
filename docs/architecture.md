@@ -2,6 +2,8 @@
 
 This guide explains the technical design of Subumbra. It bridges the gap between a high-level security concept and the actual services running on your hardware.
 
+[![DeepWiki](https://img.shields.io/badge/DeepWiki-polysemic%2FSubumbra-blue)](https://deepwiki.com/polysemic/Subumbra)
+
 ---
 
 ## 🏗️ Core Runtime Shape

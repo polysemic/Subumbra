@@ -1,165 +1,381 @@
 # Subumbra Operator Guide
 
-This guide covers the supported **manifest-driven** operator flow:
-
-1. author `subumbra.yaml` (YAML-first; JSON compatibility remains)
-2. provide a secret-only `.env.bootstrap`
-3. run `./bootstrap.sh`
-4. recreate the runtime services
-
-## Heartbeat, polling, and health cadence
-
-These defaults are **not** env-tunable in the current release; they exist so
-operators know how “fresh” health signals can be and how often Docker probes
-run.
-
-| Item | Value | Source |
-|------|-------|--------|
-| Proxy Worker auth cache TTL | `60` s | `subumbra-proxy/app.py` (`WORKER_AUTH_OK_TTL_SECONDS`) |
-| Proxy Worker auth-ping HTTP timeout | `2.0` s | `subumbra-proxy/app.py` (`WORKER_AUTH_TIMEOUT_SECONDS`) |
-| Dashboard `/api/status` poll | `30000` ms (30 s) | `ui/static/dashboard.js` (`STATUS_POLL_MS`) |
-| Dashboard per-key usage (`request_count`, `last_access`) | Aggregated from **`subumbra-keys` SQLite `audit_events`** via `GET /stats` and `GET /keys`; not per-Gunicorn-worker RAM | `subumbra-keys/app.py` (`_sqlite_per_key_usage_map` and callers) |
-| Dashboard SSE `/api/events` heartbeat | `30` s between comment frames | `ui/app.py` (`time.sleep(30)` in `api_events`) |
-| `subumbra-keys` Compose healthcheck | `interval: 30s`, `timeout: 5s`, `retries: 5`, `start_period: 10s` | `docker-compose.yml` under `subumbra-keys` → `healthcheck:` (lines ~61–66) |
-| `subumbra-ui` Compose healthcheck | `interval: 30s`, `timeout: 5s`, `retries: 3` | `docker-compose.yml` under `subumbra-ui` → `healthcheck:` (lines ~99–103) |
-| `subumbra-proxy` Compose healthcheck | `interval: 30s`, `timeout: 5s`, `retries: 3` | `docker-compose.yml` under `subumbra-proxy` → `healthcheck:` (lines ~164–168) |
-
-### `subumbra-ui` Gunicorn and Basic Auth rate limiting
-
-- **Gunicorn defaults:** the UI image runs **`--workers 1 --threads 4`**
-  so in-process Basic Auth failure counting (`_auth_failures` in `ui/app.py`)
-  is not split across multiple worker processes (which previously allowed a
-  burst of failures to return only `401` until enough hits landed on one
-  worker).
-- **SSE and thread budget:** `/api/events` holds a worker thread in a
-  **`time.sleep(30)`** loop between heartbeat frames. With threaded workers,
-  that competes for the same thread pool as other requests (including the
-  dashboard’s **`GET /api/status`** polling). Multiple open dashboard tabs can
-  make status polling feel slower when the thread budget is tight.
-- **Rate-limit identity on localhost publish:** when the UI is published to the
-  host (`127.0.0.1:6563` → container), `request.remote_addr` is often the Docker
-  bridge gateway (for example `172.25.0.1`), so host-originated traffic shares
-  one logical bucket for the rate limiter.
-
-**Proxy `/health`:** returns JSON including `worker_auth` (`ok`, `stale`,
-`token_mismatch`, or `unreachable`) in addition to `status`. **`ok`** means a recent Worker auth ping succeeded; **`stale`** means the cached auth ping TTL elapsed without a new ping (Worker may still be healthy); **`token_mismatch`** means the Worker rejected the proxy auth token (401) — permanent until tokens are re-synchronized; **`unreachable`** means the proxy could not reach the Worker path. **CRITICAL-3:** CF Access and related header handling is enforced at the **Worker** edge — edge misconfiguration can look like proxy/`worker_auth` failures. See install verification docs.
-
-### Proxy `/health` — `worker_auth` semantics (from README)
-
-- **`ok`:** the proxy recently verified the Worker with a successful auth ping within its TTL.
-- **`stale`:** the cached auth ping TTL elapsed without a new ping; the Worker may still be healthy. Often transient after restarts.
-- **`token_mismatch`:** the Worker rejected the proxy's auth token with 401 — the adapter token in the proxy's environment does not match what Cloudflare holds. This is a permanent failure until tokens are re-synchronized (re-run `./bootstrap.sh --nuke` or re-push `SUBUMBRA_ADAPTER_TOKENS` via wrangler). **This is not the same as `stale`.**
-- **`unreachable`:** the proxy cannot reach the Worker health/auth path at all (network or Cloudflare outage).
-- **CRITICAL-3 (operator model):** CF Access (and related) header stripping is enforced at the **Cloudflare Worker edge**; misconfiguration there can surface as `worker_auth` / proxy errors even when the VPS stack is healthy.
-
-## SEC-4 — Container environment and process visibility
-
-Docker Compose injects runtime secrets from your host `.env` into **container
-environment variables** (`SUBUMBRA_ADAPTER_REGISTRY`, `SUBUMBRA_HMAC_KEY`,
-`SUBUMBRA_TOKEN_*`, etc., as declared in `docker-compose.yml`). Any process
-running **inside** a container can read those values from its environment.
-
-**Mitigations (operator):** restrict host `.env` permissions (e.g. `600`), keep
-images minimal, avoid ad-hoc `docker exec` in production, and treat container
-filesystem + memory as in-scope for anyone who can run workloads beside Subumbra
-services on the same host.
-
-## 1. Create The Manifest
-
-### In plain terms
-
-- **`subumbra.yaml`** is your **recipe**: it lists which provider keys Subumbra should broker. It stores **names** of secrets (`secret_ref`), not the secrets themselves.
-- The **tracked** file in git is a **starting copy** (`subumbra.minimal.yaml`). You copy it to **`subumbra.yaml`** (gitignored), edit, then run bootstrap.
-- After bootstrap, apps use an **adapter token** (printed into your runtime `.env`) as the `api_key` when calling `subumbra-proxy` on the `/t/<key_id>/...` path.
-
-### Whole-file shape (required)
-
-Bootstrap accepts YAML or JSON with a single top-level mapping named **`keys`**. Each element is one brokered key. A file that contains only one key object **without** the `keys` wrapper will be rejected.
-
-The smallest **valid** file is one non-empty entry inside `keys` (see the minimal template below). The repo ships that shape in [`subumbra.minimal.yaml`](../subumbra.minimal.yaml) (smallest valid manifest: one OpenAI key via `template` only), plus [`subumbra.example.yaml`](../subumbra.example.yaml) (full catalog coverage + one inline “gold” policy).
-
-### Normative reference (auditors / implementers)
-
-Record validation, template expansion, and adapter-id rules are implemented in
-`bootstrap/subumbra-bootstrap.py` (`_normalize_manifest_record`,
-`_normalize_policy_doc`, `_expand_template_into_policy`). Treat that code as the
-source of truth if this guide and the runtime ever disagree.
-
-### Security Checkpoint: Policy-Bound Encryption
-Subumbra uses **Policy-Bound Encryption** (technically AES-GCM with AAD). When you bootstrap a key, the rules you define (like which apps can use it and what paths are allowed) are cryptographically bound to the encrypted secret.
-
-- **The Benefit**: If someone gains access to your Cloudflare KV and tries to "edit" your policy to give themselves more access, they will **fail**. The Worker will detect that the policy no longer matches the "seal" on the key and will refuse to decrypt it.
-- **The Operator Workflow**: Because of this seal, whenever you change a critical field in your manifest (like increasing `max_body_bytes`, changing `allow.request_headers`, or changing a `target.host`), you **must re-run `./bootstrap.sh`**. Bootstrap will re-encrypt the secret using the new policy hash and update the "seal" in the cloud.
+This guide covers day-to-day operation of a running Subumbra stack — sessions, key management, health monitoring, recovery, and security. For initial setup, start with [docs/subumbra-install.md](subumbra-install.md).
 
 ---
 
-`subumbra.yaml` is **gitignored** (never committed). Start from a **tracked** template, then edit the working copy:
+## Table of Contents
+
+1. [Sessions — opening and managing access](#1-sessions--opening-and-managing-access)
+2. [Key management](#2-key-management)
+3. [Health and monitoring](#3-health-and-monitoring)
+4. [Dashboard (UI)](#4-dashboard-ui)
+5. [Security model](#5-security-model)
+6. [Recovery](#6-recovery)
+7. [Verification and integrity](#7-verification-and-integrity)
+8. [Advanced: templates and policy](#8-advanced-templates-and-policy)
+9. [Internal timing reference](#9-internal-timing-reference)
+
+---
+
+## 1. Sessions — opening and managing access
+
+After setup, Subumbra is **locked by default** — no keys are handed out even to apps you've configured. Sessions are how you temporarily lift the lockdown. When no session is active, any request to fetch a key returns `system_locked`.
+
+### Opening a session
 
 ```bash
-cp subumbra.minimal.yaml subumbra.yaml
-# or for full inline policy control:
-# cp subumbra.example.yaml subumbra.yaml
+./bootstrap.sh --session start --ttl 8h --adapters all
 ```
 
-Bootstrap **requires** a local `subumbra.yaml` on disk. `bootstrap.sh` detects it and bind-mounts it automatically. If the file is missing, bootstrap fails closed.
+If you run this on a terminal without `--ttl` and `--adapters`, an interactive wizard guides you through the choices.
 
-Each manifest record declares:
+**All available options:**
 
-- `key_id`
-- `provider`
-- `secret_ref`
-- `adapters`
-- `unique_vault`
-- either `policy` (full inline policy object) **or** `template` (named catalog template), following the merge rules in the next section
+| Option | Required | What it does |
+|--------|----------|-------------|
+| `--ttl <duration>` | Yes | How long to stay open. Format: `30m`, `2h`, `8h`, `1d` etc. |
+| `--adapters <csv\|all>` | Yes | Which apps to allow — `all`, or a comma-separated list like `litellm,openwebui` |
+| `--keys <csv\|all>` | No | Which key IDs to allow. Defaults to `all` if omitted. |
+| `--name <label>` | No | A human-readable label shown in session history. |
+| `--max-queries <n>` | No | Auto-close the session after this many requests. |
 
-`secret_ref` names the environment variable that will hold the provider secret
-during bootstrap. The manifest itself should not contain plaintext secrets.
-`provider` is an operator-declared label, not a built-in routing lookup key.
-Routing and auth authority come from `policy.target.host` and `policy.auth`
-when using an inline policy, or from the expanded template plus optional
-operator overrides when using `template`.
+**Opening a session requires Cloudflare credentials** (`CF_API_TOKEN` and `CF_ACCOUNT_ID`) because it writes session gates to Cloudflare KV. This is an added security measure to prevent sessions from being created or terminated by bad actors. Supply them in your shell before running.
 
-**Adapter ids:** each entry in `adapters` must match the manifest adapter regex
-in bootstrap (`ADAPTER_ID_RE`) and **must not** be a reserved built-in id
-(`subumbra-proxy`, `subumbra-probe`, `subumbra-ui`). You may use any other
-stable label (for example `litellm` or `my-chat-app`); bootstrap will emit a
-matching `SUBUMBRA_TOKEN_<NORMALIZED>` runtime secret for each non-built-in id.
+### Checking and closing sessions
 
-## 2. Using Provider Templates
+```bash
+./bootstrap.sh --session status       # current lockdown state + all active session details
+./bootstrap.sh --session list         # recent session history
+./bootstrap.sh --session end          # close the active session (picker shown if multiple)
+./bootstrap.sh --session end --all    # close every active session immediately
+./bootstrap.sh --session end <id>     # close one specific session by its session ID
+```
 
-Instead of an inline `policy` object, a record may set `"template": "<name>"`
-where `<name>` is one of the bundled provider templates:
+### Multiple concurrent sessions
 
-`anthropic`, `openai`, `groq`, `gemini`, `deepseek`, `mistral`, `openrouter`,
-`together`, `xai`, `github`, `slack`, `sendgrid`.
+You can have more than one session open at the same time. Each session must have a non-overlapping scope — if a new session's `(adapter, key_id)` pairs overlap with an already-active session, Subumbra rejects it before writing anything to Cloudflare.
 
-Merge rules:
+### Keeping things open for a home lab
 
-1. The template supplies provider-determined fields (`protocol`, `capability_class`,
-   `target`, `auth`, default `allow` limits, and optional `response` / `intent` /
-   `velocity` / `deny`).
-2. The operator always supplies `key_id`, `provider`, `secret_ref`, `adapters`, and
-   `unique_vault` on the manifest record. Bootstrap injects `allow.adapters`
-   from the manifest’s `adapters` list (after normalization); **`allow.adapters`
-   is never taken from the template** and cannot be overridden via an optional
-   inline `policy` fragment.
-3. An optional inline `"policy"` object may appear alongside `"template"` to
-   override any template field except `key_id`, `source`, and `allow.adapters`.
+There's no permanent "always open" mode. If you want something effectively always-on, open a long session (`--ttl 30d`) and renew it before it expires. Be aware that a longer TTL means a longer window of exposure if something goes wrong.
 
-Trust model and offline behavior:
+### Session visibility in the dashboard
 
-- The catalog (`catalog.json`) is signed with the project’s offline Ed25519
-  release key; the public key is pinned in `bootstrap/subumbra-bootstrap.py` as
-  `CATALOG_RELEASE_PUBKEY_HEX`. Bootstrap verifies the detached signature and
-  every listed template file’s SHA-256 before any template contributes to policy.
-- Templates ship inside the bootstrap container image under `/app/templates/` as
-  YAML files; the tracked copies in git live under `bootstrap/templates/`. No
-  network fetch of a catalog URL is performed.
-- **User-owned templates:** place `<name>.yaml` files in a `./templates/` directory next to the manifest. `bootstrap.sh` mounts that directory at `/app/user-templates/` inside the container. Bootstrap checks user-owned templates before the signed built-in catalog, so a `./templates/openai.yaml` will shadow the built-in `openai` template. User-owned templates are **not** signature-verified — you own and trust them.
+The dashboard shows the current locked or active state, and lists all active sessions with their adapter/key scope, TTL remaining, and query count. The `GET /sessions` endpoint on `subumbra-keys` also returns this data for adapters with `can_read_stats=true`.
 
-### Minimal example — template only
+---
 
-One OpenAI key, one adapter label, no optional policy fields. Replace `litellm` with your own adapter id if you prefer; keep the `keys` wrapper. The tracked [`subumbra.minimal.yaml`](../subumbra.minimal.yaml) is a fuller multi-provider reference starter.
+## 2. Key management
+
+### Rotating a key
+
+If a provider API key is compromised or just due for rotation, re-encrypt it with a new value using the existing on-disk RSA public key — no Cloudflare credentials needed:
+
+```bash
+./bootstrap.sh --rotate
+```
+
+The wizard will ask which key to rotate and prompt for the new secret value.
+
+### Revoking a key
+
+Remove a key from active use:
+
+```bash
+./bootstrap.sh --revoke-key <key_id>
+```
+
+This marks the key as revoked, removes the live `key:<id>` entry from Cloudflare KV, and prevents future `--push-registry` runs from resurrecting it.
+
+If you don't have Cloudflare credentials available right now, use `--offline` to update `keys.json` locally first, then sync to Cloudflare later:
+
+```bash
+./bootstrap.sh --revoke-key <key_id> --offline     # local update only
+./bootstrap.sh --revoke-key <key_id>               # run again later to sync KV
+```
+
+### Pausing and unpausing a key
+
+Pause temporarily blocks a key from being used without revoking it. Unlike session management, pause/unpause goes directly through the Worker's management API:
+
+```bash
+# Pause — use the management token, not an adapter token
+curl -sS -X POST https://<worker-url>/manage/key/pause \
+  -H "Authorization: Bearer $SUBUMBRA_MANAGEMENT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"key_id": "<key_id>"}'
+
+# Unpause
+curl -sS -X POST https://<worker-url>/manage/key/unpause \
+  -H "Authorization: Bearer $SUBUMBRA_MANAGEMENT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"key_id": "<key_id>"}'
+```
+
+Allow up to 90 seconds for Cloudflare KV propagation after pause/unpause before treating a stale result as a failure.
+
+`SUBUMBRA_MANAGEMENT_TOKEN` is in your `.env` after bootstrap. It is separate from adapter tokens — treat it as a privileged operator secret. If you ever lose both the live Worker copy and your local `.env` copy, run a full bootstrap to reissue it.
+
+### Adding or removing an app from a key
+
+To grant a new app access to a key, or remove an app's access:
+
+```bash
+./bootstrap.sh --add-adapter <key_id> <adapter_id>
+./bootstrap.sh --revoke-adapter <key_id> <adapter_id>
+```
+
+Both commands re-encrypt the key with the updated policy and push the new binding to Cloudflare KV. They also attempt to update the `adapters` line in your `subumbra.yaml` automatically — this works for the standard single-line format. If your manifest uses a multiline adapters block, bootstrap warns and leaves the file alone; update it manually.
+
+### Republishing a key's policy
+
+If you change policy fields in `subumbra.yaml` (rate limits, response patterns, intent settings) without changing the underlying secret, push the updated policy to Cloudflare:
+
+```bash
+./bootstrap.sh --publish-policy <key_id>
+```
+
+How it works under the hood: if you only changed `velocity`, `intent`, or `response.deny_patterns` fields, the key is not re-encrypted — just the policy metadata is updated. If you changed anything in `allow.*`, `target.host`, or `auth.*`, the key is fully re-encrypted to bind the new policy cryptographically.
+
+### Syncing everything to Cloudflare KV
+
+If local `keys.json` state and Cloudflare KV get out of sync (e.g. after a failed bootstrap or a recovery step), push everything from local state:
+
+```bash
+./bootstrap.sh --push-registry
+```
+
+This preserves any `paused: true` flags already set on live keys — it won't re-enable a key that was paused.
+
+### Checking drift
+
+Compare your manifest against what's actually deployed:
+
+```bash
+./bootstrap.sh --status
+```
+
+This prints `UP_TO_DATE`, `POLICY_DRIFT`, `NOT_DEPLOYED`, or `REVOKED` for each key. No Cloudflare credentials needed — it reads from local state.
+
+### Repairing a single key after a partial bootstrap
+
+If one key failed during bootstrap and the rest succeeded, you don't need to redo everything:
+
+```bash
+./bootstrap.sh --provision <key_id>
+```
+
+This re-runs the keygen and encrypt steps for just that key. It requires that `CF_WORKER_URL` and `SUBUMBRA_SETUP_TOKEN` are still live in your `.env`, and that the matching `public_key*.pem` exists on the data volume. If the public key file is gone, you'll need a full bootstrap.
+
+> **Note:** After a successful full bootstrap, `SUBUMBRA_SETUP_TOKEN` is deleted from Cloudflare. The copy in your `.env` may no longer work for new `--provision` runs in a fresh install. For mid-repair multi-key provisioning, keep the file intact until you're done.
+
+---
+
+## 3. Health and monitoring
+
+### Checking the stack
+
+```bash
+docker compose ps                           # all services running?
+curl -sS http://127.0.0.1:10199/health     # proxy health + worker auth status
+curl -sS http://127.0.0.1:6563/api/status  # dashboard status
+```
+
+### Proxy health — `worker_auth` values
+
+The proxy health endpoint returns a `worker_auth` field in addition to `status`:
+
+| Value | Meaning |
+|-------|---------|
+| `ok` | The proxy recently verified the Worker successfully. Everything is working. |
+| `stale` | The auth ping cache expired but no new ping has run yet. Often transient after restarts — wait a moment and check again. |
+| `token_mismatch` | The Worker rejected the proxy's auth token with a 401. The adapter token in the proxy's environment doesn't match what Cloudflare holds. This is permanent until tokens are re-synchronized (re-run `./bootstrap.sh --nuke` or push new tokens via wrangler). **Not the same as `stale`.** |
+| `unreachable` | The proxy can't reach the Worker at all. Check Cloudflare status and your network. |
+
+> **Cloudflare Access note:** CF Access header enforcement happens at the Cloudflare edge. If you use CF Access and misconfigure it, errors can look like `worker_auth` failures even when your VPS stack is healthy. If proxy health looks wrong but your services are up, check your Tunnel and Access settings first.
+
+### Checking for policy drift
+
+```bash
+./bootstrap.sh --status
+```
+
+Compares your manifest against deployed records and prints the status of each key. Good to run after any manifest edit to confirm everything is in sync.
+
+### Checking which apps are configured
+
+```bash
+./bootstrap.sh --list-adapters     # lists all integrations, token status, and authorized key IDs
+./bootstrap.sh --show <adapter_id> # paste-ready config for a specific app (e.g. --show litellm)
+./bootstrap.sh --list-key-ids      # lists all key IDs in your manifest
+```
+
+---
+
+## 4. Dashboard (UI)
+
+The read-only dashboard is at `http://127.0.0.1:6563`. It shows active keys, request counts, last access times, session state, and policy metadata.
+
+### Authentication modes
+
+| Mode | When to use | How to configure |
+|------|-------------|-----------------|
+| **Cloudflare Tunnel + Access** (recommended) | You route the UI through a Cloudflare Tunnel | Leave `UI_USERNAME` and `UI_PASSWORD` unset in `.env` |
+| **HTTP Basic Auth** | Direct access without a Tunnel | Set both `UI_USERNAME` and `UI_PASSWORD` in `.env`, then restart the UI container |
+
+Brute-force rate limiting applies in Basic Auth mode (5 failures per 60-second window per IP). Setting one of `UI_USERNAME` / `UI_PASSWORD` without the other is an error — the UI won't start.
+
+---
+
+## 5. Security model
+
+### What's protected and what's not
+
+| Protected | How |
+|-----------|-----|
+| API keys at rest on your server | Encrypted immediately; only ciphertext is stored locally |
+| API keys in app configs | Apps only ever see an adapter token, never your real key |
+| Per-app access | Each app has its own token — revoke one without affecting others |
+| Policy enforcement | Which paths, methods, and providers each key can serve is policy-bound |
+| Cloudflare KV tampering | Policy and encryption are cryptographically bound — editing KV directly doesn't help an attacker |
+
+| Not protected | Notes |
+|---------------|-------|
+| Cloudflare itself | The private key lives inside Cloudflare — Cloudflare is in the trust boundary |
+| Full server compromise | An attacker with root access can read running container memory and environment variables |
+| Billing and rate limits | Subumbra doesn't cap spend — set limits at the provider level |
+
+### Policy-bound encryption
+
+When you bootstrap a key, the rules you define — which apps can use it, which paths are allowed, which provider it routes to — are **cryptographically bound** to the encrypted key. This is sometimes called AAD (Additional Authenticated Data).
+
+What this means practically: if someone gained access to your Cloudflare KV and tried to swap in a permissive policy, the Worker would detect that the policy no longer matches the encryption seal and refuse to decrypt the key. No silent downgrade is possible.
+
+The trade-off: whenever you change a foundational policy field (`allow.*`, `target.host`, `auth.*`), Subumbra must re-encrypt the key with the new policy hash. Commands like `--add-adapter`, `--revoke-adapter`, and `--publish-policy` handle this automatically.
+
+### Container environment and secrets
+
+Subumbra runtime secrets (`SUBUMBRA_ADAPTER_REGISTRY`, `SUBUMBRA_HMAC_KEY`, `SUBUMBRA_TOKEN_*`) are injected from your host `.env` into container environment variables. Any process inside a container can read them.
+
+**Practical mitigations:**
+- Set your `.env` file to `600` permissions (`chmod 600 .env`)
+- Keep Docker images minimal and don't install extra tools in running containers
+- Avoid `docker exec` into containers in production unless actively debugging
+- Treat the container filesystem and memory as within reach of anyone who can run workloads on the same host
+
+---
+
+## 6. Recovery
+
+### Stack not starting after bootstrap
+
+Check that `.env` has the expected values:
+
+```bash
+grep -E '^(SUBUMBRA_TOKEN_|CF_WORKER_URL|CF_WORKER_NAME)' .env
+```
+
+If values are missing, the bootstrap may have exited before writing them. Check the bootstrap output for errors, then re-run.
+
+### Half-state recovery (bootstrap stopped midway)
+
+| Situation | What to do |
+|-----------|------------|
+| `keys.json` not updated (bootstrap failed before writing) | Data volume may be out of sync with Cloudflare. Run `./bootstrap.sh --nuke` and re-bootstrap from scratch. |
+| `keys.json` updated but Cloudflare KV is missing or partial | Re-publish from local state: `./bootstrap.sh --push-registry` |
+
+There is no checkpoint file to clean up — Subumbra doesn't write intermediate state to disk during bootstrap.
+
+### Vault loss (Cloudflare-side data gone)
+
+If Cloudflare Durable Object vault state is lost and you initialize a fresh vault, **ciphertext produced under the previous vault cannot be decrypted by the new one.** The private key was generated inside Cloudflare and never touched your server — there's no local backup of it.
+
+The supported recovery path is a full re-bootstrap with your original inputs:
+
+1. Keep your `subumbra.yaml` and any provider secrets accessible
+2. Run `./bootstrap.sh --nuke` to reset Cloudflare state
+3. Re-bootstrap and restart the stack
+
+Cloudflare may offer Durable Object restore features at the platform level, but those are outside Subumbra's control — verify independently before depending on them.
+
+### Updating runtime tunnel or access credentials
+
+If your Cloudflare Tunnel token or Access service token changes, update `.env` without a full re-bootstrap:
+
+```bash
+./bootstrap.sh --update-tunnel    # update TUNNEL_TOKEN in .env
+./bootstrap.sh --update-access    # update CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET in .env
+```
+
+### Rebuilding images after a code update
+
+After `git pull`, rebuild images and restart containers without touching keys or secrets:
+
+```bash
+./bootstrap.sh --upgrade
+```
+
+This does not re-run Cloudflare bootstrap, rotate keys, or change `.env`.
+
+### Removing Cloudflare-managed resources
+
+If you want to tear down Cloudflare Tunnel, DNS, and Access resources that bootstrap created:
+
+```bash
+./bootstrap.sh --nuke-cloudflare
+```
+
+This only removes resources tracked in `data/cf-resources.json` — things bootstrap created on your behalf. It does not affect your Worker, KV, or encrypted key records.
+
+---
+
+## 7. Verification and integrity
+
+### Source integrity check
+
+Before entering secrets or running bootstrap, you can verify the local checkout hasn't drifted in obvious ways:
+
+```bash
+./scripts/subumbra-verify --verbose
+```
+
+`./bootstrap.sh` runs a lighter preflight version of this automatically before reading `.env.bootstrap` or prompting for secrets. It's read-only and sends nothing to Cloudflare.
+
+For a stricter check against a signed release tag:
+
+```bash
+SUBUMBRA_REQUIRE_SIGNED_TAG=1 ./scripts/subumbra-verify --source-only
+```
+
+Current alpha releases use lightweight tags, so this will fail until signed annotated tags are in use. The default behavior warns on unsigned tags instead of failing hard.
+
+### Worker deploy integrity check
+
+After installation (or after a `git pull` and `--upgrade`), verify that what's actually running on Cloudflare matches the bundle hash recorded at deploy time:
+
+```bash
+export CF_API_TOKEN=...
+export CF_ACCOUNT_ID="$(sed -n 's/^CF_ACCOUNT_ID=//p' .env)"
+export CF_WORKER_NAME="$(sed -n 's/^CF_WORKER_NAME=//p' .env)"
+./scripts/subumbra-verify-deploy
+```
+
+This requires a Cloudflare API token with `Workers Scripts: Read`. It's a read-only check — nothing is modified.
+
+---
+
+## 8. Advanced: templates and policy
+
+### Using built-in provider templates
+
+Instead of writing a full inline policy, you can use a named template for any supported provider:
+
+`anthropic`, `openai`, `groq`, `gemini`, `deepseek`, `mistral`, `openrouter`, `together`, `xai`, `github`, `slack`, `sendgrid`
+
+Templates are signed with the project's Ed25519 release key and verified before use. Bootstrap ships them inside the container — no network fetch occurs.
+
+Basic template usage in `subumbra.yaml`:
 
 ```yaml
 keys:
@@ -171,422 +387,55 @@ keys:
     template: openai
 ```
 
-<details><summary>JSON equivalent</summary>
+### Overriding a template field
 
-```json
-{
-  "keys": [
-    {
-      "key_id": "openai_prod",
-      "provider": "openai",
-      "secret_ref": "OPENAI_KEY",
-      "adapters": ["litellm"],
-      "unique_vault": false,
-      "template": "openai"
-    }
-  ]
-}
+Add an inline `policy` block alongside `template` to override specific fields. The `allow.adapters` list is always taken from the manifest's `adapters` field — you can't override it through the policy block:
+
+```yaml
+keys:
+  - key_id: openai_prod
+    provider: openai
+    secret_ref: OPENAI_KEY
+    adapters: [litellm]
+    unique_vault: false
+    template: openai
+    policy:
+      allow:
+        max_body_bytes: 524288
 ```
 
-</details>
+### User-owned templates
 
-### Custom adapter name (same shape)
+Place `<name>.yaml` files in a `./templates/` directory next to your manifest. Bootstrap mounts that directory and checks it before the signed built-in catalog — so `./templates/openai.yaml` will shadow the built-in `openai` template. User-owned templates are **not** signature-verified. You own and trust them.
 
-Adapter id `my-proxy-token` is valid as long as it is not a reserved built-in. Bootstrap will surface a `SUBUMBRA_TOKEN_MY_PROXY_TOKEN` line in the generated runtime material (normalization details in `_normalize_adapter_id` in `bootstrap/subumbra-bootstrap.py`).
+### Policy fields and re-encryption
 
-```json
-{
-  "keys": [
-    {
-      "key_id": "my-openai-key",
-      "provider": "openai",
-      "secret_ref": "OPENAI_KEY",
-      "adapters": ["my-proxy-token"],
-      "unique_vault": false,
-      "template": "openai"
-    }
-  ]
-}
-```
+Not all policy changes require re-encrypting the key. Understanding which ones do helps you pick the right day-2 command:
 
-### Template with partial override (full file)
+| Change type | Command to use |
+|-------------|---------------|
+| `velocity`, `intent`, `response.deny_patterns` | `--publish-policy <key_id>` (no re-encryption) |
+| `allow.*`, `target.host`, `auth.*` | `--publish-policy <key_id>` (triggers re-encryption automatically) |
+| Adding or removing an adapter | `--add-adapter` / `--revoke-adapter` (re-encrypts) |
+| New provider secret value | `--rotate` |
 
-Optional `policy` merges on top of the template; **`allow.adapters` is still taken only from the manifest’s `adapters` list** (never from the template, and not overridable here).
+### Request and response headers
 
-```json
-{
-  "keys": [
-    {
-      "key_id": "my-openai-key",
-      "provider": "openai",
-      "secret_ref": "OPENAI_KEY",
-      "adapters": ["my-proxy-token"],
-      "unique_vault": false,
-      "template": "openai",
-      "policy": {
-        "allow": {
-          "max_body_bytes": 524288
-        }
-      }
-    }
-  ]
-}
-```
+- `allow.request_headers` — which adapter-supplied request headers are forwarded (after Subumbra strips internal and hop-by-hop headers)
+- `response.allow_headers` — which upstream response headers are exposed back to the adapter
 
-For **Anthropic**, **Groq**, **GitHub**, and every other signed catalog provider, copy another object into `keys` (or start from [`subumbra.example.yaml`](../subumbra.example.yaml) and delete what you do not need). Example `curl` paths for several providers live in [`docs/integration-recipes.md`](integration-recipes.md). For a focused template guide, see [`docs/provider-templates.md`](provider-templates.md).
+If omitted, current pass-through behavior is preserved. Anthropic requests require `anthropic-version` — add it here if you see missing-header errors. After changing either list, run `./bootstrap.sh --publish-policy <key_id>`.
 
-Adapter YAML files under `bootstrap/templates/adapters/` are signed for
-integrity and operator documentation; bootstrap does not expand them into policy.
+### Unique vault vs shared vault
 
-## 3. Create The Secret Bootstrap File
+Each key record sets `unique_vault: true` or `unique_vault: false`:
 
-Copy the example and fill in only secret values and bootstrap credentials:
+- **Shared vault** (`false`): the key's DEK is wrapped by the shared `vault` Durable Object's RSA key. Simpler, and fine for most deployments.
+- **Unique vault** (`true`): a dedicated `vault-<key_id>` Durable Object is created for this key. Stronger isolation — a compromise of one vault doesn't affect others — but uses more Cloudflare resources.
 
-```bash
-cp .env.bootstrap.example .env.bootstrap
-```
+### Worker rate limits
 
-The bootstrap file is intentionally short:
-
-- provider secret values referenced by `secret_ref`
-- Cloudflare bootstrap credentials
-- optional bootstrap settings such as `TOKEN_TTL_DAYS`
-
-Cloudflare authority lifecycle at this stage:
-
-- `CF_API_TOKEN` is bootstrap, deploy, and deploy-integrity authority. It is
-  intentionally **not** retained in runtime `.env`, so you must re-supply it
-  for later Cloudflare-backed day-2 operations such as
-  `scripts/subumbra-verify-deploy`.
-- The same Cloudflare authority is now also required for `./bootstrap.sh --session start`
-  and `./bootstrap.sh --session end`, because those commands mutate Worker-side
-  `active_adapter:<adapter_id>` gates and per-session shadow keys shaped as
-  `session_token:<session_id>:<adapter_id>`.
-- `SUBUMBRA_SETUP_TOKEN` is the one-shot bootstrap authority for
-  `/setup/keygen`. After a successful full bootstrap, the Worker rejects that
-  route even if you still have a host-side reference copy.
-- `SUBUMBRA_MANAGEMENT_TOKEN` is the continuing Worker management bearer for
-  `/manage/key/pause` and `/manage/key/unpause`.
-
-`./bootstrap.sh` shreds `.env.bootstrap` after a successful full bootstrap.
-Successful `./bootstrap.sh --provision <key_id>`, `--add-adapter`,
-`--revoke-adapter`, or `--publish-policy <key_id>` runs intentionally retain
-the file so you can finish additional secure mutation steps; shred it manually
-when repairs are complete.
-
-Header policy notes for day-2 changes:
-
-- `allow.request_headers` controls which adapter-supplied request headers are
-  forwarded after Subumbra strips invariant internal/hop-by-hop headers.
-- `response.allow_headers` controls which upstream response headers are exposed
-  after the same invariant strip pass.
-- If either field is omitted or left empty, current pass-through behavior is
-  preserved for backwards compatibility.
-- Anthropic requires `anthropic-version` on relevant requests. Optional headers
-  such as `anthropic-beta` are not forwarded unless you add them explicitly to
-  `allow.request_headers`.
-- After changing either header list in `subumbra.yaml` or a user-owned
-  template, run `./bootstrap.sh --publish-policy <key_id>` for each affected
-  key so the live registry picks up the new policy.
-
-## 4. Run Bootstrap
-
-**Interactive vs automation:** With a TTY and **no** complete unattended credential set
-(`CF_API_TOKEN`, `CF_ACCOUNT_ID`, and the manifest all present in the bootstrap
-environment), bootstrap runs the **manifest wizard**: it reads the manifest,
-prompts for Cloudflare credentials and each `secret_ref` (hidden TTY reads; RAM only),
-then continues the same deploy → keygen → encrypt pipeline as automation. With
-`.env.bootstrap` populated for every `secret_ref`, use a **non-interactive** compose
-run (`./bootstrap.sh` without a TTY, or with stdin closed) so secrets load from the file.
-
-```bash
-./bootstrap.sh
-```
-
-Automation path: bootstrap reads the manifest (`subumbra.yaml`), resolves the referenced secret values from
-`.env.bootstrap`, deploys the Worker, encrypts the retained keys, and writes the
-runtime state under `data/`.
-
-If bootstrap detects existing Cloudflare vault or KV state for the current
-manifest, it stops and requires an explicit destructive acknowledgement before
-continuing. Interactive runs prompt `y/N`; non-interactive runs must be rerun
-with `--nuke` if you truly want a fresh Cloudflare reset.
-
-If bootstrap stops before completion, fix the reported input error and rerun the
-full bootstrap from the same repo checkout.
-
-## 4.5 Recovery And Vault Loss
-
-Subumbra does **not** provide a VPS-local vault backup that can recreate the
-Cloudflare-side decrypt authority by itself. If Cloudflare-side vault custody
-is lost and you initialize a brand-new vault state, ciphertext produced under
-the previous vault state cannot be decrypted by that new state.
-
-The supported recovery path is:
-
-1. keep the original operator inputs (`subumbra.yaml` plus `.env.bootstrap`)
-2. re-run a full bootstrap to provision fresh Cloudflare-side custody
-3. recreate the runtime services so they load the new runtime state
-
-Cloudflare may offer Durable Object restore or PITR features at the platform
-level, but this guide does **not** claim that they are enabled for your account.
-Treat them as external recovery options you must verify independently before
-depending on them.
-
-## 5. Recreate Runtime Services
-
-After a full bootstrap, recreate the local services so they load the generated
-runtime tokens and registry state:
-
-```bash
-docker compose up -d --force-recreate
-```
-
-The transparent proxy contract stays the same:
-
-- health check: `http://127.0.0.1:10199/health`
-- transparent route: `http://127.0.0.1:10199/t/<key_id>/...`
-
-Example:
-
-```bash
-LITELLM_TOKEN="$(sed -n 's/^SUBUMBRA_TOKEN_LITELLM=//p' .env)"
-
-curl -sS \
-  -H "Authorization: Bearer $LITELLM_TOKEN" \
-  http://127.0.0.1:10199/t/anthropic_litellm/v1/models
-```
-
-## UI Authentication
-
-The Subumbra UI supports two authentication modes:
-
-| Mode | When to use | Configuration |
-|------|-------------|---------------|
-| **CF Tunnel + CF Access** (recommended) | You route the UI through a Cloudflare Tunnel | Leave `UI_USERNAME` and `UI_PASSWORD` unset. CF Access enforces authentication at the edge. |
-| **HTTP Basic Auth** | You access the UI directly without a CF Tunnel | Set both `UI_USERNAME` and `UI_PASSWORD` in `.env`. |
-
-### Switching modes
-
-- **CF Access mode:** ensure `UI_USERNAME` and `UI_PASSWORD` are absent or empty in `.env`. The UI starts with one info log and accepts all requests without local auth.
-- **Basic Auth mode:** set both `UI_USERNAME` and `UI_PASSWORD` in `.env`, then restart the UI container. Brute-force rate limiting (5 failures per 60-second window per IP) applies.
-- **Partial configuration is an error:** if `UI_USERNAME` is set but `UI_PASSWORD` is absent (or vice versa), the UI container will not start.
-
-## 6. Rotation And Repair
-
-Use the existing single-key rotation command when only a stored V3 secret value
-needs to change:
-
-```bash
-./bootstrap.sh --rotate
-```
-
-Repair a single missing key after a partial bootstrap (manifest + host env
-must still hold authority — no plaintext resume file):
-
-```bash
-./bootstrap.sh --provision <key_id>
-```
-
-`--provision` reads the manifest (resolving `secret_ref` at repair time),
-requires `CF_WORKER_URL` and `SUBUMBRA_SETUP_TOKEN` in the repo bind-mounted
-host env file (`/app/host-env` in the bootstrap container), and needs the
-matching `public_key*.pem` for the key’s vault on the keys data volume. If the
-public key file is missing, re-run full bootstrap.
-
-> **`SUBUMBRA_SETUP_TOKEN` staleness.** After a successful full bootstrap the
-> Worker secret is deleted while the copy in the repo `.env` may no longer match
-> Cloudflare. That is expected; keep runtime tokens from the last successful
-> bootstrap output. For `--provision`, ensure the host `.env` still carries a
-> **live** setup token if you are mid multi-key repair.
-
-### Bootstrap Phase-2 recovery (half-states)
-
-| Situation | What to do |
-|-----------|------------|
-| **A — `keys.json` not updated** (encrypt or atomic write failed before a good record) | Data volume may be inconsistent with KV. Prefer `./bootstrap.sh --nuke` (non-interactive automation **must** pass `--nuke` when prior CF state exists), then re-run full bootstrap. |
-| **B/C — `keys.json` updated but structured KV missing or partial** | Re-publish from local fat records: `./bootstrap.sh --push-registry` (requires `CF_API_TOKEN` / account context as for other day-2 CF commands). |
-
-Bootstrap **does not** write `bootstrap-checkpoint.json` anymore; there is no
-checkpoint file to delete for resume semantics.
-
-If `--rotate`, `--push-registry`, `--provision`, `--revoke-key`,
-`--add-adapter`, `--revoke-adapter`, or `--publish-policy` reports missing
-embedded authority fields or an embedded policy mismatch, stop and repair the
-local state or re-run the full bootstrap. Those commands no longer reconstruct
-policy or adapter bindings from bootstrap-era inputs.
-
-Run these **from an interactive shell** (or export `CF_API_TOKEN` and
-`CF_ACCOUNT_ID`) so `./bootstrap.sh` can allocate a TTY and prompt for those
-values when they are not in the environment. **`CF_WORKER_NAME`** (or a
-`CF_WORKER_URL` to a `*.workers.dev` host from which the name is inferred) must
-live in the repo **`.env`** for day-2 commands — the worker name is **not**
-prompted, so operations always target the deployed Worker from your last bootstrap.
-
-### Management Authority
-
-Bootstrap now generates and stores a separate management bearer token:
-
-- host env key: `SUBUMBRA_MANAGEMENT_TOKEN`
-- Worker secret: `SUBUMBRA_MANAGEMENT_TOKEN`
-
-Use that token only for Worker management routes such as pause/unpause. It is
-independent from adapter auth and should be treated like a privileged operator
-secret.
-
-If you need to rotate or recover it after bootstrap, overwrite the Worker
-secret and the host `.env` value together:
-
-```bash
-NEW_TOKEN="$(python3 - <<'PY'
-import secrets
-print(secrets.token_urlsafe(48))
-PY
-)"
-export NEW_TOKEN
-
-printf '%s\n' "$NEW_TOKEN" | wrangler secret put SUBUMBRA_MANAGEMENT_TOKEN --name "$CF_WORKER_NAME"
-python3 - <<'PY'
-from pathlib import Path
-path = Path(".env")
-lines = path.read_text().splitlines()
-needle = "SUBUMBRA_MANAGEMENT_TOKEN="
-replaced = False
-out = []
-for line in lines:
-    if line.startswith(needle):
-        out.append(needle + __import__("os").environ["NEW_TOKEN"])
-        replaced = True
-    else:
-        out.append(line)
-if not replaced:
-    out.append(needle + __import__("os").environ["NEW_TOKEN"])
-path.write_text("\n".join(out) + "\n")
-PY
-```
-
-If you lose both the live Worker secret and the local `.env` copy, run a full
-bootstrap so the management authority is reissued coherently.
-
-### Deploy Integrity Verification
-
-`scripts/subumbra-verify-deploy` compares the recorded Worker bundle hash
-against the live Cloudflare deployment. Supply Cloudflare authority at runtime:
-
-```bash
-export CF_API_TOKEN=...
-export CF_ACCOUNT_ID="$(sed -n 's/^CF_ACCOUNT_ID=//p' .env)"
-export CF_WORKER_NAME="$(sed -n 's/^CF_WORKER_NAME=//p' .env)"
-./scripts/subumbra-verify-deploy
-```
-
-The helper first checks the requested `--integrity-file` on the host. If that
-path does not exist, it falls back to reading
-`/app/data/system-integrity.json` from the live `subumbra-keys` container. Use
-`--keys-container` or `--container-integrity-path` only if your install uses
-non-default names.
-
-## 7. Registry Publish Notes
-
-Structured KV publication now uses only `key:` and `policy:` records plus the
-schema marker:
-
-```bash
-./bootstrap.sh --push-registry
-```
-
-`--push-registry` now reads only from the persisted internal state under
-`data/`. It does not require the manifest after bootstrap completes, and it
-must preserve an already-live `paused: true` flag on any structured `key:<id>`
-entry instead of clearing it during republish.
-
-Before `./bootstrap.sh --push-registry`, rewrite any legacy anchored
-`response.deny_patterns` values such as `^test$` to bare substring literals
-such as `test`. Runtime compatibility for the old anchored form is no longer
-preserved.
-
-Bootstrap no longer reads routing or auth defaults from `providers.json`. If a
-manifest record omits or misstates `policy.target.host` or `policy.auth`, the
-bootstrap run fails closed and must be corrected in the manifest.
-
-There is no longer a separate `--rotate-policy` workflow. Day-2 command
-coverage is now:
-
-```bash
-./bootstrap.sh --push-registry
-./bootstrap.sh --provision <key_id>
-./bootstrap.sh --revoke-key <key_id>
-./bootstrap.sh --add-adapter <key_id> <adapter_id>
-./bootstrap.sh --revoke-adapter <key_id> <adapter_id>
-./bootstrap.sh --publish-policy <key_id>
-./bootstrap.sh --status
-./bootstrap.sh --rotate
-./bootstrap.sh --session start --name my-window --adapters all --keys all --ttl 1h
-./bootstrap.sh --session end <session_id>
-./bootstrap.sh --session end --all
-./bootstrap.sh --session status
-./bootstrap.sh --session list
-```
-
-- `--revoke-key` marks the fat record as revoked, deletes the live `key:<id>`
-  KV entry (unless you pass `--offline`), and future `--push-registry` runs skip
-  revoked records so the key does not resurrect. **`--offline`** updates
-  `keys.json` only (no Cloudflare); then re-run the same command **without**
-  `--offline` to delete KV entries once credentials are available. If the key is
-  already revoked locally, a second run without `--offline` performs **KV-only**
-  cleanup.
-- `--add-adapter` and `--revoke-adapter` are secure hybrid mutations: they use
-  the local V3 record plus the manifest `secret_ref` plaintext (from the process
-  environment, the repo `.env` host mount, or a one-time interactive prompt when
-  you use a TTY), re-encrypt, rewrite `keys.json`, and republish KV.
-- After a successful `--add-adapter` or `--revoke-adapter`, bootstrap now offers
-  a best-effort manifest sync for the matching YAML `adapters: [...]` line. This
-  auto-sync supports only the canonical single-line form. If your manifest uses a
-  multiline adapters block or a non-canonical stanza layout, bootstrap warns and
-  leaves the manifest unchanged; update it manually in that case.
-- `--publish-policy` has two branches:
-  - non-baseline update for `intent`, `velocity`, or `response.deny_patterns`
-    only: update fat-record policy and republish with no re-encryption
-  - baseline update touching `allow.*`, `target.host`, or `auth.*`: re-encrypt
-    and republish
-- Built-in signed templates now ship active default `velocity` controls. After
-  upgrading to a release that changes template policy defaults, rebuild the
-  bootstrap image so it carries the current signed catalog, then run
-  `./bootstrap.sh --publish-policy <key_id>` for each active template-backed
-  key you want updated live.
-- `--status` is a read-only drift check. It compares the manifest-derived
-  `policy_hash` for each declared key against the stored fat record and prints
-  `UP_TO_DATE`, `POLICY_DRIFT`, `NOT_DEPLOYED`, or `REVOKED` per key.
-- `--session start` supports multiple concurrent active sessions, but they stay
-  isolated: a new session is rejected before any KV mutation if its effective
-  `(adapter_id, key_id)` coverage overlaps an already-active session. `--ttl`
-  is mandatory, `--adapters <csv|all>` is required, `--keys <csv|all>` defaults
-  to `all`, and `--max-queries` is optional. While no session is active, the
-  system rests in global lockdown and `GET /keys/<id>` plus Worker `POST /proxy`
-  both fail closed with `system_locked`.
-- `--session end <session_id>` closes one specific active session. `--session end --all`
-  closes every active session. With multiple active sessions on a TTY, running
-  `--session end` without an ID shows a numbered picker; on non-interactive
-  runs it fails closed and lists the active session IDs instead.
-- `--session status` prints current lockdown state plus every active session's
-  scope, TTL remaining, and current query usage.
-- `--session list` prints recent session history from `sessions.db`.
-
-Read-only session visibility:
-
-- `GET /sessions` on `subumbra-keys` returns `lockdown_enabled`,
-  `active_sessions`, and recent session history for adapters with
-  `can_read_stats=true`.
-- The dashboard now displays locked vs active state and renders zero, one, or
-  many active sessions with their current adapter/key scope, TTL remaining, and
-  `queries_used / max_queries` when a cap is present.
-
-Pause/unpause is the one Worker-native write path in this round. After a
-successful `/manage/key/pause` or `/manage/key/unpause`, allow up to 90 seconds
-for worst-case Cloudflare KV propagation before treating a stale proxy result as
-a failure.
-
-Worker auth/admin surfaces now also have their own in-source throttles:
+The following Worker surfaces have per-minute rate limits. If you hit them, the Worker returns `429` with `rate_limit_exceeded_auth`:
 
 - `GET /auth-ping`
 - `POST /setup/keygen`
@@ -596,36 +445,26 @@ Worker auth/admin surfaces now also have their own in-source throttles:
 - `POST /manage/key/pause`
 - `POST /manage/key/unpause`
 
-When a caller exceeds the per-minute limit for one of those surfaces, the
-Worker returns `429 {"error":"rate_limit_exceeded_auth"}` and logs
-`subumbra: auth rate limit exceeded endpoint=<name> ip=<cf_ip_or_unknown>`.
+These are intended for protection against automation abuse, not normal operational traffic.
 
-If you change routing metadata or broader retained bootstrap state beyond those
-day-2 command boundaries, re-run the full bootstrap and recreate the runtime
-services:
+---
 
-```bash
-./bootstrap.sh
-```
+## 9. Internal timing reference
 
-On success the host wrapper also runs `docker compose up -d --force-recreate`
-and prints an adapter summary. For code-only refreshes without re-bootstrap,
-use `./bootstrap.sh --upgrade`.
+These values are fixed in the current release (not env-tunable). Useful if you're diagnosing stale dashboard data or health signal lag.
 
-### Existing volume migration
+| Item | Value |
+|------|-------|
+| Proxy Worker auth cache TTL | 60 seconds |
+| Proxy Worker auth-ping HTTP timeout | 2 seconds |
+| Dashboard `/api/status` poll interval | 30 seconds |
+| Dashboard SSE `/api/events` heartbeat | 30 seconds between frames |
+| `subumbra-keys` Compose healthcheck | interval: 30s, timeout: 5s, retries: 5, start_period: 10s |
+| `subumbra-ui` Compose healthcheck | interval: 30s, timeout: 5s, retries: 3 |
+| `subumbra-proxy` Compose healthcheck | interval: 30s, timeout: 5s, retries: 3 |
 
-If your VPS already uses Docker's doubled legacy volume name, migrate it once
-into the Compose-backed host volume (default project name `subumbra` →
-`subumbra_keys_data`) before recreating the stack:
+**Dashboard stats** (request counts, last access times) are aggregated from `subumbra-keys` SQLite audit events — not from per-Gunicorn-worker memory. This means they're consistent across restarts.
 
-```bash
-docker volume create subumbra_keys_data
-docker run --rm \
-  -v subumbra_subumbra_keys_data:/from \
-  -v subumbra_keys_data:/to \
-  alpine:3.21 sh -c "cp -a /from/. /to/"
-```
+**Multiple dashboard tabs:** the SSE `/api/events` stream holds a thread for each open tab. With many tabs open simultaneously, you may notice the 30-second `/api/status` polling becomes slightly slower as threads compete.
 
-After migration and `docker compose up`, you may remove the stale
-`subumbra_subumbra_keys_data` volume **only** after confirming the stack is
-healthy and data is present under the new volume.
+**Rate-limit identity on localhost:** when the UI is accessed via `127.0.0.1:6563`, `request.remote_addr` is often the Docker bridge gateway IP, so all host-originated traffic shares one rate-limit bucket.
