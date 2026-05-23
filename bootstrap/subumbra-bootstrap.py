@@ -444,7 +444,7 @@ def _read_runtime_credential_value(key: str) -> str:
 def _open_session_db() -> sqlite3.Connection:
     try:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
-        os.chmod(DATA_DIR, 0o755)
+        os.chmod(DATA_DIR, 0o777)
         if SESSIONS_DB_FILE.exists():
             os.chmod(SESSIONS_DB_FILE, 0o666)
         conn = sqlite3.connect(SESSIONS_DB_FILE, timeout=30)
