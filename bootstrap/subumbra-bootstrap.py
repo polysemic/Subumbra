@@ -270,11 +270,44 @@ def _representative_key_id_for_vault_instance(
     return None
 
 
+def _chown_to_subumbra(path: Path) -> None:
+    try:
+        os.chown(path, 1000, 1000)
+    except OSError:
+        pass
+
+
+def _secure_data_dir() -> None:
+    """Ensure DATA_DIR and all files in it have secure permissions (0o750/0o640) and correct ownership (1000:1000)"""
+    try:
+        if DATA_DIR.exists():
+            os.chmod(DATA_DIR, 0o750)
+            _chown_to_subumbra(DATA_DIR)
+            
+            for item in DATA_DIR.rglob("*"):
+                try:
+                    if item.is_dir():
+                        os.chmod(item, 0o750)
+                    else:
+                        current_mode = os.stat(item).st_mode & 0o777
+                        if current_mode == 0o600:
+                            os.chmod(item, 0o600)
+                        else:
+                            os.chmod(item, 0o640)
+                    _chown_to_subumbra(item)
+                except OSError:
+                    pass
+    except Exception as exc:
+        print(f"Warning: failed to secure data directory: {exc}")
+
+
 def _write_public_key_file(path: Path, public_key_pem: str) -> None:
     try:
-        fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+        fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o640)
         with os.fdopen(fd, "wb") as fh:
             fh.write(public_key_pem.encode("utf-8"))
+        _chown_to_subumbra(path)
+        _secure_data_dir()
     except OSError as exc:
         die(f"Failed to write {path.name}: {exc}")
 
@@ -296,11 +329,13 @@ def _load_public_key_from_pem(public_key_pem: str):
 def _write_keys_payload(keys_payload: dict[str, Any]) -> None:
     tmp_keys = KEYS_FILE.with_suffix(".json.tmp")
     try:
-        fd = os.open(str(tmp_keys), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+        fd = os.open(str(tmp_keys), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o640)
         with os.fdopen(fd, "w") as fh:
             json.dump(keys_payload, fh, indent=2)
             fh.write("\n")
+        _chown_to_subumbra(tmp_keys)
         os.replace(str(tmp_keys), str(KEYS_FILE))
+        _secure_data_dir()
     except OSError as exc:
         die(f"Failed to write keys.json: {exc}")
 
@@ -393,6 +428,8 @@ def _write_runtime_env_file(runtime_env_lines: list[str]) -> None:
         fd = os.open(str(RUNTIME_ENV_OUT), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w") as fh:
             fh.write(runtime_env_content)
+        _chown_to_subumbra(RUNTIME_ENV_OUT)
+        _secure_data_dir()
     except OSError as exc:
         die(f"Failed to write runtime.env: {exc}")
     ok("Runtime env written with mode 0600")
@@ -444,9 +481,10 @@ def _read_runtime_credential_value(key: str) -> str:
 def _open_session_db() -> sqlite3.Connection:
     try:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
-        os.chmod(DATA_DIR, 0o750)
+        _secure_data_dir()
         if SESSIONS_DB_FILE.exists():
             os.chmod(SESSIONS_DB_FILE, 0o640)
+            _chown_to_subumbra(SESSIONS_DB_FILE)
         conn = sqlite3.connect(SESSIONS_DB_FILE, timeout=30)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA busy_timeout=10000")
@@ -497,7 +535,7 @@ def _open_session_db() -> sqlite3.Connection:
             """
         )
         conn.commit()
-        os.chmod(SESSIONS_DB_FILE, 0o640)
+        _secure_data_dir()
         return conn
     except (OSError, sqlite3.Error) as exc:
         die(f"Failed to open session database {SESSIONS_DB_FILE}: {exc}")
