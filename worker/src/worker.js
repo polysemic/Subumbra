@@ -1570,7 +1570,7 @@ async function handleProxy(request, env) {
   }
 
   const sessionActive = await env.PROVIDER_REGISTRY_KV.get(
-    `session_token:${auth.adapterId}`
+    `active_adapter:${auth.adapterId}`
   );
   if (!sessionActive) {
     console.warn("subumbra: system_locked adapter=%s", auth.adapterId);
