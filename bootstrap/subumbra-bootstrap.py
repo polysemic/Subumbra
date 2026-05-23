@@ -4325,16 +4325,189 @@ def _format_session_scope(values: list[str] | None, *, empty_label: str = "all")
     return ",".join(values)
 
 
+def _fmt_utc_ts(iso_str: str) -> str:
+    """Format an ISO-8601 UTC timestamp as a readable string."""
+    try:
+        dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+        return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+    except ValueError:
+        return iso_str
+
+
+def _fmt_duration(seconds: int) -> str:
+    """Format a duration in seconds as Xh Ym Zs."""
+    if seconds <= 0:
+        return "0s (expired)"
+    parts = []
+    h, rem = divmod(seconds, 3600)
+    m, s = divmod(rem, 60)
+    if h:
+        parts.append(f"{h}h")
+    if m:
+        parts.append(f"{m}m")
+    if s or not parts:
+        parts.append(f"{s}s")
+    return " ".join(parts)
+
+
 def _print_session_row(prefix: str, row_dict: dict[str, Any]) -> None:
     print(f"{prefix}session_id={row_dict['session_id']}")
-    print(f"{prefix}name={row_dict['name'] or ''}")
+    print(f"{prefix}name={row_dict['name'] or '(none)'}")
     print(f"{prefix}status={row_dict['status']}")
     print(f"{prefix}allowed_adapters={_format_session_scope(row_dict['allowed_adapters'])}")
     print(f"{prefix}allowed_keys={_format_session_scope(row_dict['allowed_keys'])}")
     print(f"{prefix}max_queries={row_dict['max_queries'] if row_dict['max_queries'] is not None else 'unlimited'}")
     print(f"{prefix}queries_used={row_dict['queries_used']}")
-    print(f"{prefix}created_at={row_dict['created_at']}")
-    print(f"{prefix}expires_at={row_dict['expires_at']}")
+    print(f"{prefix}created_at={_fmt_utc_ts(str(row_dict['created_at']))}")
+    print(f"{prefix}expires_at={_fmt_utc_ts(str(row_dict['expires_at']))}")
+
+
+def _session_wizard(
+    args: list[str],
+    static_adapters: dict[str, dict[str, Any]],
+    live_key_ids: list[str],
+) -> tuple[str, str, str | None, str | None, str | None]:
+    """Interactive wizard for --session start when args are missing.
+
+    Returns (ttl_raw, adapters_raw, keys_raw, name, max_queries_raw).
+    Entry modes:
+      - adapter-first: --adapters provided, only keys for those adapters shown
+      - key-first:     --keys provided, only adapters that include those keys shown
+      - bare:          show all adapters, then filter keys to selected adapters
+    """
+    if not sys.stdin.isatty():
+        die("--session start: --ttl and --adapters are required in non-interactive mode")
+
+    adapter_key_map: dict[str, list[str]] = {}
+    for adapter_id, config in static_adapters.items():
+        allowed = config.get("allowed_keys")
+        adapter_key_map[adapter_id] = allowed if isinstance(allowed, list) else list(live_key_ids)
+
+    key_adapter_map: dict[str, list[str]] = {}
+    for adapter_id, keys in adapter_key_map.items():
+        for k in keys:
+            key_adapter_map.setdefault(k, []).append(adapter_id)
+
+    ttl_raw = _session_arg_value(args, "--ttl")
+    adapters_raw = _session_arg_value(args, "--adapters")
+    keys_raw = _session_arg_value(args, "--keys")
+    name = (_session_arg_value(args, "--name") or "").strip() or None
+    max_queries_raw = _session_arg_value(args, "--max-queries")
+
+    print("\n=== Subumbra session wizard ===")
+
+    if adapters_raw is not None:
+        # adapter-first: show only keys available for requested adapters
+        selected_adapters_list = [a.strip() for a in adapters_raw.split(",") if a.strip()]
+        visible_keys = sorted({k for a in selected_adapters_list for k in adapter_key_map.get(a, [])})
+        if keys_raw is None:
+            if visible_keys:
+                print(f"\nKeys accessible by {', '.join(selected_adapters_list)}:")
+                for i, k in enumerate(visible_keys, 1):
+                    print(f"  {i}. {k}")
+                raw = input("Keys to allow [enter = all, or comma-separated numbers/names]: ").strip()
+                if raw:
+                    chosen: list[str] = []
+                    for token in raw.split(","):
+                        token = token.strip()
+                        if token.isdigit() and 1 <= int(token) <= len(visible_keys):
+                            chosen.append(visible_keys[int(token) - 1])
+                        elif token in visible_keys:
+                            chosen.append(token)
+                        else:
+                            die(f"Unknown selection {token!r}")
+                    keys_raw = ",".join(chosen)
+
+    elif keys_raw is not None:
+        # key-first: show only adapters that include the requested keys
+        selected_keys_list = [k.strip() for k in keys_raw.split(",") if k.strip()]
+        visible_adapters = sorted({a for k in selected_keys_list for a in key_adapter_map.get(k, [])})
+        if not visible_adapters:
+            die(f"No adapters are authorized for keys: {', '.join(selected_keys_list)}")
+        if adapters_raw is None:
+            print(f"\nAdapters authorized for {', '.join(selected_keys_list)}:")
+            for i, a in enumerate(visible_adapters, 1):
+                print(f"  {i}. {a}")
+            raw = input("Adapters to open [enter = all shown, or comma-separated numbers/names]: ").strip()
+            if raw:
+                chosen_a: list[str] = []
+                for token in raw.split(","):
+                    token = token.strip()
+                    if token.isdigit() and 1 <= int(token) <= len(visible_adapters):
+                        chosen_a.append(visible_adapters[int(token) - 1])
+                    elif token in visible_adapters:
+                        chosen_a.append(token)
+                    else:
+                        die(f"Unknown adapter {token!r}")
+                adapters_raw = ",".join(chosen_a)
+            else:
+                adapters_raw = ",".join(visible_adapters)
+
+    else:
+        # bare: show all adapters, then filter keys
+        all_adapter_ids = sorted(static_adapters.keys())
+        print("\nAvailable adapters:")
+        for i, a in enumerate(all_adapter_ids, 1):
+            key_count = len(adapter_key_map.get(a, []))
+            print(f"  {i}. {a}  ({key_count} key(s))")
+        raw = input("Adapters to open [enter = all, or comma-separated numbers/names]: ").strip()
+        if raw:
+            chosen_a2: list[str] = []
+            for token in raw.split(","):
+                token = token.strip()
+                if token.isdigit() and 1 <= int(token) <= len(all_adapter_ids):
+                    chosen_a2.append(all_adapter_ids[int(token) - 1])
+                elif token in all_adapter_ids:
+                    chosen_a2.append(token)
+                else:
+                    die(f"Unknown adapter {token!r}")
+            adapters_raw = ",".join(chosen_a2)
+            selected_for_keys = chosen_a2
+        else:
+            adapters_raw = "all"
+            selected_for_keys = all_adapter_ids
+
+        # filter keys to those accessible by the selected adapters
+        visible_keys2 = sorted({k for a in selected_for_keys for k in adapter_key_map.get(a, [])})
+        if visible_keys2:
+            print(f"\nKeys accessible by selected adapters:")
+            for i, k in enumerate(visible_keys2, 1):
+                print(f"  {i}. {k}")
+            raw = input("Keys to allow [enter = all, or comma-separated numbers/names]: ").strip()
+            if raw:
+                chosen_k: list[str] = []
+                for token in raw.split(","):
+                    token = token.strip()
+                    if token.isdigit() and 1 <= int(token) <= len(visible_keys2):
+                        chosen_k.append(visible_keys2[int(token) - 1])
+                    elif token in visible_keys2:
+                        chosen_k.append(token)
+                    else:
+                        die(f"Unknown key {token!r}")
+                keys_raw = ",".join(chosen_k)
+
+    # name (optional)
+    if name is None:
+        raw_name = input("\nSession name (optional, enter to skip): ").strip()
+        if raw_name:
+            name = raw_name
+
+    # TTL
+    if ttl_raw is None:
+        print("\nTTL — how long this session stays open.")
+        print("  Format: <number><unit> where unit is s=seconds, m=minutes, h=hours, d=days")
+        print("  Examples: 30m  2h  8h  1d")
+        raw_ttl = input("TTL [default: 1h]: ").strip()
+        ttl_raw = raw_ttl if raw_ttl else "1h"
+
+    # max-queries (optional)
+    if max_queries_raw is None:
+        raw_mq = input("\nMax queries (optional, enter for unlimited): ").strip()
+        if raw_mq:
+            max_queries_raw = raw_mq
+
+    print()
+    return ttl_raw, adapters_raw or "all", keys_raw, name, max_queries_raw
 
 
 def run_session_start() -> None:
@@ -4343,15 +4516,23 @@ def run_session_start() -> None:
         die("--session start requires the 'start' subcommand immediately after --session")
 
     ttl_raw = _session_arg_value(args, "--ttl")
-    if ttl_raw is None:
-        die("--session start requires --ttl <duration>")
     adapters_raw = _session_arg_value(args, "--adapters")
+    keys_raw = _session_arg_value(args, "--keys")
+    name = (_session_arg_value(args, "--name") or "").strip() or None
+    max_queries_raw = _session_arg_value(args, "--max-queries")
+
+    wizard_needed = ttl_raw is None or adapters_raw is None
+    if wizard_needed:
+        static_adapters = _load_active_session_static_adapters()
+        live_key_ids = _load_live_key_ids()
+        ttl_raw, adapters_raw, keys_raw, name, max_queries_raw = _session_wizard(
+            args, static_adapters, live_key_ids
+        )
+    elif ttl_raw is None:
+        die("--session start requires --ttl <duration>")
+
     if adapters_raw is None:
         die("--session start requires --adapters <csv|all>")
-
-    name = (_session_arg_value(args, "--name") or "").strip() or None
-    keys_raw = _session_arg_value(args, "--keys")
-    max_queries_raw = _session_arg_value(args, "--max-queries")
     ttl_seconds = _parse_session_duration_seconds(ttl_raw)
     concrete_adapter_ids, stored_adapter_scope = _resolve_session_adapter_scope(adapters_raw)
     stored_key_scope = _resolve_session_key_scope(keys_raw)
@@ -4483,7 +4664,7 @@ def run_session_status() -> None:
     remaining = max(0, int((expires_at_dt - datetime.now(timezone.utc)).total_seconds()))
     print("active_session=present")
     _print_session_row("", session_dict)
-    print(f"ttl_remaining_seconds={remaining}")
+    print(f"ttl_remaining={_fmt_duration(remaining)}")
 
 
 def run_session_list() -> None:
@@ -5549,7 +5730,18 @@ Options:
   --add-adapter <key_id>      Add an adapter binding to an existing key
   --revoke-adapter <key_id>   Revoke an adapter binding from an existing key
   --publish-policy <key_id>   Republish a key's policy/adapters to KV
-  --session <subcommand>      Session lifecycle: start | end | status | list
+  --session start             Open a session (enables key-fetch for the duration)
+    --ttl <duration>            Required. How long the session stays open.
+                                Format: <number><unit>  s=seconds  m=minutes  h=hours  d=days
+                                Examples: 30m  2h  8h  1d
+    --adapters <csv|all>        Adapters to open. Omit or pass 'all' for all.
+    --keys <csv|all>            Keys to allow. Omit or pass 'all' for all.
+    --name <label>              Optional human-readable label for this session.
+    --max-queries <n>           Optional query cap before the session auto-closes.
+    (If --ttl or --adapters are omitted on a TTY, an interactive wizard starts.)
+  --session end               Close the active session immediately.
+  --session status            Show lockdown state and active session details.
+  --session list              Show the 20 most recent sessions (any status).
 
 For a full initial bootstrap, run without arguments.
 """)
