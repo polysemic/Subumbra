@@ -1,5 +1,5 @@
 # PROJECT_STATUS
-*Current state — updated 2026-05-22 (r82-session-lockdown verified)*
+*Current state — updated 2026-05-23 (r83-multi-session implemented; verification pending)*
 
 ---
 
@@ -14,6 +14,7 @@ V3 Asymmetric Envelope Encryption (deployed, all three council verifiers PASS).
 - **YAML manifest support (r67):** Bootstrap accepts `subumbra.yaml` or `subumbra.json`; local `./templates/<name>.yaml` operator workspace checked before signed built-in catalog
 - V1 symmetric `MASTER_DECRYPTION_KEY` path fully removed; V2 records hard-rejected by Worker
 - **Session lockdown (r82, verified):** new deployments now initialize a local `sessions.db` with `lockdown_enabled=1`; `GET /keys/<id>` and Worker `POST /proxy` both fail closed until the operator opens one bounded session with `./bootstrap.sh --session start ...`, and read-only session state is visible through `GET /sessions` and the dashboard.
+- **Multi-session isolation (r83, implementation pending verification):** bootstrap now allows multiple concurrent active sessions when their effective `(adapter_id, key_id)` coverage stays disjoint, writes per-session shadow KV keys shaped as `session_token:<session_id>:<adapter_id>`, maintains adapter-level Worker gates as `active_adapter:<adapter_id>`, and exposes list-shaped `active_sessions` state to `subumbra-keys` clients and the dashboard.
 
 ---
 
@@ -154,6 +155,7 @@ Current pin: `main-latest@sha256:7c311546c25e7bb6e8cafede9fcd3d0d622ac636b5c9418
 | r80-keys-auth-hardening | 2026-05-22 (CLOSED) | Keys auth hardening: `subumbra-keys` now enforces SQLite-backed auth-path throttling with exact `429 {"error":"rate limit exceeded"}` plus `Retry-After: 60`, nonce replay is globally blocked through a data-preserving single-column nonce migration, and the HMAC signer/verifier contract is now length-prefixed across `subumbra-keys`, `subumbra-proxy`, `subumbra-probe`, and `docs/adapter-contract.md`. Verification outcome: Gemini VPS proof **PASS** (`gemini-vps-20260522T054220Z`); Claude VPS proof confirmed the shipped behavior with one accepted `HARNESS_ISSUE` on a first-run-only migration-log grep (`claude-vps-20260522T054751Z`). Archive: `council/closed/r80-keys-auth-hardening/`. |
 | r81-keys-auth-internals | 2026-05-22 (CLOSED) | Keys auth internals: `subumbra-keys` now fails closed when the auth-path audit store is unavailable, enforces `paused` keys, binds HMAC verification to `adapter_id`, scopes `/stats` recent-log and `/audit` reads for non-`list_all` adapters, and collapses the staged 400/401 HMAC oracle. `subumbra-proxy` and `subumbra-probe` now sign adapter-bound HMAC payloads, and the probe reads `SUBUMBRA_ADAPTER_ID` only at request/sign time rather than startup. Verification `existing-stack` proofs **PASS**: `claude-vps-20260522T154712Z`, `gemini-vps-20260522T160425Z` (SHA `2a9098f`). Archive: `council/closed/r81-keys-auth-internals/`. |
 | r82-session-lockdown | 2026-05-22 (CLOSED) | Session lockdown: `subumbra-keys` now persists `sessions.db`, enforces global lockdown plus single active-session scope on `GET /keys/<id>`, and exposes read-only `GET /sessions`; Worker `POST /proxy` now requires `session_token:<adapter_id>` in KV; bootstrap adds `./bootstrap.sh --session start|end|status|list`; the UI shows read-only lockdown/session state. Bug found and fixed: `_session_lock` was a non-reentrant `Lock()` causing deadlock in `_try_consume_session_query()` — changed to `RLock()`. VPS `existing-stack` proof **PASS**: `claude-vps-20260522T213055Z` (SHA `fab1ffc`). Archive: `council/closed/r82-session-lockdown/`. |
+| r83-multi-session | 2026-05-23 (CLOSED) | Multi-session isolation: bootstrap now supports multiple concurrent active sessions when their effective `(adapter_id, key_id)` coverage stays disjoint, rejects overlapping sessions before any KV mutation, writes per-session shadow KV keys (`session_token:<session_id>:<adapter_id>`), and maintains aggregated Worker adapter gates as `active_adapter:<adapter_id>`. `subumbra-keys` now matches against all active rows, `/sessions` returns `active_sessions`, and the dashboard renders zero/one/many active sessions. VPS `existing-stack` proofs **PASS**: `claude-vps-20260523T042453Z`, `gemini-vps-20260523T043417Z`. Archive: `council/closed/r83-multi-session/`. |
 
 ---
 

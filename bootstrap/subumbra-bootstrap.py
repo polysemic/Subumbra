@@ -444,9 +444,9 @@ def _read_runtime_credential_value(key: str) -> str:
 def _open_session_db() -> sqlite3.Connection:
     try:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
-        os.chmod(DATA_DIR, 0o755)
+        os.chmod(DATA_DIR, 0o750)
         if SESSIONS_DB_FILE.exists():
-            os.chmod(SESSIONS_DB_FILE, 0o644)
+            os.chmod(SESSIONS_DB_FILE, 0o640)
         conn = sqlite3.connect(SESSIONS_DB_FILE, timeout=30)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA busy_timeout=10000")
@@ -466,6 +466,18 @@ def _open_session_db() -> sqlite3.Connection:
             )
             """
         )
+        existing_columns = {
+            str(row[1])
+            for row in conn.execute("PRAGMA table_info(sessions)").fetchall()
+        }
+        if "owner_id" not in existing_columns:
+            conn.execute(
+                "ALTER TABLE sessions ADD COLUMN owner_id TEXT NOT NULL DEFAULT 'operator'"
+            )
+        if "session_type" not in existing_columns:
+            conn.execute(
+                "ALTER TABLE sessions ADD COLUMN session_type TEXT NOT NULL DEFAULT 'operator'"
+            )
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS lockdown_config (
@@ -485,7 +497,7 @@ def _open_session_db() -> sqlite3.Connection:
             """
         )
         conn.commit()
-        os.chmod(SESSIONS_DB_FILE, 0o644)
+        os.chmod(SESSIONS_DB_FILE, 0o640)
         return conn
     except (OSError, sqlite3.Error) as exc:
         die(f"Failed to open session database {SESSIONS_DB_FILE}: {exc}")
@@ -524,10 +536,12 @@ def _session_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "created_at": row["created_at"],
         "expires_at": row["expires_at"],
         "status": row["status"],
+        "owner_id": row["owner_id"],
+        "session_type": row["session_type"],
     }
 
 
-def _get_active_session_row(conn: sqlite3.Connection) -> sqlite3.Row | None:
+def _expire_active_sessions(conn: sqlite3.Connection) -> None:
     conn.execute(
         """
         UPDATE sessions
@@ -536,15 +550,32 @@ def _get_active_session_row(conn: sqlite3.Connection) -> sqlite3.Row | None:
         """
     )
     conn.commit()
+
+
+def _list_active_session_rows(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    _expire_active_sessions(conn)
     return conn.execute(
         """
         SELECT session_id, name, allowed_adapters, allowed_keys, max_queries,
-               queries_used, created_at, expires_at, status
+               queries_used, created_at, expires_at, status, owner_id, session_type
         FROM sessions
         WHERE status = 'active'
         ORDER BY created_at DESC
-        LIMIT 1
         """
+    ).fetchall()
+
+
+def _get_session_row_by_id(conn: sqlite3.Connection, session_id: str) -> sqlite3.Row | None:
+    _expire_active_sessions(conn)
+    return conn.execute(
+        """
+        SELECT session_id, name, allowed_adapters, allowed_keys, max_queries,
+               queries_used, created_at, expires_at, status, owner_id, session_type
+        FROM sessions
+        WHERE session_id = ?
+        LIMIT 1
+        """,
+        (session_id,),
     ).fetchone()
 
 
@@ -4325,6 +4356,90 @@ def _format_session_scope(values: list[str] | None, *, empty_label: str = "all")
     return ",".join(values)
 
 
+def _effective_session_adapter_ids(session_dict: dict[str, Any]) -> list[str]:
+    allowed_adapters = session_dict["allowed_adapters"]
+    if allowed_adapters is None:
+        return sorted(_load_active_session_static_adapters().keys())
+    return sorted(dict.fromkeys(str(adapter_id) for adapter_id in allowed_adapters))
+
+
+def _effective_session_key_ids(session_dict: dict[str, Any]) -> list[str]:
+    allowed_keys = session_dict["allowed_keys"]
+    if allowed_keys is None:
+        return _load_live_key_ids()
+    return sorted(dict.fromkeys(str(key_id) for key_id in allowed_keys))
+
+
+def _session_remaining_ttl_seconds(session_dict: dict[str, Any], now: datetime | None = None) -> int:
+    current_time = now or datetime.now(timezone.utc)
+    expires_at = datetime.fromisoformat(str(session_dict["expires_at"]).replace("Z", "+00:00"))
+    return max(0, int((expires_at - current_time).total_seconds()))
+
+
+def _reconcile_active_adapter_gate(
+    cf_creds: dict[str, str],
+    namespace_id: str,
+    adapter_id: str,
+    active_sessions: Iterable[dict[str, Any]],
+) -> None:
+    max_remaining_ttl = 0
+    now = datetime.now(timezone.utc)
+    for session_dict in active_sessions:
+        if adapter_id not in _effective_session_adapter_ids(session_dict):
+            continue
+        max_remaining_ttl = max(
+            max_remaining_ttl,
+            _session_remaining_ttl_seconds(session_dict, now),
+        )
+    gate_key = f"active_adapter:{adapter_id}"
+    if max_remaining_ttl > 0:
+        _kv_put_text_value(
+            cf_creds,
+            namespace_id,
+            gate_key,
+            "1",
+            expiration_ttl=max_remaining_ttl,
+        )
+        return
+    _kv_delete_key(cf_creds, namespace_id, gate_key)
+
+
+def _reconcile_active_adapter_gates(
+    cf_creds: dict[str, str],
+    namespace_id: str,
+    adapter_ids: Iterable[str],
+    active_sessions: Iterable[dict[str, Any]],
+) -> None:
+    active_session_list = list(active_sessions)
+    for adapter_id in sorted(dict.fromkeys(adapter_ids)):
+        _reconcile_active_adapter_gate(cf_creds, namespace_id, adapter_id, active_session_list)
+
+
+def _ensure_session_start_has_no_overlap(
+    candidate_session: dict[str, Any],
+    active_sessions: Iterable[dict[str, Any]],
+) -> None:
+    candidate_adapter_ids = set(_effective_session_adapter_ids(candidate_session))
+    candidate_key_ids = set(_effective_session_key_ids(candidate_session))
+    for active_session in active_sessions:
+        overlapping_adapters = sorted(
+            candidate_adapter_ids & set(_effective_session_adapter_ids(active_session))
+        )
+        if not overlapping_adapters:
+            continue
+        overlapping_keys = sorted(
+            candidate_key_ids & set(_effective_session_key_ids(active_session))
+        )
+        if not overlapping_keys:
+            continue
+        die(
+            "session_start_overlap_denied "
+            f"conflicting_session_id={active_session['session_id']} "
+            f"adapter_id={overlapping_adapters[0]} "
+            f"key_id={overlapping_keys[0]}"
+        )
+
+
 def _fmt_utc_ts(iso_str: str) -> str:
     """Format an ISO-8601 UTC timestamp as a readable string."""
     try:
@@ -4534,7 +4649,7 @@ def run_session_start() -> None:
     if adapters_raw is None:
         die("--session start requires --adapters <csv|all>")
     ttl_seconds = _parse_session_duration_seconds(ttl_raw)
-    concrete_adapter_ids, stored_adapter_scope = _resolve_session_adapter_scope(adapters_raw)
+    _resolved_adapter_ids, stored_adapter_scope = _resolve_session_adapter_scope(adapters_raw)
     stored_key_scope = _resolve_session_key_scope(keys_raw)
     max_queries: int | None = None
     if max_queries_raw is not None:
@@ -4546,14 +4661,31 @@ def run_session_start() -> None:
             die("--max-queries must be greater than zero")
 
     conn = _open_session_db()
-    active_session = _get_active_session_row(conn)
-    if active_session is not None:
-        die("An active session already exists; close it with ./bootstrap.sh --session end first.")
-
     now = datetime.now(timezone.utc)
     created_at = now.strftime("%Y-%m-%dT%H:%M:%SZ")
     expires_at = (now + timedelta(seconds=ttl_seconds)).strftime("%Y-%m-%dT%H:%M:%SZ")
     session_id = secrets.token_hex(16)
+    owner_id = "operator"
+    session_type = "operator"
+    candidate_session = {
+        "session_id": session_id,
+        "name": name,
+        "allowed_adapters": stored_adapter_scope,
+        "allowed_keys": stored_key_scope,
+        "max_queries": max_queries,
+        "queries_used": 0,
+        "created_at": created_at,
+        "expires_at": expires_at,
+        "status": "pending",
+        "owner_id": owner_id,
+        "session_type": session_type,
+    }
+    active_sessions = [
+        _session_row_to_dict(row)
+        for row in _list_active_session_rows(conn)
+    ]
+    _ensure_session_start_has_no_overlap(candidate_session, active_sessions)
+    effective_adapter_ids = _effective_session_adapter_ids(candidate_session)
 
     cf_creds = _get_push_registry_cf_creds()
     namespace_id = _load_kv_namespace_id()
@@ -4562,8 +4694,8 @@ def run_session_start() -> None:
         """
         INSERT INTO sessions (
             session_id, name, allowed_adapters, allowed_keys, max_queries,
-            queries_used, created_at, expires_at, status
-        ) VALUES (?, ?, ?, ?, ?, 0, ?, ?, 'pending')
+            queries_used, created_at, expires_at, status, owner_id, session_type
+        ) VALUES (?, ?, ?, ?, ?, 0, ?, ?, 'pending', ?, ?)
         """,
         (
             session_id,
@@ -4573,14 +4705,16 @@ def run_session_start() -> None:
             max_queries,
             created_at,
             expires_at,
+            owner_id,
+            session_type,
         ),
     )
     conn.commit()
 
-    written_keys: list[str] = []
+    written_shadow_keys: list[str] = []
     try:
-        for adapter_id in concrete_adapter_ids:
-            kv_key = f"session_token:{adapter_id}"
+        for adapter_id in effective_adapter_ids:
+            kv_key = f"session_token:{session_id}:{adapter_id}"
             _kv_put_text_value(
                 cf_creds,
                 namespace_id,
@@ -4588,21 +4722,44 @@ def run_session_start() -> None:
                 "1",
                 expiration_ttl=ttl_seconds,
             )
-            written_keys.append(kv_key)
+            written_shadow_keys.append(kv_key)
 
         conn.execute(
             "UPDATE sessions SET status = 'active' WHERE session_id = ?",
             (session_id,),
         )
         conn.commit()
+        active_sessions = [
+            _session_row_to_dict(row)
+            for row in _list_active_session_rows(conn)
+        ]
+        _reconcile_active_adapter_gates(
+            cf_creds,
+            namespace_id,
+            effective_adapter_ids,
+            active_sessions,
+        )
     except SystemExit:
-        for kv_key in written_keys:
+        for kv_key in written_shadow_keys:
             try:
                 _kv_delete_key(cf_creds, namespace_id, kv_key)
             except SystemExit:
                 pass
         conn.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
         conn.commit()
+        remaining_active_sessions = [
+            _session_row_to_dict(row)
+            for row in _list_active_session_rows(conn)
+        ]
+        try:
+            _reconcile_active_adapter_gates(
+                cf_creds,
+                namespace_id,
+                effective_adapter_ids,
+                remaining_active_sessions,
+            )
+        except SystemExit:
+            pass
         raise
 
     ok(f"Started session {session_id}")
@@ -4618,30 +4775,82 @@ def run_session_end() -> None:
     if not args or args[0] != "end":
         die("--session end requires the 'end' subcommand immediately after --session")
 
-    conn = _open_session_db()
-    active_session = _get_active_session_row(conn)
-    if active_session is None:
-        die("No active session exists.")
+    target_session_id = None
+    if len(args) >= 2 and not args[1].startswith("--"):
+        target_session_id = args[1]
+    end_all = "--all" in args[1:]
+    if target_session_id is not None and end_all:
+        die("--session end <session_id> and --all are mutually exclusive")
+    for token in args[1:]:
+        if token == "--all":
+            continue
+        if target_session_id is not None and token == target_session_id:
+            continue
+        die(f"Unknown --session end argument: {token}")
 
-    session_dict = _session_row_to_dict(active_session)
+    conn = _open_session_db()
+    active_rows = _list_active_session_rows(conn)
+    if not active_rows:
+        die("No active session exists.")
+    active_sessions = [_session_row_to_dict(row) for row in active_rows]
     cf_creds = _get_push_registry_cf_creds()
     namespace_id = _load_kv_namespace_id()
 
-    adapter_scope = session_dict["allowed_adapters"]
-    if adapter_scope is None:
-        adapter_ids = sorted(_load_active_session_static_adapters().keys())
+    target_sessions: list[dict[str, Any]]
+    if end_all:
+        target_sessions = list(active_sessions)
+    elif target_session_id is not None:
+        target_row = _get_session_row_by_id(conn, target_session_id)
+        if target_row is None or str(target_row["status"]) != "active":
+            die(f"Active session {target_session_id!r} not found")
+        target_sessions = [_session_row_to_dict(target_row)]
+    elif len(active_sessions) == 1:
+        target_sessions = [active_sessions[0]]
+    elif sys.stdin.isatty():
+        print("Multiple active sessions:")
+        for idx, session_dict in enumerate(active_sessions, start=1):
+            print(f"[{idx}] {session_dict['session_id']} {session_dict['name'] or '(none)'}")
+        selection = input("Close which session? [number]: ").strip()
+        if not selection.isdigit():
+            die("Expected a session number")
+        selected_index = int(selection)
+        if selected_index < 1 or selected_index > len(active_sessions):
+            die("Selected session number is out of range")
+        target_sessions = [active_sessions[selected_index - 1]]
     else:
-        adapter_ids = adapter_scope
+        active_ids = ", ".join(session_dict["session_id"] for session_dict in active_sessions)
+        die(
+            "Multiple active sessions exist; use ./bootstrap.sh --session end <session_id> "
+            f"or --all. active_session_ids={active_ids}"
+        )
 
-    for adapter_id in adapter_ids:
-        _kv_delete_key(cf_creds, namespace_id, f"session_token:{adapter_id}")
-
-    conn.execute(
-        "UPDATE sessions SET status = 'closed' WHERE session_id = ? AND status = 'active'",
-        (session_dict["session_id"],),
-    )
-    conn.commit()
-    ok(f"Closed session {session_dict['session_id']}")
+    current_active_sessions = list(active_sessions)
+    for session_dict in target_sessions:
+        adapter_ids = _effective_session_adapter_ids(session_dict)
+        remaining_sessions = [
+            active_session
+            for active_session in current_active_sessions
+            if active_session["session_id"] != session_dict["session_id"]
+        ]
+        _reconcile_active_adapter_gates(
+            cf_creds,
+            namespace_id,
+            adapter_ids,
+            remaining_sessions,
+        )
+        for adapter_id in adapter_ids:
+            _kv_delete_key(
+                cf_creds,
+                namespace_id,
+                f"session_token:{session_dict['session_id']}:{adapter_id}",
+            )
+        conn.execute(
+            "UPDATE sessions SET status = 'closed' WHERE session_id = ? AND status = 'active'",
+            (session_dict["session_id"],),
+        )
+        conn.commit()
+        current_active_sessions = remaining_sessions
+        ok(f"Closed session {session_dict['session_id']}")
 
 
 def run_session_status() -> None:
@@ -4652,19 +4861,21 @@ def run_session_status() -> None:
     conn = _open_session_db()
     row = conn.execute("SELECT lockdown_enabled FROM lockdown_config WHERE id = 1").fetchone()
     lockdown_enabled = True if row is None else bool(row["lockdown_enabled"])
-    active_session = _get_active_session_row(conn)
+    active_sessions = [
+        _session_row_to_dict(active_row)
+        for active_row in _list_active_session_rows(conn)
+    ]
 
     print(f"lockdown_enabled={str(lockdown_enabled).lower()}")
-    if active_session is None:
-        print("active_session=none")
+    if not active_sessions:
+        print("active_sessions=0")
         return
 
-    session_dict = _session_row_to_dict(active_session)
-    expires_at_dt = datetime.fromisoformat(str(session_dict["expires_at"]))
-    remaining = max(0, int((expires_at_dt - datetime.now(timezone.utc)).total_seconds()))
-    print("active_session=present")
-    _print_session_row("", session_dict)
-    print(f"ttl_remaining={_fmt_duration(remaining)}")
+    print(f"active_sessions={len(active_sessions)}")
+    for idx, session_dict in enumerate(active_sessions, start=1):
+        print(f"[{idx}]")
+        _print_session_row("  ", session_dict)
+        print(f"  ttl_remaining={_fmt_duration(_session_remaining_ttl_seconds(session_dict))}")
 
 
 def run_session_list() -> None:
@@ -4676,7 +4887,7 @@ def run_session_list() -> None:
     rows = conn.execute(
         """
         SELECT session_id, name, allowed_adapters, allowed_keys, max_queries,
-               queries_used, created_at, expires_at, status
+               queries_used, created_at, expires_at, status, owner_id, session_type
         FROM sessions
         ORDER BY created_at DESC
         LIMIT 20
@@ -5739,8 +5950,10 @@ Options:
     --name <label>              Optional human-readable label for this session.
     --max-queries <n>           Optional query cap before the session auto-closes.
     (If --ttl or --adapters are omitted on a TTY, an interactive wizard starts.)
-  --session end               Close the active session immediately.
-  --session status            Show lockdown state and active session details.
+  --session end [session_id]  Close one active session immediately.
+    --all                       Close every active session.
+    (With multiple sessions on a TTY, omitting session_id shows a picker.)
+  --session status            Show lockdown state and all active session details.
   --session list              Show the 20 most recent sessions (any status).
 
 For a full initial bootstrap, run without arguments.

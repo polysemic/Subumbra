@@ -50,7 +50,14 @@
     </div>
     <div id="session-panel" class="session-info" role="status" hidden>
       <span class="session-dot loading" id="session-dot" aria-hidden="true"></span>
-      <span id="session-text">session state loading…</span>
+      <div style="display:flex;flex:1;flex-direction:column;gap:0.35rem;min-width:0;">
+        <span id="session-text">session state loading…</span>
+        <div
+          id="session-list"
+          hidden
+          style="display:flex;flex-direction:column;gap:0.25rem;font-family:var(--font-mono);color:var(--text-dim);"
+        ></div>
+      </div>
       <span class="session-ttl" id="session-ttl">—</span>
     </div>
 

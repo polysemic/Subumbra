@@ -400,6 +400,18 @@ def _init_session_db() -> sqlite3.Connection | None:
             )
             """
         )
+        existing_columns = {
+            str(row[1])
+            for row in conn.execute("PRAGMA table_info(sessions)").fetchall()
+        }
+        if "owner_id" not in existing_columns:
+            conn.execute(
+                "ALTER TABLE sessions ADD COLUMN owner_id TEXT NOT NULL DEFAULT 'operator'"
+            )
+        if "session_type" not in existing_columns:
+            conn.execute(
+                "ALTER TABLE sessions ADD COLUMN session_type TEXT NOT NULL DEFAULT 'operator'"
+            )
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS lockdown_config (
@@ -460,6 +472,8 @@ def _session_row_to_dict(row: sqlite3.Row) -> dict[str, object]:
         "created_at": row["created_at"],
         "expires_at": row["expires_at"],
         "status": row["status"],
+        "owner_id": row["owner_id"],
+        "session_type": row["session_type"],
     }
 
 
@@ -494,25 +508,20 @@ def _get_lockdown_enabled() -> bool:
     return bool(row["lockdown_enabled"])
 
 
-def _get_active_session() -> sqlite3.Row | None:
+def _list_active_session_rows() -> list[sqlite3.Row]:
     conn = _ensure_session_conn()
     if conn is None:
-        return None
-    try:
-        _expire_sessions_if_needed()
-        return conn.execute(
-            """
-            SELECT session_id, name, allowed_adapters, allowed_keys, max_queries,
-                   queries_used, created_at, expires_at, status
-            FROM sessions
-            WHERE status = 'active'
-            ORDER BY created_at DESC
-            LIMIT 1
-            """
-        ).fetchone()
-    except sqlite3.Error as exc:
-        log.warning("session_read_error helper=active_session error=%s", exc)
-        return None
+        raise sqlite3.Error("session connection unavailable")
+    _expire_sessions_if_needed()
+    return conn.execute(
+        """
+        SELECT session_id, name, allowed_adapters, allowed_keys, max_queries,
+               queries_used, created_at, expires_at, status, owner_id, session_type
+        FROM sessions
+        WHERE status = 'active'
+        ORDER BY created_at DESC
+        """
+    ).fetchall()
 
 
 def _list_recent_sessions(limit: int = 10) -> list[dict[str, object]]:
@@ -522,7 +531,7 @@ def _list_recent_sessions(limit: int = 10) -> list[dict[str, object]]:
     rows = conn.execute(
         """
         SELECT session_id, name, allowed_adapters, allowed_keys, max_queries,
-               queries_used, created_at, expires_at, status
+               queries_used, created_at, expires_at, status, owner_id, session_type
         FROM sessions
         ORDER BY created_at DESC
         LIMIT ?
@@ -946,10 +955,14 @@ def get_key(key_id: str) -> tuple[Response, int]:
         return _err(message, status)
 
     lockdown_enabled = _get_lockdown_enabled()
-    active_session: sqlite3.Row | None = None
+    matching_session: dict[str, object] | None = None
     if lockdown_enabled:
-        active_session = _get_active_session()
-        if active_session is None:
+        try:
+            active_rows = _list_active_session_rows()
+        except sqlite3.Error as exc:
+            log.warning("session_read_error helper=active_sessions error=%s", exc)
+            active_rows = []
+        if not active_rows:
             log.warning(
                 "get_key: locked adapter=%s key_id=%s remote=%s reason=system_locked",
                 adapter["adapter_id"],
@@ -966,22 +979,29 @@ def get_key(key_id: str) -> tuple[Response, int]:
             )
             return _err("system_locked", 403)
 
-        try:
-            allowed_adapters = _decode_scope_json(active_session["allowed_adapters"])
-            allowed_keys = _decode_scope_json(active_session["allowed_keys"])
-        except ValueError:
-            log.error("get_key: invalid_session_scope session_id=%s", active_session["session_id"])
-            _record_audit(
-                adapter_id=adapter["adapter_id"],
-                key_id=key_id,
-                endpoint="get_key",
-                verdict="deny",
-                reason_code="invalid_session_scope",
-                remote=remote,
-            )
-            return _err("internal error", 500)
+        active_sessions: list[dict[str, object]] = []
+        for active_row in active_rows:
+            try:
+                active_sessions.append(_session_row_to_dict(active_row))
+            except ValueError:
+                log.error("get_key: invalid_session_scope session_id=%s", active_row["session_id"])
+                _record_audit(
+                    adapter_id=adapter["adapter_id"],
+                    key_id=key_id,
+                    endpoint="get_key",
+                    verdict="deny",
+                    reason_code="invalid_session_scope",
+                    remote=remote,
+                )
+                return _err("internal error", 500)
 
-        if allowed_adapters is not None and adapter["adapter_id"] not in allowed_adapters:
+        adapter_matches = [
+            session_dict
+            for session_dict in active_sessions
+            if session_dict["allowed_adapters"] is None
+            or adapter["adapter_id"] in session_dict["allowed_adapters"]
+        ]
+        if not adapter_matches:
             log.warning(
                 "get_key: denied adapter=%s key_id=%s remote=%s reason=adapter_not_in_session_scope",
                 adapter["adapter_id"],
@@ -998,7 +1018,13 @@ def get_key(key_id: str) -> tuple[Response, int]:
             )
             return _err("adapter_not_in_session_scope", 403)
 
-        if allowed_keys is not None and key_id not in allowed_keys:
+        full_matches = [
+            session_dict
+            for session_dict in adapter_matches
+            if session_dict["allowed_keys"] is None
+            or key_id in session_dict["allowed_keys"]
+        ]
+        if not full_matches:
             log.warning(
                 "get_key: denied adapter=%s key_id=%s remote=%s reason=key_not_in_session_scope",
                 adapter["adapter_id"],
@@ -1014,6 +1040,25 @@ def get_key(key_id: str) -> tuple[Response, int]:
                 remote=remote,
             )
             return _err("key_not_in_session_scope", 403)
+        if len(full_matches) > 1:
+            session_ids = ",".join(str(session_dict["session_id"]) for session_dict in full_matches)
+            log.error(
+                "get_key: ambiguous_session_match adapter=%s key_id=%s remote=%s session_ids=%s",
+                adapter["adapter_id"],
+                key_id,
+                remote,
+                session_ids,
+            )
+            _record_audit(
+                adapter_id=adapter["adapter_id"],
+                key_id=key_id,
+                endpoint="get_key",
+                verdict="deny",
+                reason_code="ambiguous_session_match",
+                remote=remote,
+            )
+            return _err("internal error", 500)
+        matching_session = full_matches[0]
 
     keys = _load_keys()
     if key_id not in keys or key_id not in adapter["allowed_keys"]:
@@ -1057,10 +1102,10 @@ def get_key(key_id: str) -> tuple[Response, int]:
         )
         return _err("key paused", 403)
 
-    if lockdown_enabled and active_session is not None:
-        max_queries = active_session["max_queries"]
+    if lockdown_enabled and matching_session is not None:
+        max_queries = matching_session["max_queries"]
         if isinstance(max_queries, int) and max_queries >= 0:
-            if not _try_consume_session_query(str(active_session["session_id"]), max_queries):
+            if not _try_consume_session_query(str(matching_session["session_id"]), max_queries):
                 log.warning(
                     "get_key: denied adapter=%s key_id=%s remote=%s reason=session_query_limit_reached",
                     adapter["adapter_id"],
@@ -1284,8 +1329,11 @@ def sessions() -> tuple[Response, int]:
         )
         return _err("forbidden", 403)
 
-    active_session = _get_active_session()
     try:
+        active_sessions = [
+            _session_row_to_dict(row)
+            for row in _list_active_session_rows()
+        ]
         recent_sessions = _list_recent_sessions(10)
     except (sqlite3.Error, ValueError) as exc:
         log.warning("session_read_error endpoint=sessions error=%s", exc)
@@ -1293,7 +1341,7 @@ def sessions() -> tuple[Response, int]:
 
     return jsonify({
         "lockdown_enabled": _get_lockdown_enabled(),
-        "active_session": _session_row_to_dict(active_session) if active_session is not None else None,
+        "active_sessions": active_sessions,
         "recent_sessions": recent_sessions,
         "timestamp": _now_iso(),
     }), 200

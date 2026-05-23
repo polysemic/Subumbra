@@ -260,7 +260,8 @@ Cloudflare authority lifecycle at this stage:
   `scripts/subumbra-verify-deploy`.
 - The same Cloudflare authority is now also required for `./bootstrap.sh --session start`
   and `./bootstrap.sh --session end`, because those commands mutate Worker-side
-  `session_token:<adapter_id>` KV state.
+  `active_adapter:<adapter_id>` gates and per-session shadow keys shaped as
+  `session_token:<session_id>:<adapter_id>`.
 - `SUBUMBRA_SETUP_TOKEN` is the one-shot bootstrap authority for
   `/setup/keygen`. After a successful full bootstrap, the Worker rejects that
   route even if you still have a host-side reference copy.
@@ -521,7 +522,8 @@ coverage is now:
 ./bootstrap.sh --status
 ./bootstrap.sh --rotate
 ./bootstrap.sh --session start --name my-window --adapters all --keys all --ttl 1h
-./bootstrap.sh --session end
+./bootstrap.sh --session end <session_id>
+./bootstrap.sh --session end --all
 ./bootstrap.sh --session status
 ./bootstrap.sh --session list
 ```
@@ -555,24 +557,29 @@ coverage is now:
 - `--status` is a read-only drift check. It compares the manifest-derived
   `policy_hash` for each declared key against the stored fat record and prints
   `UP_TO_DATE`, `POLICY_DRIFT`, `NOT_DEPLOYED`, or `REVOKED` per key.
-- `--session start` opens exactly one active session at a time. `--ttl` is
-  mandatory, `--adapters <csv|all>` is required, `--keys <csv|all>` defaults to
-  `all`, and `--max-queries` is optional. While no session is active, the system
-  rests in global lockdown and `GET /keys/<id>` plus Worker `POST /proxy` both
-  fail closed with `system_locked`.
-- `--session end` deletes the Worker-side `session_token:<adapter_id>` KV gate
-  and marks the local session closed.
-- `--session status` prints current lockdown state, active session scope, TTL
-  remaining, and current query usage.
+- `--session start` supports multiple concurrent active sessions, but they stay
+  isolated: a new session is rejected before any KV mutation if its effective
+  `(adapter_id, key_id)` coverage overlaps an already-active session. `--ttl`
+  is mandatory, `--adapters <csv|all>` is required, `--keys <csv|all>` defaults
+  to `all`, and `--max-queries` is optional. While no session is active, the
+  system rests in global lockdown and `GET /keys/<id>` plus Worker `POST /proxy`
+  both fail closed with `system_locked`.
+- `--session end <session_id>` closes one specific active session. `--session end --all`
+  closes every active session. With multiple active sessions on a TTY, running
+  `--session end` without an ID shows a numbered picker; on non-interactive
+  runs it fails closed and lists the active session IDs instead.
+- `--session status` prints current lockdown state plus every active session's
+  scope, TTL remaining, and current query usage.
 - `--session list` prints recent session history from `sessions.db`.
 
 Read-only session visibility:
 
-- `GET /sessions` on `subumbra-keys` returns `lockdown_enabled`, the current
-  active session, and recent session history for adapters with
+- `GET /sessions` on `subumbra-keys` returns `lockdown_enabled`,
+  `active_sessions`, and recent session history for adapters with
   `can_read_stats=true`.
-- The dashboard now displays locked vs active state, current adapter/key scope,
-  TTL remaining, and `queries_used / max_queries` when a cap is present.
+- The dashboard now displays locked vs active state and renders zero, one, or
+  many active sessions with their current adapter/key scope, TTL remaining, and
+  `queries_used / max_queries` when a cap is present.
 
 Pause/unpause is the one Worker-native write path in this round. After a
 successful `/manage/key/pause` or `/manage/key/unpause`, allow up to 90 seconds
