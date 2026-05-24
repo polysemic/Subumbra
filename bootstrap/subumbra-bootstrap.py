@@ -4287,11 +4287,13 @@ def run_push_registry() -> None:
     except (json.JSONDecodeError, OSError) as exc:
         die(f"Cannot read keys.json: {exc}")
     for key_id, record in keys_payload.items():
+        _require_fat_record_fields(record, key_id)
+        _verify_embedded_policy_hash(record, key_id)
+        if record.get("type") == "ssh_key":
+            continue
         target_host = record.get("target_host")
         if not isinstance(target_host, str) or not target_host:
             die(f"keys.json record {key_id!r} missing target_host")
-        _require_fat_record_fields(record, key_id)
-        _verify_embedded_policy_hash(record, key_id)
 
     step("Publishing structured KV entries to Cloudflare KV")
     try:
