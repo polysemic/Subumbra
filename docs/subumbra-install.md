@@ -120,6 +120,33 @@ fast; use the example when you want full control over policy and add custom prov
 See [docs/provider-templates.md](provider-templates.md) for the full list of
 built-in templates and how to customize them.
 
+SSH keys can also be declared in the same manifest. For r84, the supported SSH
+shapes are:
+
+```yaml
+keys:
+  - key_id: github_ssh
+    type: ssh_key
+    key_source: generated
+    adapters: [github]
+    unique_vault: false
+
+  - key_id: deploy_ssh
+    type: ssh_key
+    key_source: provided
+    secret_ref: DEPLOY_SSH_KEY
+    adapters: [github]
+    unique_vault: false
+```
+
+Notes:
+
+- `type` defaults to `api_key` when omitted.
+- `key_source: generated` creates the SSH key inside the Cloudflare vault and
+  returns only the public key.
+- `key_source: provided` expects an **unencrypted OpenSSH ed25519 private key**
+  resolved from `secret_ref` in this round.
+
 ## 4. Core `.env`
 
 `bootstrap.sh` creates `.env` from `.env.example` automatically.

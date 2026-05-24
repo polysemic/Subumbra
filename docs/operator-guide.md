@@ -148,6 +148,23 @@ If local `keys.json` state and Cloudflare KV get out of sync (e.g. after a faile
 
 This preserves any `paused: true` flags already set on live keys — it won't re-enable a key that was paused.
 
+### SSH key custody and signing
+
+Subumbra can also hold `type: ssh_key` records in `keys.json`. In this round:
+
+- `key_source: generated` creates an ed25519 keypair inside the Cloudflare vault
+- `key_source: provided` accepts an **unencrypted** OpenSSH ed25519 private key
+- `GET /keys/<key_id>` returns SSH metadata only, never ciphertext fields
+- `POST /ssh/sign` signs a challenge blob only when a matching session is open
+
+The signing route uses the same adapter-token and active-session model as the
+core proxy path. If no matching session is open, `/ssh/sign` returns
+`system_locked`.
+
+Encrypted / passphrase-protected SSH private keys are not supported in this
+round. Provide an unencrypted OpenSSH ed25519 key if you are using
+`key_source: provided`.
+
 ### Checking drift
 
 Compare your manifest against what's actually deployed:
