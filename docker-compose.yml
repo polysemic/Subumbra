@@ -167,6 +167,43 @@ services:
       timeout: 5s
       retries: 3
 
+  subumbra-agent:
+    build:
+      context: ./subumbra-agent
+      dockerfile: Dockerfile
+    container_name: subumbra-agent
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+    networks:
+      - internal
+    environment:
+      SUBUMBRA_AGENT_ADAPTER_ID: ${SUBUMBRA_AGENT_ADAPTER_ID:-sshtest}
+      SUBUMBRA_AGENT_ADAPTER_TOKEN: ${SUBUMBRA_TOKEN_SSHTEST:-}
+      SUBUMBRA_AGENT_PROXY_URL: http://subumbra-proxy:8090
+      SUBUMBRA_AGENT_SOCKET_PATH: /run/subumbra/ssh-agent.sock
+    volumes:
+      - type: volume
+        source: keys_data
+        target: /app/keys.json
+        read_only: true
+        volume:
+          subpath: keys.json
+      - type: bind
+        source: /run/subumbra
+        target: /run/subumbra
+    depends_on:
+      subumbra-proxy:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import socket; s=socket.socket(socket.AF_UNIX); s.settimeout(1); s.connect('/run/subumbra/ssh-agent.sock'); s.close()" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
   # ───────────────────────────────────────────────────────────────────────────
   # bootstrap  —  one-shot key generation
   #

@@ -497,6 +497,93 @@ async def health():
     return {"status": "ok", "worker_auth": worker_auth}
 
 
+@app.api_route("/t/{key_id}/ssh/sign", methods=["POST"])
+async def handle_ssh_sign_request(key_id: str, request: Request):
+    inbound_headers = dict(request.headers)
+    credential, dual_header_present = extract_transparent_key_id(inbound_headers)
+
+    if credential is None:
+        LOG.warning("ssh-sign reject reason=missing_pseudo_key")
+        raise HTTPException(401, detail="missing pseudo-key")
+
+    secure_match = resolve_adapter_token(credential)
+    if secure_match is None:
+        LOG.warning("ssh-sign reject reason=adapter_unknown")
+        raise HTTPException(401, detail="unauthorized")
+
+    adapter_id, adapter_entry = secure_match
+    adapter_token = adapter_entry["token"]
+
+    if not validate_transparent_key_id(key_id):
+        LOG.warning("ssh-sign reject adapter=%s reason=invalid_key_id", adapter_id)
+        raise HTTPException(400, detail="invalid key_id")
+
+    if dual_header_present:
+        LOG.warning(
+            "ssh-sign warning adapter=%s reason=authorization_precedence key_id=%s",
+            adapter_id,
+            key_id,
+        )
+
+    content_type = request.headers.get("content-type", "")
+    if not content_type.lower().startswith("application/json"):
+        LOG.warning(
+            "ssh-sign reject adapter=%s key_id=%s reason=unsupported_content_type",
+            adapter_id,
+            key_id,
+        )
+        raise HTTPException(400, detail="unsupported content-type")
+
+    try:
+        body = await request.json()
+    except Exception:
+        LOG.warning("ssh-sign reject adapter=%s key_id=%s reason=invalid_json_body", adapter_id, key_id)
+        raise HTTPException(400, detail="invalid JSON body")
+
+    challenge = body.get("challenge") if isinstance(body, dict) else None
+    if not isinstance(challenge, str) or not challenge:
+        LOG.warning("ssh-sign reject adapter=%s key_id=%s reason=missing_challenge", adapter_id, key_id)
+        raise HTTPException(400, detail="missing required fields")
+
+    worker_req = CLIENT.build_request(
+        "POST",
+        f"{CF_WORKER_URL}/ssh/sign",
+        headers=worker_headers(adapter_token=adapter_token),
+        json={"key_id": key_id, "challenge": challenge},
+        timeout=30.0,
+    )
+    LOG.info("ssh-sign request adapter=%s key_id=%s", adapter_id, key_id)
+    worker_resp = await CLIENT.send(worker_req, stream=True)
+
+    response_headers: dict[str, str] = {}
+    for header_key, header_value in worker_resp.headers.items():
+        lower = header_key.lower()
+        if lower in STRIP_HEADERS:
+            continue
+        response_headers[header_key] = header_value
+
+    if worker_resp.status_code >= 400:
+        body_bytes = await worker_resp.aread()
+        await worker_resp.aclose()
+        LOG.warning(
+            "ssh-sign complete adapter=%s key_id=%s status=%s",
+            adapter_id,
+            key_id,
+            worker_resp.status_code,
+        )
+        return Response(content=body_bytes, status_code=worker_resp.status_code, headers=response_headers)
+
+    tasks = BackgroundTasks()
+    tasks.add_task(worker_resp.aclose)
+    LOG.info("ssh-sign complete adapter=%s key_id=%s status=%s", adapter_id, key_id, worker_resp.status_code)
+    return StreamingResponse(
+        worker_resp.aiter_bytes(),
+        status_code=worker_resp.status_code,
+        headers=response_headers,
+        background=tasks,
+    )
+
+
 
 @app.api_route("/t/{path:path}", methods=TRANSPARENT_METHODS)
 async def handle_transparent_request(path: str, request: Request):

@@ -21,6 +21,19 @@ class SshBootstrapError(Exception):
     """Raised when SSH bootstrap operations fail."""
 
 
+def emit_agent_setup_instructions(public_key: str) -> None:
+    socket_path = "/run/subumbra/ssh-agent.sock"
+    print("  SSH agent socket:")
+    print(f"    {socket_path}")
+    print("  Add to your shell profile:")
+    print(f"    export SSH_AUTH_SOCK={socket_path}")
+    print("  Add to ~/.ssh/config:")
+    print("    Host *")
+    print(f"        IdentityAgent {socket_path}")
+    print("  Authorized public key:")
+    print(f"    {public_key}")
+
+
 def _normalize_secret_text(raw_secret: str) -> str:
     raw = raw_secret.strip()
     if "\\n" in raw and "-----BEGIN " in raw:
@@ -196,7 +209,7 @@ def provision_generated_ssh_key(
         raise SshBootstrapError("Cloudflare SSH keygen returned an invalid public_key")
     if not isinstance(created_at, str) or not created_at:
         raise SshBootstrapError("Cloudflare SSH keygen returned an invalid created_at")
-    return build_ssh_record(
+    record = build_ssh_record(
         key_id=key_id,
         key_source="generated",
         adapters=adapters,
@@ -204,6 +217,8 @@ def provision_generated_ssh_key(
         vault_instance=vault_instance,
         created_at=created_at,
     )
+    emit_agent_setup_instructions(record["public_key"])
+    return record
 
 
 def provision_imported_ssh_key(
@@ -234,7 +249,7 @@ def provision_imported_ssh_key(
         raise SshBootstrapError("Cloudflare SSH import returned an invalid public_key")
     if not isinstance(created_at, str) or not created_at:
         raise SshBootstrapError("Cloudflare SSH import returned an invalid created_at")
-    return build_ssh_record(
+    record = build_ssh_record(
         key_id=key_id,
         key_source="provided",
         adapters=adapters,
@@ -242,3 +257,5 @@ def provision_imported_ssh_key(
         vault_instance=vault_instance,
         created_at=created_at,
     )
+    emit_agent_setup_instructions(record["public_key"])
+    return record
