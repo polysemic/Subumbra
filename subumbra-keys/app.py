@@ -1132,6 +1132,21 @@ def get_key(key_id: str) -> tuple[Response, int]:
         remote=remote,
     )
 
+    if entry.get("type") == "ssh_key":
+        return jsonify({
+            "key_id": key_id,
+            "type": "ssh_key",
+            "key_source": entry.get("key_source"),
+            "algorithm": entry.get("algorithm", "ed25519"),
+            "public_key": entry.get("public_key"),
+            "vault_instance": entry.get("vault_instance"),
+            "policy_hash": entry.get("policy_hash"),
+            "policy": entry.get("policy"),
+            "adapters": entry.get("adapters", []),
+            "created_at": entry.get("created_at"),
+            "status": entry.get("status", "active"),
+        }), 200
+
     return jsonify({
         "key_id": key_id,
         "ciphertext": entry["ciphertext"],

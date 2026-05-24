@@ -80,6 +80,12 @@ from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from subumbra_ssh import (
+    SshBootstrapError,
+    build_ssh_policy,
+    provision_generated_ssh_key,
+    provision_imported_ssh_key,
+)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Constants
@@ -2027,27 +2033,13 @@ def _normalize_manifest_record(record: Any, idx: int) -> dict[str, Any]:
     if not isinstance(record, dict):
         _manifest_die(f"{source} must be an object")
 
-    required = {"key_id", "provider", "secret_ref", "adapters", "unique_vault"}
-    missing = sorted(required - record.keys())
-    if missing:
-        _manifest_die(f"{source} missing required field(s): {', '.join(missing)}")
-
-    has_template = "template" in record
-    has_policy = "policy" in record
-    if not has_template and not has_policy:
-        _manifest_die(f"{source} must provide either 'template' or 'policy'")
-
     key_id = record.get("key_id")
     if not isinstance(key_id, str) or not KEY_ID_RE.fullmatch(key_id):
         _manifest_die(f"{source}.key_id is invalid")
 
-    provider = record.get("provider")
-    if not isinstance(provider, str) or not provider:
-        _manifest_die(f"{source}.provider must be a non-empty string")
-
-    secret_ref = record.get("secret_ref")
-    if not isinstance(secret_ref, str) or not secret_ref.strip():
-        _manifest_die(f"{source}.secret_ref must be a non-empty string")
+    record_type = record.get("type", "api_key")
+    if not isinstance(record_type, str) or record_type not in {"api_key", "ssh_key"}:
+        _manifest_die(f"{source}.type must be 'api_key' or 'ssh_key'")
 
     adapters = record.get("adapters")
     if not isinstance(adapters, list):
@@ -2068,6 +2060,48 @@ def _normalize_manifest_record(record: Any, idx: int) -> dict[str, Any]:
     unique_vault = record.get("unique_vault")
     if not isinstance(unique_vault, bool):
         _manifest_die(f"{source}.unique_vault must be true or false")
+
+    if record_type == "ssh_key":
+        key_source = record.get("key_source")
+        if not isinstance(key_source, str) or key_source not in {"generated", "provided"}:
+            _manifest_die(f"{source}.key_source must be 'generated' or 'provided'")
+        secret_ref = record.get("secret_ref")
+        if key_source == "provided":
+            if not isinstance(secret_ref, str) or not secret_ref.strip():
+                _manifest_die(f"{source}.secret_ref must be a non-empty string when key_source is 'provided'")
+        else:
+            secret_ref = None
+
+        policy = build_ssh_policy(key_id=key_id, adapters=effective_adapters)
+        return {
+            "key_id": key_id,
+            "type": "ssh_key",
+            "provider": "ssh",
+            "secret_ref": secret_ref,
+            "key_source": key_source,
+            "adapters": normalized_adapters,
+            "effective_adapters": effective_adapters,
+            "unique_vault": unique_vault,
+            "policy": policy,
+        }
+
+    required = {"key_id", "provider", "secret_ref", "adapters", "unique_vault"}
+    missing = sorted(required - record.keys())
+    if missing:
+        _manifest_die(f"{source} missing required field(s): {', '.join(missing)}")
+
+    has_template = "template" in record
+    has_policy = "policy" in record
+    if not has_template and not has_policy:
+        _manifest_die(f"{source} must provide either 'template' or 'policy'")
+
+    provider = record.get("provider")
+    if not isinstance(provider, str) or not provider:
+        _manifest_die(f"{source}.provider must be a non-empty string")
+
+    secret_ref = record.get("secret_ref")
+    if not isinstance(secret_ref, str) or not secret_ref.strip():
+        _manifest_die(f"{source}.secret_ref must be a non-empty string")
 
     template_name = record.get("template")
     if template_name is not None:
@@ -2118,6 +2152,7 @@ def _normalize_manifest_record(record: Any, idx: int) -> dict[str, Any]:
 
     return {
         "key_id": key_id,
+        "type": "api_key",
         "provider": provider,
         "secret_ref": secret_ref,
         "adapters": normalized_adapters,
@@ -2158,6 +2193,9 @@ def _load_manifest_records() -> list[dict[str, Any]]:
         if key_id in seen_key_ids:
             _manifest_die(f"duplicate key_id {key_id!r}")
         seen_key_ids.add(key_id)
+        if normalized.get("type") == "ssh_key":
+            normalized_records.append(normalized)
+            continue
         provider = normalized["provider"]
         if provider in seen_providers:
             warn(f"duplicate provider label {provider!r} — each key's provider should be a unique display name")
@@ -2412,8 +2450,41 @@ def _build_structured_kv_entries(
         if _is_revoked_record(record):
             info(f"Skipping revoked record during structured publish: {key_id}")
             continue
-        policy, _adapters = _require_fat_record_fields(record, key_id)
+        policy, adapters = _require_fat_record_fields(record, key_id)
         _verify_embedded_policy_hash(record, key_id)
+        if record.get("type") == "ssh_key":
+            key_entry = {
+                "key_id": key_id,
+                "type": "ssh_key",
+                "key_source": record["key_source"],
+                "algorithm": record["algorithm"],
+                "public_key": record["public_key"],
+                "vault_instance": record["vault_instance"],
+                "policy_id": record["policy_id"],
+                "policy_hash": record["policy_hash"],
+                "policy": policy,
+                "adapters": adapters,
+                "created_at": record["created_at"],
+                "status": record.get("status", "active"),
+                "label": record["label"],
+            }
+            existing_live_entry = (existing_live_key_entries or {}).get(key_id)
+            if isinstance(existing_live_entry, dict) and existing_live_entry.get("paused") is True:
+                key_entry["paused"] = True
+                info(f"Preserving paused flag during structured publish: {key_id}")
+            entries.append({"key": f"key:{key_id}", "value": json.dumps(key_entry, separators=(",", ":"))})
+
+            policy_id = policy["policy_id"]
+            if policy_id not in published_policy_ids:
+                entries.append(
+                    {
+                        "key": f"policy:{policy_id}",
+                        "value": json.dumps(policy, separators=(",", ":")),
+                    }
+                )
+                published_policy_ids.add(policy_id)
+            continue
+
         provider_id = record["provider"]
 
         key_entry = {
@@ -2840,10 +2911,10 @@ def _policy_adapter_ids(policy: dict[str, Any]) -> list[str]:
 
 
 def _validate_allowed_keys(
-    api_keys: dict[str, tuple[str, str, str, str, str]],
+    valid_key_map: dict[str, Any],
     allowed_keys_by_adapter: dict[str, list[str]],
 ) -> None:
-    valid_key_ids = set(api_keys.keys())
+    valid_key_ids = set(valid_key_map.keys())
     for adapter_id, allowed_keys in allowed_keys_by_adapter.items():
         missing = [key_id for key_id in allowed_keys if key_id not in valid_key_ids]
         if missing:
@@ -2988,6 +3059,19 @@ def encrypt_api_key_v3(dek_bytes: bytes, plaintext: str, key_id: str, policy_has
 
 def compute_policy_hash(policy_doc: dict[str, Any]) -> str:
     """Return the lowercase hex SHA-256 of the baseline-bound policy object."""
+    if policy_doc.get("type") == "ssh_key":
+        allow = policy_doc["allow"]
+        baseline_obj: dict[str, Any] = {
+            "type": "ssh_key",
+            "key_id": policy_doc["key_id"],
+            "algorithm": policy_doc["algorithm"],
+            "allow": {
+                "adapters": sorted(allow["adapters"]),
+            },
+        }
+        canonical = json.dumps(baseline_obj, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        return hashlib.sha256(canonical).hexdigest()
+
     auth = policy_doc["auth"]
     allow = policy_doc["allow"]
     baseline_obj: dict[str, Any] = {
@@ -3215,6 +3299,7 @@ def _load_manifest_bootstrap() -> tuple[
     dict[str, str],
     dict[str, bool],
     dict[str, dict[str, Any]],
+    list[dict[str, Any]],
 ]:
     records = _load_manifest_records()
 
@@ -3247,6 +3332,7 @@ def _load_manifest_bootstrap() -> tuple[
     key_adapters_by_key_id: dict[str, list[str]] = {}
     policy_by_key_id: dict[str, dict[str, Any]] = {}
     unique_key_flags: dict[str, bool] = {}
+    ssh_records: list[dict[str, Any]] = []
     allowed_keys_by_adapter: dict[str, list[str]] = {
         "subumbra-proxy": [],
         "subumbra-ui": [],
@@ -3262,13 +3348,6 @@ def _load_manifest_bootstrap() -> tuple[
 
     for record in records:
         key_id = record["key_id"]
-        api_keys[key_id] = (
-            record["provider"],
-            record["target_host"],
-            record["auth_header"],
-            record["auth_prefix"],
-            record["secret_ref"],
-        )
         policy_by_key_id[key_id] = record["policy"]
         unique_key_flags[key_id] = record["unique_vault"]
         _bind_key_to_adapters(
@@ -3276,6 +3355,16 @@ def _load_manifest_bootstrap() -> tuple[
             record["adapters"],
             key_adapters_by_key_id=key_adapters_by_key_id,
             allowed_keys_by_adapter=allowed_keys_by_adapter,
+        )
+        if record.get("type") == "ssh_key":
+            ssh_records.append(record)
+            continue
+        api_keys[key_id] = (
+            record["provider"],
+            record["target_host"],
+            record["auth_header"],
+            record["auth_prefix"],
+            record["secret_ref"],
         )
 
     token_ttl_days = _parse_token_ttl_days(os.environ.get("TOKEN_TTL_DAYS", ""))
@@ -3289,6 +3378,7 @@ def _load_manifest_bootstrap() -> tuple[
         cf_autoprovision,
         unique_key_flags,
         policy_by_key_id,
+        ssh_records,
     )
 
 
@@ -3333,6 +3423,7 @@ def run_interactive_wizard(
     dict[str, str],
     dict[str, bool],
     dict[str, dict[str, Any]],
+    list[dict[str, Any]],
     list[str],
 ]:
     """
@@ -3478,7 +3569,13 @@ def run_interactive_wizard(
     for record in records:
         key_id = record["key_id"]
         provider = record["provider"]
-        secret_ref = record["secret_ref"]
+        secret_ref = record.get("secret_ref")
+        if record.get("type") == "ssh_key" and record.get("key_source") == "generated":
+            ok(f"{key_id}: SSH key will be generated in the vault")
+            accepted.append(record)
+            continue
+        if not isinstance(secret_ref, str) or not secret_ref:
+            die(f"Manifest record {key_id!r} is missing secret_ref for interactive secret collection.")
         if os.environ.get(secret_ref, "").strip():
             ok(f"{key_id}: using existing bootstrap environment for {secret_ref!r}")
             accepted.append(record)
@@ -3514,6 +3611,7 @@ def run_interactive_wizard(
     key_adapters_by_key_id: dict[str, list[str]] = {}
     policy_by_key_id: dict[str, dict[str, Any]] = {}
     unique_key_flags: dict[str, bool] = {}
+    ssh_records: list[dict[str, Any]] = []
     allowed_keys_by_adapter: dict[str, list[str]] = {
         "subumbra-proxy": [],
         "subumbra-ui": [],
@@ -3528,13 +3626,6 @@ def run_interactive_wizard(
 
     for rec in accepted:
         kid = rec["key_id"]
-        api_keys[kid] = (
-            rec["provider"],
-            rec["target_host"],
-            rec["auth_header"],
-            rec["auth_prefix"],
-            rec["secret_ref"],
-        )
         policy_by_key_id[kid] = rec["policy"]
         unique_key_flags[kid] = rec["unique_vault"]
         _bind_key_to_adapters(
@@ -3542,6 +3633,16 @@ def run_interactive_wizard(
             rec["adapters"],
             key_adapters_by_key_id=key_adapters_by_key_id,
             allowed_keys_by_adapter=allowed_keys_by_adapter,
+        )
+        if rec.get("type") == "ssh_key":
+            ssh_records.append(rec)
+            continue
+        api_keys[kid] = (
+            rec["provider"],
+            rec["target_host"],
+            rec["auth_header"],
+            rec["auth_prefix"],
+            rec["secret_ref"],
         )
 
     token_ttl_days = _parse_token_ttl_days(os.environ.get("TOKEN_TTL_DAYS", ""))
@@ -3556,6 +3657,7 @@ def run_interactive_wizard(
         cf_autoprovision,
         unique_key_flags,
         policy_by_key_id,
+        ssh_records,
         shred_paths,
     )
 
@@ -5432,8 +5534,12 @@ def main() -> None:
                 cf_autoprovision,
                 unique_key_flags,
                 policy_by_key_id,
+                ssh_records,
             ) = _load_manifest_bootstrap()
-            ok(f"Loaded {len(api_keys)} manifest key(s): {', '.join(api_keys.keys())}")
+            ok(
+                f"Loaded {len(key_adapters_by_key_id)} manifest key(s): "
+                f"{', '.join(sorted(key_adapters_by_key_id))}"
+            )
             ok("Cloudflare credentials present")
         else:
             # Automation without a manifest: `_load_env_fallback` is tombstoned (immediate `_automation_fail`).
@@ -5462,6 +5568,7 @@ def main() -> None:
                 cf_autoprovision,
                 unique_key_flags,
                 policy_by_key_id,
+                ssh_records,
                 shred_paths,
             ) = run_interactive_wizard(existing_keys)
         except KeyboardInterrupt:
@@ -5474,6 +5581,7 @@ def main() -> None:
             cf_autoprovision = {}
             policy_index = _load_policy_index()
             policy_by_key_id = {}
+            ssh_records = []
             for key_id, (provider, target_host, _auth_header, _auth_prefix, _secret_ref) in api_keys.items():
                 policy_by_key_id[key_id] = _resolve_policy_for_key(
                     key_id,
@@ -5484,12 +5592,13 @@ def main() -> None:
                 )
             unique_key_flags = _load_unique_key_flags(list(api_keys.keys()))
 
-    _validate_allowed_keys(api_keys, allowed_keys_by_adapter)
+    all_manifest_keys: dict[str, Any] = {key_id: True for key_id in key_adapters_by_key_id}
+    _validate_allowed_keys(all_manifest_keys, allowed_keys_by_adapter)
 
     # ── Step 2: rotation safety check ────────────────────────────────────
     # Every bootstrap run generates a NEW RSA key pair.  Any key omitted from
     # this session will be unreachable after this run.
-    incoming_key_ids = set(api_keys.keys())
+    incoming_key_ids = set(key_adapters_by_key_id.keys())
     existing_key_ids = set(existing_keys.keys())
     keys_to_remove   = existing_key_ids - incoming_key_ids
 
@@ -5525,9 +5634,14 @@ def main() -> None:
         print(f"    Worker:  {cf_creds['CF_WORKER_NAME']}")
         print(f"    Account: {masked}\n")
 
-        print("  Keys to encrypt:")
+        print("  Keys to provision:")
         for kid, (provider, _target_host, _auth_header, _auth_prefix, _secret_ref) in api_keys.items():
             print(f"    {kid:30s} → {provider:12s} → {_binding_label(key_adapters_by_key_id[kid])}")
+        for rec in ssh_records:
+            print(
+                f"    {rec['key_id']:30s} → {'ssh':12s} → "
+                f"{_binding_label(key_adapters_by_key_id[rec['key_id']])}"
+            )
 
         if keys_to_remove:
             print(f"\n  ⚠  WARNING — ROTATION MODE")
@@ -5555,7 +5669,7 @@ def main() -> None:
     candidate_vault_instances = sorted(
         {
             _vault_instance_for_key(key_id, unique_key_flags)
-            for key_id in api_keys.keys()
+            for key_id in key_adapters_by_key_id.keys()
         }
     )
     destructive_nuke = False
@@ -5700,7 +5814,11 @@ def main() -> None:
     public_keys_by_vault_instance: dict[str, Any] = {}
 
     for vault_instance in candidate_vault_instances:
-        rep_key = _representative_key_id_for_vault_instance(api_keys.keys(), unique_key_flags, vault_instance)
+        rep_key = _representative_key_id_for_vault_instance(
+            key_adapters_by_key_id.keys(),
+            unique_key_flags,
+            vault_instance,
+        )
         if rep_key is None:
             msg = "no manifest key maps to this vault_instance"
             phase1_failures.append((vault_instance, msg))
@@ -5749,7 +5867,7 @@ def main() -> None:
     phase2_failures: list[tuple[str, str]] = []
     forced_failure_key = os.environ.get("SUBUMBRA_FORCE_PROVISION_FAILURE_KEY", "").strip()
 
-    for key_id, (provider, _target_host, _auth_header, _auth_prefix, _secret_ref) in api_keys.items():
+    for key_id in key_adapters_by_key_id.keys():
         vault_instance = _vault_instance_for_key(key_id, unique_key_flags)
         if vault_instance in phase1_failed_vaults:
             warn(f"{key_id}: skipped — vault {vault_instance} failed during phase-1 keygen")
@@ -5783,7 +5901,8 @@ def main() -> None:
             "public_key_pem": public_key_pem,
             "pub_key_fp": pub_key_fp,
         }
-        ok(f"Provisioned {provider:12s} → {key_id}  →  {vault_instance}")
+        record_type = "ssh" if any(rec["key_id"] == key_id for rec in ssh_records) else api_keys[key_id][0]
+        ok(f"Provisioned {record_type:12s} → {key_id}  →  {vault_instance}")
 
     # ── Step 6: Phase 3 — encrypt successful keys ────────────────────────
     step("Encrypting API keys — V3 envelope (RSA-4096-OAEP + AES-256-GCM)")
@@ -5823,6 +5942,41 @@ def main() -> None:
         del raw
         ok(
             f"Encrypted {provider:12s} → {key_id}  →  "
+            f"{_binding_label(key_adapters_by_key_id[key_id])}  →  {vault_instance}"
+        )
+
+    if ssh_records:
+        step("Provisioning SSH keys")
+    for record in ssh_records:
+        key_id = record["key_id"]
+        if key_id not in phase2_material:
+            continue
+        phase2_entry = phase2_material[key_id]
+        vault_instance = phase2_entry["vault_instance"]
+        try:
+            if record["key_source"] == "generated":
+                keys_payload[key_id] = provision_generated_ssh_key(
+                    worker_url=worker_url,
+                    headers=_worker_control_headers(setup_token),
+                    key_id=key_id,
+                    adapters=key_adapters_by_key_id[key_id],
+                    vault_instance=vault_instance,
+                )
+            else:
+                keys_payload[key_id] = provision_imported_ssh_key(
+                    worker_url=worker_url,
+                    headers=_worker_control_headers(setup_token),
+                    key_id=key_id,
+                    adapters=key_adapters_by_key_id[key_id],
+                    vault_instance=vault_instance,
+                    public_key_pem=phase2_entry["public_key_pem"],
+                    raw_secret=_resolve_manifest_secret(record["secret_ref"]),
+                )
+        except SshBootstrapError as exc:
+            warn(f"{key_id}: SSH provisioning failed")
+            die(str(exc))
+        ok(
+            f"Provisioned {'ssh':12s} → {key_id}  →  "
             f"{_binding_label(key_adapters_by_key_id[key_id])}  →  {vault_instance}"
         )
 

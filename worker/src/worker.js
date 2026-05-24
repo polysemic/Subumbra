@@ -173,6 +173,9 @@ const HOP_BY_HOP_HEADERS = new Set([
 
 const VAULT_INSTANCE_NAME = "vault";
 const VAULT_SETUP_PATH = "/setup-keygen";
+const VAULT_SSH_KEYGEN_PATH = "/ssh-keygen";
+const VAULT_SSH_IMPORT_PATH = "/ssh-import";
+const VAULT_SSH_SIGN_PATH = "/ssh-sign";
 const VAULT_STATUS_PATH = "/status";
 const VAULT_EXECUTE_PATH = "/execute";
 const VAULT_ROTATE_PATH = "/rotate";
@@ -183,6 +186,9 @@ const AUTH_RATE_LIMITS = {
   "auth-ping": 20,
   "manage-key": 20,
   "setup-keygen": 5,
+  "ssh-keygen": 3,
+  "ssh-import": 3,
+  "ssh-sign": 60,
   "internal-rotate": 5,
   "internal-vault-status": 5,
   "internal-vault-reset": 5,
@@ -193,6 +199,14 @@ const VAULT_SCHEMA = `
     private_key_pkcs8 BLOB NOT NULL,
     public_key_spki BLOB NOT NULL,
     pub_key_fp TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS ssh_keys (
+    key_id TEXT PRIMARY KEY,
+    private_key_pkcs8 BLOB NOT NULL,
+    public_key_raw BLOB NOT NULL,
+    public_key_ssh TEXT NOT NULL,
+    algorithm TEXT NOT NULL,
     created_at TEXT NOT NULL
   );
   CREATE TABLE IF NOT EXISTS velocity_counters (
@@ -392,6 +406,16 @@ function bytesToHex(bytes) {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+function bytesToBase64(bytes) {
+  return btoa(String.fromCharCode(...bytes));
+}
+
+function base64UrlToBytes(value) {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+  return Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Durable Object — SubumbraVault
 // ─────────────────────────────────────────────────────────────────────────────
@@ -427,6 +451,18 @@ export class SubumbraVault {
 
     if (url.pathname === VAULT_SETUP_PATH) {
       return this._handleSetupKeygen(request);
+    }
+
+    if (url.pathname === VAULT_SSH_KEYGEN_PATH) {
+      return this._handleSshKeygen(request);
+    }
+
+    if (url.pathname === VAULT_SSH_IMPORT_PATH) {
+      return this._handleSshImport(request);
+    }
+
+    if (url.pathname === VAULT_SSH_SIGN_PATH) {
+      return this._handleSshSign(request);
     }
 
     if (url.pathname === VAULT_STATUS_PATH) {
@@ -472,6 +508,25 @@ export class SubumbraVault {
     };
   }
 
+  _loadSshKeyRow(keyId) {
+    const rows = this.state.storage.sql.exec(
+      "SELECT key_id, private_key_pkcs8, public_key_raw, public_key_ssh, algorithm, created_at FROM ssh_keys WHERE key_id = ?",
+      keyId,
+    ).toArray();
+    if (rows.length === 0) {
+      return null;
+    }
+    const row = rows[0];
+    return {
+      key_id: row.key_id,
+      private_key_pkcs8: row.private_key_pkcs8,
+      public_key_raw: row.public_key_raw,
+      public_key_ssh: row.public_key_ssh,
+      algorithm: row.algorithm,
+      created_at: row.created_at,
+    };
+  }
+
   async _importPrivateKey(pkcs8Bytes) {
     return crypto.subtle.importKey(
       "pkcs8",
@@ -479,6 +534,16 @@ export class SubumbraVault {
       { name: "RSA-OAEP", hash: "SHA-256" },
       false,
       ["decrypt"],
+    );
+  }
+
+  async _importEd25519PrivateKey(pkcs8Bytes, extractable = false) {
+    return crypto.subtle.importKey(
+      "pkcs8",
+      pkcs8Bytes,
+      { name: "Ed25519" },
+      extractable,
+      ["sign"],
     );
   }
 
@@ -503,6 +568,17 @@ export class SubumbraVault {
     const base64 = btoa(String.fromCharCode(...new Uint8Array(spkiBytes)));
     const body = base64.match(/.{1,64}/g)?.join("\n") ?? base64;
     return `-----BEGIN PUBLIC KEY-----\n${body}\n-----END PUBLIC KEY-----\n`;
+  }
+
+  _encodeSshEd25519PublicKey(rawPublicBytes, keyId) {
+    const keyType = new TextEncoder().encode("ssh-ed25519");
+    const payload = new Uint8Array(4 + keyType.length + 4 + rawPublicBytes.length);
+    const view = new DataView(payload.buffer);
+    view.setUint32(0, keyType.length, false);
+    payload.set(keyType, 4);
+    view.setUint32(4 + keyType.length, rawPublicBytes.length, false);
+    payload.set(rawPublicBytes, 4 + keyType.length + 4);
+    return `ssh-ed25519 ${bytesToBase64(payload)} subumbra:${keyId}`;
   }
 
   async _handleSetupKeygen(request) {
@@ -560,6 +636,178 @@ export class SubumbraVault {
     } catch {
       console.error("subumbra: vault setup keygen internal error");
       return jsonError("setup failed", 500);
+    }
+  }
+
+  async _handleSshKeygen(request) {
+    const bearerToken = parseBearerToken(request);
+    if (!bearerToken) {
+      console.warn("subumbra: ssh keygen rejected (missing bearer token)");
+      return jsonError("unauthorized", 401);
+    }
+
+    const expectedToken = this.env.SUBUMBRA_SETUP_TOKEN ?? "";
+    const tokenOk = await timingSafeEqual(bearerToken, expectedToken);
+    if (!tokenOk) {
+      console.warn("subumbra: ssh keygen rejected (invalid bearer token)");
+      return jsonError("forbidden", 403);
+    }
+
+    let payload;
+    try {
+      payload = await request.json();
+    } catch {
+      return jsonError("invalid JSON body", 400);
+    }
+    if (
+      !payload ||
+      typeof payload.key_id !== "string" ||
+      !payload.key_id ||
+      typeof payload.vault_instance !== "string" ||
+      !payload.vault_instance
+    ) {
+      return jsonError("missing required fields", 400);
+    }
+
+    try {
+      const keyPair = await crypto.subtle.generateKey(
+        { name: "Ed25519" },
+        true,
+        ["sign", "verify"],
+      );
+      const privateKeyPkcs8 = new Uint8Array(await crypto.subtle.exportKey("pkcs8", keyPair.privateKey));
+      const publicKeyRaw = new Uint8Array(await crypto.subtle.exportKey("raw", keyPair.publicKey));
+      const publicKey = this._encodeSshEd25519PublicKey(publicKeyRaw, payload.key_id);
+      const createdAt = new Date().toISOString();
+
+      this.state.storage.sql.exec(
+        "INSERT INTO ssh_keys (key_id, private_key_pkcs8, public_key_raw, public_key_ssh, algorithm, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        payload.key_id,
+        privateKeyPkcs8,
+        publicKeyRaw,
+        publicKey,
+        "ed25519",
+        createdAt,
+      );
+
+      return jsonResponse({
+        key_id: payload.key_id,
+        type: "ssh_key",
+        key_source: "generated",
+        algorithm: "ed25519",
+        public_key: publicKey,
+        created_at: createdAt,
+      }, 200);
+    } catch {
+      console.error("subumbra: vault ssh keygen internal error");
+      return jsonError("setup failed", 500);
+    }
+  }
+
+  async _handleSshImport(request) {
+    const bearerToken = parseBearerToken(request);
+    if (!bearerToken) {
+      console.warn("subumbra: ssh import rejected (missing bearer token)");
+      return jsonError("unauthorized", 401);
+    }
+
+    const expectedToken = this.env.SUBUMBRA_SETUP_TOKEN ?? "";
+    const tokenOk = await timingSafeEqual(bearerToken, expectedToken);
+    if (!tokenOk) {
+      console.warn("subumbra: ssh import rejected (invalid bearer token)");
+      return jsonError("forbidden", 403);
+    }
+
+    let payload;
+    try {
+      payload = await request.json();
+    } catch {
+      return jsonError("invalid JSON body", 400);
+    }
+    if (
+      !payload ||
+      typeof payload.key_id !== "string" ||
+      !payload.key_id ||
+      typeof payload.vault_instance !== "string" ||
+      !payload.vault_instance ||
+      typeof payload.encrypted_private_key !== "string" ||
+      !payload.encrypted_private_key
+    ) {
+      return jsonError("missing required fields", 400);
+    }
+
+    const custodyKey = await this._primeCachedPrivateKey();
+    if (!custodyKey) {
+      return jsonError("vault unavailable", 503);
+    }
+
+    try {
+      const ciphertextBytes = Uint8Array.from(atob(payload.encrypted_private_key), (c) => c.charCodeAt(0));
+      const pkcs8Bytes = new Uint8Array(
+        await crypto.subtle.decrypt({ name: "RSA-OAEP" }, custodyKey, ciphertextBytes),
+      );
+      const privateKey = await this._importEd25519PrivateKey(pkcs8Bytes, true);
+      const jwk = await crypto.subtle.exportKey("jwk", privateKey);
+      if (typeof jwk.x !== "string") {
+        throw new Error("missing public component");
+      }
+      const publicKeyRaw = base64UrlToBytes(jwk.x);
+      const publicKeySsh = this._encodeSshEd25519PublicKey(publicKeyRaw, payload.key_id);
+      const createdAt = new Date().toISOString();
+
+      this.state.storage.sql.exec(
+        "INSERT INTO ssh_keys (key_id, private_key_pkcs8, public_key_raw, public_key_ssh, algorithm, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        payload.key_id,
+        new Uint8Array(pkcs8Bytes),
+        publicKeyRaw,
+        publicKeySsh,
+        "ed25519",
+        createdAt,
+      );
+
+      return jsonResponse({
+        key_id: payload.key_id,
+        type: "ssh_key",
+        key_source: "provided",
+        algorithm: "ed25519",
+        public_key: publicKeySsh,
+        created_at: createdAt,
+      }, 200);
+    } catch {
+      console.error("subumbra: vault ssh import internal error");
+      return jsonError("setup failed", 500);
+    }
+  }
+
+  async _handleSshSign(request) {
+    let payload;
+    try {
+      payload = await request.json();
+    } catch {
+      return jsonError("invalid JSON body", 400);
+    }
+    if (!payload || typeof payload.key_id !== "string" || !payload.key_id || typeof payload.challenge !== "string" || !payload.challenge) {
+      return jsonError("missing required fields", 400);
+    }
+
+    const row = this._loadSshKeyRow(payload.key_id);
+    if (!row) {
+      return jsonError("key not found", 404);
+    }
+
+    try {
+      const challengeBytes = Uint8Array.from(atob(payload.challenge), (c) => c.charCodeAt(0));
+      const privateKey = await this._importEd25519PrivateKey(row.private_key_pkcs8);
+      const signature = new Uint8Array(
+        await crypto.subtle.sign({ name: "Ed25519" }, privateKey, challengeBytes),
+      );
+      return jsonResponse({
+        key_id: payload.key_id,
+        signature: bytesToBase64(signature),
+      }, 200);
+    } catch {
+      console.error("subumbra: vault ssh sign internal error");
+      return jsonError("signing_failed", 500);
     }
   }
 
@@ -1138,6 +1386,14 @@ export default {
       return handleSetupKeygen(request, env);
     }
 
+    if (request.method === "POST" && url.pathname === "/setup/ssh-keygen") {
+      return handleSetupSshKeygen(request, env);
+    }
+
+    if (request.method === "POST" && url.pathname === "/setup/ssh-import") {
+      return handleSetupSshImport(request, env);
+    }
+
     if (request.method === "POST" && url.pathname === "/internal/rotate") {
       return handleInternalRotate(request, env);
     }
@@ -1156,6 +1412,10 @@ export default {
 
     if (request.method === "POST" && url.pathname === "/manage/key/unpause") {
       return handleManagePauseToggle(request, env, false);
+    }
+
+    if (request.method === "POST" && url.pathname === "/ssh/sign") {
+      return handleSshSign(request, env);
     }
 
     // ── POST /proxy ─────────────────────────────────────────────────────────
@@ -1205,6 +1465,108 @@ async function handleSetupKeygen(request, env) {
     });
   } catch {
     console.error("subumbra: setup keygen vault unavailable");
+    return jsonError("vault unavailable", 503);
+  }
+}
+
+async function handleSetupSshKeygen(request, env) {
+  const rateLimitResponse = await checkAuthRateLimit(request, env, "ssh-keygen");
+  if (rateLimitResponse) {
+    return rateLimitResponse;
+  }
+
+  const setupAuth = await authorizeSetupRequest(request, env);
+  if (!setupAuth.ok) {
+    return setupAuth.response;
+  }
+
+  let payloadText;
+  try {
+    payloadText = await request.text();
+  } catch {
+    return jsonError("invalid JSON body", 400);
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(payloadText);
+  } catch {
+    return jsonError("invalid JSON body", 400);
+  }
+  if (
+    !payload ||
+    typeof payload.key_id !== "string" ||
+    !payload.key_id ||
+    typeof payload.vault_instance !== "string" ||
+    !payload.vault_instance
+  ) {
+    return jsonError("missing required fields", 400);
+  }
+
+  try {
+    if (!env.SUBUMBRA_VAULT) {
+      throw new Error("vault binding missing");
+    }
+    const vault = getVaultStub(env, payload.vault_instance);
+    return await vault.fetch(`https://do-internal${VAULT_SSH_KEYGEN_PATH}`, {
+      method: "POST",
+      headers: request.headers,
+      body: payloadText,
+    });
+  } catch {
+    console.error("subumbra: setup ssh keygen vault unavailable");
+    return jsonError("vault unavailable", 503);
+  }
+}
+
+async function handleSetupSshImport(request, env) {
+  const rateLimitResponse = await checkAuthRateLimit(request, env, "ssh-import");
+  if (rateLimitResponse) {
+    return rateLimitResponse;
+  }
+
+  const setupAuth = await authorizeSetupRequest(request, env);
+  if (!setupAuth.ok) {
+    return setupAuth.response;
+  }
+
+  let payloadText;
+  try {
+    payloadText = await request.text();
+  } catch {
+    return jsonError("invalid JSON body", 400);
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(payloadText);
+  } catch {
+    return jsonError("invalid JSON body", 400);
+  }
+  if (
+    !payload ||
+    typeof payload.key_id !== "string" ||
+    !payload.key_id ||
+    typeof payload.vault_instance !== "string" ||
+    !payload.vault_instance ||
+    typeof payload.encrypted_private_key !== "string" ||
+    !payload.encrypted_private_key
+  ) {
+    return jsonError("missing required fields", 400);
+  }
+
+  try {
+    if (!env.SUBUMBRA_VAULT) {
+      throw new Error("vault binding missing");
+    }
+    const vault = getVaultStub(env, payload.vault_instance);
+    return await vault.fetch(`https://do-internal${VAULT_SSH_IMPORT_PATH}`, {
+      method: "POST",
+      headers: request.headers,
+      body: payloadText,
+    });
+  } catch {
+    console.error("subumbra: setup ssh import vault unavailable");
     return jsonError("vault unavailable", 503);
   }
 }
@@ -1406,6 +1768,85 @@ async function handleManagePauseToggle(request, env, paused) {
   }
 
   return jsonResponse({ status: "ok", key_id: payload.key_id, paused }, 200);
+}
+
+async function handleSshSign(request, env) {
+  const rateLimitResponse = await checkAuthRateLimit(request, env, "ssh-sign");
+  if (rateLimitResponse) {
+    return rateLimitResponse;
+  }
+
+  const authResult = await authorizeRequest(request, env);
+  if (!authResult.ok) {
+    return authResult.response;
+  }
+  const auth = authResult.auth;
+
+  if (!env.PROVIDER_REGISTRY_KV) {
+    console.error("subumbra: worker bindings not configured (run bootstrap)");
+    return jsonError("worker not configured", 503);
+  }
+
+  const sessionActive = await env.PROVIDER_REGISTRY_KV.get(`active_adapter:${auth.adapterId}`);
+  if (!sessionActive) {
+    console.warn("subumbra: system_locked adapter=%s", auth.adapterId);
+    return jsonError("system_locked", 403);
+  }
+
+  let payload;
+  try {
+    payload = await request.json();
+  } catch {
+    return jsonError("invalid JSON body", 400);
+  }
+  if (!payload || typeof payload.key_id !== "string" || !payload.key_id || typeof payload.challenge !== "string" || !payload.challenge) {
+    return jsonError("missing required fields", 400);
+  }
+
+  const keyRaw = await env.PROVIDER_REGISTRY_KV.get(`key:${payload.key_id}`, {
+    cacheTtl: 30,
+  });
+  if (!keyRaw) {
+    return jsonError("key not found", 404);
+  }
+
+  let keyEntry;
+  try {
+    keyEntry = parseStructuredRegistryJson(keyRaw, `key:${payload.key_id}`);
+  } catch {
+    console.error("subumbra: invalid ssh key registry entry key_id=%s", payload.key_id);
+    return jsonError("worker not configured", 503);
+  }
+  if (keyEntry.type !== "ssh_key") {
+    return jsonError("key not found", 404);
+  }
+  const adapters = optionalStringArray(keyEntry.adapters);
+  if (!adapters || !adapters.includes(auth.adapterId)) {
+    return jsonError("adapter not permitted", 403);
+  }
+
+  const vaultInstance =
+    typeof keyEntry.vault_instance === "string" && keyEntry.vault_instance
+      ? keyEntry.vault_instance
+      : VAULT_INSTANCE_NAME;
+
+  try {
+    if (!env.SUBUMBRA_VAULT) {
+      throw new Error("vault binding missing");
+    }
+    const vault = getVaultStub(env, vaultInstance);
+    return await vault.fetch(`https://do-internal${VAULT_SSH_SIGN_PATH}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        key_id: payload.key_id,
+        challenge: payload.challenge,
+      }),
+    });
+  } catch {
+    console.error("subumbra: ssh sign vault unavailable");
+    return jsonError("vault unavailable", 503);
+  }
 }
 
 async function authorizeRequest(request, env) {

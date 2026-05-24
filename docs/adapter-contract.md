@@ -76,6 +76,28 @@ Expected subumbra-keys response fields:
 Adapters are expected to derive the canonical `/proxy` payload fields from this
 subumbra-keys response before making the Worker call.
 
+### SSH metadata response for `type: ssh_key`
+
+When `GET /keys/<key_id>` targets an SSH record, `subumbra-keys` returns
+metadata only:
+
+| Field | Type | Description |
+|---|---|---|
+| `key_id` | string | SSH record identity |
+| `type` | string | Always `ssh_key` |
+| `key_source` | string | `generated` or `provided` |
+| `algorithm` | string | Always `ed25519` in this round |
+| `public_key` | string | OpenSSH wire-format public key |
+| `vault_instance` | string | Vault routing identity |
+| `policy_hash` | string | Canonical SSH policy hash |
+| `policy` | object | Embedded SSH policy document |
+| `adapters` | array | Authorized adapter IDs |
+| `created_at` | string | Record creation time |
+| `status` | string | Expected active state |
+
+No `ciphertext`, `wrapped_dek`, or `pub_key_fp` fields are returned for SSH
+records.
+
 ---
 
 ## `POST /proxy` — Adapter Responsibilities
@@ -258,6 +280,50 @@ All error responses use `Content-Type: application/json` with body
 | Decryption failure (generic) | 500 |
 | RSA fingerprint mismatch | 500 |
 | CF Secrets not configured | 503 |
+
+---
+
+## `POST /ssh/sign` — SSH signing route
+
+Authentication header:
+
+```text
+X-Subumbra-Token: <adapter token>
+```
+
+Request body:
+
+| Field | Type | Description |
+|---|---|---|
+| `key_id` | string | SSH key record identity |
+| `challenge` | string | Base64-encoded SSH challenge blob |
+
+Worker-side guarantees for this route:
+
+1. Adapter token authentication uses the same `authorizeRequest()` path as `POST /proxy`.
+2. The Worker checks `active_adapter:<adapter_id>` in Cloudflare KV before any signing occurs.
+3. The Worker loads `key:<key_id>` from the structured registry and requires `type == "ssh_key"`.
+4. The calling adapter must appear in the key entry's `adapters` list.
+5. The Durable Object imports the stored PKCS#8 ed25519 private key and returns only a base64-encoded signature.
+
+Successful response:
+
+```json
+{
+  "key_id": "github_ssh",
+  "signature": "<base64 64-byte ed25519 signature>"
+}
+```
+
+Route-specific errors:
+
+| Condition | HTTP Status |
+|---|---|
+| No active session | 403 `system_locked` |
+| Adapter not authorized for the SSH key | 403 `adapter not permitted` |
+| SSH key registry record missing | 404 `key not found` |
+| Invalid or missing `key_id` / `challenge` | 400 |
+| Internal signing failure | 500 `signing_failed` |
 | Provider registry binding missing / key missing / invalid | 503 |
 
 ---
