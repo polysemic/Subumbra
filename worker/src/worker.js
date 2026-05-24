@@ -1776,11 +1776,10 @@ async function handleSshSign(request, env) {
     return rateLimitResponse;
   }
 
-  const authResult = await authorizeRequest(request, env);
-  if (!authResult.ok) {
-    return authResult.response;
+  const auth = await authorizeRequest(request, env);
+  if (!auth.ok) {
+    return auth.response;
   }
-  const auth = authResult.auth;
 
   if (!env.PROVIDER_REGISTRY_KV) {
     console.error("subumbra: worker bindings not configured (run bootstrap)");
