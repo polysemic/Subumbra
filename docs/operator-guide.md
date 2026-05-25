@@ -165,6 +165,12 @@ Encrypted / passphrase-protected SSH private keys are not supported in this
 round. Provide an unencrypted OpenSSH ed25519 key if you are using
 `key_source: provided`.
 
+For the day-to-day SSH workflow, socket setup, host-scoped SSH config, and
+GitHub deploy-key usage, use the dedicated guide:
+
+- [docs/ssh-guide.md](ssh-guide.md)
+- [docs/apps/github/install.md](apps/github/install.md)
+
 ### Checking drift
 
 Compare your manifest against what's actually deployed:
@@ -334,6 +340,18 @@ After `git pull`, rebuild images and restart containers without touching keys or
 ```
 
 This does not re-run Cloudflare bootstrap, rotate keys, or change `.env`.
+
+### Redeploying the Cloudflare Worker after a code update
+
+`--upgrade` rebuilds local Docker images only. If a round changed `worker/src/worker.js`, you also need to push that code to Cloudflare:
+
+```bash
+./bootstrap.sh --deploy-worker
+```
+
+This redeploys the Worker bundle with the live `PROVIDER_REGISTRY_KV` binding intact and preserves all existing Worker secrets and Durable Object state. Use it after any `git pull && ./bootstrap.sh --upgrade` for a round whose changelog mentions Worker code changes. Requires `CF_API_TOKEN` and `CF_ACCOUNT_ID` in the environment (or in `.env.bootstrap` / `.env.bootstrap_bak`).
+
+If you instead need to rotate Worker secrets, run a full `./bootstrap.sh` — `--deploy-worker` deliberately does not touch them.
 
 ### Removing Cloudflare-managed resources
 

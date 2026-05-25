@@ -6,9 +6,9 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import time
 import urllib.error
 import urllib.request
-from pathlib import Path
 from typing import Any
 
 from cryptography.exceptions import UnsupportedAlgorithm
@@ -21,15 +21,24 @@ class SshBootstrapError(Exception):
     """Raised when SSH bootstrap operations fail."""
 
 
+def operator_ssh_auth_sock() -> str:
+    return "${XDG_RUNTIME_DIR}/subumbra/ssh-agent.sock"
+
+
 def emit_agent_setup_instructions(public_key: str) -> None:
-    socket_path = "/run/subumbra/ssh-agent.sock"
+    socket_path = operator_ssh_auth_sock()
     print("  SSH agent socket:")
     print(f"    {socket_path}")
     print("  Add to your shell profile:")
     print(f"    export SSH_AUTH_SOCK={socket_path}")
     print("  Add to ~/.ssh/config:")
-    print("    Host *")
+    print("    Match host <HOSTNAME>")
     print(f"        IdentityAgent {socket_path}")
+    print("        IdentitiesOnly no")
+    print("  If you force IdentitiesOnly yes, add a matching IdentityFile or OpenSSH")
+    print("  may ignore agent-backed keys during auth.")
+    print("  Full SSH setup guide:")
+    print("    docs/ssh-guide.md")
     print("  Authorized public key:")
     print(f"    {public_key}")
 
@@ -94,6 +103,7 @@ def build_ssh_record(
     return {
         "key_id": key_id,
         "type": "ssh_key",
+        "provider": "ssh",
         "key_source": key_source,
         "algorithm": "ed25519",
         "public_key": public_key,
@@ -158,6 +168,10 @@ def load_unencrypted_open_ssh_private_key(raw_secret: str) -> tuple[bytes, str]:
     return pkcs8_bytes, _encode_ssh_ed25519_public_key(public_raw, "imported")
 
 
+_MAX_SETUP_TOKEN_ATTEMPTS = 24
+_SETUP_TOKEN_RETRY_DELAY_SEC = 5
+
+
 def _call_worker_json(
     *,
     worker_url: str,
@@ -165,24 +179,53 @@ def _call_worker_json(
     headers: dict[str, str],
     payload: dict[str, Any],
 ) -> dict[str, Any]:
+    """
+    POST a JSON payload to a setup-token-protected Worker route and parse
+    the JSON response. Retries on 401/403/503 to absorb the propagation
+    window after `wrangler secret put SUBUMBRA_SETUP_TOKEN` — Cloudflare
+    may serve requests from a Worker instance that has not yet picked up
+    the new secret. Mirrors the retry pattern in
+    subumbra-bootstrap.py call_setup_keygen.
+    """
     body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
-    req = urllib.request.Request(
-        f"{worker_url.rstrip('/')}{path}",
-        data=body,
-        method="POST",
-        headers=headers,
-    )
-    try:
-        with urllib.request.urlopen(req) as resp:
-            response_payload = json.loads(resp.read())
-    except urllib.error.HTTPError as exc:
-        body_text = exc.read().decode("utf-8", errors="replace")
-        raise SshBootstrapError(
-            f"Worker call {path} failed: HTTP {exc.code}\n"
-            f"--- response body ---\n{body_text}"
-        ) from exc
-    except Exception as exc:  # pragma: no cover - transport exceptions vary by environment
-        raise SshBootstrapError(f"Worker call {path} failed: {exc}") from exc
+    last_http_error: urllib.error.HTTPError | None = None
+    for attempt in range(1, _MAX_SETUP_TOKEN_ATTEMPTS + 1):
+        req = urllib.request.Request(
+            f"{worker_url.rstrip('/')}{path}",
+            data=body,
+            method="POST",
+            headers=headers,
+        )
+        try:
+            with urllib.request.urlopen(req) as resp:
+                response_payload = json.loads(resp.read())
+            break
+        except urllib.error.HTTPError as exc:
+            last_http_error = exc
+            if exc.code in (401, 403, 503) and attempt < _MAX_SETUP_TOKEN_ATTEMPTS:
+                print(
+                    f"  ·  Worker {path} returned HTTP {exc.code}; "
+                    f"setup token not visible yet, retrying "
+                    f"({attempt}/{_MAX_SETUP_TOKEN_ATTEMPTS})",
+                    flush=True,
+                )
+                time.sleep(_SETUP_TOKEN_RETRY_DELAY_SEC)
+                continue
+            body_text = exc.read().decode("utf-8", errors="replace")
+            raise SshBootstrapError(
+                f"Worker call {path} failed: HTTP {exc.code}\n"
+                f"--- response body ---\n{body_text}"
+            ) from exc
+        except Exception as exc:  # pragma: no cover - transport exceptions vary by environment
+            raise SshBootstrapError(f"Worker call {path} failed: {exc}") from exc
+    else:
+        if last_http_error is not None:
+            body_text = last_http_error.read().decode("utf-8", errors="replace")
+            raise SshBootstrapError(
+                f"Worker call {path} failed after retry window: HTTP {last_http_error.code}\n"
+                f"--- response body ---\n{body_text}"
+            )
+        raise SshBootstrapError(f"Worker call {path} failed after retry window")
 
     if not isinstance(response_payload, dict):
         raise SshBootstrapError(f"Worker call {path} returned invalid JSON schema")

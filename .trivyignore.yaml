@@ -11,13 +11,3 @@ misconfigurations:
       keys image on next start), shells out to wrangler for CF Worker
       deploys, invoked manually by an operator. Not a long-running service.
       Full rationale in bootstrap/Dockerfile header.
-  - id: AVD-DS-0002
-    paths:
-      - "subumbra-agent/Dockerfile"
-    statement: |
-      subumbra-agent intentionally starts as root only long enough to
-      create/chown the bind-mounted /run/subumbra socket directory, then
-      drops privileges to the configured non-root UID/GID before binding
-      the SSH agent socket or serving requests. A future round may revisit
-      the socket-dir ownership model to make the container fully non-root
-      from process start.

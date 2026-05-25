@@ -125,6 +125,10 @@ def _load_adapter_registry(raw: str) -> dict[str, dict]:
         allowed_keys = config.get("allowed_keys")
         can_list_keys = config.get("can_list_keys")
         can_read_stats = config.get("can_read_stats")
+        # Backward-compatibility for pre-r85 registries already deployed in .env:
+        # subumbra-proxy is the only writer allowed to emit audit rows.
+        default_can_write_audit = adapter_id == "subumbra-proxy"
+        can_write_audit = config.get("can_write_audit", default_can_write_audit)
         can_list_all_keys = config.get("can_list_all_keys", False)
         issued_at_raw, issued_at_dt = _parse_registry_timestamp(adapter_id, "issued_at", config.get("issued_at"))
         expires_at_raw, expires_at_dt = _parse_registry_timestamp(adapter_id, "expires_at", config.get("expires_at"))
@@ -137,6 +141,8 @@ def _load_adapter_registry(raw: str) -> dict[str, dict]:
             raise RuntimeError(f"SUBUMBRA_ADAPTER_REGISTRY[{adapter_id!r}].can_list_keys must be true/false")
         if not isinstance(can_read_stats, bool):
             raise RuntimeError(f"SUBUMBRA_ADAPTER_REGISTRY[{adapter_id!r}].can_read_stats must be true/false")
+        if not isinstance(can_write_audit, bool):
+            raise RuntimeError(f"SUBUMBRA_ADAPTER_REGISTRY[{adapter_id!r}].can_write_audit must be true/false")
 
         parsed[adapter_id] = {
             "adapter_id": adapter_id,
@@ -144,6 +150,7 @@ def _load_adapter_registry(raw: str) -> dict[str, dict]:
             "allowed_keys": allowed_keys,
             "can_list_keys": can_list_keys,
             "can_read_stats": can_read_stats,
+            "can_write_audit": can_write_audit,
             "can_list_all_keys": bool(can_list_all_keys),
             "issued_at": issued_at_raw,
             "expires_at": expires_at_raw,
@@ -872,7 +879,8 @@ def list_keys() -> tuple[Response, int]:
         cnt, last_ts = usage.get(kid, (0, None))
         payload.append({
             "key_id": kid,
-            "provider": meta.get("provider", "unknown"),
+            "type": meta.get("type", "api_key"),
+            "provider": meta.get("provider", "ssh" if meta.get("type") == "ssh_key" else "unknown"),
             "created_at": meta.get("created_at", ""),
             "request_count": cnt,
             "last_access": last_ts,
@@ -1315,6 +1323,105 @@ def audit() -> tuple[Response, int]:
         "count": len(events),
         "timestamp": _now_iso(),
     }), 200
+
+
+@app.post("/audit")
+def write_audit() -> tuple[Response, int]:
+    remote = request.remote_addr or ""
+    adapter_result = _resolve_adapter()
+    if isinstance(adapter_result, _AdapterDenial):
+        log.warning("audit_write: denied remote=%s reason=%s", remote, adapter_result.reason_code)
+        return _denial_response(adapter_result)
+
+    adapter = adapter_result
+    if not adapter.get("can_write_audit", False):
+        log.warning(
+            "audit_write: forbidden adapter=%s remote=%s reason=audit_write_scope_denied",
+            adapter["adapter_id"],
+            remote,
+        )
+        return _err("forbidden", 403)
+
+    if _audit_conn is None:
+        log.warning("audit_write: unavailable remote=%s", remote)
+        return _err("audit unavailable", 503)
+
+    try:
+        payload = request.get_json(force=True, silent=False)
+    except Exception:
+        log.warning("audit_write: invalid_json adapter=%s remote=%s", adapter["adapter_id"], remote)
+        return _err("invalid JSON body", 400)
+
+    if not isinstance(payload, dict):
+        log.warning("audit_write: invalid_payload adapter=%s remote=%s", adapter["adapter_id"], remote)
+        return _err("invalid JSON body", 400)
+
+    key_id = payload.get("key_id")
+    endpoint = payload.get("endpoint")
+    verdict = payload.get("verdict")
+    reason_code = payload.get("reason_code")
+    source_adapter_id = payload.get("adapter_id")
+
+    if (
+        not isinstance(key_id, str)
+        or not key_id
+        or not isinstance(endpoint, str)
+        or not endpoint
+        or not isinstance(verdict, str)
+        or verdict not in {"allow", "deny"}
+        or not isinstance(reason_code, str)
+        or not reason_code
+        or not isinstance(source_adapter_id, str)
+        or not source_adapter_id
+    ):
+        log.warning("audit_write: invalid_fields adapter=%s key_id=%s remote=%s", adapter["adapter_id"], key_id, remote)
+        return _err("missing required fields", 400)
+
+    nonce = request.headers.get("X-Subumbra-Nonce", "")
+    valid, reason = _hmac_ok(adapter["adapter_id"], key_id, nonce)
+    if not valid:
+        status = 400 if reason == "subumbra_header_missing" else 401
+        log.warning(
+            "audit_write: rejected adapter=%s key_id=%s remote=%s reason=%s",
+            adapter["adapter_id"],
+            key_id,
+            remote,
+            reason,
+        )
+        return _err("bad request" if status == 400 else "unauthorized", status)
+
+    valid, reason = _nonce_ok(key_id, nonce)
+    if not valid:
+        if reason == "nonce_reused":
+            log.warning(
+                "audit_write: rejected adapter=%s key_id=%s remote=%s reason=%s",
+                adapter["adapter_id"],
+                key_id,
+                remote,
+                reason,
+            )
+            return _err("unauthorized", 401)
+        log.error("audit_write: nonce_store_failure adapter=%s key_id=%s reason=%s", adapter["adapter_id"], key_id, reason)
+        return _err("internal error", 500)
+
+    _record_audit(
+        adapter_id=source_adapter_id,
+        key_id=key_id,
+        endpoint=endpoint,
+        verdict=verdict,
+        reason_code=reason_code,
+        remote=remote,
+    )
+    log.info(
+        "audit_write: recorded writer=%s source_adapter=%s key_id=%s endpoint=%s verdict=%s reason=%s",
+        adapter["adapter_id"],
+        source_adapter_id,
+        key_id,
+        endpoint,
+        verdict,
+        reason_code,
+    )
+    return Response(status=204)
 
 
 @app.get("/sessions")

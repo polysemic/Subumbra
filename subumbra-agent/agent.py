@@ -165,28 +165,6 @@ def build_sign_response(signature_blob: bytes) -> bytes:
     return bytes(payload)
 
 
-def ensure_socket_dir(socket_path: Path, *, uid: int, gid: int) -> None:
-    parent = socket_path.parent
-    parent.mkdir(parents=True, exist_ok=True)
-    try:
-        os.chown(parent, uid, gid)
-    except PermissionError:
-        LOG.warning("socket-dir chown skipped path=%s uid=%s gid=%s", parent, uid, gid)
-    parent.chmod(0o700)
-    try:
-        if socket_path.exists() or socket_path.is_socket():
-            socket_path.unlink()
-    except FileNotFoundError:
-        pass
-
-
-def drop_privileges(uid: int, gid: int) -> None:
-    if os.getuid() != 0:
-        return
-    os.setgid(gid)
-    os.setuid(uid)
-
-
 class ThreadedUnixServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
     daemon_threads = True
     allow_reuse_address = True
@@ -194,22 +172,25 @@ class ThreadedUnixServer(socketserver.ThreadingMixIn, socketserver.UnixStreamSer
 
 class AgentRequestHandler(socketserver.StreamRequestHandler):
     def handle(self) -> None:
-        while True:
-            raw_length = self.rfile.read(4)
-            if not raw_length:
-                return
-            if len(raw_length) != 4:
-                LOG.warning("protocol reject reason=truncated_frame_length")
-                return
-            size = struct.unpack(">I", raw_length)[0]
-            message = self.rfile.read(size)
-            if len(message) != size:
-                LOG.warning("protocol reject reason=truncated_frame_body size=%s", size)
-                return
-            response = self.dispatch(message)
-            self.wfile.write(struct.pack(">I", len(response)))
-            self.wfile.write(response)
-            self.wfile.flush()
+        try:
+            while True:
+                raw_length = self.rfile.read(4)
+                if not raw_length:
+                    return
+                if len(raw_length) != 4:
+                    LOG.warning("protocol reject reason=truncated_frame_length")
+                    return
+                size = struct.unpack(">I", raw_length)[0]
+                message = self.rfile.read(size)
+                if len(message) != size:
+                    LOG.warning("protocol reject reason=truncated_frame_body size=%s", size)
+                    return
+                response = self.dispatch(message)
+                self.wfile.write(struct.pack(">I", len(response)))
+                self.wfile.write(response)
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError) as exc:
+            LOG.debug("client disconnected socket=%s error=%s", self.client_address, exc.__class__.__name__)
 
     def dispatch(self, message: bytes) -> bytes:
         if not message:
@@ -220,7 +201,7 @@ class AgentRequestHandler(socketserver.StreamRequestHandler):
             return self.handle_request_identities()
         if msg_type == SSH_AGENTC_SIGN_REQUEST:
             return self.handle_sign_request(message)
-        LOG.warning("unsupported message_type=%s", msg_type)
+        LOG.debug("unsupported message_type=%s", msg_type)
         return build_failure()
 
     def handle_request_identities(self) -> bytes:
@@ -275,8 +256,11 @@ class AgentRequestHandler(socketserver.StreamRequestHandler):
 
 
 def serve() -> None:
-    ensure_socket_dir(SOCKET_PATH, uid=AGENT_UID, gid=AGENT_GID)
-    drop_privileges(AGENT_UID, AGENT_GID)
+    try:
+        if SOCKET_PATH.exists() or SOCKET_PATH.is_socket():
+            SOCKET_PATH.unlink()
+    except FileNotFoundError:
+        pass
     with ThreadedUnixServer(str(SOCKET_PATH), AgentRequestHandler) as server:
         os.chmod(SOCKET_PATH, stat.S_IRUSR | stat.S_IWUSR)
         LOG.info(

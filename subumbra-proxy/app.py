@@ -76,6 +76,7 @@ KEY_ID_MAX_LEN = 128
 TRANSPARENT_STRIP_HEADERS = {"authorization", "x-api-key", "x-api-key-id"}
 TRANSPARENT_STRIP_PREFIXES = ("x-subumbra-",)
 TRANSPARENT_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
+AUDIT_WRITER_ADAPTER_ID = "subumbra-proxy"
 INTENT_SOURCE_HEADER = "x-subumbra-intent-source"
 INTENT_INITIATORS_HEADER = "x-subumbra-intent-initiators"
 INTENT_CONTENT_SOURCES_HEADER = "x-subumbra-intent-content-sources"
@@ -185,6 +186,65 @@ async def fetch_record(
     if missing:
         raise RuntimeError(f"missing fields: {', '.join(missing)}")
     return record
+
+
+async def post_audit_event(
+    *,
+    source_adapter_id: str,
+    key_id: str,
+    endpoint: str,
+    verdict: str,
+    reason_code: str,
+) -> None:
+    try:
+        response = await CLIENT.post(
+            f"{SUBUMBRA_KEYS_URL}/audit",
+            headers={
+                **subumbra_headers(
+                    key_id,
+                    adapter_id=AUDIT_WRITER_ADAPTER_ID,
+                    adapter_token=SUBUMBRA_ACCESS_TOKEN,
+                ),
+                "Content-Type": "application/json",
+                "X-Subumbra-Token": SUBUMBRA_ACCESS_TOKEN,
+            },
+            json={
+                "adapter_id": source_adapter_id,
+                "key_id": key_id,
+                "endpoint": endpoint,
+                "verdict": verdict,
+                "reason_code": reason_code,
+            },
+            timeout=10.0,
+        )
+    except httpx.RequestError as exc:
+        LOG.warning(
+            "ssh-sign audit failure adapter=%s key_id=%s verdict=%s reason=request_error error=%s",
+            source_adapter_id,
+            key_id,
+            verdict,
+            type(exc).__name__,
+        )
+        return
+
+    if response.status_code != 204:
+        LOG.warning(
+            "ssh-sign audit failure adapter=%s key_id=%s verdict=%s status=%s body=%s",
+            source_adapter_id,
+            key_id,
+            verdict,
+            response.status_code,
+            response.text.strip(),
+        )
+        return
+
+    LOG.info(
+        "ssh-sign audit posted adapter=%s key_id=%s verdict=%s reason=%s",
+        source_adapter_id,
+        key_id,
+        verdict,
+        reason_code,
+    )
 
 
 def proxy_payload(record, key_id, *, target_url, method, headers, body, intent: Optional[dict[str, Any]] = None):
@@ -565,6 +625,22 @@ async def handle_ssh_sign_request(key_id: str, request: Request):
     if worker_resp.status_code >= 400:
         body_bytes = await worker_resp.aread()
         await worker_resp.aclose()
+        reason_code = f"http_{worker_resp.status_code}"
+        try:
+            error_payload = json.loads(body_bytes)
+            if isinstance(error_payload, dict):
+                candidate = error_payload.get("error")
+                if isinstance(candidate, str) and candidate:
+                    reason_code = candidate
+        except Exception:
+            pass
+        await post_audit_event(
+            source_adapter_id=adapter_id,
+            key_id=key_id,
+            endpoint="ssh_sign",
+            verdict="deny",
+            reason_code=reason_code,
+        )
         LOG.warning(
             "ssh-sign complete adapter=%s key_id=%s status=%s",
             adapter_id,
@@ -575,6 +651,13 @@ async def handle_ssh_sign_request(key_id: str, request: Request):
 
     tasks = BackgroundTasks()
     tasks.add_task(worker_resp.aclose)
+    await post_audit_event(
+        source_adapter_id=adapter_id,
+        key_id=key_id,
+        endpoint="ssh_sign",
+        verdict="allow",
+        reason_code="allowed",
+    )
     LOG.info("ssh-sign complete adapter=%s key_id=%s status=%s", adapter_id, key_id, worker_resp.status_code)
     return StreamingResponse(
         worker_resp.aiter_bytes(),

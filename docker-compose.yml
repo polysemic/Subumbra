@@ -172,6 +172,7 @@ services:
       context: ./subumbra-agent
       dockerfile: Dockerfile
     container_name: subumbra-agent
+    user: "1000:1000"
     logging:
       driver: json-file
       options:
@@ -185,15 +186,24 @@ services:
       SUBUMBRA_AGENT_ADAPTER_TOKEN: ${SUBUMBRA_TOKEN_SSHTEST:-}
       SUBUMBRA_AGENT_PROXY_URL: http://subumbra-proxy:8090
       SUBUMBRA_AGENT_SOCKET_PATH: /run/subumbra/ssh-agent.sock
+      SUBUMBRA_AGENT_KEYS_PATH: /app/data/keys.json
     volumes:
+      # Mount the whole keys_data volume read-only at /app/data. We can't use a
+      # per-file `volume.subpath: keys.json` mount because day-2 commands
+      # (--add-ssh-key / --rotate-ssh-key / --revoke-ssh-key) rewrite keys.json
+      # atomically via rename, which replaces the inode and is not picked up
+      # by single-file bind mounts. Reading from the directory mount makes the
+      # rewrite visible immediately.
+      # Security: runtime.env in this volume is mode 0600 owned by root and
+      # remains unreadable to the non-root agent (uid 1000). Only the
+      # world-readable files (keys.json, kv-config.json, public_key.pem,
+      # system-integrity.json) are reachable — exactly what the agent needs.
       - type: volume
         source: keys_data
-        target: /app/keys.json
+        target: /app/data
         read_only: true
-        volume:
-          subpath: keys.json
       - type: bind
-        source: /run/subumbra
+        source: ${XDG_RUNTIME_DIR}/subumbra
         target: /run/subumbra
     depends_on:
       subumbra-proxy:
