@@ -74,6 +74,69 @@ SSH_AUTH_SOCK="${XDG_RUNTIME_DIR}/subumbra/ssh-agent.sock" ssh-add -L
 
 If a matching session is open, the configured Subumbra SSH key should appear in that output.
 
+## Exporting and Authorizing the Public Key
+
+Subumbra-managed private keys are kept secure inside the Cloudflare vault. To use them for authentication, you need to extract the **public key** and authorize it on your destination services (e.g. GitHub or a remote VPS).
+
+### How to extract the public key
+
+There are three ways to get the public key string:
+
+#### Option A: From the active agent (Recommended)
+If a Subumbra session is open and the agent is running, list all served public keys:
+```bash
+SSH_AUTH_SOCK="${XDG_RUNTIME_DIR}/subumbra/ssh-agent.sock" ssh-add -L
+```
+Copy the string starting with `ssh-ed25519 ...`.
+
+#### Option B: Directly from `keys.json` on the server
+You can extract the plain-text public key from your server's data volume using `jq`:
+```bash
+# Replace 'verify_vps_key' with your actual key ID
+jq -r '.keys.verify_vps_key.public_key' /opt/subumbra/data/keys.json
+```
+
+#### Option C: From the dashboard UI
+Open the read-only dashboard at `http://127.0.0.1:6563`. Go to the keys listing to view and copy the public key.
+
+---
+
+### Authorizing the key on GitHub
+
+To use the key for checking out repositories or deploying actions on GitHub:
+
+1. **For a single repository (Best Practice - Deploy Key)**:
+   - Go to your repository on **GitHub** -> **Settings** -> **Deploy keys**.
+   - Click **Add deploy key**.
+   - Paste your public key string into the **Key** field and give it a descriptive **Title** (e.g., `Subumbra VPS Deploy Key`).
+   - If your server needs to push changes (e.g., tags or releases), check **Allow write access**.
+   - Click **Add key**.
+2. **For account-wide access**:
+   - Go to **GitHub Settings** -> **SSH and GPG keys**.
+   - Click **New SSH key**, paste the public key string, and save.
+
+To ensure your SSH client trusts GitHub, make sure it is in your `known_hosts` (you can run `ssh-keyscan github.com >> ~/.ssh/known_hosts` if needed).
+
+---
+
+### Authorizing the key on a Remote VPS / Target Server
+
+To allow Subumbra to connect to another remote server via SSH (e.g. for backups, syncs, or deployment steps):
+
+1. **Manual addition**:
+   Append the public key string directly to the target user's `authorized_keys` file on the remote server:
+   ```bash
+   # Run this on the target remote server:
+   mkdir -p ~/.ssh && chmod 700 ~/.ssh
+   echo "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA... verify_vps_key" >> ~/.ssh/authorized_keys
+   chmod 600 ~/.ssh/authorized_keys
+   ```
+2. **Piped addition from the host**:
+   If a Subumbra session is active on your host, you can pipe the public key directly over SSH using password auth:
+   ```bash
+   SSH_AUTH_SOCK="${XDG_RUNTIME_DIR}/subumbra/ssh-agent.sock" ssh-add -L | ssh username@remote-vps-ip 'mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys'
+   ```
+
 ## Day-2 SSH lifecycle
 
 These commands are for an already-initialized deployment.
