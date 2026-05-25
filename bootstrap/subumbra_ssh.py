@@ -6,6 +6,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import subprocess
 import time
 import urllib.error
 import urllib.request
@@ -66,27 +67,135 @@ def _encode_ssh_ed25519_public_key(raw_public_bytes: bytes, key_id: str) -> str:
 
 def _compute_ssh_policy_hash(policy_doc: dict[str, Any]) -> str:
     allow = policy_doc["allow"]
+    baseline_allow: dict[str, Any] = {
+        "adapters": sorted(allow["adapters"]),
+    }
+    hosts = allow.get("hosts")
+    if isinstance(hosts, list) and hosts:
+        baseline_allow["hosts"] = sorted(hosts)
     baseline_obj = {
         "type": policy_doc["type"],
         "key_id": policy_doc["key_id"],
         "algorithm": policy_doc["algorithm"],
-        "allow": {
-            "adapters": sorted(allow["adapters"]),
-        },
+        "allow": baseline_allow,
     }
     canonical = json.dumps(baseline_obj, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(canonical).hexdigest()
 
 
-def build_ssh_policy(*, key_id: str, adapters: list[str]) -> dict[str, Any]:
+def _normalize_host_fingerprints(fingerprints: list[str] | None) -> list[str]:
+    if not fingerprints:
+        return []
+    parsed: list[str] = []
+    seen: set[str] = set()
+    for entry in fingerprints:
+        value = entry.strip()
+        if not value:
+            continue
+        if value in seen:
+            continue
+        seen.add(value)
+        parsed.append(value)
+    return sorted(parsed)
+
+
+def _ssh_public_key_line_to_fingerprint(public_key_line: str) -> str:
+    parts = public_key_line.strip().split()
+    if len(parts) < 2:
+        raise SshBootstrapError("invalid SSH public key line")
+    try:
+        key_blob = base64.b64decode(parts[1], validate=True)
+    except Exception as exc:  # pragma: no cover - exact exception varies
+        raise SshBootstrapError(f"invalid SSH public key line: {exc}") from exc
+    digest = base64.b64encode(hashlib.sha256(key_blob).digest()).decode("ascii").rstrip("=")
+    return f"SHA256:{digest}"
+
+
+def _github_host_fingerprints() -> list[str]:
+    try:
+        with urllib.request.urlopen("https://api.github.com/meta", timeout=30) as response:
+            payload = json.loads(response.read())
+    except urllib.error.HTTPError as exc:
+        raise SshBootstrapError(f"Failed to fetch GitHub SSH host keys: HTTP {exc.code}") from exc
+    except urllib.error.URLError as exc:
+        raise SshBootstrapError(f"Failed to fetch GitHub SSH host keys: {exc.reason}") from exc
+    except Exception as exc:  # pragma: no cover - schema and transport variations
+        raise SshBootstrapError(f"Failed to fetch GitHub SSH host keys: {exc}") from exc
+    ssh_keys = payload.get("ssh_keys")
+    if not isinstance(ssh_keys, list) or not ssh_keys:
+        raise SshBootstrapError("GitHub metadata did not return ssh_keys")
+    fingerprints: list[str] = []
+    for public_key_line in ssh_keys:
+        if not isinstance(public_key_line, str) or not public_key_line.strip():
+            continue
+        fingerprints.append(_ssh_public_key_line_to_fingerprint(public_key_line))
+    normalized = _normalize_host_fingerprints(fingerprints)
+    if not normalized:
+        raise SshBootstrapError("GitHub metadata did not yield valid SSH host keys")
+    return normalized
+
+
+def _ssh_keyscan_host_fingerprints(host: str) -> list[str]:
+    try:
+        result = subprocess.run(
+            ["ssh-keyscan", host],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except subprocess.CalledProcessError as exc:
+        stderr = exc.stderr.strip() if isinstance(exc.stderr, str) else ""
+        raise SshBootstrapError(f"ssh-keyscan failed for {host}: {stderr or exc}") from exc
+    except FileNotFoundError as exc:
+        raise SshBootstrapError("ssh-keyscan is required to resolve SSH host keys") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise SshBootstrapError(f"ssh-keyscan timed out for {host}") from exc
+    fingerprints: list[str] = []
+    for line in result.stdout.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        fingerprints.append(_ssh_public_key_line_to_fingerprint(stripped))
+    normalized = _normalize_host_fingerprints(fingerprints)
+    if not normalized:
+        raise SshBootstrapError(f"ssh-keyscan returned no valid SSH host keys for {host}")
+    return normalized
+
+
+def resolve_allowed_host_fingerprints(hosts: list[str] | None) -> list[str]:
+    if not hosts:
+        return []
+    resolved: list[str] = []
+    for host in hosts:
+        host_value = host.strip()
+        if not host_value:
+            continue
+        if host_value == "github.com":
+            resolved.extend(_github_host_fingerprints())
+        else:
+            resolved.extend(_ssh_keyscan_host_fingerprints(host_value))
+    return _normalize_host_fingerprints(resolved)
+
+
+def build_ssh_policy(
+    *,
+    key_id: str,
+    adapters: list[str],
+    allowed_host_fingerprints: list[str] | None = None,
+) -> dict[str, Any]:
+    allow: dict[str, Any] = {
+        "adapters": sorted(adapters),
+    }
+    normalized_hosts = _normalize_host_fingerprints(allowed_host_fingerprints)
+    if normalized_hosts:
+        allow["hosts"] = normalized_hosts
     return {
         "type": "ssh_key",
         "policy_id": f"ssh-{key_id}",
         "key_id": key_id,
         "algorithm": "ed25519",
-        "allow": {
-            "adapters": sorted(adapters),
-        },
+        "allow": allow,
     }
 
 
@@ -95,11 +204,16 @@ def build_ssh_record(
     key_id: str,
     key_source: str,
     adapters: list[str],
+    allowed_host_fingerprints: list[str] | None,
     public_key: str,
     vault_instance: str,
     created_at: str,
 ) -> dict[str, Any]:
-    policy = build_ssh_policy(key_id=key_id, adapters=adapters)
+    policy = build_ssh_policy(
+        key_id=key_id,
+        adapters=adapters,
+        allowed_host_fingerprints=allowed_host_fingerprints,
+    )
     return {
         "key_id": key_id,
         "type": "ssh_key",
@@ -238,6 +352,7 @@ def provision_generated_ssh_key(
     headers: dict[str, str],
     key_id: str,
     adapters: list[str],
+    allowed_host_fingerprints: list[str] | None,
     vault_instance: str,
 ) -> dict[str, Any]:
     payload = _call_worker_json(
@@ -256,6 +371,7 @@ def provision_generated_ssh_key(
         key_id=key_id,
         key_source="generated",
         adapters=adapters,
+        allowed_host_fingerprints=allowed_host_fingerprints,
         public_key=public_key,
         vault_instance=vault_instance,
         created_at=created_at,
@@ -270,6 +386,7 @@ def provision_imported_ssh_key(
     headers: dict[str, str],
     key_id: str,
     adapters: list[str],
+    allowed_host_fingerprints: list[str] | None,
     vault_instance: str,
     public_key_pem: str,
     raw_secret: str,
@@ -296,6 +413,7 @@ def provision_imported_ssh_key(
         key_id=key_id,
         key_source="provided",
         adapters=adapters,
+        allowed_host_fingerprints=allowed_host_fingerprints,
         public_key=public_key,
         vault_instance=vault_instance,
         created_at=created_at,

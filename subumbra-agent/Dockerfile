@@ -5,6 +5,8 @@ WORKDIR /app
 
 COPY agent.py .
 
+RUN pip install --no-cache-dir cryptography==48.0.0
+
 RUN useradd --system --uid 1000 --gid 0 --home-dir /app --shell /usr/sbin/nologin subumbra \
     && chown -R subumbra:0 /app
 

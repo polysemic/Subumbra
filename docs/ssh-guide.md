@@ -62,7 +62,9 @@ Match host github.com
     IdentitiesOnly no
 ```
 
-Repeat that pattern for other SSH targets you trust with this key.
+Repeat that pattern for other SSH targets you trust with this key. Restricted
+SSH keys rely on native OpenSSH destination binding, so keep the SSH client on
+OpenSSH 8.9 or newer when you opt into host restrictions.
 
 Important: if you force `IdentitiesOnly yes`, OpenSSH expects an explicit `IdentityFile` and may skip agent-backed keys. Keep `IdentitiesOnly no` unless you have a very specific reason to constrain the client differently.
 
@@ -145,6 +147,12 @@ To use the key for checking out repositories or deploying actions on GitHub:
 
 To ensure your SSH client trusts GitHub, make sure it is in your `known_hosts` (you can run `ssh-keyscan github.com >> ~/.ssh/known_hosts` if needed).
 
+GitHub's published host keys are also available from:
+
+```bash
+curl -sS https://api.github.com/meta | jq '.ssh_keys'
+```
+
 ---
 
 ### Authorizing the key on a Remote VPS / Target Server
@@ -165,6 +173,31 @@ To allow Subumbra to connect to another remote server via SSH (e.g. for backups,
    SSH_AUTH_SOCK="${XDG_RUNTIME_DIR}/subumbra/ssh-agent.sock" ssh-add -L | ssh username@remote-vps-ip 'mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys'
    ```
 
+To inspect a non-GitHub host's live SSH host keys before adding restrictions:
+
+```bash
+ssh-keyscan your-host.example.com
+```
+
+## Restricted destinations
+
+SSH records may optionally carry `allow.hosts` restrictions. Subumbra resolves
+the operator-facing hostnames or IP literals into SSH host-key fingerprints at
+provision or policy-publish time, and enforcement at sign time is based on the
+verified host key, not the literal hostname string.
+
+Restricted keys require native OpenSSH destination binding:
+
+- OpenSSH 8.9 or newer for the client that is talking to the agent
+- a normal SSH handshake that reaches host-key verification before auth
+- the Subumbra agent path, not a direct `curl` to `/t/<key_id>/ssh/sign`
+
+If verified destination context is missing, a restricted key fails closed. In
+practice OpenSSH will surface the usual `Permission denied (publickey)` while
+the deny reason is recorded in Subumbra logs.
+
+Unrestricted legacy keys remain unchanged.
+
 ## Day-2 SSH lifecycle
 
 These commands are for an already-initialized deployment.
@@ -175,10 +208,46 @@ These commands are for an already-initialized deployment.
 ./bootstrap.sh --add-ssh-key verify_vps_key --adapters sshtest
 ```
 
+Add a restricted key for one or more SSH destinations:
+
+```bash
+./bootstrap.sh --add-ssh-key verify_vps_key --adapters sshtest --allow-hosts github.com,127.0.0.1
+```
+
 ### Rotate an existing generated SSH key
 
 ```bash
 ./bootstrap.sh --rotate-ssh-key verify_vps_key
+```
+
+Replace the allowed destination set during rotation:
+
+```bash
+./bootstrap.sh --rotate-ssh-key verify_vps_key --allow-hosts github.com
+```
+
+If `--allow-hosts` is omitted during rotate, the existing restriction is preserved.
+
+### Manifest-owned SSH restrictions
+
+Manifest-managed SSH records may also declare optional restrictions:
+
+```yaml
+keys:
+  - key_id: github_vps_test
+    type: ssh_key
+    key_source: generated
+    adapters: [sshtest]
+    unique_vault: false
+    allow:
+      hosts:
+        - github.com
+```
+
+After editing a manifest-owned SSH restriction, publish it with:
+
+```bash
+./bootstrap.sh --publish-policy github_vps_test
 ```
 
 ### Revoke an SSH key
@@ -210,9 +279,12 @@ The symptom of missing this step on a round that changed Worker code: SSH sign r
 
 If a round changes Worker secrets (rare — usually announced in the changelog), run a full `./bootstrap.sh` instead.
 
-## Match exec note
+## Direct sign note
 
-Subumbra supports a terminal-first workflow today. If you want synchronous shell-side checks in the future, OpenSSH `Match exec` blocks until the helper exits, which makes it viable for session-open ergonomics. This round does not ship a helper script for that pattern.
+Restricted SSH keys are enforced only when the request comes through the agent
+with verified destination binding. A direct POST to `/t/<key_id>/ssh/sign`
+without agent-supplied binding is denied with `403 {"error":"host_required"}`
+for restricted keys.
 
 ## Troubleshooting
 

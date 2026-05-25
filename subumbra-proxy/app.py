@@ -601,15 +601,25 @@ async def handle_ssh_sign_request(key_id: str, request: Request):
         raise HTTPException(400, detail="invalid JSON body")
 
     challenge = body.get("challenge") if isinstance(body, dict) else None
+    verified_host_fingerprint = body.get("verified_host_fingerprint") if isinstance(body, dict) else None
     if not isinstance(challenge, str) or not challenge:
         LOG.warning("ssh-sign reject adapter=%s key_id=%s reason=missing_challenge", adapter_id, key_id)
         raise HTTPException(400, detail="missing required fields")
+    if verified_host_fingerprint is not None and (
+        not isinstance(verified_host_fingerprint, str) or not verified_host_fingerprint
+    ):
+        LOG.warning("ssh-sign reject adapter=%s key_id=%s reason=invalid_verified_host_fingerprint", adapter_id, key_id)
+        raise HTTPException(400, detail="missing required fields")
+
+    worker_payload: dict[str, str] = {"key_id": key_id, "challenge": challenge}
+    if isinstance(verified_host_fingerprint, str):
+        worker_payload["verified_host_fingerprint"] = verified_host_fingerprint
 
     worker_req = CLIENT.build_request(
         "POST",
         f"{CF_WORKER_URL}/ssh/sign",
         headers=worker_headers(adapter_token=adapter_token),
-        json={"key_id": key_id, "challenge": challenge},
+        json=worker_payload,
         timeout=30.0,
     )
     LOG.info("ssh-sign request adapter=%s key_id=%s", adapter_id, key_id)

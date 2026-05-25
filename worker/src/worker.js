@@ -1801,6 +1801,12 @@ async function handleSshSign(request, env) {
   if (!payload || typeof payload.key_id !== "string" || !payload.key_id || typeof payload.challenge !== "string" || !payload.challenge) {
     return jsonError("missing required fields", 400);
   }
+  if (
+    Object.prototype.hasOwnProperty.call(payload, "verified_host_fingerprint") &&
+    (typeof payload.verified_host_fingerprint !== "string" || !payload.verified_host_fingerprint)
+  ) {
+    return jsonError("missing required fields", 400);
+  }
 
   const keyRaw = await env.PROVIDER_REGISTRY_KV.get(`key:${payload.key_id}`, {
     cacheTtl: 30,
@@ -1822,6 +1828,31 @@ async function handleSshSign(request, env) {
   const adapters = optionalStringArray(keyEntry.adapters);
   if (!adapters || !adapters.includes(auth.adapterId)) {
     return jsonError("adapter not permitted", 403);
+  }
+  const policyAllow = keyEntry && keyEntry.policy && typeof keyEntry.policy === "object" ? keyEntry.policy.allow : undefined;
+  const rawAllowedHosts = policyAllow && typeof policyAllow === "object" ? policyAllow.hosts : undefined;
+  const allowedHosts = optionalStringArray(rawAllowedHosts);
+  if (rawAllowedHosts !== undefined && allowedHosts === null) {
+    console.error("subumbra: invalid ssh allow.hosts key_id=%s", payload.key_id);
+    return jsonError("worker not configured", 503);
+  }
+  const verifiedHostFingerprint =
+    typeof payload.verified_host_fingerprint === "string" && payload.verified_host_fingerprint
+      ? payload.verified_host_fingerprint
+      : null;
+  if (allowedHosts && allowedHosts.length > 0) {
+    if (!verifiedHostFingerprint) {
+      console.warn("subumbra: ssh sign denied key_id=%s reason=host_required", payload.key_id);
+      return jsonError("host_required", 403);
+    }
+    if (!allowedHosts.includes(verifiedHostFingerprint)) {
+      console.warn(
+        "subumbra: ssh sign denied key_id=%s reason=host_not_allowed host_fp=%s",
+        payload.key_id,
+        verifiedHostFingerprint,
+      );
+      return jsonError("host_not_allowed", 403);
+    }
   }
 
   const vaultInstance =
