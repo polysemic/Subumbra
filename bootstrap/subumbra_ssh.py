@@ -156,7 +156,11 @@ def _ssh_keyscan_host_fingerprints(host: str) -> list[str]:
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
             continue
-        fingerprints.append(_ssh_public_key_line_to_fingerprint(stripped))
+        # ssh-keyscan output is "<hostname> <key_type> <base64_key>" — strip the
+        # leading hostname field so _ssh_public_key_line_to_fingerprint gets the
+        # standard "<key_type> <base64_key>" format it expects.
+        key_line = " ".join(stripped.split()[1:])
+        fingerprints.append(_ssh_public_key_line_to_fingerprint(key_line))
     normalized = _normalize_host_fingerprints(fingerprints)
     if not normalized:
         raise SshBootstrapError(f"ssh-keyscan returned no valid SSH host keys for {host}")
