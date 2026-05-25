@@ -2626,6 +2626,29 @@ def _kv_wait_for_json_value(
     )
 
 
+def _kv_put_value(cf_creds: dict[str, str], namespace_id: str, key_name: str, value: str) -> None:
+    """Write a value to CF KV via the management API. Immediately consistent."""
+    request = urllib.request.Request(
+        _kv_value_url(cf_creds, namespace_id, key_name),
+        method="PUT",
+        data=value.encode("utf-8"),
+        headers={**_kv_auth_headers(cf_creds), "Content-Type": "text/plain"},
+    )
+    try:
+        with urllib.request.urlopen(request) as resp:
+            body = json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        body_text = exc.read().decode("utf-8", errors="replace")
+        die(
+            f"Failed to write structured KV key {key_name!r}: HTTP {exc.code}\n"
+            f"--- response body ---\n{body_text}"
+        )
+    except Exception as exc:
+        die(f"Failed to write structured KV key {key_name!r}: {exc}")
+    if not body.get("success"):
+        die(f"Failed to write structured KV key {key_name!r}: {body}")
+
+
 def _kv_delete_key(cf_creds: dict[str, str], namespace_id: str, key_name: str) -> None:
     request = urllib.request.Request(
         _kv_value_url(cf_creds, namespace_id, key_name),
@@ -4170,11 +4193,38 @@ def _publish_structured_kv(
             env=env,
         )
 
-        sample_key_entry = next(entry for entry in entries if entry["key"].startswith("key:"))
-        sample_policy_entry = next(entry for entry in entries if entry["key"].startswith("policy:"))
+        # Newly-added entries (key_id absent from existing_live_key_entries) may not
+        # propagate immediately after wrangler bulk put. Write them directly via the
+        # management API (immediately consistent) to guarantee the Worker can see them.
+        new_key_ids = {
+            key_id
+            for key_id, record in keys_payload.items()
+            if not _is_revoked_record(record) and key_id not in existing_live_key_entries
+        }
+        if new_key_ids:
+            new_policy_ids = {
+                keys_payload[k].get("policy_id")
+                for k in new_key_ids
+                if k in keys_payload and keys_payload[k].get("policy_id")
+            }
+            new_kv_entries = {
+                e["key"]: e["value"]
+                for e in entries
+                if (e["key"].startswith("key:") and e["key"][len("key:"):] in new_key_ids)
+                or (e["key"].startswith("policy:") and e["key"][len("policy:"):] in new_policy_ids)
+            }
+            for kv_key, kv_value in new_kv_entries.items():
+                print(f"  → direct KV write (new entry): {kv_key}")
+                _kv_put_value(cf_creds, namespace_id, kv_key, kv_value)
 
-        _kv_wait_for_json_value(cf_creds, namespace_id, sample_key_entry["key"])
-        _kv_wait_for_json_value(cf_creds, namespace_id, sample_policy_entry["key"])
+        # Verify propagation: check newly-added key entries first; fall back to any key entry.
+        check_key = next((f"key:{k}" for k in new_key_ids), None) or next((e["key"] for e in entries if e["key"].startswith("key:")), None)
+        check_policy = next((f"policy:{keys_payload[k].get('policy_id', '')}" for k in new_key_ids if keys_payload.get(k, {}).get("policy_id")), None) or next((e["key"] for e in entries if e["key"].startswith("policy:")), None)
+
+        if check_key:
+            _kv_wait_for_json_value(cf_creds, namespace_id, check_key)
+        if check_policy:
+            _kv_wait_for_json_value(cf_creds, namespace_id, check_policy)
 
         _run(
             [
