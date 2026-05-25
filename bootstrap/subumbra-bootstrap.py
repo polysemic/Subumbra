@@ -86,6 +86,7 @@ from subumbra_ssh import (
     operator_ssh_auth_sock,
     provision_generated_ssh_key,
     provision_imported_ssh_key,
+    resolve_allowed_host_fingerprints,
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2078,8 +2079,30 @@ def _normalize_manifest_record(record: Any, idx: int) -> dict[str, Any]:
                 _manifest_die(f"{source}.secret_ref must be a non-empty string when key_source is 'provided'")
         else:
             secret_ref = None
+        raw_allow = record.get("allow", {})
+        if raw_allow is None:
+            raw_allow = {}
+        if not isinstance(raw_allow, dict):
+            _manifest_die(f"{source}.allow must be an object when provided")
+        raw_hosts = raw_allow.get("hosts")
+        if raw_hosts is not None and not isinstance(raw_hosts, list):
+            _manifest_die(f"{source}.allow.hosts must be an array when provided")
+        requested_hosts: list[str] = []
+        if isinstance(raw_hosts, list):
+            for host_idx, host in enumerate(raw_hosts):
+                if not isinstance(host, str) or not host.strip():
+                    _manifest_die(f"{source}.allow.hosts[{host_idx}] must be a non-empty string")
+                requested_hosts.append(host.strip())
+        try:
+            allowed_host_fingerprints = resolve_allowed_host_fingerprints(requested_hosts)
+        except SshBootstrapError as exc:
+            _manifest_die(f"{source}.allow.hosts could not be resolved: {exc}")
 
-        policy = build_ssh_policy(key_id=key_id, adapters=effective_adapters)
+        policy = build_ssh_policy(
+            key_id=key_id,
+            adapters=effective_adapters,
+            allowed_host_fingerprints=allowed_host_fingerprints,
+        )
         return {
             "key_id": key_id,
             "type": "ssh_key",
@@ -2090,6 +2113,7 @@ def _normalize_manifest_record(record: Any, idx: int) -> dict[str, Any]:
             "effective_adapters": effective_adapters,
             "unique_vault": unique_vault,
             "policy": policy,
+            "requested_allow_hosts": requested_hosts,
         }
 
     required = {"key_id", "provider", "secret_ref", "adapters", "unique_vault"}
@@ -2425,6 +2449,14 @@ def _load_manifest_repair_authority(target_key_id: str) -> dict[str, Any]:
         )
     for record in _load_manifest_records():
         if record["key_id"] == target_key_id:
+            if record.get("type") == "ssh_key":
+                return {
+                    "provider": record["provider"],
+                    "policy": record["policy"],
+                    "adapters": list(record["effective_adapters"]),
+                    "key_source": record["key_source"],
+                    "secret_ref": record.get("secret_ref"),
+                }
             return {
                 "provider": record["provider"],
                 "target_host": record["target_host"],
@@ -2592,6 +2624,29 @@ def _kv_wait_for_json_value(
         f"Cloudflare KV key {key_name!r} did not become readable after publication.\n"
         f"  Consistency check exhausted {max_attempts} attempts."
     )
+
+
+def _kv_put_value(cf_creds: dict[str, str], namespace_id: str, key_name: str, value: str) -> None:
+    """Write a value to CF KV via the management API. Immediately consistent."""
+    request = urllib.request.Request(
+        _kv_value_url(cf_creds, namespace_id, key_name),
+        method="PUT",
+        data=value.encode("utf-8"),
+        headers={**_kv_auth_headers(cf_creds), "Content-Type": "text/plain"},
+    )
+    try:
+        with urllib.request.urlopen(request) as resp:
+            body = json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        body_text = exc.read().decode("utf-8", errors="replace")
+        die(
+            f"Failed to write structured KV key {key_name!r}: HTTP {exc.code}\n"
+            f"--- response body ---\n{body_text}"
+        )
+    except Exception as exc:
+        die(f"Failed to write structured KV key {key_name!r}: {exc}")
+    if not body.get("success"):
+        die(f"Failed to write structured KV key {key_name!r}: {body}")
 
 
 def _kv_delete_key(cf_creds: dict[str, str], namespace_id: str, key_name: str) -> None:
@@ -3072,13 +3127,17 @@ def compute_policy_hash(policy_doc: dict[str, Any]) -> str:
     """Return the lowercase hex SHA-256 of the baseline-bound policy object."""
     if policy_doc.get("type") == "ssh_key":
         allow = policy_doc["allow"]
+        baseline_allow: dict[str, Any] = {
+            "adapters": sorted(allow["adapters"]),
+        }
+        hosts = allow.get("hosts")
+        if isinstance(hosts, list) and hosts:
+            baseline_allow["hosts"] = sorted(hosts)
         baseline_obj: dict[str, Any] = {
             "type": "ssh_key",
             "key_id": policy_doc["key_id"],
             "algorithm": policy_doc["algorithm"],
-            "allow": {
-                "adapters": sorted(allow["adapters"]),
-            },
+            "allow": baseline_allow,
         }
         canonical = json.dumps(baseline_obj, sort_keys=True, separators=(",", ":")).encode("utf-8")
         return hashlib.sha256(canonical).hexdigest()
@@ -4134,11 +4193,38 @@ def _publish_structured_kv(
             env=env,
         )
 
-        sample_key_entry = next(entry for entry in entries if entry["key"].startswith("key:"))
-        sample_policy_entry = next(entry for entry in entries if entry["key"].startswith("policy:"))
+        # Newly-added entries (key_id absent from existing_live_key_entries) may not
+        # propagate immediately after wrangler bulk put. Write them directly via the
+        # management API (immediately consistent) to guarantee the Worker can see them.
+        new_key_ids = {
+            key_id
+            for key_id, record in keys_payload.items()
+            if not _is_revoked_record(record) and key_id not in existing_live_key_entries
+        }
+        if new_key_ids:
+            new_policy_ids = {
+                keys_payload[k].get("policy_id")
+                for k in new_key_ids
+                if k in keys_payload and keys_payload[k].get("policy_id")
+            }
+            new_kv_entries = {
+                e["key"]: e["value"]
+                for e in entries
+                if (e["key"].startswith("key:") and e["key"][len("key:"):] in new_key_ids)
+                or (e["key"].startswith("policy:") and e["key"][len("policy:"):] in new_policy_ids)
+            }
+            for kv_key, kv_value in new_kv_entries.items():
+                print(f"  → direct KV write (new entry): {kv_key}")
+                _kv_put_value(cf_creds, namespace_id, kv_key, kv_value)
 
-        _kv_wait_for_json_value(cf_creds, namespace_id, sample_key_entry["key"])
-        _kv_wait_for_json_value(cf_creds, namespace_id, sample_policy_entry["key"])
+        # Verify propagation: check newly-added key entries first; fall back to any key entry.
+        check_key = next((f"key:{k}" for k in new_key_ids), None) or next((e["key"] for e in entries if e["key"].startswith("key:")), None)
+        check_policy = next((f"policy:{keys_payload[k].get('policy_id', '')}" for k in new_key_ids if keys_payload.get(k, {}).get("policy_id")), None) or next((e["key"] for e in entries if e["key"].startswith("policy:")), None)
+
+        if check_key:
+            _kv_wait_for_json_value(cf_creds, namespace_id, check_key)
+        if check_policy:
+            _kv_wait_for_json_value(cf_creds, namespace_id, check_policy)
 
         _run(
             [
@@ -5131,6 +5217,37 @@ def _parse_ssh_adapters_csv(raw: str) -> list[str]:
     return parsed
 
 
+def _parse_ssh_allow_hosts_csv(raw: str) -> list[str]:
+    value = raw.strip()
+    if not value:
+        die("--allow-hosts requires a comma-separated list of hostnames")
+    parsed: list[str] = []
+    seen: set[str] = set()
+    for host in [part.strip() for part in value.split(",") if part.strip()]:
+        if host in seen:
+            continue
+        seen.add(host)
+        parsed.append(host)
+    if not parsed:
+        die("--allow-hosts requires at least one hostname")
+    return parsed
+
+
+def _ssh_record_allowed_host_fingerprints(record: dict[str, Any]) -> list[str]:
+    policy = record.get("policy")
+    if not isinstance(policy, dict):
+        die(f"SSH record {record.get('key_id', '<unknown>')!r} is missing policy")
+    allow = policy.get("allow")
+    if not isinstance(allow, dict):
+        return []
+    hosts = allow.get("hosts")
+    if hosts is None:
+        return []
+    if not isinstance(hosts, list) or not all(isinstance(host, str) and host for host in hosts):
+        die(f"SSH record {record.get('key_id', '<unknown>')!r} has invalid policy.allow.hosts")
+    return list(hosts)
+
+
 def _run_with_temporary_setup_token(
     cf_creds: dict[str, str],
     callback,
@@ -5167,10 +5284,15 @@ def _require_existing_active_ssh_record(
     return record
 
 
-def run_add_ssh_key(target_key_id: str, adapters_csv: str) -> None:
+def run_add_ssh_key(target_key_id: str, adapters_csv: str, allow_hosts_csv: str | None = None) -> None:
     if not KEY_ID_RE.fullmatch(target_key_id):
         die(f"Invalid SSH key_id {target_key_id!r}")
     adapters = _parse_ssh_adapters_csv(adapters_csv)
+    requested_hosts = _parse_ssh_allow_hosts_csv(allow_hosts_csv) if isinstance(allow_hosts_csv, str) else []
+    try:
+        allowed_host_fingerprints = resolve_allowed_host_fingerprints(requested_hosts)
+    except SshBootstrapError as exc:
+        die(str(exc))
     keys_payload = _load_keys_payload_or_die()
     existing = keys_payload.get(target_key_id)
     if isinstance(existing, dict) and not _is_revoked_record(existing):
@@ -5186,6 +5308,7 @@ def run_add_ssh_key(target_key_id: str, adapters_csv: str) -> None:
                 headers=_worker_control_headers(setup_token),
                 key_id=target_key_id,
                 adapters=adapters,
+                allowed_host_fingerprints=allowed_host_fingerprints,
                 vault_instance="vault",
             )
         except SshBootstrapError as exc:
@@ -5198,7 +5321,7 @@ def run_add_ssh_key(target_key_id: str, adapters_csv: str) -> None:
     _publish_after_local_record_update(cf_creds, keys_payload)
 
 
-def run_rotate_ssh_key(target_key_id: str) -> None:
+def run_rotate_ssh_key(target_key_id: str, allow_hosts_csv: str | None = None) -> None:
     keys_payload = _load_keys_payload_or_die()
     existing_record = _require_existing_active_ssh_record(keys_payload, target_key_id)
     if existing_record.get("key_source") != "generated":
@@ -5212,6 +5335,14 @@ def run_rotate_ssh_key(target_key_id: str) -> None:
     if not isinstance(adapters, list) or not adapters:
         die(f"SSH record {target_key_id!r} is missing adapters")
     vault_instance = str(existing_record.get("vault_instance", "")).strip() or "vault"
+    if isinstance(allow_hosts_csv, str):
+        requested_hosts = _parse_ssh_allow_hosts_csv(allow_hosts_csv)
+        try:
+            allowed_host_fingerprints = resolve_allowed_host_fingerprints(requested_hosts)
+        except SshBootstrapError as exc:
+            die(str(exc))
+    else:
+        allowed_host_fingerprints = _ssh_record_allowed_host_fingerprints(existing_record)
 
     def _rotate(worker_url: str, setup_token: str) -> dict[str, Any]:
         step(f"Rotating SSH key {target_key_id} in the vault")
@@ -5221,6 +5352,7 @@ def run_rotate_ssh_key(target_key_id: str) -> None:
                 headers=_worker_control_headers(setup_token),
                 key_id=target_key_id,
                 adapters=[str(adapter_id) for adapter_id in adapters],
+                allowed_host_fingerprints=allowed_host_fingerprints,
                 vault_instance=vault_instance,
             )
         except SshBootstrapError as exc:
@@ -5369,12 +5501,30 @@ def run_revoke_adapter(target_key_id: str, adapter_id: str) -> None:
 def run_publish_policy(target_key_id: str) -> None:
     cf_creds = _get_push_registry_cf_creds()
     keys_payload = _load_keys_payload_or_die()
-    existing_record = _require_existing_active_record(keys_payload, target_key_id)
+    existing_candidate = keys_payload.get(target_key_id)
+    if isinstance(existing_candidate, dict) and existing_candidate.get("type") == "ssh_key":
+        existing_record = _require_existing_active_ssh_record(keys_payload, target_key_id)
+    else:
+        existing_record = _require_existing_active_record(keys_payload, target_key_id)
     authority = _load_management_manifest_authority(target_key_id, str(existing_record.get("provider", "")))
     new_policy = authority["policy"]
     new_adapters = authority["adapters"]
     new_policy_hash = compute_policy_hash(new_policy)
     old_policy_hash = str(existing_record.get("policy_hash", "")).strip()
+
+    if existing_record.get("type") == "ssh_key":
+        step(f"Publishing SSH policy update for key_id {target_key_id}")
+        updated = dict(existing_record)
+        updated["policy_id"] = new_policy["policy_id"]
+        updated["policy_hash"] = new_policy_hash
+        updated["policy"] = new_policy
+        updated["adapters"] = list(new_adapters)
+        updated["revoked"] = False
+        keys_payload[target_key_id] = updated
+        _write_keys_payload(keys_payload)
+        ok(f"Updated SSH policy for {target_key_id} in keys.json")
+        _publish_after_local_record_update(cf_creds, keys_payload)
+        return
 
     if new_policy_hash == old_policy_hash:
         step(f"Publishing non-baseline policy update for key_id {target_key_id}")
@@ -6154,6 +6304,7 @@ def main() -> None:
                     headers=_worker_control_headers(setup_token),
                     key_id=key_id,
                     adapters=key_adapters_by_key_id[key_id],
+                    allowed_host_fingerprints=record["policy"]["allow"].get("hosts"),
                     vault_instance=vault_instance,
                 )
             else:
@@ -6162,6 +6313,7 @@ def main() -> None:
                     headers=_worker_control_headers(setup_token),
                     key_id=key_id,
                     adapters=key_adapters_by_key_id[key_id],
+                    allowed_host_fingerprints=record["policy"]["allow"].get("hosts"),
                     vault_instance=vault_instance,
                     public_key_pem=phase2_entry["public_key_pem"],
                     raw_secret=_resolve_manifest_secret(record["secret_ref"]),
@@ -6313,8 +6465,8 @@ def main() -> None:
     Pause/unpause: Worker management API via SUBUMBRA_MANAGEMENT_TOKEN
     Revoke key:    ./bootstrap.sh --revoke-key <key_id> [--offline]
                    (--offline: keys.json only; then re-run without --offline for KV delete)
-    SSH day-2:     ./bootstrap.sh --add-ssh-key <key_id> --adapters <csv>
-                   ./bootstrap.sh --rotate-ssh-key <key_id>
+    SSH day-2:     ./bootstrap.sh --add-ssh-key <key_id> --adapters <csv> [--allow-hosts <csv>]
+                   ./bootstrap.sh --rotate-ssh-key <key_id> [--allow-hosts <csv>]
                    ./bootstrap.sh --revoke-ssh-key <key_id>
     Adapter edit:  ./bootstrap.sh --add-adapter <key_id> <adapter_id>
                    ./bootstrap.sh --revoke-adapter <key_id> <adapter_id>
@@ -6341,7 +6493,9 @@ Options:
   --rotate                    Rotate upstream keys for existing records
   --add-ssh-key <key_id>      Generate and publish a new SSH key for day-2 use
     --adapters <csv>            Required adapter IDs allowed to sign with the key
+    --allow-hosts <csv>         Optional hostnames/IPs to resolve into allowed SSH host keys
   --rotate-ssh-key <key_id>   Rotate an existing generated SSH key in place
+    --allow-hosts <csv>         Optional hostnames/IPs to replace the current allowed host set
   --revoke-ssh-key <key_id>   Revoke an existing SSH key and delete its live KV entries
   --push-registry             Push keys.json state directly to Cloudflare KV
   --deploy-worker             Redeploy the Cloudflare Worker code (+ KV binding)
@@ -6637,13 +6791,25 @@ if __name__ == "__main__":
             adapters_csv = sys.argv[sys.argv.index("--adapters") + 1]
         except IndexError:
             die("--adapters requires <csv>")
-        run_add_ssh_key(target_key_id, adapters_csv)
+        allow_hosts_csv = None
+        if "--allow-hosts" in sys.argv:
+            try:
+                allow_hosts_csv = sys.argv[sys.argv.index("--allow-hosts") + 1]
+            except IndexError:
+                die("--allow-hosts requires <csv>")
+        run_add_ssh_key(target_key_id, adapters_csv, allow_hosts_csv)
     elif "--rotate-ssh-key" in sys.argv:
         try:
             target_key_id = sys.argv[sys.argv.index("--rotate-ssh-key") + 1]
         except IndexError:
             die("--rotate-ssh-key requires <key_id>")
-        run_rotate_ssh_key(target_key_id)
+        allow_hosts_csv = None
+        if "--allow-hosts" in sys.argv:
+            try:
+                allow_hosts_csv = sys.argv[sys.argv.index("--allow-hosts") + 1]
+            except IndexError:
+                die("--allow-hosts requires <csv>")
+        run_rotate_ssh_key(target_key_id, allow_hosts_csv)
     elif "--revoke-ssh-key" in sys.argv:
         try:
             target_key_id = sys.argv[sys.argv.index("--revoke-ssh-key") + 1]
