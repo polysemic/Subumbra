@@ -1396,7 +1396,7 @@ def run_nuke_cloudflare() -> None:
                 _cf_delete_tunnel(cf_creds["CF_API_TOKEN"], cf_creds["CF_ACCOUNT_ID"], tunnel_id)
             except BootstrapFlowError as exc:
                 last_error = exc
-                if "HTTP 409" in str(exc) or "active connection" in str(exc).lower():
+                if "active connection" in str(exc).lower() or "1022" in str(exc):
                     time.sleep(2)
                     continue
                 raise

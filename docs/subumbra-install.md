@@ -149,13 +149,9 @@ Notes:
 
 ## 4. Core `.env`
 
-`bootstrap.sh` creates `.env` from `.env.example` automatically.
-
 You do not need to pre-edit `.env` to use Cloudflare Tunnel or CF Access.
-`bootstrap.sh` creates `.env` from `.env.example` automatically on first run,
-and the interactive wizard now collects Cloudflare Tunnel and Access runtime
-credentials (`TUNNEL_TOKEN`, `CF_ACCESS_CLIENT_ID`,
-`CF_ACCESS_CLIENT_SECRET`) and writes them to `.env` for you.
+`bootstrap.sh` creates `.env` from `.env.example` automatically on first run, and the interactive wizard now collects Cloudflare Tunnel and Access runtime credentials (`TUNNEL_TOKEN`, `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`) and writes them to `.env` for you.
+
 
 You also do not have to use Cloudflare auto-provisioning. You can provide existing
 Tunnel / Access runtime secrets and skip Cloudflare lifecycle creation.

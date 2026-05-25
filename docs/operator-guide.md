@@ -277,7 +277,17 @@ What this means practically: if someone gained access to your Cloudflare KV and 
 
 The trade-off: whenever you change a foundational policy field (`allow.*`, `target.host`, `auth.*`), Subumbra must re-encrypt the key with the new policy hash. Commands like `--add-adapter`, `--revoke-adapter`, and `--publish-policy` handle this automatically.
 
+### Adapter granularity and revocation boundaries
+
+By default, Subumbra starter templates configure a `universal` adapter (`adapters: [universal]`). While a single shared token is simple for initial setup, it creates a **single point of revocation**: revoking the token or ending a session for `universal` will lock out all applications simultaneously.
+
+For production security, we strongly recommend:
+- **Granular adapter tokens**: Assign each client application a distinct adapter name (e.g. `litellm`, `openwebui`, `bifrost`).
+- **Targeted session scopes**: When opening a session via `./bootstrap.sh --session start`, specify only the required adapters (e.g. `--adapters openwebui` rather than `--adapters all`) to minimize exposure.
+- **Granular revocation**: Use `./bootstrap.sh --revoke-adapter <key_id> <adapter_id>` to revoke access for a single compromised app without impacting other running services.
+
 ### Container environment and secrets
+
 
 Subumbra runtime secrets (`SUBUMBRA_ADAPTER_REGISTRY`, `SUBUMBRA_HMAC_KEY`, `SUBUMBRA_TOKEN_*`) are injected from your host `.env` into container environment variables. Any process inside a container can read them.
 
