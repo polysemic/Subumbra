@@ -105,6 +105,20 @@ These commands are for an already-initialized deployment.
 
 Bootstrap temporarily reissues `SUBUMBRA_SETUP_TOKEN`, performs the SSH key operation against the Worker setup route, then deletes the setup token again. This keeps SSH lifecycle privileged without leaving a standing setup credential behind.
 
+### Redeploying the Cloudflare Worker
+
+If a `git pull` brings down a round that changes Cloudflare Worker code (`worker/src/worker.js`), `./bootstrap.sh --upgrade` will rebuild your local Docker images but will **not** push the new Worker code to Cloudflare. Follow `--upgrade` with:
+
+```bash
+./bootstrap.sh --deploy-worker
+```
+
+This redeploys the Worker bundle and re-injects the live `PROVIDER_REGISTRY_KV` binding. All existing Worker secrets and Durable Object state are preserved.
+
+The symptom of missing this step on a round that changed Worker code: SSH sign requests (and other Worker-routed operations) return `HTTP 503 {"error":"worker not configured"}`.
+
+If a round changes Worker secrets (rare — usually announced in the changelog), run a full `./bootstrap.sh` instead.
+
 ## Match exec note
 
 Subumbra supports a terminal-first workflow today. If you want synchronous shell-side checks in the future, OpenSSH `Match exec` blocks until the helper exits, which makes it viable for session-open ergonomics. This round does not ship a helper script for that pattern.

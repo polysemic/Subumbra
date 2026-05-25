@@ -5249,6 +5249,48 @@ def run_revoke_ssh_key(target_key_id: str) -> None:
     _delete_revoked_key_kv_entries(cf_creds, keys_payload, target_key_id, record)
 
 
+def run_deploy_worker() -> None:
+    """
+    Redeploy the Cloudflare Worker code with the live PROVIDER_REGISTRY_KV
+    binding injected from data/kv-config.json. Existing Worker secrets
+    (SUBUMBRA_ADAPTER_TOKENS, SUBUMBRA_HMAC_KEY, SUBUMBRA_MANAGEMENT_TOKEN,
+    SUBUMBRA_VAULT) and SQLite DO state are preserved — only the script
+    bundle and its KV binding are updated. Use this after pulling a round
+    that changes worker/src/worker.js (./bootstrap.sh --upgrade rebuilds
+    local Docker images but does not push code to Cloudflare).
+    """
+    if not WORKER_SRC.exists():
+        die(
+            f"Worker source not found at {WORKER_SRC}.\n"
+            "  Ensure ./worker is mounted into the bootstrap container\n"
+            "  (check volumes in docker-compose.yml)."
+        )
+
+    cf_creds = _get_push_registry_cf_creds()
+    worker_name = cf_creds["CF_WORKER_NAME"]
+    env = _wrangler_env(cf_creds)
+
+    with tempfile.TemporaryDirectory(prefix="subumbra-worker-") as tmp:
+        tmp_dir = Path(tmp)
+        shutil.copytree(WORKER_SRC, tmp_dir / "worker")
+        work_dir = tmp_dir / "worker"
+        namespace_id = _create_or_reuse_kv_namespace(cf_creds)
+        _append_provider_registry_kv_binding(work_dir / "wrangler.toml", namespace_id)
+
+        step(f"Deploying CF Worker '{worker_name}' (code + KV binding only)")
+        deploy_out = _run(
+            ["wrangler", "deploy", "--name", worker_name],
+            cwd=work_dir,
+            env=env,
+        )
+        ok("Deployed")
+        for line in deploy_out.splitlines():
+            info(line)
+
+    info("Existing Worker secrets and Durable Object state were preserved.")
+    info("If a round changed Worker secrets, run a full ./bootstrap.sh instead.")
+
+
 def _delete_revoked_key_kv_entries(
     cf_creds: dict[str, str],
     keys_payload: dict[str, dict[str, Any]],
@@ -6302,6 +6344,10 @@ Options:
   --rotate-ssh-key <key_id>   Rotate an existing generated SSH key in place
   --revoke-ssh-key <key_id>   Revoke an existing SSH key and delete its live KV entries
   --push-registry             Push keys.json state directly to Cloudflare KV
+  --deploy-worker             Redeploy the Cloudflare Worker code (+ KV binding)
+                              without rotating secrets. Run this after a round
+                              that changes worker/src/worker.js; --upgrade only
+                              rebuilds local Docker images.
   --nuke-cloudflare           Delete Cloudflare-managed Tunnel / DNS / Access resources
   --provision <key_id>        Targeted provisioning/repair for a single key
   --revoke-key <key_id>       Revoke a key (deletes from KV; --offline updates local keys.json only)
@@ -6533,6 +6579,7 @@ if __name__ == "__main__":
         die("--rotate-policy has been removed. Re-run full bootstrap for policy, routing, or adapter-binding changes.")
     mode_flags = (
         "--push-registry",
+        "--deploy-worker",
         "--session",
         "--rotate",
         "--add-ssh-key",
@@ -6555,6 +6602,8 @@ if __name__ == "__main__":
         die("--nuke is supported only for full bootstrap")
     if "--push-registry" in sys.argv:
         run_push_registry()
+    elif "--deploy-worker" in sys.argv:
+        run_deploy_worker()
     elif "--session" in sys.argv:
         args = _session_args("--session")
         if not args:

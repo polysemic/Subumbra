@@ -341,6 +341,18 @@ After `git pull`, rebuild images and restart containers without touching keys or
 
 This does not re-run Cloudflare bootstrap, rotate keys, or change `.env`.
 
+### Redeploying the Cloudflare Worker after a code update
+
+`--upgrade` rebuilds local Docker images only. If a round changed `worker/src/worker.js`, you also need to push that code to Cloudflare:
+
+```bash
+./bootstrap.sh --deploy-worker
+```
+
+This redeploys the Worker bundle with the live `PROVIDER_REGISTRY_KV` binding intact and preserves all existing Worker secrets and Durable Object state. Use it after any `git pull && ./bootstrap.sh --upgrade` for a round whose changelog mentions Worker code changes. Requires `CF_API_TOKEN` and `CF_ACCOUNT_ID` in the environment (or in `.env.bootstrap` / `.env.bootstrap_bak`).
+
+If you instead need to rotate Worker secrets, run a full `./bootstrap.sh` — `--deploy-worker` deliberately does not touch them.
+
 ### Removing Cloudflare-managed resources
 
 If you want to tear down Cloudflare Tunnel, DNS, and Access resources that bootstrap created:

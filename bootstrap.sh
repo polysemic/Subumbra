@@ -33,7 +33,7 @@ fi
 mode=""
 for arg in "$@"; do
     case "$arg" in
-        --upgrade|--nuke|--rotate|--add-ssh-key|--rotate-ssh-key|--revoke-ssh-key|--push-registry|--session|--provision|--revoke-key|--add-adapter|--revoke-adapter|--publish-policy|--update-tunnel|--update-access|--nuke-cloudflare|--help|-h|--list-key-ids|--list-adapters|--show|--status)
+        --upgrade|--nuke|--rotate|--add-ssh-key|--rotate-ssh-key|--revoke-ssh-key|--push-registry|--deploy-worker|--session|--provision|--revoke-key|--add-adapter|--revoke-adapter|--publish-policy|--update-tunnel|--update-access|--nuke-cloudflare|--help|-h|--list-key-ids|--list-adapters|--show|--status)
             mode="$arg"
             break
             ;;
