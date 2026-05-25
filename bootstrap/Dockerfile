@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
     python3-venv \
+    openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
 # Install wrangler from package-lock.json — npm ci verifies SRI integrity hashes
