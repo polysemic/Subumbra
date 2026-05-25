@@ -209,6 +209,8 @@ class Verifier:
             if not isinstance(record, dict):
                 failures.append(str(key_id))
                 continue
+            if record.get("type") == "ssh_key":
+                continue  # SSH key records use a different schema (no enc_version/ciphertext)
             if record.get("enc_version") != 3 or not required.issubset(record):
                 failures.append(str(key_id))
         if failures:
