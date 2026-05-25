@@ -83,6 +83,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from subumbra_ssh import (
     SshBootstrapError,
     build_ssh_policy,
+    operator_ssh_auth_sock,
     provision_generated_ssh_key,
     provision_imported_ssh_key,
 )
@@ -634,6 +635,12 @@ def _load_runtime_adapter_registry() -> dict[str, dict[str, Any]]:
         die(f"SUBUMBRA_ADAPTER_REGISTRY invalid JSON: {exc}")
     if not isinstance(parsed, dict) or not parsed:
         die("SUBUMBRA_ADAPTER_REGISTRY must be a non-empty JSON object")
+    for adapter_id, config in parsed.items():
+        if not isinstance(config, dict):
+            die(f"SUBUMBRA_ADAPTER_REGISTRY[{adapter_id!r}] must be an object")
+        can_write_audit = config.get("can_write_audit", False)
+        if not isinstance(can_write_audit, bool):
+            die(f"SUBUMBRA_ADAPTER_REGISTRY[{adapter_id!r}].can_write_audit must be true/false")
     return parsed
 
 
@@ -2940,6 +2947,7 @@ def _build_adapter_registry(
             "allowed_keys": allowed_keys_by_adapter["subumbra-proxy"],
             "can_list_keys": False,
             "can_read_stats": False,
+            "can_write_audit": True,
             "issued_at": issued_at,
             "expires_at": expires_at,
         },
@@ -2949,6 +2957,7 @@ def _build_adapter_registry(
             "can_list_keys": True,
             "can_read_stats": True,
             "can_list_all_keys": True,
+            "can_write_audit": False,
             "issued_at": issued_at,
             "expires_at": expires_at,
         },
@@ -2959,6 +2968,7 @@ def _build_adapter_registry(
             "allowed_keys": allowed_keys_by_adapter["subumbra-probe"],
             "can_list_keys": False,
             "can_read_stats": False,
+            "can_write_audit": False,
             "issued_at": issued_at,
             "expires_at": expires_at,
         }
@@ -2970,6 +2980,7 @@ def _build_adapter_registry(
             "allowed_keys": allowed_keys_by_adapter[adapter_id],
             "can_list_keys": False,
             "can_read_stats": False,
+            "can_write_audit": False,
             "issued_at": issued_at,
             "expires_at": expires_at,
         }
@@ -3908,6 +3919,7 @@ def _put_worker_secret(cf_creds: dict[str, str], secret_name: str, secret_value:
             env=env,
             input_text=secret_value + "\n",
         )
+        ok(f"{secret_name} pushed")
     ok(f"{secret_name} pushed")
 
 
@@ -5099,6 +5111,144 @@ def run_revoke_key(target_key_id: str) -> None:
     _delete_revoked_key_kv_entries(cf_creds, keys_payload, target_key_id, record)
 
 
+def _parse_ssh_adapters_csv(raw: str) -> list[str]:
+    value = raw.strip()
+    if not value:
+        die("--adapters requires a comma-separated list of adapter IDs")
+    parsed: list[str] = []
+    seen: set[str] = set()
+    for adapter_id in [part.strip() for part in value.split(",") if part.strip()]:
+        if not ADAPTER_ID_RE.fullmatch(adapter_id):
+            die(f"Invalid adapter_id {adapter_id!r} for --adapters")
+        if adapter_id in BUILTIN_ADAPTER_IDS:
+            die(f"adapter_id {adapter_id!r} is reserved and cannot be used for SSH daily-use commands")
+        if adapter_id in seen:
+            continue
+        seen.add(adapter_id)
+        parsed.append(adapter_id)
+    if not parsed:
+        die("--adapters requires at least one adapter ID")
+    return parsed
+
+
+def _run_with_temporary_setup_token(
+    cf_creds: dict[str, str],
+    callback,
+) -> Any:
+    worker_url = _read_runtime_credential_value("CF_WORKER_URL")
+    if not worker_url:
+        die(
+            "SSH day-2 commands require CF_WORKER_URL in the runtime environment.\n"
+            f"  Add CF_WORKER_URL to {HOST_ENV_FILE} and retry."
+        )
+    setup_token = secrets.token_urlsafe(48)
+    step("Pushing transient SUBUMBRA_SETUP_TOKEN for SSH day-2 operation")
+    _put_worker_secret(cf_creds, "SUBUMBRA_SETUP_TOKEN", setup_token)
+    try:
+        return callback(worker_url, setup_token)
+    finally:
+        step("Deleting transient SUBUMBRA_SETUP_TOKEN after SSH day-2 operation")
+        _delete_worker_secret(cf_creds, "SUBUMBRA_SETUP_TOKEN", quiet_missing=True)
+
+
+def _require_existing_active_ssh_record(
+    keys_payload: dict[str, dict[str, Any]],
+    key_id: str,
+) -> dict[str, Any]:
+    if key_id not in keys_payload:
+        die(f"key_id {key_id!r} not found in keys.json")
+    record = keys_payload[key_id]
+    if not isinstance(record, dict):
+        die(f"keys.json record {key_id!r} is malformed")
+    if _is_revoked_record(record):
+        die(f"key_id {key_id!r} is already revoked")
+    if record.get("type") != "ssh_key":
+        die(f"key_id {key_id!r} is not an SSH key")
+    return record
+
+
+def run_add_ssh_key(target_key_id: str, adapters_csv: str) -> None:
+    if not KEY_ID_RE.fullmatch(target_key_id):
+        die(f"Invalid SSH key_id {target_key_id!r}")
+    adapters = _parse_ssh_adapters_csv(adapters_csv)
+    keys_payload = _load_keys_payload_or_die()
+    existing = keys_payload.get(target_key_id)
+    if isinstance(existing, dict) and not _is_revoked_record(existing):
+        die(f"key_id {target_key_id!r} already exists in keys.json")
+
+    cf_creds = _get_push_registry_cf_creds()
+
+    def _provision(worker_url: str, setup_token: str) -> dict[str, Any]:
+        step(f"Generating SSH key {target_key_id} in the vault")
+        try:
+            return provision_generated_ssh_key(
+                worker_url=worker_url,
+                headers=_worker_control_headers(setup_token),
+                key_id=target_key_id,
+                adapters=adapters,
+                vault_instance="vault",
+            )
+        except SshBootstrapError as exc:
+            die(str(exc))
+
+    keys_payload[target_key_id] = _run_with_temporary_setup_token(cf_creds, _provision)
+
+    _write_keys_payload(keys_payload)
+    ok(f"Added SSH key {target_key_id} to keys.json")
+    _publish_after_local_record_update(cf_creds, keys_payload)
+
+
+def run_rotate_ssh_key(target_key_id: str) -> None:
+    keys_payload = _load_keys_payload_or_die()
+    existing_record = _require_existing_active_ssh_record(keys_payload, target_key_id)
+    if existing_record.get("key_source") != "generated":
+        die(
+            f"--rotate-ssh-key currently supports generated SSH keys only. key_id {target_key_id!r} "
+            "was provisioned from a provided private key."
+        )
+
+    cf_creds = _get_push_registry_cf_creds()
+    adapters = existing_record.get("adapters", [])
+    if not isinstance(adapters, list) or not adapters:
+        die(f"SSH record {target_key_id!r} is missing adapters")
+    vault_instance = str(existing_record.get("vault_instance", "")).strip() or "vault"
+
+    def _rotate(worker_url: str, setup_token: str) -> dict[str, Any]:
+        step(f"Rotating SSH key {target_key_id} in the vault")
+        try:
+            return provision_generated_ssh_key(
+                worker_url=worker_url,
+                headers=_worker_control_headers(setup_token),
+                key_id=target_key_id,
+                adapters=[str(adapter_id) for adapter_id in adapters],
+                vault_instance=vault_instance,
+            )
+        except SshBootstrapError as exc:
+            die(str(exc))
+
+    keys_payload[target_key_id] = _run_with_temporary_setup_token(cf_creds, _rotate)
+
+    _write_keys_payload(keys_payload)
+    ok(f"Rotated SSH key {target_key_id} in keys.json")
+    _publish_after_local_record_update(cf_creds, keys_payload)
+
+
+def run_revoke_ssh_key(target_key_id: str) -> None:
+    keys_payload = _load_keys_payload_or_die()
+    record = _require_existing_active_ssh_record(keys_payload, target_key_id)
+    revoked_record = dict(record)
+    revoked_record["revoked"] = True
+    revoked_record["status"] = "revoked"
+    keys_payload[target_key_id] = revoked_record
+
+    step(f"Marking SSH key {target_key_id} as revoked in keys.json")
+    _write_keys_payload(keys_payload)
+    ok(f"Revocation marker persisted for SSH key {target_key_id}")
+
+    cf_creds = _get_push_registry_cf_creds()
+    _delete_revoked_key_kv_entries(cf_creds, keys_payload, target_key_id, record)
+
+
 def _delete_revoked_key_kv_entries(
     cf_creds: dict[str, str],
     keys_payload: dict[str, dict[str, Any]],
@@ -6117,9 +6267,13 @@ def main() -> None:
     Shared key:    {PUBLIC_KEY_FILE}
     Fingerprint:   {primary_pub_key_fp or "(unique-vault only run)"}
     Per-key rotate: existing V3 records only via ./bootstrap.sh --rotate
+    SSH agent socket (host): {operator_ssh_auth_sock()}
     Pause/unpause: Worker management API via SUBUMBRA_MANAGEMENT_TOKEN
     Revoke key:    ./bootstrap.sh --revoke-key <key_id> [--offline]
                    (--offline: keys.json only; then re-run without --offline for KV delete)
+    SSH day-2:     ./bootstrap.sh --add-ssh-key <key_id> --adapters <csv>
+                   ./bootstrap.sh --rotate-ssh-key <key_id>
+                   ./bootstrap.sh --revoke-ssh-key <key_id>
     Adapter edit:  ./bootstrap.sh --add-adapter <key_id> <adapter_id>
                    ./bootstrap.sh --revoke-adapter <key_id> <adapter_id>
     Policy publish: ./bootstrap.sh --publish-policy <key_id>
@@ -6143,6 +6297,10 @@ Options:
   --nuke                      Destructive run: destroys existing Cloudflare Vault keypairs
                               and regenerates everything from scratch
   --rotate                    Rotate upstream keys for existing records
+  --add-ssh-key <key_id>      Generate and publish a new SSH key for day-2 use
+    --adapters <csv>            Required adapter IDs allowed to sign with the key
+  --rotate-ssh-key <key_id>   Rotate an existing generated SSH key in place
+  --revoke-ssh-key <key_id>   Revoke an existing SSH key and delete its live KV entries
   --push-registry             Push keys.json state directly to Cloudflare KV
   --nuke-cloudflare           Delete Cloudflare-managed Tunnel / DNS / Access resources
   --provision <key_id>        Targeted provisioning/repair for a single key
@@ -6377,6 +6535,9 @@ if __name__ == "__main__":
         "--push-registry",
         "--session",
         "--rotate",
+        "--add-ssh-key",
+        "--rotate-ssh-key",
+        "--revoke-ssh-key",
         "--provision",
         "--revoke-key",
         "--add-adapter",
@@ -6415,6 +6576,31 @@ if __name__ == "__main__":
         except IndexError:
             die("--revoke-key requires <key_id>")
         run_revoke_key(target_key_id)
+    elif "--add-ssh-key" in sys.argv:
+        try:
+            idx = sys.argv.index("--add-ssh-key")
+            target_key_id = sys.argv[idx + 1]
+        except IndexError:
+            die("--add-ssh-key requires <key_id>")
+        if "--adapters" not in sys.argv:
+            die("--add-ssh-key requires --adapters <csv>")
+        try:
+            adapters_csv = sys.argv[sys.argv.index("--adapters") + 1]
+        except IndexError:
+            die("--adapters requires <csv>")
+        run_add_ssh_key(target_key_id, adapters_csv)
+    elif "--rotate-ssh-key" in sys.argv:
+        try:
+            target_key_id = sys.argv[sys.argv.index("--rotate-ssh-key") + 1]
+        except IndexError:
+            die("--rotate-ssh-key requires <key_id>")
+        run_rotate_ssh_key(target_key_id)
+    elif "--revoke-ssh-key" in sys.argv:
+        try:
+            target_key_id = sys.argv[sys.argv.index("--revoke-ssh-key") + 1]
+        except IndexError:
+            die("--revoke-ssh-key requires <key_id>")
+        run_revoke_ssh_key(target_key_id)
     elif "--add-adapter" in sys.argv:
         try:
             idx = sys.argv.index("--add-adapter")

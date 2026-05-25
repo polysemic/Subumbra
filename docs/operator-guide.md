@@ -165,6 +165,12 @@ Encrypted / passphrase-protected SSH private keys are not supported in this
 round. Provide an unencrypted OpenSSH ed25519 key if you are using
 `key_source: provided`.
 
+For the day-to-day SSH workflow, socket setup, host-scoped SSH config, and
+GitHub deploy-key usage, use the dedicated guide:
+
+- [docs/ssh-guide.md](ssh-guide.md)
+- [docs/apps/github/install.md](apps/github/install.md)
+
 ### Checking drift
 
 Compare your manifest against what's actually deployed:

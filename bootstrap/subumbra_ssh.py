@@ -8,7 +8,6 @@ import hashlib
 import json
 import urllib.error
 import urllib.request
-from pathlib import Path
 from typing import Any
 
 from cryptography.exceptions import UnsupportedAlgorithm
@@ -21,15 +20,24 @@ class SshBootstrapError(Exception):
     """Raised when SSH bootstrap operations fail."""
 
 
+def operator_ssh_auth_sock() -> str:
+    return "${XDG_RUNTIME_DIR}/subumbra/ssh-agent.sock"
+
+
 def emit_agent_setup_instructions(public_key: str) -> None:
-    socket_path = "/run/subumbra/ssh-agent.sock"
+    socket_path = operator_ssh_auth_sock()
     print("  SSH agent socket:")
     print(f"    {socket_path}")
     print("  Add to your shell profile:")
     print(f"    export SSH_AUTH_SOCK={socket_path}")
     print("  Add to ~/.ssh/config:")
-    print("    Host *")
+    print("    Match host <HOSTNAME>")
     print(f"        IdentityAgent {socket_path}")
+    print("        IdentitiesOnly no")
+    print("  If you force IdentitiesOnly yes, add a matching IdentityFile or OpenSSH")
+    print("  may ignore agent-backed keys during auth.")
+    print("  Full SSH setup guide:")
+    print("    docs/ssh-guide.md")
     print("  Authorized public key:")
     print(f"    {public_key}")
 
@@ -94,6 +102,7 @@ def build_ssh_record(
     return {
         "key_id": key_id,
         "type": "ssh_key",
+        "provider": "ssh",
         "key_source": key_source,
         "algorithm": "ed25519",
         "public_key": public_key,

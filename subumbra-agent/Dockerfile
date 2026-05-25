@@ -8,4 +8,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY agent.py .
 
+RUN useradd --system --uid 1000 --gid 0 --home-dir /app --shell /usr/sbin/nologin subumbra \
+    && chown -R subumbra:0 /app
+
+USER subumbra
+
 CMD ["python", "agent.py"]

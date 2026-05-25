@@ -15,6 +15,7 @@ const PROVIDER_CLASS = {
   openai:    "provider-openai",
   groq:      "provider-groq",
   deepseek:  "provider-deepseek",
+  ssh:       "provider-unknown",
 };
 
 /* ── Dashboard state ─────────────────────────────────────────── */
@@ -392,6 +393,10 @@ function renderKeysGrid(keys) {
     const pClass  = providerClass(k.provider);
     const relTime = k.last_access ? fmtRelative(k.last_access) : null;
     const created = k.created_at  ? fmtTimestamp(k.created_at) : "—";
+    const sshMeta = k.type === "ssh_key"
+      ? `<div class="key-meta">SSH signs: ${(k.ssh_sign_count || 0).toLocaleString()} · ` +
+        `${k.last_sign_at ? esc(fmtRelative(k.last_sign_at)) : "never signed"}</div>`
+      : "";
     return `
 <article class="key-card" data-key-id="${esc(k.key_id)}" data-provider="${esc(k.provider)}">
   <span class="provider-badge ${esc(pClass)}">${esc(k.provider)}</span>
@@ -400,6 +405,7 @@ function renderKeysGrid(keys) {
       <div class="key-id">${esc(k.key_id)}</div>
       <div class="key-meta">Created: ${esc(created)}</div>
       <div class="key-meta${relTime ? "" : " never"}">${relTime ? `Last used: ${esc(relTime)}` : "Never used"}</div>
+      ${sshMeta}
     </div>
     <div class="key-stats">
       <div class="key-req-count">${(k.request_count || 0).toLocaleString()}</div>
@@ -416,12 +422,17 @@ function renderKeysList(keys) {
   grid.innerHTML = keys.map(k => {
     const pClass  = providerClass(k.provider);
     const relTime = k.last_access ? fmtRelative(k.last_access) : null;
+    const sshLine = k.type === "ssh_key"
+      ? `<div class="key-row-meta">SSH signs: ${(k.ssh_sign_count || 0).toLocaleString()} · ` +
+        `${k.last_sign_at ? esc(fmtRelative(k.last_sign_at)) : "never signed"}</div>`
+      : "";
     return `
 <div class="key-row" data-key-id="${esc(k.key_id)}" data-provider="${esc(k.provider)}">
   <span class="provider-badge ${esc(pClass)}">${esc(k.provider)}</span>
   <div>
     <div class="key-row-id">${esc(k.key_id)}</div>
     <div class="key-row-meta">${relTime ? `Last used: ${esc(relTime)}` : "Never used"}</div>
+    ${sshLine}
   </div>
   <div class="key-row-counts">
     <div class="key-row-req-num">${(k.request_count || 0).toLocaleString()}</div>
@@ -460,6 +471,11 @@ function openKeyDetail(keyId, provider) {
   $("kdm-created").textContent     = k.created_at   ? fmtTimestamp(k.created_at)  : "—";
   $("kdm-last-used").textContent   = k.last_access  ? fmtTimestamp(k.last_access) : "Never";
   $("kdm-req-count").textContent   = (k.request_count || 0).toLocaleString() + " requests";
+  $("kdm-ssh-sign-count").textContent = (k.ssh_sign_count || 0).toLocaleString();
+  $("kdm-last-sign").textContent   = k.last_sign_at ? fmtTimestamp(k.last_sign_at) : "Never";
+  $("kdm-ssh-denials").textContent = Array.isArray(k.ssh_recent_denials) && k.ssh_recent_denials.length
+    ? k.ssh_recent_denials.join(", ")
+    : "—";
   $("kdm-paused").textContent      = fmtBooleanLabel(Boolean(k.paused));
   $("kdm-revoked").textContent     = fmtBooleanLabel(Boolean(k.revoked));
   $("kdm-target-host").textContent = k.target_host  || "—";

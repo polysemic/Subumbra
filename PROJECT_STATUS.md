@@ -1,5 +1,5 @@
 # PROJECT_STATUS
-*Current state — updated 2026-05-24 (r85-ssh-agent closed; implementation `a34c3d5` verified on VPS)*
+*Current state — updated 2026-05-24 (r85-ssh-agent closed; r85-1 SSH daily-use implementation staged locally and pending VPS verification)*
 
 ---
 
@@ -16,6 +16,7 @@ V3 Asymmetric Envelope Encryption (deployed, all three council verifiers PASS).
 - **Session lockdown (r82, verified):** new deployments now initialize a local `sessions.db` with `lockdown_enabled=1`; `GET /keys/<id>` and Worker `POST /proxy` both fail closed until the operator opens one bounded session with `./bootstrap.sh --session start ...`, and read-only session state is visible through `GET /sessions` and the dashboard.
 - **Multi-session isolation (r83, verified):** bootstrap now allows multiple concurrent active sessions when their effective `(adapter_id, key_id)` coverage stays disjoint, writes per-session shadow KV keys shaped as `session_token:<session_id>:<adapter_id>`, maintains adapter-level Worker gates as `active_adapter:<adapter_id>`, and exposes list-shaped `active_sessions` state to `subumbra-keys` clients and the dashboard.
 - **SSH agent bridge (r85, verified):** the stack now ships a local `subumbra-agent` service exposing `/run/subumbra/ssh-agent.sock`, reading metadata-only SSH identities from mounted `keys.json`, and forwarding sign requests through `subumbra-proxy` to Worker `POST /ssh/sign`; end-to-end `ssh`, `git`, `scp`, and `rsync` flows were proven against the live VPS and GitHub fixtures under the existing session gate.
+- **SSH daily-use follow-through (r85-1, pending verification):** implementation now stages host-side `${XDG_RUNTIME_DIR}/subumbra/ssh-agent.sock` wiring, non-root `subumbra-agent`, day-2 `--add-ssh-key` / `--rotate-ssh-key` / `--revoke-ssh-key`, dedicated SSH operator docs, and durable `ssh_sign` audit events surfaced through the dashboard. This is not closed until the VPS proof lane passes.
 
 ---
 

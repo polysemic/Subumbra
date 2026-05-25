@@ -7,6 +7,20 @@ cd "$repo_root"
 env_file=".env"
 bootstrap_file=".env.bootstrap"
 
+require_xdg_runtime_dir() {
+    local xdg_runtime_dir="${XDG_RUNTIME_DIR:-}"
+    if [[ -z "$xdg_runtime_dir" ]]; then
+        echo "ERROR: XDG_RUNTIME_DIR is required for Subumbra SSH agent support." >&2
+        echo "Run bootstrap/update commands as a regular logged-in user so XDG_RUNTIME_DIR is set." >&2
+        exit 1
+    fi
+    if [[ "$xdg_runtime_dir" != /* ]]; then
+        echo "ERROR: XDG_RUNTIME_DIR must be an absolute path (got: $xdg_runtime_dir)." >&2
+        exit 1
+    fi
+    install -d -m 700 "$xdg_runtime_dir/subumbra"
+}
+
 # Discover manifest: prefer subumbra.yaml, fall back to subumbra.json.
 manifest_file=""
 if [[ -f "subumbra.yaml" ]]; then
@@ -19,7 +33,7 @@ fi
 mode=""
 for arg in "$@"; do
     case "$arg" in
-        --upgrade|--nuke|--rotate|--push-registry|--session|--provision|--revoke-key|--add-adapter|--revoke-adapter|--publish-policy|--update-tunnel|--update-access|--nuke-cloudflare|--help|-h|--list-key-ids|--list-adapters|--show|--status)
+        --upgrade|--nuke|--rotate|--add-ssh-key|--rotate-ssh-key|--revoke-ssh-key|--push-registry|--session|--provision|--revoke-key|--add-adapter|--revoke-adapter|--publish-policy|--update-tunnel|--update-access|--nuke-cloudflare|--help|-h|--list-key-ids|--list-adapters|--show|--status)
             mode="$arg"
             break
             ;;
@@ -30,6 +44,7 @@ if [[ -z "$mode" ]]; then
 fi
 
 if [[ "$mode" == "--upgrade" ]]; then
+    require_xdg_runtime_dir
     if [[ ! -f "$env_file" ]]; then
         echo "ERROR: $env_file not found. Create it (e.g. cp .env.example .env), run ./bootstrap.sh once, then use --upgrade." >&2
         exit 1
@@ -141,7 +156,7 @@ if [[ "$mode" == "--rotate" || "$mode" == "--nuke" || -z "$mode" ]]; then
         "${volume_args[@]}" \
         "${env_args[@]}" \
         bootstrap "$@" || bootstrap_rc=$?
-elif [[ "$mode" == "--push-registry" || "$mode" == "--session" || "$mode" == "--provision" || "$mode" == "--revoke-key" || "$mode" == "--add-adapter" || "$mode" == "--revoke-adapter" || "$mode" == "--publish-policy" || "$mode" == "--update-tunnel" || "$mode" == "--update-access" || "$mode" == "--nuke-cloudflare" || "$mode" == "--status" ]]; then
+elif [[ "$mode" == "--push-registry" || "$mode" == "--session" || "$mode" == "--provision" || "$mode" == "--revoke-key" || "$mode" == "--add-ssh-key" || "$mode" == "--rotate-ssh-key" || "$mode" == "--revoke-ssh-key" || "$mode" == "--add-adapter" || "$mode" == "--revoke-adapter" || "$mode" == "--publish-policy" || "$mode" == "--update-tunnel" || "$mode" == "--update-access" || "$mode" == "--nuke-cloudflare" || "$mode" == "--status" ]]; then
     if [[ -t 0 ]]; then
         run_io_flags=(-it)
     else
@@ -182,6 +197,7 @@ PY
 fi
 
 if [[ $bootstrap_rc -eq 0 && ( -z "$mode" || "$mode" == "--nuke" ) ]]; then
+    require_xdg_runtime_dir
     echo ""
     echo "▶  Starting / refreshing core stack (docker compose up -d --force-recreate)"
     docker compose up -d --force-recreate

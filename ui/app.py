@@ -228,6 +228,36 @@ def api_status():
     if audit_available and audit_data:
         audit_events = audit_data.get("events", [])
 
+    ssh_stats: dict[str, dict[str, object]] = {}
+    for entry in audit_events:
+        if entry.get("endpoint") != "ssh_sign":
+            continue
+        key_id = entry.get("key_id")
+        if not isinstance(key_id, str) or not key_id:
+            continue
+        stats = ssh_stats.setdefault(
+            key_id,
+            {
+                "ssh_sign_count": 0,
+                "last_sign_at": None,
+                "recent_denials": [],
+            },
+        )
+        if entry.get("verdict") == "allow":
+            stats["ssh_sign_count"] = int(stats["ssh_sign_count"]) + 1
+            timestamp = entry.get("timestamp")
+            if isinstance(timestamp, str) and timestamp:
+                current = stats.get("last_sign_at")
+                if not isinstance(current, str) or timestamp > current:
+                    stats["last_sign_at"] = timestamp
+        elif entry.get("verdict") == "deny":
+            reason_code = entry.get("reason_code")
+            if isinstance(reason_code, str) and reason_code:
+                recent_denials = stats["recent_denials"]
+                if isinstance(recent_denials, list) and reason_code not in recent_denials:
+                    recent_denials.append(reason_code)
+                    del recent_denials[3:]
+
     session_data, session_err = _subumbra_get("/sessions")
     active_sessions = (session_data or {}).get("active_sessions", []) if session_err is None else []
 
@@ -235,12 +265,17 @@ def api_status():
     for key in keys_list:
         kid = key["key_id"]
         s = stats_map.get(kid, {})
+        ssh = ssh_stats.get(kid, {})
         merged_keys.append({
             "key_id": kid,
+            "type": key.get("type", "api_key"),
             "provider": key.get("provider", "unknown"),
             "created_at": key.get("created_at", ""),
             "request_count": s.get("request_count", 0),
             "last_access": s.get("last_access"),
+            "ssh_sign_count": ssh.get("ssh_sign_count", 0),
+            "last_sign_at": ssh.get("last_sign_at"),
+            "ssh_recent_denials": ssh.get("recent_denials", []),
             "policy_id": key.get("policy_id"),
             "policy_hash": key.get("policy_hash"),
             "vault_instance": key.get("vault_instance"),

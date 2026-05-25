@@ -681,7 +681,7 @@ export class SubumbraVault {
       const createdAt = new Date().toISOString();
 
       this.state.storage.sql.exec(
-        "INSERT INTO ssh_keys (key_id, private_key_pkcs8, public_key_raw, public_key_ssh, algorithm, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT OR REPLACE INTO ssh_keys (key_id, private_key_pkcs8, public_key_raw, public_key_ssh, algorithm, created_at) VALUES (?, ?, ?, ?, ?, ?)",
         payload.key_id,
         privateKeyPkcs8,
         publicKeyRaw,
@@ -756,7 +756,7 @@ export class SubumbraVault {
       const createdAt = new Date().toISOString();
 
       this.state.storage.sql.exec(
-        "INSERT INTO ssh_keys (key_id, private_key_pkcs8, public_key_raw, public_key_ssh, algorithm, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT OR REPLACE INTO ssh_keys (key_id, private_key_pkcs8, public_key_raw, public_key_ssh, algorithm, created_at) VALUES (?, ?, ?, ?, ?, ?)",
         payload.key_id,
         new Uint8Array(pkcs8Bytes),
         publicKeyRaw,
