@@ -24,6 +24,34 @@ Important:
 
 On the standard Subumbra VPS, the operator user is UID/GID `1000`, and `docker-compose.yml` pins `subumbra-agent` to `user: "1000:1000"`. If your system uses a different UID/GID, adjust that Compose value to match your operator account.
 
+### How to find your host UID and GID
+
+Run the following commands on your host server to find the correct numbers:
+```bash
+id -u  # prints your current User ID (UID)
+id -g  # prints your current Group ID (GID)
+```
+
+### Security Architecture: UID/GID matching & isolation
+
+For the seamless daily operation of SSH tools like `git`, `rsync`, and `ssh`, **the `subumbra-agent` container's UID/GID must match the exact host UID/GID of the user executing the SSH or Git commands.**
+
+#### Why? (Unix Socket Permissions)
+An SSH agent communicates via a Unix domain socket file (`ssh-agent.sock`). To prevent unauthorized local processes from accessing your keys, Unix domain sockets are protected by standard filesystem permissions. When the `subumbra-agent` creates the socket, only processes owned by the **exact same UID** can read or write to it. If you ran the agent container under a different user (e.g. a separate `subumbra` system account) and tried to run `git clone` or `ssh` from your normal account, the client would get a `Permission denied` error.
+
+#### Best Practice for High-Security Deployments
+If you are highly security-conscious and want maximum local isolation, **do not share your primary personal user account with Subumbra**. Instead:
+
+1. **Create a dedicated host user account** (e.g., `subumbra-ops`):
+   ```bash
+   sudo adduser subumbra-ops
+   ```
+2. **Log in to that account** to run your deployments, automation scripts, and Git workflows.
+3. Find that user's UID and GID (`id -u` / `id -g`).
+4. Pin the `subumbra-agent` container in `docker-compose.yml` to that exact UID/GID (e.g., `user: "1001:1001"`).
+5. All SSH-gated processes (like backup cron jobs or Git-sync workflows) will run cleanly inside that isolated user's session.
+
+
 ## SSH config
 
 Start with a host-scoped block, not `Host *`:
