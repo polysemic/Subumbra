@@ -112,6 +112,9 @@
         <h2 class="panel-title">
           Recent Requests <span class="log-count" id="log-count"></span>
         </h2>
+        <div style="display:flex;align-items:center;gap:var(--space-3);">
+          <a class="panel-meta" href="/?audit=ssh_sign">SSH audit</a>
+        </div>
       </div>
       <div class="log-scroll">
         <table class="log-table" aria-label="Request log">
@@ -122,13 +125,14 @@
               <th scope="col">Endpoint</th>
               <th scope="col">Key ID</th>
               <th scope="col">Provider</th>
+              <th scope="col">Target Host</th>
               <th scope="col">Remote</th>
               <th scope="col">Verdict</th>
               <th scope="col">Reason</th>
             </tr>
           </thead>
           <tbody id="log-body">
-            <tr><td colspan="8" class="empty-state">Loading…</td></tr>
+            <tr><td colspan="9" class="empty-state">Loading…</td></tr>
           </tbody>
         </table>
       </div>

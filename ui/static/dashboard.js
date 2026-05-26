@@ -220,10 +220,13 @@ function renderSession(data) {
     const quotaLabel = session.max_queries == null
       ? "unlimited queries"
       : `${session.queries_used}/${session.max_queries} queries`;
+    const sshQuotaLabel = session.max_sign_ops == null
+      ? "unlimited SSH signs"
+      : `${session.ssh_sign_count}/${session.max_sign_ops} SSH signs`;
 
     panel.hidden = false;
     dot.className = "session-dot active";
-    text.textContent = `${session.name || session.session_id} — ${scopeAdapters} — ${scopeKeys} — ${quotaLabel}`;
+    text.textContent = `${session.name || session.session_id} — ${scopeAdapters} — ${scopeKeys} — ${quotaLabel} — ${sshQuotaLabel}`;
     list.hidden = true;
     list.innerHTML = "";
     ttl.textContent = fmtDurationSeconds(remainingSeconds);
@@ -243,10 +246,13 @@ function renderSession(data) {
     const quotaLabel = session.max_queries == null
       ? "unlimited queries"
       : `${session.queries_used}/${session.max_queries} queries`;
+    const sshQuotaLabel = session.max_sign_ops == null
+      ? "unlimited SSH signs"
+      : `${session.ssh_sign_count}/${session.max_sign_ops} SSH signs`;
     const ttlLabel = fmtDurationSeconds(remainingSeconds);
     return (
       `<div>${esc(session.name || session.session_id)} — ${esc(scopeAdapters)} — ` +
-      `${esc(scopeKeys)} — ${esc(quotaLabel)} — ${esc(ttlLabel)}</div>`
+      `${esc(scopeKeys)} — ${esc(quotaLabel)} — ${esc(sshQuotaLabel)} — ${esc(ttlLabel)}</div>`
     );
   });
 
@@ -277,11 +283,11 @@ function renderLog(log, auditAvailable) {
   $("log-count").textContent = log.length ? `(${log.length} entries)` : "";
 
   if (!auditAvailable) {
-    tbody.innerHTML = `<tr><td colspan="8" class="empty-state">Audit trail unavailable. See warning above.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" class="empty-state">Audit trail unavailable. See warning above.</td></tr>`;
     return;
   }
   if (!log.length) {
-    tbody.innerHTML = `<tr><td colspan="8" class="empty-state">No requests recorded yet.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" class="empty-state">No requests recorded yet.</td></tr>`;
     return;
   }
 
@@ -299,6 +305,7 @@ function renderLog(log, auditAvailable) {
   <td>${esc(entry.endpoint ?? "—")}</td>
   <td class="td-mono">${esc(entry.key_id ?? "—")}</td>
   <td><span class="provider-badge ${esc(pClass)}">${esc(prov)}</span></td>
+  <td class="td-mono">${esc(entry.target_host ?? "—")}</td>
   <td class="td-muted">${esc(entry.remote ?? "—")}</td>
   <td class="${vClass}">${esc(entry.verdict ?? "—")}</td>
   <td>${esc(entry.reason_code ?? "—")}</td>
@@ -332,7 +339,8 @@ function applyStatus(data) {
 /* One-shot fetch — used on init and manual refresh button */
 async function loadStatus() {
   try {
-    const resp = await fetch("/api/status");
+    const query = window.location.search || "";
+    const resp = await fetch(`/api/status${query}`);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     applyStatus(await resp.json());
   } catch (err) {

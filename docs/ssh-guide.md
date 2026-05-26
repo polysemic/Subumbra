@@ -76,11 +76,24 @@ Subumbra is locked by default. Before SSH use, open a scoped session:
 ./bootstrap.sh --session start --ttl 8h --adapters sshtest --keys github_vps_test
 ```
 
+If you want a separate SSH-sign quota for the session, add `--max-sign-ops`:
+
+```bash
+./bootstrap.sh --session start --ttl 8h --adapters sshtest --keys github_vps_test --max-sign-ops 10
+```
+
 Recommended daily-use pattern:
 
 - `--ttl 8h` for a normal workday
 - `--adapters sshtest` or your specific SSH adapter
 - `--keys <ssh_key_id>` for the minimum key scope you need
+- `--max-sign-ops <n>` only when you want a hard cap on signatures successfully issued by Subumbra for that session
+
+Important quota note:
+
+- `--max-sign-ops` is separate from `--max-queries`
+- `max_sign_ops` counts signatures successfully issued by Subumbra at the Worker/VaultDO boundary
+- downstream GitHub or remote SSH server acceptance is not part of that quota
 
 Check status with:
 
@@ -93,6 +106,18 @@ Close access when you are done:
 ```bash
 ./bootstrap.sh --session end --all
 ```
+
+## SSH audit trail
+
+SSH audit rows are queried with:
+
+```bash
+docker compose exec -T subumbra-keys \
+  curl -sS http://127.0.0.1:9090/audit?endpoint=ssh_sign \
+  -H "X-Subumbra-Token: ${SUBUMBRA_TOKEN_UI}"
+```
+
+When the SSH agent provides verified destination binding, Subumbra stores that verified host fingerprint in `target_host`.
 
 ## Verifying the agent
 

@@ -506,7 +506,9 @@ def _open_session_db() -> sqlite3.Connection:
                 allowed_adapters  TEXT,
                 allowed_keys      TEXT,
                 max_queries       INTEGER,
+                max_sign_ops      INTEGER,
                 queries_used      INTEGER NOT NULL DEFAULT 0,
+                ssh_sign_count    INTEGER NOT NULL DEFAULT 0,
                 created_at        TEXT NOT NULL,
                 expires_at        TEXT NOT NULL,
                 status            TEXT NOT NULL
@@ -524,6 +526,14 @@ def _open_session_db() -> sqlite3.Connection:
         if "session_type" not in existing_columns:
             conn.execute(
                 "ALTER TABLE sessions ADD COLUMN session_type TEXT NOT NULL DEFAULT 'operator'"
+            )
+        if "max_sign_ops" not in existing_columns:
+            conn.execute(
+                "ALTER TABLE sessions ADD COLUMN max_sign_ops INTEGER"
+            )
+        if "ssh_sign_count" not in existing_columns:
+            conn.execute(
+                "ALTER TABLE sessions ADD COLUMN ssh_sign_count INTEGER NOT NULL DEFAULT 0"
             )
         conn.execute(
             """
@@ -579,7 +589,9 @@ def _session_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "allowed_adapters": _session_scope_from_db_value(row["allowed_adapters"]),
         "allowed_keys": _session_scope_from_db_value(row["allowed_keys"]),
         "max_queries": row["max_queries"],
+        "max_sign_ops": row["max_sign_ops"],
         "queries_used": row["queries_used"],
+        "ssh_sign_count": row["ssh_sign_count"],
         "created_at": row["created_at"],
         "expires_at": row["expires_at"],
         "status": row["status"],
@@ -604,7 +616,8 @@ def _list_active_session_rows(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     return conn.execute(
         """
         SELECT session_id, name, allowed_adapters, allowed_keys, max_queries,
-               queries_used, created_at, expires_at, status, owner_id, session_type
+               max_sign_ops, queries_used, ssh_sign_count, created_at, expires_at,
+               status, owner_id, session_type
         FROM sessions
         WHERE status = 'active'
         ORDER BY created_at DESC
@@ -617,7 +630,8 @@ def _get_session_row_by_id(conn: sqlite3.Connection, session_id: str) -> sqlite3
     return conn.execute(
         """
         SELECT session_id, name, allowed_adapters, allowed_keys, max_queries,
-               queries_used, created_at, expires_at, status, owner_id, session_type
+               max_sign_ops, queries_used, ssh_sign_count, created_at, expires_at,
+               status, owner_id, session_type
         FROM sessions
         WHERE session_id = ?
         LIMIT 1
@@ -4624,6 +4638,18 @@ def _effective_session_key_ids(session_dict: dict[str, Any]) -> list[str]:
     return sorted(dict.fromkeys(str(key_id) for key_id in allowed_keys))
 
 
+def _ssh_session_scope_key(adapter_id: str, key_id: str) -> str:
+    return f"ssh_session_scope:{adapter_id}:{key_id}"
+
+
+def _ssh_session_scope_pairs(session_dict: dict[str, Any]) -> list[tuple[str, str]]:
+    return [
+        (adapter_id, key_id)
+        for adapter_id in _effective_session_adapter_ids(session_dict)
+        for key_id in _effective_session_key_ids(session_dict)
+    ]
+
+
 def _session_remaining_ttl_seconds(session_dict: dict[str, Any], now: datetime | None = None) -> int:
     current_time = now or datetime.now(timezone.utc)
     expires_at = datetime.fromisoformat(str(session_dict["expires_at"]).replace("Z", "+00:00"))
@@ -4726,7 +4752,9 @@ def _print_session_row(prefix: str, row_dict: dict[str, Any]) -> None:
     print(f"{prefix}allowed_adapters={_format_session_scope(row_dict['allowed_adapters'])}")
     print(f"{prefix}allowed_keys={_format_session_scope(row_dict['allowed_keys'])}")
     print(f"{prefix}max_queries={row_dict['max_queries'] if row_dict['max_queries'] is not None else 'unlimited'}")
+    print(f"{prefix}max_sign_ops={row_dict['max_sign_ops'] if row_dict['max_sign_ops'] is not None else 'unlimited'}")
     print(f"{prefix}queries_used={row_dict['queries_used']}")
+    print(f"{prefix}ssh_sign_count={row_dict['ssh_sign_count']}")
     print(f"{prefix}created_at={_fmt_utc_ts(str(row_dict['created_at']))}")
     print(f"{prefix}expires_at={_fmt_utc_ts(str(row_dict['expires_at']))}")
 
@@ -4735,10 +4763,10 @@ def _session_wizard(
     args: list[str],
     static_adapters: dict[str, dict[str, Any]],
     live_key_ids: list[str],
-) -> tuple[str, str, str | None, str | None, str | None]:
+) -> tuple[str, str, str | None, str | None, str | None, str | None]:
     """Interactive wizard for --session start when args are missing.
 
-    Returns (ttl_raw, adapters_raw, keys_raw, name, max_queries_raw).
+    Returns (ttl_raw, adapters_raw, keys_raw, name, max_queries_raw, max_sign_ops_raw).
     Entry modes:
       - adapter-first: --adapters provided, only keys for those adapters shown
       - key-first:     --keys provided, only adapters that include those keys shown
@@ -4762,6 +4790,7 @@ def _session_wizard(
     keys_raw = _session_arg_value(args, "--keys")
     name = (_session_arg_value(args, "--name") or "").strip() or None
     max_queries_raw = _session_arg_value(args, "--max-queries")
+    max_sign_ops_raw = _session_arg_value(args, "--max-sign-ops")
 
     print("\n=== Subumbra session wizard ===")
 
@@ -4875,8 +4904,13 @@ def _session_wizard(
         if raw_mq:
             max_queries_raw = raw_mq
 
+    if max_sign_ops_raw is None:
+        raw_mso = input("Max SSH signs (optional, enter for unlimited): ").strip()
+        if raw_mso:
+            max_sign_ops_raw = raw_mso
+
     print()
-    return ttl_raw, adapters_raw or "all", keys_raw, name, max_queries_raw
+    return ttl_raw, adapters_raw or "all", keys_raw, name, max_queries_raw, max_sign_ops_raw
 
 
 def run_session_start() -> None:
@@ -4889,12 +4923,13 @@ def run_session_start() -> None:
     keys_raw = _session_arg_value(args, "--keys")
     name = (_session_arg_value(args, "--name") or "").strip() or None
     max_queries_raw = _session_arg_value(args, "--max-queries")
+    max_sign_ops_raw = _session_arg_value(args, "--max-sign-ops")
 
     wizard_needed = ttl_raw is None or adapters_raw is None
     if wizard_needed:
         static_adapters = _load_active_session_static_adapters()
         live_key_ids = _load_live_key_ids()
-        ttl_raw, adapters_raw, keys_raw, name, max_queries_raw = _session_wizard(
+        ttl_raw, adapters_raw, keys_raw, name, max_queries_raw, max_sign_ops_raw = _session_wizard(
             args, static_adapters, live_key_ids
         )
     elif ttl_raw is None:
@@ -4913,6 +4948,14 @@ def run_session_start() -> None:
             die("--max-queries must be an integer")
         if max_queries <= 0:
             die("--max-queries must be greater than zero")
+    max_sign_ops: int | None = None
+    if max_sign_ops_raw is not None:
+        try:
+            max_sign_ops = int(max_sign_ops_raw)
+        except ValueError:
+            die("--max-sign-ops must be an integer")
+        if max_sign_ops <= 0:
+            die("--max-sign-ops must be greater than zero")
 
     conn = _open_session_db()
     now = datetime.now(timezone.utc)
@@ -4927,7 +4970,9 @@ def run_session_start() -> None:
         "allowed_adapters": stored_adapter_scope,
         "allowed_keys": stored_key_scope,
         "max_queries": max_queries,
+        "max_sign_ops": max_sign_ops,
         "queries_used": 0,
+        "ssh_sign_count": 0,
         "created_at": created_at,
         "expires_at": expires_at,
         "status": "pending",
@@ -4948,8 +4993,9 @@ def run_session_start() -> None:
         """
         INSERT INTO sessions (
             session_id, name, allowed_adapters, allowed_keys, max_queries,
-            queries_used, created_at, expires_at, status, owner_id, session_type
-        ) VALUES (?, ?, ?, ?, ?, 0, ?, ?, 'pending', ?, ?)
+            max_sign_ops, queries_used, ssh_sign_count, created_at, expires_at,
+            status, owner_id, session_type
+        ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?, 'pending', ?, ?)
         """,
         (
             session_id,
@@ -4957,6 +5003,7 @@ def run_session_start() -> None:
             _session_scope_to_db_value(stored_adapter_scope),
             _session_scope_to_db_value(stored_key_scope),
             max_queries,
+            max_sign_ops,
             created_at,
             expires_at,
             owner_id,
@@ -4966,7 +5013,14 @@ def run_session_start() -> None:
     conn.commit()
 
     written_shadow_keys: list[str] = []
+    written_scope_keys: list[str] = []
     try:
+        for adapter_id, key_id in _ssh_session_scope_pairs(candidate_session):
+            _kv_delete_key(
+                cf_creds,
+                namespace_id,
+                _ssh_session_scope_key(adapter_id, key_id),
+            )
         for adapter_id in effective_adapter_ids:
             kv_key = f"session_token:{session_id}:{adapter_id}"
             _kv_put_text_value(
@@ -4977,6 +5031,26 @@ def run_session_start() -> None:
                 expiration_ttl=ttl_seconds,
             )
             written_shadow_keys.append(kv_key)
+        if max_sign_ops is not None:
+            for adapter_id, key_id in _ssh_session_scope_pairs(candidate_session):
+                scope_key = _ssh_session_scope_key(adapter_id, key_id)
+                _kv_put_text_value(
+                    cf_creds,
+                    namespace_id,
+                    scope_key,
+                    json.dumps(
+                        {
+                            "session_id": session_id,
+                            "adapter_id": adapter_id,
+                            "key_id": key_id,
+                            "expires_at": expires_at,
+                            "max_sign_ops": max_sign_ops,
+                        },
+                        separators=(",", ":"),
+                    ),
+                    expiration_ttl=ttl_seconds,
+                )
+                written_scope_keys.append(scope_key)
 
         conn.execute(
             "UPDATE sessions SET status = 'active' WHERE session_id = ?",
@@ -4997,6 +5071,11 @@ def run_session_start() -> None:
         for kv_key in written_shadow_keys:
             try:
                 _kv_delete_key(cf_creds, namespace_id, kv_key)
+            except SystemExit:
+                pass
+        for scope_key in written_scope_keys:
+            try:
+                _kv_delete_key(cf_creds, namespace_id, scope_key)
             except SystemExit:
                 pass
         conn.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
@@ -5022,6 +5101,8 @@ def run_session_start() -> None:
     info(f"allowed_keys={_format_session_scope(stored_key_scope)}")
     if max_queries is not None:
         info(f"max_queries={max_queries}")
+    if max_sign_ops is not None:
+        info(f"max_sign_ops={max_sign_ops}")
 
 
 def run_session_end() -> None:
@@ -5098,6 +5179,13 @@ def run_session_end() -> None:
                 namespace_id,
                 f"session_token:{session_dict['session_id']}:{adapter_id}",
             )
+        if session_dict["max_sign_ops"] is not None:
+            for adapter_id, key_id in _ssh_session_scope_pairs(session_dict):
+                _kv_delete_key(
+                    cf_creds,
+                    namespace_id,
+                    _ssh_session_scope_key(adapter_id, key_id),
+                )
         conn.execute(
             "UPDATE sessions SET status = 'closed' WHERE session_id = ? AND status = 'active'",
             (session_dict["session_id"],),
@@ -5141,7 +5229,8 @@ def run_session_list() -> None:
     rows = conn.execute(
         """
         SELECT session_id, name, allowed_adapters, allowed_keys, max_queries,
-               queries_used, created_at, expires_at, status, owner_id, session_type
+               max_sign_ops, queries_used, ssh_sign_count, created_at, expires_at,
+               status, owner_id, session_type
         FROM sessions
         ORDER BY created_at DESC
         LIMIT 20
@@ -6516,6 +6605,7 @@ Options:
     --keys <csv|all>            Keys to allow. Omit or pass 'all' for all.
     --name <label>              Optional human-readable label for this session.
     --max-queries <n>           Optional query cap before the session auto-closes.
+    --max-sign-ops <n>          Optional SSH sign cap before the session auto-closes.
     (If --ttl or --adapters are omitted on a TTY, an interactive wizard starts.)
   --session end [session_id]  Close one active session immediately.
     --all                       Close every active session.

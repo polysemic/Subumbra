@@ -193,6 +193,7 @@ async def post_audit_event(
     source_adapter_id: str,
     key_id: str,
     endpoint: str,
+    target_host: str | None = None,
     verdict: str,
     reason_code: str,
 ) -> None:
@@ -214,6 +215,7 @@ async def post_audit_event(
                 "endpoint": endpoint,
                 "verdict": verdict,
                 "reason_code": reason_code,
+                "target_host": target_host,
             },
             timeout=10.0,
         )
@@ -244,6 +246,77 @@ async def post_audit_event(
         key_id,
         verdict,
         reason_code,
+    )
+
+
+def parse_session_sign_headers(headers: httpx.Headers) -> dict[str, object] | None:
+    session_id = headers.get("X-Subumbra-Session-Id")
+    sign_count = headers.get("X-Subumbra-Sign-Count")
+    sign_limit = headers.get("X-Subumbra-Sign-Limit")
+    limit_reached = headers.get("X-Subumbra-Sign-Limit-Reached")
+    if not session_id:
+        return None
+    try:
+        parsed_count = int(sign_count or "")
+        parsed_limit = int(sign_limit or "")
+    except ValueError:
+        return None
+    if parsed_count < 0 or parsed_limit <= 0:
+        return None
+    return {
+        "session_id": session_id,
+        "ssh_sign_count": parsed_count,
+        "sign_limit": parsed_limit,
+        "limit_reached": limit_reached == "1",
+    }
+
+
+async def reflect_session_sign(*, session_metadata: dict[str, object], adapter_id: str) -> None:
+    session_id = str(session_metadata["session_id"])
+    ssh_sign_count = int(session_metadata["ssh_sign_count"])
+    limit_reached = bool(session_metadata["limit_reached"])
+    try:
+        response = await CLIENT.post(
+            f"{SUBUMBRA_KEYS_URL}/internal/session-ssh-sign",
+            headers={
+                **subumbra_headers(
+                    session_id,
+                    adapter_id=AUDIT_WRITER_ADAPTER_ID,
+                    adapter_token=SUBUMBRA_ACCESS_TOKEN,
+                ),
+                "Content-Type": "application/json",
+                "X-Subumbra-Token": SUBUMBRA_ACCESS_TOKEN,
+            },
+            json={
+                "session_id": session_id,
+                "ssh_sign_count": ssh_sign_count,
+                "limit_reached": limit_reached,
+            },
+            timeout=10.0,
+        )
+    except httpx.RequestError as exc:
+        LOG.warning(
+            "ssh-sign session reflection failure adapter=%s session_id=%s reason=request_error error=%s",
+            adapter_id,
+            session_id,
+            type(exc).__name__,
+        )
+        return
+    if response.status_code != 200:
+        LOG.warning(
+            "ssh-sign session reflection failure adapter=%s session_id=%s status=%s body=%s",
+            adapter_id,
+            session_id,
+            response.status_code,
+            response.text.strip(),
+        )
+        return
+    LOG.info(
+        "ssh-sign session reflected adapter=%s session_id=%s ssh_sign_count=%s limit_reached=%s",
+        adapter_id,
+        session_id,
+        ssh_sign_count,
+        str(limit_reached).lower(),
     )
 
 
@@ -624,6 +697,7 @@ async def handle_ssh_sign_request(key_id: str, request: Request):
     )
     LOG.info("ssh-sign request adapter=%s key_id=%s", adapter_id, key_id)
     worker_resp = await CLIENT.send(worker_req, stream=True)
+    session_metadata = parse_session_sign_headers(worker_resp.headers)
 
     response_headers: dict[str, str] = {}
     for header_key, header_value in worker_resp.headers.items():
@@ -648,9 +722,12 @@ async def handle_ssh_sign_request(key_id: str, request: Request):
             source_adapter_id=adapter_id,
             key_id=key_id,
             endpoint="ssh_sign",
+            target_host=verified_host_fingerprint,
             verdict="deny",
             reason_code=reason_code,
         )
+        if session_metadata is not None:
+            await reflect_session_sign(session_metadata=session_metadata, adapter_id=adapter_id)
         LOG.warning(
             "ssh-sign complete adapter=%s key_id=%s status=%s",
             adapter_id,
@@ -665,9 +742,12 @@ async def handle_ssh_sign_request(key_id: str, request: Request):
         source_adapter_id=adapter_id,
         key_id=key_id,
         endpoint="ssh_sign",
+        target_host=verified_host_fingerprint,
         verdict="allow",
         reason_code="allowed",
     )
+    if session_metadata is not None:
+        await reflect_session_sign(session_metadata=session_metadata, adapter_id=adapter_id)
     LOG.info("ssh-sign complete adapter=%s key_id=%s status=%s", adapter_id, key_id, worker_resp.status_code)
     return StreamingResponse(
         worker_resp.aiter_bytes(),
