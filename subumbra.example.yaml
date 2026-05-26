@@ -70,6 +70,33 @@
 
 keys:
 
+  # ── SSH Keys ────────────────────────────────────────────────────────────────
+  # Subumbra can hold SSH keys alongside provider API keys.
+  # Generated keys stay inside the Cloudflare vault; provided keys resolve from
+  # secret_ref and currently require an unencrypted OpenSSH ed25519 private key.
+  #
+  # - key_id: workstation_ssh
+  #   type: ssh_key
+  #   key_source: generated
+  #   adapters: [sshtest]
+  #   unique_vault: false
+  #
+  # - key_id: github_deploy_ssh
+  #   type: ssh_key
+  #   key_source: generated
+  #   adapters: [sshtest]
+  #   unique_vault: false
+  #   allow:
+  #     hosts:
+  #       - github.com           # resolved to the verified GitHub host-key fingerprint at bootstrap
+  #
+  # - key_id: imported_deploy_ssh
+  #   type: ssh_key
+  #   key_source: provided
+  #   secret_ref: DEPLOY_SSH_KEY
+  #   adapters: [sshtest]
+  #   unique_vault: false
+
   # ── Anthropic ──────────────────────────────────────────────────────────────
   # Anthropic Messages API — Claude 3, 3.5, 3.7, and future models.
   # Auth: x-api-key header (not bearer — see header_name below).

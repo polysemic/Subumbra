@@ -185,6 +185,7 @@ const VAULT_RATE_CHECK_PATH = "/rate-check";
 const AUTH_RATE_LIMITS = {
   "auth-ping": 20,
   "manage-key": 20,
+  "proxy": 120,
   "setup-keygen": 5,
   "ssh-keygen": 3,
   "ssh-import": 3,
@@ -433,6 +434,9 @@ function parseSshSessionScopeMetadata(rawValue, expectedAdapterId, expectedKeyId
   const expiresAtMs = Date.parse(parsed.expires_at);
   if (!Number.isFinite(expiresAtMs)) {
     throw new Error("invalid ssh expires_at");
+  }
+  if (expiresAtMs <= Date.now()) {
+    throw new Error("expired ssh expires_at");
   }
   if (!Object.prototype.hasOwnProperty.call(parsed, "max_sign_ops")) {
     throw new Error("missing ssh max_sign_ops");
@@ -2264,6 +2268,10 @@ async function handleAuthPing(request, env) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function handleProxy(request, env) {
+  const rateLimitResponse = await checkAuthRateLimit(request, env, "proxy");
+  if (rateLimitResponse) {
+    return rateLimitResponse;
+  }
   const auth = await authorizeRequest(request, env);
   if (!auth.ok) {
     return auth.response;
@@ -2597,6 +2605,7 @@ async function handleProxy(request, env) {
   // ── 7. Scan or stream DO response back to caller ──────────────────────────
   const responseHeaders = new Headers(doResponse.headers);
   responseHeaders.set("X-Subumbra-Provider", registryEntry.provider_id);  // audit trail
+  responseHeaders.set("cache-control", "no-store");
 
   const denyPatterns = registryEntry.deny_patterns;
   const contentType = (doResponse.headers.get("content-type") ?? "").toLowerCase();
