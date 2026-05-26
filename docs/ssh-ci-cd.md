@@ -164,7 +164,7 @@ deploy:
     - self-hosted-subumbra
   script:
     - ssh-add -L
-    - git clone git@github.com:org/private-repo.git
+    - git clone git@gitlab.com:org/private-repo.git
 ```
 
 ### GitLab Model 2: Autonomous (Uses CI Variables for Cloudflare Creds)
@@ -183,7 +183,7 @@ deploy:
         --ttl 30m --adapters ci_runner --keys gitlab_deploy_key --max-sign-ops 20
   script:
     - ssh-add -L
-    - git clone git@github.com:org/private-repo.git
+    - git clone git@gitlab.com:org/private-repo.git
   after_script:
     - cd /opt/subumbra && ./bootstrap.sh --session end --all
 ```
