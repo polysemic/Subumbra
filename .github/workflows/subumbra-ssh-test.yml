@@ -20,18 +20,6 @@ jobs:
     runs-on: [self-hosted, linux]
 
     steps:
-      - name: Open Subumbra session
-        env:
-          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-        run: |
-          cd /opt/subumbra
-          ./bootstrap.sh --session start \
-            --ttl 30m \
-            --adapters sshtest \
-            --keys github_vps_test \
-            --max-sign-ops 20
-
       - name: Set SSH_AUTH_SOCK
         run: |
           echo "SSH_AUTH_SOCK=${XDG_RUNTIME_DIR:-/run/user/1000}/subumbra/ssh-agent.sock" >> "$GITHUB_ENV"
@@ -57,10 +45,3 @@ jobs:
         uses: actions/checkout@v4
         with:
           ssh-key: ''
-
-      - name: Close Subumbra session
-        if: always()
-        env:
-          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-        run: cd /opt/subumbra && ./bootstrap.sh --session end --all
