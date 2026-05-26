@@ -48,6 +48,7 @@ import hmac
 import json
 import logging
 import os
+import re
 import sqlite3
 import time
 from dataclasses import dataclass
@@ -72,6 +73,9 @@ if AUDIT_MAX_ROWS <= 0:
     AUDIT_MAX_ROWS = 10000
 if SUBUMBRA_RATE_LIMIT_RPM <= 0:
     SUBUMBRA_RATE_LIMIT_RPM = 60
+
+SSH_HOST_FINGERPRINT_RE = re.compile(r"^SHA256:[A-Za-z0-9+/]{43}$")
+AUDIT_ENDPOINT_FILTERS = {"ssh_sign", "get_key", "stats", "audit", "sessions"}
 
 _required = ("SUBUMBRA_ADAPTER_REGISTRY", "SUBUMBRA_HMAC_KEY")
 for _var in _required:
@@ -357,12 +361,19 @@ def _init_audit_db() -> sqlite3.Connection | None:
                 adapter_id TEXT,
                 endpoint TEXT NOT NULL,
                 key_id TEXT,
+                target_host TEXT,
                 verdict TEXT NOT NULL,
                 reason_code TEXT NOT NULL,
                 remote TEXT
             )
             """
         )
+        existing_columns = {
+            str(row[1])
+            for row in conn.execute("PRAGMA table_info(audit_events)").fetchall()
+        }
+        if "target_host" not in existing_columns:
+            conn.execute("ALTER TABLE audit_events ADD COLUMN target_host TEXT")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS auth_attempts (
@@ -400,7 +411,9 @@ def _init_session_db() -> sqlite3.Connection | None:
                 allowed_adapters  TEXT,
                 allowed_keys      TEXT,
                 max_queries       INTEGER,
+                max_sign_ops      INTEGER,
                 queries_used      INTEGER NOT NULL DEFAULT 0,
+                ssh_sign_count    INTEGER NOT NULL DEFAULT 0,
                 created_at        TEXT NOT NULL,
                 expires_at        TEXT NOT NULL,
                 status            TEXT NOT NULL
@@ -418,6 +431,12 @@ def _init_session_db() -> sqlite3.Connection | None:
         if "session_type" not in existing_columns:
             conn.execute(
                 "ALTER TABLE sessions ADD COLUMN session_type TEXT NOT NULL DEFAULT 'operator'"
+            )
+        if "max_sign_ops" not in existing_columns:
+            conn.execute("ALTER TABLE sessions ADD COLUMN max_sign_ops INTEGER")
+        if "ssh_sign_count" not in existing_columns:
+            conn.execute(
+                "ALTER TABLE sessions ADD COLUMN ssh_sign_count INTEGER NOT NULL DEFAULT 0"
             )
         conn.execute(
             """
@@ -475,7 +494,9 @@ def _session_row_to_dict(row: sqlite3.Row) -> dict[str, object]:
         "allowed_adapters": _decode_scope_json(row["allowed_adapters"]),
         "allowed_keys": _decode_scope_json(row["allowed_keys"]),
         "max_queries": row["max_queries"],
+        "max_sign_ops": row["max_sign_ops"],
         "queries_used": row["queries_used"],
+        "ssh_sign_count": row["ssh_sign_count"],
         "created_at": row["created_at"],
         "expires_at": row["expires_at"],
         "status": row["status"],
@@ -523,7 +544,8 @@ def _list_active_session_rows() -> list[sqlite3.Row]:
     return conn.execute(
         """
         SELECT session_id, name, allowed_adapters, allowed_keys, max_queries,
-               queries_used, created_at, expires_at, status, owner_id, session_type
+               max_sign_ops, queries_used, ssh_sign_count, created_at, expires_at,
+               status, owner_id, session_type
         FROM sessions
         WHERE status = 'active'
         ORDER BY created_at DESC
@@ -538,7 +560,8 @@ def _list_recent_sessions(limit: int = 10) -> list[dict[str, object]]:
     rows = conn.execute(
         """
         SELECT session_id, name, allowed_adapters, allowed_keys, max_queries,
-               queries_used, created_at, expires_at, status, owner_id, session_type
+               max_sign_ops, queries_used, ssh_sign_count, created_at, expires_at,
+               status, owner_id, session_type
         FROM sessions
         ORDER BY created_at DESC
         LIMIT ?
@@ -568,6 +591,33 @@ def _try_consume_session_query(session_id: str, max_queries: int) -> bool:
         return cursor.rowcount == 1
 
 
+def _reflect_session_ssh_sign(session_id: str, ssh_sign_count: int, limit_reached: bool) -> tuple[bool, str]:
+    conn = _ensure_session_conn()
+    if conn is None:
+        return False, "session_store_unavailable"
+    with _session_lock:
+        _expire_sessions_if_needed()
+        row = conn.execute(
+            "SELECT status, ssh_sign_count FROM sessions WHERE session_id = ? LIMIT 1",
+            (session_id,),
+        ).fetchone()
+        if row is None:
+            return True, "session_missing"
+        if str(row["status"]) != "active":
+            return True, "session_inactive"
+        updates = ["ssh_sign_count = MAX(ssh_sign_count, ?)"]
+        params: list[object] = [ssh_sign_count]
+        if limit_reached:
+            updates.append("status = 'closed'")
+        params.append(session_id)
+        conn.execute(
+            f"UPDATE sessions SET {', '.join(updates)} WHERE session_id = ? AND status = 'active'",
+            tuple(params),
+        )
+        conn.commit()
+        return True, "reflected"
+
+
 def _sqlite_per_key_usage_map() -> dict[str, tuple[int, str | None]]:
     """
     Per-key request_count and last_access from audit_events only.
@@ -594,7 +644,7 @@ def _sqlite_recent_log_last50(allowed_keys: set[str], list_all: bool) -> list[di
         return []
 
     query = """
-        SELECT timestamp, adapter_id, endpoint, key_id, verdict, reason_code, remote
+        SELECT timestamp, adapter_id, endpoint, key_id, target_host, verdict, reason_code, remote
         FROM audit_events
     """
     params: tuple[str, ...] = ()
@@ -613,9 +663,10 @@ def _sqlite_recent_log_last50(allowed_keys: set[str], list_all: bool) -> list[di
             "adapter_id": r[1],
             "endpoint": r[2],
             "key_id": r[3],
-            "verdict": r[4],
-            "reason_code": r[5],
-            "remote": r[6],
+            "target_host": r[4],
+            "verdict": r[5],
+            "reason_code": r[6],
+            "remote": r[7],
         }
         for r in rows
     ]
@@ -628,6 +679,7 @@ def _record_audit(
     adapter_id: str | None,
     key_id: str | None,
     endpoint: str,
+    target_host: str | None = None,
     verdict: str,
     reason_code: str,
     remote: str,
@@ -640,10 +692,11 @@ def _record_audit(
             try:
                 _audit_conn.execute(
                     """
-                    INSERT INTO audit_events (timestamp, adapter_id, endpoint, key_id, verdict, reason_code, remote)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO audit_events (
+                        timestamp, adapter_id, endpoint, key_id, target_host, verdict, reason_code, remote
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (ts, adapter_id, endpoint, key_id, verdict, reason_code, remote),
+                    (ts, adapter_id, endpoint, key_id, target_host, verdict, reason_code, remote),
                 )
                 _audit_conn.commit()
                 _audit_write_count += 1
@@ -715,7 +768,7 @@ def _resolve_adapter() -> dict | _AdapterDenial:
     return matched
 
 
-def _hmac_ok(adapter_id: str, key_id: str, nonce: str) -> tuple[bool, str]:
+def _hmac_ok_for_subject(adapter_id: str, subject_id: str, nonce: str) -> tuple[bool, str]:
     """
     Validate per-request HMAC signature for ciphertext endpoints.
     Returns (valid: bool, reason_code: str).
@@ -742,7 +795,7 @@ def _hmac_ok(adapter_id: str, key_id: str, nonce: str) -> tuple[bool, str]:
     expected = hmac.new(
         SUBUMBRA_HMAC_KEY,
         (
-            f"{len(adapter_id)}:{adapter_id}:{len(key_id)}:{key_id}:"
+            f"{len(adapter_id)}:{adapter_id}:{len(subject_id)}:{subject_id}:"
             f"{len(timestamp_str)}:{timestamp_str}:{len(nonce)}:{nonce}"
         ).encode(),
         hashlib.sha256,
@@ -752,6 +805,10 @@ def _hmac_ok(adapter_id: str, key_id: str, nonce: str) -> tuple[bool, str]:
         return False, "signature_invalid"
 
     return True, ""
+
+
+def _hmac_ok(adapter_id: str, key_id: str, nonce: str) -> tuple[bool, str]:
+    return _hmac_ok_for_subject(adapter_id, key_id, nonce)
 
 
 def _nonce_ok(key_id: str, nonce: str) -> tuple[bool, str]:
@@ -1265,9 +1322,15 @@ def audit() -> tuple[Response, int]:
         return _err("audit unavailable", 503)
 
     key_id_filter = (request.args.get("key_id") or "").strip()
+    endpoint_filter = (request.args.get("endpoint") or "").strip()
     verdict_filter = (request.args.get("verdict") or "").strip()
+    target_host_filter = (request.args.get("target_host") or "").strip()
     if verdict_filter and verdict_filter not in {"allow", "deny"}:
         return _err("invalid verdict filter", 400)
+    if endpoint_filter and endpoint_filter not in AUDIT_ENDPOINT_FILTERS:
+        return _err("invalid endpoint filter", 400)
+    if target_host_filter and not SSH_HOST_FINGERPRINT_RE.fullmatch(target_host_filter):
+        return _err("invalid target_host filter", 400)
 
     where_clauses: list[str] = []
     query_params: list[str] = []
@@ -1283,9 +1346,15 @@ def audit() -> tuple[Response, int]:
     if key_id_filter:
         where_clauses.append("key_id = ?")
         query_params.append(key_id_filter)
+    if endpoint_filter:
+        where_clauses.append("endpoint = ?")
+        query_params.append(endpoint_filter)
     if verdict_filter:
         where_clauses.append("verdict = ?")
         query_params.append(verdict_filter)
+    if target_host_filter:
+        where_clauses.append("target_host = ?")
+        query_params.append(target_host_filter)
     where_sql = ""
     if where_clauses:
         where_sql = " WHERE " + " AND ".join(where_clauses)
@@ -1293,7 +1362,7 @@ def audit() -> tuple[Response, int]:
     try:
         rows = _audit_conn.execute(
             f"""
-            SELECT timestamp, adapter_id, endpoint, key_id, verdict, reason_code, remote
+            SELECT timestamp, adapter_id, endpoint, key_id, target_host, verdict, reason_code, remote
             FROM audit_events
             {where_sql}
             ORDER BY id DESC
@@ -1311,9 +1380,10 @@ def audit() -> tuple[Response, int]:
             "adapter_id": row[1],
             "endpoint": row[2],
             "key_id": row[3],
-            "verdict": row[4],
-            "reason_code": row[5],
-            "remote": row[6],
+            "target_host": row[4],
+            "verdict": row[5],
+            "reason_code": row[6],
+            "remote": row[7],
         }
         for row in rows
     ]
@@ -1361,6 +1431,7 @@ def write_audit() -> tuple[Response, int]:
     verdict = payload.get("verdict")
     reason_code = payload.get("reason_code")
     source_adapter_id = payload.get("adapter_id")
+    target_host = payload.get("target_host")
 
     if (
         not isinstance(key_id, str)
@@ -1373,6 +1444,13 @@ def write_audit() -> tuple[Response, int]:
         or not reason_code
         or not isinstance(source_adapter_id, str)
         or not source_adapter_id
+        or (
+            target_host is not None
+            and (
+                not isinstance(target_host, str)
+                or not SSH_HOST_FINGERPRINT_RE.fullmatch(target_host)
+            )
+        )
     ):
         log.warning("audit_write: invalid_fields adapter=%s key_id=%s remote=%s", adapter["adapter_id"], key_id, remote)
         return _err("missing required fields", 400)
@@ -1408,6 +1486,7 @@ def write_audit() -> tuple[Response, int]:
         adapter_id=source_adapter_id,
         key_id=key_id,
         endpoint=endpoint,
+        target_host=target_host,
         verdict=verdict,
         reason_code=reason_code,
         remote=remote,
@@ -1422,6 +1501,114 @@ def write_audit() -> tuple[Response, int]:
         reason_code,
     )
     return Response(status=204)
+
+
+@app.post("/internal/session-ssh-sign")
+def reflect_session_ssh_sign() -> tuple[Response, int]:
+    remote = request.remote_addr or ""
+    adapter_result = _resolve_adapter()
+    if isinstance(adapter_result, _AdapterDenial):
+        log.warning("session_ssh_sign_reflect: denied remote=%s reason=%s", remote, adapter_result.reason_code)
+        return _denial_response(adapter_result)
+
+    adapter = adapter_result
+    if not adapter.get("can_write_audit", False):
+        log.warning(
+            "session_ssh_sign_reflect: forbidden adapter=%s remote=%s reason=audit_write_scope_denied",
+            adapter["adapter_id"],
+            remote,
+        )
+        return _err("forbidden", 403)
+
+    try:
+        payload = request.get_json(force=True, silent=False)
+    except Exception:
+        log.warning("session_ssh_sign_reflect: invalid_json adapter=%s remote=%s", adapter["adapter_id"], remote)
+        return _err("invalid JSON body", 400)
+    if not isinstance(payload, dict):
+        log.warning("session_ssh_sign_reflect: invalid_payload adapter=%s remote=%s", adapter["adapter_id"], remote)
+        return _err("invalid JSON body", 400)
+
+    session_id = payload.get("session_id")
+    ssh_sign_count = payload.get("ssh_sign_count")
+    limit_reached = payload.get("limit_reached")
+    if (
+        not isinstance(session_id, str)
+        or not session_id
+        or not isinstance(ssh_sign_count, int)
+        or ssh_sign_count < 0
+        or not isinstance(limit_reached, bool)
+    ):
+        log.warning(
+            "session_ssh_sign_reflect: invalid_fields adapter=%s session_id=%s remote=%s",
+            adapter["adapter_id"],
+            session_id,
+            remote,
+        )
+        return _err("missing required fields", 400)
+
+    nonce = request.headers.get("X-Subumbra-Nonce", "")
+    valid, reason = _hmac_ok_for_subject(adapter["adapter_id"], session_id, nonce)
+    if not valid:
+        status = 400 if reason == "subumbra_header_missing" else 401
+        log.warning(
+            "session_ssh_sign_reflect: rejected adapter=%s session_id=%s remote=%s reason=%s",
+            adapter["adapter_id"],
+            session_id,
+            remote,
+            reason,
+        )
+        return _err("bad request" if status == 400 else "unauthorized", status)
+
+    valid, reason = _nonce_ok(session_id, nonce)
+    if not valid:
+        if reason == "nonce_reused":
+            log.warning(
+                "session_ssh_sign_reflect: rejected adapter=%s session_id=%s remote=%s reason=%s",
+                adapter["adapter_id"],
+                session_id,
+                remote,
+                reason,
+            )
+            return _err("unauthorized", 401)
+        log.error(
+            "session_ssh_sign_reflect: nonce_store_failure adapter=%s session_id=%s reason=%s",
+            adapter["adapter_id"],
+            session_id,
+            reason,
+        )
+        return _err("internal error", 500)
+
+    reflected, result = _reflect_session_ssh_sign(session_id, ssh_sign_count, limit_reached)
+    if not reflected:
+        log.warning(
+            "session_ssh_sign_reflect: unavailable adapter=%s session_id=%s result=%s",
+            adapter["adapter_id"],
+            session_id,
+            result,
+        )
+        return _err("session unavailable", 503)
+    if result == "session_missing":
+        log.warning(
+            "session_ssh_sign_reflect: noop adapter=%s session_id=%s reason=session_missing",
+            adapter["adapter_id"],
+            session_id,
+        )
+    elif result == "session_inactive":
+        log.warning(
+            "session_ssh_sign_reflect: noop adapter=%s session_id=%s reason=session_inactive",
+            adapter["adapter_id"],
+            session_id,
+        )
+    else:
+        log.info(
+            "session_ssh_sign_reflect: recorded adapter=%s session_id=%s ssh_sign_count=%s limit_reached=%s",
+            adapter["adapter_id"],
+            session_id,
+            ssh_sign_count,
+            str(limit_reached).lower(),
+        )
+    return Response(status=200)
 
 
 @app.get("/sessions")

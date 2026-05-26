@@ -201,6 +201,7 @@ def api_status():
     }
     """
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    audit_mode = (request.args.get("audit") or "").strip()
 
     health_data, health_err = _subumbra_get("/health")
     subumbra_keys_healthy = health_err is None and (health_data or {}).get("status") == "ok"
@@ -222,16 +223,20 @@ def api_status():
         for entry in stats_data.get("per_key", []):
             stats_map[entry["key_id"]] = entry
 
-    audit_data, audit_err = _subumbra_get("/audit")
+    audit_data, audit_err = _subumbra_get("/audit" if audit_mode != "ssh_sign" else "/audit?endpoint=ssh_sign")
     audit_available = audit_err is None
     audit_events: list[dict] = []
     if audit_available and audit_data:
         audit_events = audit_data.get("events", [])
 
+    ssh_audit_data, ssh_audit_err = _subumbra_get("/audit?endpoint=ssh_sign")
+    ssh_audit_available = ssh_audit_err is None
+    ssh_audit_events: list[dict] = []
+    if ssh_audit_available and ssh_audit_data:
+        ssh_audit_events = ssh_audit_data.get("events", [])
+
     ssh_stats: dict[str, dict[str, object]] = {}
-    for entry in audit_events:
-        if entry.get("endpoint") != "ssh_sign":
-            continue
+    for entry in ssh_audit_events:
         key_id = entry.get("key_id")
         if not isinstance(key_id, str) or not key_id:
             continue
@@ -315,5 +320,6 @@ def api_status():
         "keys_loaded": len(merged_keys),
         "keys": merged_keys,
         "recent_log": audit_events,
+        "audit_filter": audit_mode if audit_mode == "ssh_sign" else "",
         "dashboard_time": now,
     })

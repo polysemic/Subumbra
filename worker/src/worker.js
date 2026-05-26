@@ -209,6 +209,15 @@ const VAULT_SCHEMA = `
     algorithm TEXT NOT NULL,
     created_at TEXT NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS ssh_session_quota (
+    session_id TEXT NOT NULL,
+    adapter_id TEXT NOT NULL,
+    key_id TEXT NOT NULL,
+    max_sign_ops INTEGER NOT NULL,
+    sign_count INTEGER NOT NULL DEFAULT 0,
+    last_updated TEXT NOT NULL,
+    PRIMARY KEY (session_id, adapter_id, key_id)
+  );
   CREATE TABLE IF NOT EXISTS velocity_counters (
     scope TEXT NOT NULL,
     adapter_id TEXT,
@@ -383,8 +392,71 @@ function jsonResponse(payload, status = 200, extraHeaders = {}) {
   });
 }
 
-function jsonError(message, status) {
-  return jsonResponse({ error: message }, status);
+function jsonError(message, status, extraHeaders = {}) {
+  return jsonResponse({ error: message }, status, extraHeaders);
+}
+
+function buildSshQuotaHeaders(sessionId, signCount, maxSignOps, limitReached = false) {
+  const headers = {
+    "X-Subumbra-Session-Id": sessionId,
+    "X-Subumbra-Sign-Count": String(signCount),
+    "X-Subumbra-Sign-Limit": String(maxSignOps),
+  };
+  if (limitReached) {
+    headers["X-Subumbra-Sign-Limit-Reached"] = "1";
+  }
+  return headers;
+}
+
+function parseSshSessionScopeMetadata(rawValue, expectedAdapterId, expectedKeyId) {
+  let parsed;
+  try {
+    parsed = JSON.parse(rawValue);
+  } catch {
+    throw new Error("invalid ssh session scope JSON");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("invalid ssh session scope shape");
+  }
+  if (typeof parsed.session_id !== "string" || !parsed.session_id) {
+    throw new Error("missing ssh session_id");
+  }
+  if (typeof parsed.adapter_id !== "string" || parsed.adapter_id !== expectedAdapterId) {
+    throw new Error("invalid ssh adapter_id");
+  }
+  if (typeof parsed.key_id !== "string" || parsed.key_id !== expectedKeyId) {
+    throw new Error("invalid ssh key_id");
+  }
+  if (typeof parsed.expires_at !== "string" || !parsed.expires_at) {
+    throw new Error("missing ssh expires_at");
+  }
+  const expiresAtMs = Date.parse(parsed.expires_at);
+  if (!Number.isFinite(expiresAtMs)) {
+    throw new Error("invalid ssh expires_at");
+  }
+  if (!Object.prototype.hasOwnProperty.call(parsed, "max_sign_ops")) {
+    throw new Error("missing ssh max_sign_ops");
+  }
+  const rawMaxSignOps = parsed.max_sign_ops;
+  if (rawMaxSignOps === null) {
+    return {
+      sessionId: parsed.session_id,
+      adapterId: parsed.adapter_id,
+      keyId: parsed.key_id,
+      expiresAt: parsed.expires_at,
+      maxSignOps: null,
+    };
+  }
+  if (!Number.isInteger(rawMaxSignOps) || rawMaxSignOps <= 0) {
+    throw new Error("invalid ssh max_sign_ops");
+  }
+  return {
+    sessionId: parsed.session_id,
+    adapterId: parsed.adapter_id,
+    keyId: parsed.key_id,
+    expiresAt: parsed.expires_at,
+    maxSignOps: rawMaxSignOps,
+  };
 }
 
 function getVaultStub(env, vaultInstance = VAULT_INSTANCE_NAME) {
@@ -524,6 +596,27 @@ export class SubumbraVault {
       public_key_ssh: row.public_key_ssh,
       algorithm: row.algorithm,
       created_at: row.created_at,
+    };
+  }
+
+  _loadSshSessionQuotaRow(sessionId, adapterId, keyId) {
+    const rows = this.state.storage.sql.exec(
+      "SELECT session_id, adapter_id, key_id, max_sign_ops, sign_count, last_updated FROM ssh_session_quota WHERE session_id = ? AND adapter_id = ? AND key_id = ?",
+      sessionId,
+      adapterId,
+      keyId,
+    ).toArray();
+    if (rows.length === 0) {
+      return null;
+    }
+    const row = rows[0];
+    return {
+      session_id: row.session_id,
+      adapter_id: row.adapter_id,
+      key_id: row.key_id,
+      max_sign_ops: row.max_sign_ops,
+      sign_count: row.sign_count,
+      last_updated: row.last_updated,
     };
   }
 
@@ -789,6 +882,30 @@ export class SubumbraVault {
     if (!payload || typeof payload.key_id !== "string" || !payload.key_id || typeof payload.challenge !== "string" || !payload.challenge) {
       return jsonError("missing required fields", 400);
     }
+    const hasQuotaFields =
+      Object.prototype.hasOwnProperty.call(payload, "session_id") ||
+      Object.prototype.hasOwnProperty.call(payload, "adapter_id") ||
+      Object.prototype.hasOwnProperty.call(payload, "max_sign_ops");
+    let quotaContext = null;
+    if (hasQuotaFields) {
+      if (
+        typeof payload.session_id !== "string" ||
+        !payload.session_id ||
+        typeof payload.adapter_id !== "string" ||
+        !payload.adapter_id ||
+        !Number.isInteger(payload.max_sign_ops) ||
+        payload.max_sign_ops <= 0
+      ) {
+        console.error("subumbra: vault ssh quota metadata invalid key_id=%s", payload.key_id);
+        return jsonError("session_quota_unavailable", 503);
+      }
+      quotaContext = {
+        sessionId: payload.session_id,
+        adapterId: payload.adapter_id,
+        keyId: payload.key_id,
+        maxSignOps: payload.max_sign_ops,
+      };
+    }
 
     const row = this._loadSshKeyRow(payload.key_id);
     if (!row) {
@@ -798,6 +915,90 @@ export class SubumbraVault {
     try {
       const challengeBytes = Uint8Array.from(atob(payload.challenge), (c) => c.charCodeAt(0));
       const privateKey = await this._importEd25519PrivateKey(row.private_key_pkcs8);
+      let signCount = null;
+      let limitReached = false;
+
+      if (quotaContext) {
+        const nowIso = new Date().toISOString();
+        try {
+          // Durable Objects already serialize fetch handlers, so this
+          // read-check-write sequence is single-request atomic here.
+          const existing = this._loadSshSessionQuotaRow(
+            quotaContext.sessionId,
+            quotaContext.adapterId,
+            quotaContext.keyId,
+          );
+          const currentCount = existing ? Number(existing.sign_count) : 0;
+          if (!Number.isInteger(currentCount) || currentCount < 0) {
+            throw new Error("invalid ssh quota row");
+          }
+          if (currentCount >= quotaContext.maxSignOps) {
+            console.warn(
+              "subumbra: ssh sign denied key_id=%s adapter=%s session_id=%s reason=session_sign_limit_reached count=%s limit=%s",
+              payload.key_id,
+              quotaContext.adapterId,
+              quotaContext.sessionId,
+              currentCount,
+              quotaContext.maxSignOps,
+            );
+            return jsonError(
+              "session_sign_limit_reached",
+              403,
+              buildSshQuotaHeaders(
+                quotaContext.sessionId,
+                currentCount,
+                quotaContext.maxSignOps,
+                true,
+              ),
+            );
+          }
+
+          const signature = new Uint8Array(
+            await crypto.subtle.sign({ name: "Ed25519" }, privateKey, challengeBytes),
+          );
+          signCount = currentCount + 1;
+          limitReached = signCount >= quotaContext.maxSignOps;
+          this.state.storage.sql.exec(
+            `INSERT INTO ssh_session_quota (session_id, adapter_id, key_id, max_sign_ops, sign_count, last_updated)
+             VALUES (?, ?, ?, ?, ?, ?)
+             ON CONFLICT(session_id, adapter_id, key_id) DO UPDATE SET
+               max_sign_ops = excluded.max_sign_ops,
+               sign_count = excluded.sign_count,
+               last_updated = excluded.last_updated`,
+            quotaContext.sessionId,
+            quotaContext.adapterId,
+            quotaContext.keyId,
+            quotaContext.maxSignOps,
+            signCount,
+            nowIso,
+          );
+          return jsonResponse(
+            {
+              key_id: payload.key_id,
+              signature: bytesToBase64(signature),
+            },
+            200,
+            buildSshQuotaHeaders(
+              quotaContext.sessionId,
+              signCount,
+              quotaContext.maxSignOps,
+              limitReached,
+            ),
+          );
+        } catch (err) {
+          if (err instanceof Response) {
+            return err;
+          }
+          console.error(
+            "subumbra: vault ssh quota unavailable key_id=%s session_id=%s adapter=%s",
+            payload.key_id,
+            quotaContext.sessionId,
+            quotaContext.adapterId,
+          );
+          return jsonError("session_quota_unavailable", 503);
+        }
+      }
+
       const signature = new Uint8Array(
         await crypto.subtle.sign({ name: "Ed25519" }, privateKey, challengeBytes),
       );
@@ -1855,6 +2056,32 @@ async function handleSshSign(request, env) {
     }
   }
 
+  let sessionQuota = null;
+  const sessionScopeKey = `ssh_session_scope:${auth.adapterId}:${payload.key_id}`;
+  let sessionScopeRaw;
+  try {
+    sessionScopeRaw = await env.PROVIDER_REGISTRY_KV.get(sessionScopeKey);
+  } catch {
+    console.error("subumbra: ssh session scope unavailable key=%s", sessionScopeKey);
+    return jsonError("session_quota_unavailable", 503);
+  }
+  if (typeof sessionScopeRaw === "string" && sessionScopeRaw) {
+    try {
+      sessionQuota = parseSshSessionScopeMetadata(
+        sessionScopeRaw,
+        auth.adapterId,
+        payload.key_id,
+      );
+    } catch (err) {
+      console.error(
+        "subumbra: invalid ssh session scope key=%s error=%s",
+        sessionScopeKey,
+        err instanceof Error ? err.message : "unknown",
+      );
+      return jsonError("session_quota_unavailable", 503);
+    }
+  }
+
   const vaultInstance =
     typeof keyEntry.vault_instance === "string" && keyEntry.vault_instance
       ? keyEntry.vault_instance
@@ -1871,6 +2098,13 @@ async function handleSshSign(request, env) {
       body: JSON.stringify({
         key_id: payload.key_id,
         challenge: payload.challenge,
+        ...(sessionQuota && sessionQuota.maxSignOps !== null
+          ? {
+              session_id: sessionQuota.sessionId,
+              adapter_id: sessionQuota.adapterId,
+              max_sign_ops: sessionQuota.maxSignOps,
+            }
+          : {}),
       }),
     });
   } catch {
