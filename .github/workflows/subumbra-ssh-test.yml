@@ -18,12 +18,11 @@ jobs:
     # Routes to the self-hosted runner registered on the VPS.
     # act ignores this label and uses the image mapped in .actrc.
     runs-on: [self-hosted, linux]
+    env:
+      SSH_AUTH_SOCK: /run/user/1000/subumbra/ssh-agent.sock
+      GIT_SSH_COMMAND: ssh -o IdentitiesOnly=yes -i /dev/null
 
     steps:
-      - name: Set SSH_AUTH_SOCK
-        run: |
-          echo "SSH_AUTH_SOCK=${XDG_RUNTIME_DIR:-/run/user/1000}/subumbra/ssh-agent.sock" >> "$GITHUB_ENV"
-
       - name: Confirm key visible through agent
         run: ssh-add -L
 
@@ -36,7 +35,7 @@ jobs:
       - name: Test GitHub SSH auth
         run: |
           # Exit 1 is normal — GitHub prints auth success then disconnects
-          ssh -T git@github.com 2>&1 || true
+          ssh -o IdentitiesOnly=yes -i /dev/null -T git@github.com 2>&1 || true
 
       - name: List remote refs via SSH
         run: git ls-remote git@github.com:polysemic/Subumbra.git HEAD
