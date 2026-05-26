@@ -21,6 +21,9 @@ jobs:
 
     steps:
       - name: Open Subumbra session
+        env:
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
         run: |
           cd /opt/subumbra
           ./bootstrap.sh --session start \
@@ -57,4 +60,7 @@ jobs:
 
       - name: Close Subumbra session
         if: always()
+        env:
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
         run: cd /opt/subumbra && ./bootstrap.sh --session end --all
