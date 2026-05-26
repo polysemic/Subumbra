@@ -1,226 +1,215 @@
-# Subumbra SSH in Automated Pipelines
+# Subumbra SSH in Automated Pipelines & CI/CD
 
-This guide covers using Subumbra-managed SSH keys from CI/CD systems and other
-non-interactive automation. Read [ssh-guide.md](ssh-guide.md) first for daily
-manual use.
-
-## Architecture choices
-
-Subumbra exposes SSH signing through a Unix socket (`$SSH_AUTH_SOCK`) served by
-the `subumbra-agent` container. That socket is a host-scoped file, not a network
-service, so a pipeline process must either:
-
-**Option A — Self-hosted runner on the same machine** (recommended)
-
-The pipeline agent runs on the same VPS as the Subumbra stack. It shares the
-socket path directly. This is the simplest and most secure arrangement and works
-identically for GitHub Actions, GitLab CI, Bitbucket Pipelines, and Jenkins.
-
-**Option B — Remote runner via Cloudflare Tunnel**
-
-For cloud-hosted runners (GitHub-hosted Actions, GitLab SaaS shared runners,
-etc.), you must expose `subumbra-proxy` via a Cloudflare Tunnel. The proxy
-accepts HTTP requests from the internet and forwards them to the Worker. See
-[cloudflare-setup.md](cloudflare-setup.md) for tunnel setup.
-
-When using Option B, the remote runner calls the proxy's `/t/<key_id>/ssh/sign`
-HTTP endpoint with an adapter token instead of speaking the SSH agent protocol.
-This requires a custom SSH wrapper or ProxyCommand; that tooling is not currently
-bundled with Subumbra. Option A is strongly preferred.
+This guide covers using Subumbra-managed SSH keys from self-hosted CI/CD systems and non-interactive automation. 
 
 ---
 
-## Option A: Self-hosted runner
+## 💡 Choosing Your Workflow
 
-### Prerequisites
+Subumbra supports two pipeline architectures depending on your team size and security profile:
 
-- `subumbra-agent` is running and healthy
-- the runner process user has the same UID as `subumbra-agent` (see
-  [ssh-guide.md § UID/GID matching](ssh-guide.md#security-architecture-uidgid-matching--isolation))
-- the runner user's shell can reach the socket at
-  `${XDG_RUNTIME_DIR}/subumbra/ssh-agent.sock`
+| Model | Setup Complexity | Security Profile | Ideal For |
+|---|---|---|---|
+| **1. Operator-Gate Flow (Recommended)** | 🟢 Trivial (2 mins) | 🛡️ **Maximum** (Zero static secrets on GitHub, fully locked down by default) | Single developers, small teams, personal repos, highly sensitive environments |
+| **2. Autonomous Flow** | 🟡 Moderate (10 mins) | 🔒 **High** (Time-gated sessions, but requires Cloudflare credentials in GitHub Secrets) | Larger teams, standard corporate unattended pipelines |
 
-### Session management for automation
+---
 
-For CI, open a scoped session before any job that needs SSH, and close it when
-the job finishes. Use short TTLs and tight key scoping:
+## 🟢 Model 1: Operator-Gate Workflow (Recommended)
 
-```bash
-# Open a session scoped to this pipeline run
-./bootstrap.sh --session start \
-  --ttl 30m \
-  --adapters ci_runner \
-  --keys github_deploy_key \
-  --max-sign-ops 20
-```
+In the **Operator-Gate** workflow, your pipeline does **not** create sessions autonomously. Instead, the pipeline expects an active session already authorized manually by you (the operator) on the host. 
 
-Close the session in a cleanup step regardless of job success or failure:
+### Why it is superior:
+* **Zero GitHub Secrets**: You do not store your root Cloudflare API tokens or account IDs inside third-party clouds (GitHub/GitLab).
+* **Locked by Default**: If an attacker pushes a malicious commit out-of-band, the runner will fail securely at the checkout step because the Subumbra session is locked.
 
-```bash
-./bootstrap.sh --session end --all
-```
+### Newcomer Quick Start (GitHub Actions)
 
-`--max-sign-ops 20` is a hard cap on signatures for the session. A denied sign
-request (wrong host, locked system, expired session) does not consume the quota;
-the counter only increments when a signature is actually produced.
-
-### GitHub Actions — self-hosted runner
-
-Add the runner to the same machine as your Subumbra stack following the standard
-GitHub self-hosted runner install. Then use this job template:
+Add this template directly to your repository's `.github/workflows/subumbra-ssh-test.yml` file:
 
 ```yaml
+name: Subumbra SSH Deployment
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  # Standard hardening: Force GITHUB_TOKEN to be strictly read-only
+  contents: read
+
 jobs:
   deploy:
-    runs-on: self-hosted
+    runs-on: [self-hosted, linux]
+    env:
+      # Direct runner to use Subumbra's socket path on the host VPS
+      SSH_AUTH_SOCK: /run/user/1000/subumbra/ssh-agent.sock
+      # Standard hardening: Force git to ignore raw static private key files on disk
+      GIT_SSH_COMMAND: ssh -o IdentitiesOnly=yes -i /dev/null
+
+    steps:
+      - name: Confirm key is visible
+        run: ssh-add -L
+
+      - name: Trust github.com host key
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Checkout repo via secure Subumbra agent
+        # Standard hardening: Pin actions to specific commit SHAs to prevent supply-chain spoofing
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ssh-key: '' # Leave blank; Subumbra agent handles authentication
+
+      - name: Run your build/deploy steps
+        run: |
+          echo "Deploying securely via Subumbra..."
+```
+
+### Daily Usage Loop:
+1. **Start Your Coding Session**: When you sit down to develop and test, open a session on the VPS (e.g. for a 2-hour window):
+   ```bash
+   ssh subumbra-via-agent "cd /opt/subumbra && ./bootstrap.sh --session start --ttl 2h --adapters sshtest --keys github_vps_test"
+   ```
+2. **Push to Trigger**: Commit and run `git push`. The runner will pick up the job and successfully check out your repository.
+3. **Automatic Expiry**: Once the 2-hour TTL runs out, the VPS agent automatically locks down again.
+
+---
+
+## 🟡 Model 2: Autonomous Workflow (Enterprise)
+
+For unattended deployment pipelines that must trigger completely independently of an active developer, Subumbra can open and close sessions on-demand inside the workflow.
+
+### Setup (GitHub Actions)
+
+1. **Add Cloudflare Credentials to GitHub Secrets**:
+   Go to your repository -> **Settings** -> **Secrets and variables** -> **Actions** -> **Repository secrets**, and add:
+   * `CF_API_TOKEN`: Your Cloudflare API Token
+   * `CF_ACCOUNT_ID`: Your Cloudflare Account ID
+
+2. **Configure Your Workflow**:
+   Use this template to open and close sessions dynamically:
+
+```yaml
+name: Subumbra Autonomous Deployment
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, linux]
+    env:
+      SSH_AUTH_SOCK: /run/user/1000/subumbra/ssh-agent.sock
+      GIT_SSH_COMMAND: ssh -o IdentitiesOnly=yes -i /dev/null
+
     steps:
       - name: Open Subumbra session
-        working-directory: /opt/subumbra     # path to your Subumbra checkout
+        env:
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        working-directory: /opt/subumbra     # path to your Subumbra checkout on VPS
         run: |
           ./bootstrap.sh --session start \
             --ttl 30m \
-            --adapters ci_runner \
-            --keys github_deploy_key \
+            --adapters sshtest \
+            --keys github_vps_test \
             --max-sign-ops 20
 
-      - name: Configure SSH agent
-        run: |
-          echo "SSH_AUTH_SOCK=${XDG_RUNTIME_DIR}/subumbra/ssh-agent.sock" >> "$GITHUB_ENV"
-
-      - name: Verify key is visible
+      - name: Confirm key is visible
         run: ssh-add -L
 
-      - name: Checkout private repo via SSH
-        uses: actions/checkout@v4
-        with:
-          ssh-key: ""          # leave blank; agent handles auth
-          repository: org/private-repo
+      - name: Trust github.com host key
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+          chmod 600 ~/.ssh/known_hosts
 
-      - name: Your deployment steps here
+      - name: Checkout repo via secure Subumbra agent
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ssh-key: ''
+
+      - name: Your deployment steps
         run: ...
 
       - name: Close Subumbra session
-        if: always()           # run even on failure
+        if: always() # CRITICAL: Close session even if build fails
+        env:
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
         working-directory: /opt/subumbra
         run: ./bootstrap.sh --session end --all
 ```
 
-Add the Subumbra public key as a deploy key on any repository the runner needs to
-reach. See [apps/github/install.md](apps/github/install.md) for how to extract
-the public key and add it to GitHub.
+---
 
-### GitLab CI — self-hosted runner
+## 📑 GitLab CI — Self-Hosted Runner Patterns
 
-Register a GitLab runner on the same VPS (shell or Docker executor). For the
-shell executor:
-
+### GitLab Model 1: Operator-Gate
 ```yaml
 # .gitlab-ci.yml
+variables:
+  SSH_AUTH_SOCK: "${XDG_RUNTIME_DIR}/subumbra/ssh-agent.sock"
+  GIT_SSH_COMMAND: "ssh -o IdentitiesOnly=yes -i /dev/null"
+
 deploy:
   tags:
-    - self-hosted-subumbra    # tag matching your runner registration
+    - self-hosted-subumbra
+  script:
+    - ssh-add -L
+    - git clone git@github.com:org/private-repo.git
+```
+
+### GitLab Model 2: Autonomous (Uses CI Variables for Cloudflare Creds)
+```yaml
+# .gitlab-ci.yml
+variables:
+  SSH_AUTH_SOCK: "${XDG_RUNTIME_DIR}/subumbra/ssh-agent.sock"
+  GIT_SSH_COMMAND: "ssh -o IdentitiesOnly=yes -i /dev/null"
+
+deploy:
+  tags:
+    - self-hosted-subumbra
   before_script:
+    # CF_API_TOKEN and CF_ACCOUNT_ID are injected as masked CI/CD variables
     - cd /opt/subumbra && ./bootstrap.sh --session start
         --ttl 30m --adapters ci_runner --keys gitlab_deploy_key --max-sign-ops 20
-    - export SSH_AUTH_SOCK="${XDG_RUNTIME_DIR}/subumbra/ssh-agent.sock"
-    - ssh-add -L
   script:
-    - git clone git@gitlab.com:org/private-repo.git
-    - # ... deployment steps
+    - ssh-add -L
+    - git clone git@github.com:org/private-repo.git
   after_script:
     - cd /opt/subumbra && ./bootstrap.sh --session end --all
 ```
 
-Add the Subumbra public key as a deploy key on the GitLab project:
+---
 
-1. Open the project → **Settings** → **Repository** → **Deploy keys**
-2. Paste the public key (extracted via `ssh-add -L` with an open session)
-3. Enable **Write access** only if the runner needs to push
+## 🔒 Session Hygiene & Security Hardening
 
-For GitLab host-key trust:
-
-```bash
-ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
-```
-
-GitLab's current host keys are also published at
-`https://docs.gitlab.com/ee/user/gitlab_com/index.html#ssh-host-keys-fingerprints`.
-
-### Bitbucket Pipelines / Jenkins / other
-
-The same pattern applies for any CI system that supports self-hosted agents:
-
-1. Open a scoped Subumbra session in a pre-step or setup stage
-2. Export `SSH_AUTH_SOCK` to point at the Subumbra socket
-3. Run git/ssh operations as normal
-4. Close the session in a post/cleanup step with `if: always` semantics
-
-For Bitbucket: add the public key under **Repository settings → Access keys**.
-For any host-based automation (cron, systemd timer): wrap the script in a session
-open/close and export `SSH_AUTH_SOCK` in the script header.
+| Feature | Best Practice | Rationale |
+|---|---|---|
+| **Explicit Permissions** | Always declare `permissions: contents: read` | Standard repository hygiene; prevents the workflow runner from writing back to the repo unless explicitly required. |
+| **Commit SHA Pinning** | Always use `uses: actions/checkout@<sha>` | Protects your pipeline from supply-chain attacks if a third-party action tag is compromised. |
+| **Short TTLs** | Match job length + small buffer (e.g., `--ttl 30m`) | Reduces the threat window if a runner environment is breached. |
+| **Sign Quotas** | Add `--max-sign-ops 20` | Caps the number of successful cryptographic signatures generated per session. |
+| **Bypass Static Keys** | Enforce `IdentitiesOnly=yes -i /dev/null` | Prevents SSH from falling back to raw private keys left on the runner's disk. |
 
 ---
 
-## Session hygiene for pipelines
+## 🛠️ Troubleshooting CI/CD Failures
 
-| Concern | Recommendation |
-|---------|----------------|
-| TTL | Match the expected job duration plus a small buffer (e.g. `--ttl 30m` for a 15-minute job). Avoid long-lived sessions for automation. |
-| Key scope | `--keys <key_id>` to the minimum set the job needs. Never scope to all keys. |
-| Adapter | Use a dedicated adapter per CI system (e.g. `ci_runner`, `gitlab_runner`). This makes audit logs readable and lets you revoke CI access without affecting human sessions. |
-| Sign quota | Set `--max-sign-ops` to a small multiple of the expected number of SSH auth events per job. If a job should clone 3 repos, cap at 10-20 signs. |
-| Cleanup | Always close the session in a step marked `if: always` / `when: always` so it closes even if the job fails. |
-| Orphaned sessions | Sessions have TTLs and expire automatically, but closing early reduces the window if a runner is compromised. |
+### 1. `Permission denied (publickey)`
+* **Active session?** Run `./bootstrap.sh --session status` on the VPS to confirm an active session exists.
+* **Key served?** Run `SSH_AUTH_SOCK=... ssh-add -L` on the VPS. The public key identifier must appear.
+* **Deploy Key authorized?** Make sure the public key is registered in **GitHub Settings** -> **Deploy Keys** for that repository.
+* **Destination allowed?** If using restricted keys, verify that the remote host key matches your `allow.hosts` settings.
 
----
-
-## Restricted keys in CI
-
-If your SSH key has `allow.hosts` restrictions, the self-hosted runner path works
-unchanged — the normal OpenSSH SSH handshake provides the required verified
-destination binding automatically. No special configuration is needed.
-
-The restriction is enforced at the Worker boundary: if the runner attempts to SSH
-to a host not in the `allow.hosts` list, the sign request is denied
-(`host_not_allowed`, 403) and the SSH client receives `Permission denied
-(publickey)`. The denial is logged in Subumbra with the verified host fingerprint.
-
----
-
-## Audit trail for pipeline activity
-
-Query SSH audit rows scoped to CI activity after a run:
-
-```bash
-docker compose exec -T subumbra-keys \
-  curl -sS "http://127.0.0.1:9090/audit?endpoint=ssh_sign" \
-  -H "X-Subumbra-Token: ${SUBUMBRA_TOKEN_UI}"
-```
-
-Each row includes the adapter ID, key ID, timestamp, and (for restricted keys)
-the verified host fingerprint. Using a dedicated CI adapter makes it
-straightforward to filter for pipeline-only activity.
-
----
-
-## Troubleshooting
-
-### `Permission denied (publickey)` in CI
-
-Check in this order:
-
-1. Is a session open? `./bootstrap.sh --session status`
-2. Is the key visible? `SSH_AUTH_SOCK=... ssh-add -L`
-3. Is the public key added to the remote service (deploy key / authorized_keys)?
-4. For restricted keys: is the destination in `allow.hosts`?
-
-### Session not found / `system_locked`
-
-The session TTL expired or was never opened. Check that the `before_script` /
-pre-step ran successfully. Review `docker logs subumbra-agent` for details.
-
-### UID mismatch — `connect to agent: Permission denied`
-
-The runner process is running as a different UID than the `subumbra-agent`
-container. Check `id -u` in the runner step and compare it to the `user:` field
-in `docker-compose.yml` for the `subumbra-agent` service.
+### 2. UID Mismatch — `connect to agent: Permission denied`
+The runner process executes under a different User ID than the `subumbra-agent` container. 
+* Compare `id -u` in a runner step to the `user:` mapping in `docker-compose.yml` for the `subumbra-agent` service. Both must match.
