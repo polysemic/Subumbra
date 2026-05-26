@@ -1,0 +1,60 @@
+name: Subumbra SSH Test
+
+# Battle-tests Subumbra SSH on the VPS self-hosted runner.
+# Every push exercises the live subumbra-proxy Worker and subumbra-agent.
+#
+# Local pre-flight (VPS):
+#   cd /opt/subumbra && act -j ssh-test
+#
+# Real run: push to main → GitHub routes to self-hosted runner on VPS.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  ssh-test:
+    # Routes to the self-hosted runner registered on the VPS.
+    # act ignores this label and uses the image mapped in .actrc.
+    runs-on: [self-hosted, linux]
+
+    steps:
+      - name: Open Subumbra session
+        run: |
+          cd /opt/subumbra
+          ./bootstrap.sh --session start \
+            --ttl 30m \
+            --adapters sshtest \
+            --keys github_vps_test \
+            --max-sign-ops 20
+
+      - name: Set SSH_AUTH_SOCK
+        run: |
+          echo "SSH_AUTH_SOCK=${XDG_RUNTIME_DIR:-/run/user/1000}/subumbra/ssh-agent.sock" >> "$GITHUB_ENV"
+
+      - name: Confirm key visible through agent
+        run: ssh-add -L
+
+      - name: Trust github.com host key
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Test GitHub SSH auth
+        run: |
+          # Exit 1 is normal — GitHub prints auth success then disconnects
+          ssh -T git@github.com 2>&1 || true
+
+      - name: List remote refs via SSH
+        run: git ls-remote git@github.com:polysemic/Subumbra.git HEAD
+
+      - name: Checkout repo via SSH
+        uses: actions/checkout@v4
+        with:
+          ssh-key: ''
+
+      - name: Close Subumbra session
+        if: always()
+        run: cd /opt/subumbra && ./bootstrap.sh --session end --all

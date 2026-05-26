@@ -271,3 +271,4 @@ For detailed security guidance, see:
 This project was built with AI coding tools ($20/mo plans). I am not a security expert, a coder, or a software engineer. I am not great at git or github, so the development history, branches, and releases may be a bit clunky. I like to build and tinker with things; this is a project I planned, and had AI build, to try and solve a problem I kept reading about almost every day. If you find it useful, feel free to use it. If you do not, that is fine too.
 
 [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-ffdd00?style=flat&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/ericchaffey)
+<!-- subumbra daily-driver push test -->

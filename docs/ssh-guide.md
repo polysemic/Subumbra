@@ -6,7 +6,7 @@ This guide covers daily-use SSH with Subumbra after the stack is already running
 - you have an SSH key record such as `github_vps_test`
 - you open Subumbra sessions before using the key
 
-For initial install, start with [subumbra-install.md](subumbra-install.md). For GitHub-specific setup, see [docs/apps/github/install.md](apps/github/install.md).
+For initial install, start with [subumbra-install.md](subumbra-install.md). For GitHub-specific setup, see [docs/apps/github/install.md](apps/github/install.md). For automated pipelines and CI/CD, see [ssh-ci-cd.md](ssh-ci-cd.md).
 
 ## Socket path
 
@@ -72,6 +72,12 @@ Important: if you force `IdentitiesOnly yes`, OpenSSH expects an explicit `Ident
 
 Subumbra is locked by default. Before SSH use, open a scoped session:
 
+Sessions are stored in Cloudflare KV — they are **not tied to a terminal**.
+Closing the terminal that ran `--session start` does not end the session; it
+continues until the TTL expires or you explicitly run `--session end --all`
+from any terminal. To check a session opened in another terminal or shell
+invocation, just run `--session status`.
+
 ```bash
 ./bootstrap.sh --session start --ttl 8h --adapters sshtest --keys github_vps_test
 ```
@@ -94,6 +100,7 @@ Important quota note:
 - `--max-sign-ops` is separate from `--max-queries`
 - `max_sign_ops` counts signatures successfully issued by Subumbra at the Worker/VaultDO boundary
 - downstream GitHub or remote SSH server acceptance is not part of that quota
+- a sign request denied before signing (e.g. `host_required`, `host_not_allowed`, `system_locked`) does **not** consume the quota — the counter only increments when a signature is actually produced
 
 Check status with:
 

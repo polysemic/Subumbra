@@ -1,0 +1,13 @@
+# act configuration for Subumbra-Local (local machine)
+# Primary use: workflow syntax check / dry-run before pushing.
+# Real battle testing happens on the VPS self-hosted runner via GitHub Actions.
+#
+# VPS pre-flight (preferred): ssh subumbra-admin, cd /opt/subumbra, act -j ssh-test
+
+-P ubuntu-latest=catthehacker/ubuntu:act-22.04
+-P self-hosted=catthehacker/ubuntu:act-22.04
+
+# Mount Subumbra socket for SSH steps (requires subumbra-start first)
+--container-options "-v /run/user/1000/subumbra/ssh-agent.sock:/run/user/1000/subumbra/ssh-agent.sock"
+
+--reuse
