@@ -74,9 +74,9 @@ Subumbra is locked by default. Before SSH use, open a scoped session:
 
 Sessions are stored in Cloudflare KV — they are **not tied to a terminal**.
 Closing the terminal that ran `--session start` does not end the session; it
-continues until the TTL expires or you explicitly run `--session end --all`
-from any terminal. To check a session opened in another terminal or shell
-invocation, just run `--session status`.
+continues until the TTL expires or you explicitly close it from any terminal.
+To check a session opened in another terminal or shell invocation, just run
+`--session status`.
 
 ```bash
 ./bootstrap.sh --session start --ttl 8h --adapters sshtest --keys github_vps_test
@@ -111,8 +111,14 @@ Check status with:
 Close access when you are done:
 
 ```bash
-./bootstrap.sh --session end --all
+SESSION_START_OUTPUT=$(./bootstrap.sh --session start --ttl 8h --adapters sshtest --keys github_vps_test)
+printf '%s\n' "$SESSION_START_OUTPUT"
+SESSION_ID=$(printf '%s\n' "$SESSION_START_OUTPUT" | awk '/Started session /{print $NF}')
+./bootstrap.sh --session end "$SESSION_ID"
 ```
+
+Use `./bootstrap.sh --session end --all` only when you intentionally want to
+close every active session on that deployment.
 
 ## SSH audit trail
 

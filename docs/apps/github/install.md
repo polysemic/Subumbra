@@ -54,8 +54,10 @@ Do not use `Host *` for this path.
 Read-only test:
 
 ```bash
+mkdir -p ~/.ssh
+ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+chmod 600 ~/.ssh/known_hosts
 SSH_AUTH_SOCK="${XDG_RUNTIME_DIR}/subumbra/ssh-agent.sock" \
-GIT_SSH_COMMAND="ssh -F /dev/null -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" \
 git ls-remote git@github.com:polysemic/Subumbra-SSH-Test.git
 ```
 

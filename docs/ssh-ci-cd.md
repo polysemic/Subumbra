@@ -116,11 +116,14 @@ jobs:
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
         working-directory: /opt/subumbra     # path to your Subumbra checkout on VPS
         run: |
-          ./bootstrap.sh --session start \
+          SESSION_START_OUTPUT=$(./bootstrap.sh --session start \
             --ttl 30m \
             --adapters sshtest \
             --keys github_vps_test \
-            --max-sign-ops 20
+            --max-sign-ops 20)
+          printf '%s\n' "$SESSION_START_OUTPUT"
+          SESSION_ID=$(printf '%s\n' "$SESSION_START_OUTPUT" | awk '/Started session /{print $NF}')
+          echo "SESSION_ID=$SESSION_ID" >> "$GITHUB_ENV"
 
       - name: Confirm key is visible
         run: ssh-add -L
@@ -145,8 +148,11 @@ jobs:
           CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
         working-directory: /opt/subumbra
-        run: ./bootstrap.sh --session end --all
+        run: ./bootstrap.sh --session end "$SESSION_ID"
 ```
+
+In shared-runner CI, do not use `--session end --all` as the default cleanup
+path. It can close unrelated operator sessions on the same deployment.
 
 ---
 
@@ -179,13 +185,17 @@ deploy:
     - self-hosted-subumbra
   before_script:
     # CF_API_TOKEN and CF_ACCOUNT_ID are injected as masked CI/CD variables
-    - cd /opt/subumbra && ./bootstrap.sh --session start
-        --ttl 30m --adapters ci_runner --keys gitlab_deploy_key --max-sign-ops 20
+    - |
+      SESSION_START_OUTPUT=$(cd /opt/subumbra && ./bootstrap.sh --session start \
+        --ttl 30m --adapters ci_runner --keys gitlab_deploy_key --max-sign-ops 20)
+      printf '%s\n' "$SESSION_START_OUTPUT"
+      SESSION_ID=$(printf '%s\n' "$SESSION_START_OUTPUT" | awk '/Started session /{print $NF}')
+      printf '%s\n' "$SESSION_ID" > /tmp/subumbra-session-id
   script:
     - ssh-add -L
     - git clone git@gitlab.com:org/private-repo.git
   after_script:
-    - cd /opt/subumbra && ./bootstrap.sh --session end --all
+    - cd /opt/subumbra && ./bootstrap.sh --session end "$(cat /tmp/subumbra-session-id)"
 ```
 
 ---
