@@ -4,6 +4,13 @@
 from __future__ import annotations
 
 from subumbra_core import *
+from subumbra_core import (
+    _manifest_die,
+    _policy_adapter_ids,
+    _prompt_hidden_line,
+    _read_env_file_value,
+    _write_keys_payload,
+)
 from subumbra_keys import (
     _get_push_registry_cf_creds,
     _load_keys_payload_or_die,

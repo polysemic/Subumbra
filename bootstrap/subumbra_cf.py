@@ -4,6 +4,18 @@
 from __future__ import annotations
 
 from subumbra_core import *
+from subumbra_core import (
+    _delete_file_if_present,
+    _has_cf_credentials,
+    _is_revoked_record,
+    _prompt_hidden_line,
+    _read_env_file_value,
+    _read_runtime_credential_value,
+    _require_fat_record_fields,
+    _sync_host_env_file,
+    _verify_embedded_policy_hash,
+    _write_system_integrity,
+)
 
 def _kv_put_text_value(
     cf_creds: dict[str, str],
