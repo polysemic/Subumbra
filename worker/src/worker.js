@@ -569,6 +569,95 @@ function base64UrlToBytes(value) {
   return Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
 }
 
+function utf8Bytes(value) {
+  return new TextEncoder().encode(value);
+}
+
+function concatBytes(...parts) {
+  const total = parts.reduce((sum, part) => sum + part.length, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const part of parts) {
+    out.set(part, offset);
+    offset += part.length;
+  }
+  return out;
+}
+
+function uint32ToBytes(value) {
+  const bytes = new Uint8Array(4);
+  new DataView(bytes.buffer).setUint32(0, value);
+  return bytes;
+}
+
+async function hmacSha256(keyBytes, dataBytes) {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    keyBytes,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  return new Uint8Array(await crypto.subtle.sign("HMAC", key, dataBytes));
+}
+
+async function deriveWebPushIkm(ecdhSecret, authSecret, uaPublic, asPublic) {
+  const prkKey = await hmacSha256(authSecret, ecdhSecret);
+  const keyInfo = concatBytes(utf8Bytes("WebPush: info"), Uint8Array.of(0x00), uaPublic, asPublic, Uint8Array.of(0x01));
+  return hmacSha256(prkKey, keyInfo);
+}
+
+async function deriveWebPushContentKeys(ikm, salt) {
+  const prk = await hmacSha256(salt, ikm);
+  const cek = await hmacSha256(prk, concatBytes(utf8Bytes("Content-Encoding: aes128gcm"), Uint8Array.of(0x00, 0x01)));
+  const nonce = await hmacSha256(prk, concatBytes(utf8Bytes("Content-Encoding: nonce"), Uint8Array.of(0x00, 0x01)));
+  return {
+    cek: cek.slice(0, 16),
+    nonce: nonce.slice(0, 12),
+  };
+}
+
+async function encryptWebPushPayload(p256dh, authSecret, payload) {
+  const uaPublic = base64UrlToBytes(p256dh);
+  const authBytes = base64UrlToBytes(authSecret);
+  const serverKeys = await crypto.subtle.generateKey(
+    { name: "ECDH", namedCurve: "P-256" },
+    true,
+    ["deriveBits"],
+  );
+  const serverPublic = new Uint8Array(await crypto.subtle.exportKey("raw", serverKeys.publicKey));
+  const uaPublicKey = await crypto.subtle.importKey(
+    "raw",
+    uaPublic,
+    { name: "ECDH", namedCurve: "P-256" },
+    false,
+    [],
+  );
+  const ecdhSecret = new Uint8Array(
+    await crypto.subtle.deriveBits(
+      { name: "ECDH", public: uaPublicKey },
+      serverKeys.privateKey,
+      256,
+    ),
+  );
+  const ikm = await deriveWebPushIkm(ecdhSecret, authBytes, uaPublic, serverPublic);
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const { cek, nonce } = await deriveWebPushContentKeys(ikm, salt);
+  const cekKey = await crypto.subtle.importKey("raw", cek, { name: "AES-GCM" }, false, ["encrypt"]);
+  const plaintext = concatBytes(utf8Bytes(JSON.stringify(payload)), Uint8Array.of(0x02));
+  const ciphertext = new Uint8Array(
+    await crypto.subtle.encrypt({ name: "AES-GCM", iv: nonce }, cekKey, plaintext),
+  );
+  const recordSize = Math.max(4096, plaintext.length + 17);
+  return {
+    body: concatBytes(salt, uint32ToBytes(recordSize), Uint8Array.of(serverPublic.length), serverPublic, ciphertext),
+    headers: {
+      "Content-Encoding": "aes128gcm",
+      "Content-Type": "application/octet-stream",
+    },
+  };
+}
+
 function canonicalizeJson(value) {
   if (Array.isArray(value)) {
     return value.map((entry) => canonicalizeJson(entry));
@@ -913,18 +1002,27 @@ export class SubumbraGate {
 
   async _deliverPushNotifications(message) {
     const rows = this.state.storage.sql.exec(
-      "SELECT endpoint_hash, endpoint FROM push_subscriptions ORDER BY last_seen_at DESC",
+      "SELECT endpoint_hash, endpoint, p256dh, auth_secret FROM push_subscriptions ORDER BY last_seen_at DESC",
     ).toArray();
     let successCount = 0;
     for (const row of rows) {
       try {
         const vapidHeaders = await this._buildVapidHeaders(row.endpoint);
+        const encrypted = await encryptWebPushPayload(row.p256dh, row.auth_secret, {
+          title: "Subumbra approval required",
+          body: "A gated request is waiting for operator approval.",
+          request_id: message.request_id,
+          approve_url: message.approve_url,
+          deny_url: message.deny_url,
+        });
         const response = await fetch(row.endpoint, {
           method: "POST",
           headers: {
             Topic: message.request_id,
             ...vapidHeaders,
+            ...encrypted.headers,
           },
+          body: encrypted.body,
         });
         if (response.ok) {
           successCount += 1;
