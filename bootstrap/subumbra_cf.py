@@ -12,6 +12,7 @@ from subumbra_core import (
     _read_env_file_value,
     _read_runtime_credential_value,
     _require_fat_record_fields,
+    _resolved_cf_worker_name_from_operator_context,
     _sync_host_env_file,
     _verify_embedded_policy_hash,
     _write_system_integrity,
@@ -715,35 +716,6 @@ def run_nuke_cloudflare() -> None:
     _clear_cf_resources()
     ok("Cleared Cloudflare runtime secrets from host .env")
     ok(f"Removed {CF_RESOURCES_FILE}")
-
-
-def _infer_cf_worker_name_from_worker_url(url: str) -> str:
-    """Best-effort worker script name from a Workers *.workers.dev URL."""
-    url = url.strip()
-    if not url:
-        return ""
-    try:
-        host = (urllib.parse.urlparse(url).hostname or "").strip().lower()
-    except Exception:
-        return ""
-    if not host:
-        return ""
-    labels = host.split(".")
-    if len(labels) >= 2 and labels[-2] == "workers" and labels[-1] == "dev":
-        return labels[0] or ""
-    return ""
-
-
-def _resolved_cf_worker_name_from_operator_context() -> str:
-    """Resolve Worker script name for day-2 / defaults: env, then host .env, then CF_WORKER_URL."""
-    w = os.environ.get("CF_WORKER_NAME", "").strip()
-    if w:
-        return w
-    w = _read_env_file_value(HOST_ENV_FILE, "CF_WORKER_NAME").strip()
-    if w:
-        return w
-    url = _read_env_file_value(HOST_ENV_FILE, "CF_WORKER_URL").strip()
-    return _infer_cf_worker_name_from_worker_url(url)
 
 
 # Maps both Subumbra canonical env var names AND common standalone-app aliases

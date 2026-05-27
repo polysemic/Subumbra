@@ -6,11 +6,12 @@ from __future__ import annotations
 from subumbra_core import *
 from subumbra_core import (
     _chown_to_subumbra,
+    _is_revoked_record,
+    _load_keys_payload_or_die,
     _read_runtime_credential_value,
     _secure_data_dir,
 )
 from subumbra_cf import _get_push_registry_cf_creds, _kv_delete_key, _kv_put_text_value, _load_kv_namespace_id
-from subumbra_keys import _is_revoked_record, _load_keys_payload_or_die
 
 def _open_session_db() -> sqlite3.Connection:
     try:

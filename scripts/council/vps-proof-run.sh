@@ -409,6 +409,8 @@ prepare_cf_api_workspace() {
         -e "s/^    container_name: subumbra-keys$/    container_name: ${compose_project}-subumbra-keys/" \
         -e "s/^    container_name: subumbra-proxy$/    container_name: ${compose_project}-subumbra-proxy/" \
         -e "s/^    container_name: subumbra-ui$/    container_name: ${compose_project}-subumbra-ui/" \
+        -e "s/^    container_name: subumbra-agent$/    container_name: ${compose_project}-subumbra-agent/" \
+        -e "s/^    container_name: subumbra-probe$/    container_name: ${compose_project}-subumbra-probe/" \
         -e "s/^    container_name: cloudflared$/    container_name: ${compose_project}-cloudflared/" \
         "${workdir}/docker-compose.yml"
     # Allocate a free host port for the proof proxy; strip the UI port.
@@ -453,6 +455,8 @@ install_fresh_once() {
         -e "s/^    container_name: subumbra-keys$/    container_name: ${compose_project}-subumbra-keys/" \
         -e "s/^    container_name: subumbra-proxy$/    container_name: ${compose_project}-subumbra-proxy/" \
         -e "s/^    container_name: subumbra-ui$/    container_name: ${compose_project}-subumbra-ui/" \
+        -e "s/^    container_name: subumbra-agent$/    container_name: ${compose_project}-subumbra-agent/" \
+        -e "s/^    container_name: subumbra-probe$/    container_name: ${compose_project}-subumbra-probe/" \
         "${workdir}/docker-compose.yml"
     # Allocate a free host port for the proof proxy and remap the UI port away.
     # The UI host port is not needed by verify-round.sh; strip it entirely.

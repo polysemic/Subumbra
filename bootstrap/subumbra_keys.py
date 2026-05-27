@@ -34,6 +34,8 @@ from subumbra_core import (
     _read_runtime_credential_value,
     _representative_key_id_for_vault_instance,
     _require_fat_record_fields,
+    _load_keys_payload_or_die,
+    _resolved_cf_worker_name_from_operator_context,
     _resolve_manifest_secret,
     _resolve_policy_for_key,
     _sync_host_env_file,
@@ -58,7 +60,6 @@ from subumbra_cf import (
     _provision_cloudflare_resources,
     _publish_structured_kv,
     _put_worker_secret,
-    _resolved_cf_worker_name_from_operator_context,
     _wizard_collect_cf_access,
     _worker_control_headers,
 )
@@ -433,18 +434,6 @@ def run_interactive_wizard(
         shred_paths,
     )
 
-
-
-def _load_keys_payload_or_die() -> dict[str, dict[str, Any]]:
-    if not KEYS_FILE.exists():
-        die("keys.json not found — run a full bootstrap first.")
-    try:
-        payload = json.loads(KEYS_FILE.read_text())
-    except (json.JSONDecodeError, OSError) as exc:
-        die(f"Cannot read keys.json: {exc}")
-    if not isinstance(payload, dict):
-        die("keys.json is malformed")
-    return payload
 
 
 def _require_existing_active_record(keys_payload: dict[str, dict[str, Any]], key_id: str) -> dict[str, Any]:

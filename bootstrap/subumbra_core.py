@@ -909,6 +909,18 @@ def _load_local_template(name: str) -> dict | None:
     return data
 
 
+def _load_keys_payload_or_die() -> dict[str, dict[str, Any]]:
+    if not KEYS_FILE.exists():
+        die("keys.json not found — run a full bootstrap first.")
+    try:
+        payload = json.loads(KEYS_FILE.read_text())
+    except (json.JSONDecodeError, OSError) as exc:
+        die(f"Cannot read keys.json: {exc}")
+    if not isinstance(payload, dict):
+        die("keys.json is malformed")
+    return payload
+
+
 def _load_keys_payload_if_present() -> dict[str, dict[str, Any]]:
     if not KEYS_FILE.exists():
         return {}
@@ -2097,6 +2109,35 @@ def _has_env_credentials() -> bool:
         if placeholder in cf_token.upper() or placeholder in cf_account.upper():
             return False
     return MANIFEST_FILE.exists()
+
+
+def _infer_cf_worker_name_from_worker_url(url: str) -> str:
+    """Best-effort worker script name from a Workers *.workers.dev URL."""
+    url = url.strip()
+    if not url:
+        return ""
+    try:
+        host = (urllib.parse.urlparse(url).hostname or "").strip().lower()
+    except Exception:
+        return ""
+    if not host:
+        return ""
+    labels = host.split(".")
+    if len(labels) >= 2 and labels[-2] == "workers" and labels[-1] == "dev":
+        return labels[0] or ""
+    return ""
+
+
+def _resolved_cf_worker_name_from_operator_context() -> str:
+    """Resolve Worker script name for day-2 / defaults: env, then host .env, then CF_WORKER_URL."""
+    w = os.environ.get("CF_WORKER_NAME", "").strip()
+    if w:
+        return w
+    w = _read_env_file_value(HOST_ENV_FILE, "CF_WORKER_NAME").strip()
+    if w:
+        return w
+    url = _read_env_file_value(HOST_ENV_FILE, "CF_WORKER_URL").strip()
+    return _infer_cf_worker_name_from_worker_url(url)
 
 
 def _has_cf_credentials() -> bool:
