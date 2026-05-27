@@ -160,6 +160,20 @@ dry_run="${DRY_RUN:-0}"
 deploy_worker="${DEPLOY_WORKER:-0}"
 
 cd "$repo"
+if [[ -z "${CF_API_TOKEN:-}" || -z "${CF_ACCOUNT_ID:-}" ]]; then
+    if [[ -f .env.bootstrap_bak ]]; then
+        echo "[vps-proof-run] Loading Cloudflare credentials from remote .env.bootstrap_bak..." >&2
+        if [[ -z "${CF_API_TOKEN:-}" ]]; then
+            CF_API_TOKEN="$(grep '^CF_API_TOKEN=' .env.bootstrap_bak | cut -d= -f2- | tr -d '"'\'' ' || true)"
+        fi
+        if [[ -z "${CF_ACCOUNT_ID:-}" ]]; then
+            CF_ACCOUNT_ID="$(grep '^CF_ACCOUNT_ID=' .env.bootstrap_bak | cut -d= -f2- | tr -d '"'\'' ' || true)"
+        fi
+    fi
+fi
+export CF_API_TOKEN
+export CF_ACCOUNT_ID
+
 artifact_dir="${repo}/council/${round}/runs/${run_id}"
 mkdir -p "$artifact_dir"
 timeline_file="${artifact_dir}/timeline.jsonl"
