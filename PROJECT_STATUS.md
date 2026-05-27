@@ -1,5 +1,5 @@
 # PROJECT_STATUS
-*Current state — updated 2026-05-27 (r86-modularize closed)*
+*Current state — updated 2026-05-27 (r87-gate-do implementation in progress; verification pending)*
 
 
 ---
@@ -20,6 +20,7 @@ V3 Asymmetric Envelope Encryption (deployed, all three council verifiers PASS).
 - **SSH daily-use follow-through (r85-1, verified):** transition to non-root execution via host `${XDG_RUNTIME_DIR}/subumbra/ssh-agent.sock` is complete, day-2 SSH key management commands (`--add-ssh-key`, `--rotate-ssh-key`, `--revoke-ssh-key`) are fully implemented, and durable `ssh_sign` audit events are persisted and surfaced in the operator dashboard.
 - **SSH destination binding hardening (r85-2, verified):** the local agent now parses native OpenSSH `session-bind@openssh.com` frames, restricted SSH keys may declare `allow.hosts`, bootstrap resolves those host labels into stored SSH host-key fingerprints, and the SSH sign path now fail-closes with `host_required` / `host_not_allowed` when a restricted key lacks verified destination context or is used against the wrong host.
 - **SSH sign quota and audit (r85-3, verified):** `max_sign_ops` SSH-session quota is now enforced at the Worker/VaultDO signing boundary — signatures issued by Subumbra count against the quota, not downstream acceptance. The DO `ssh_session_quota` table is the sole counter authority; `session_sign_limit_reached` (403) enforces exhaustion; `session_quota_unavailable` (503) fails closed on state errors. Bootstrap writes `ssh_session_scope:{adapter_id}:{key_id}` KV entries on session start and cleans them on session end. SSH audit events now include `target_host` (verified host fingerprint when present); `subumbra-keys` supports server-side `endpoint=ssh_sign` and `target_host=SHA256:...` filters. The dashboard renders SSH quota labels and `target_host` in the SSH audit drill-down.
+- **Gate approval flow (r87, implementation staged, unverified):** selected HTTP and SSH requests can now route through a dedicated `SubumbraGate` Durable Object that stores pending approval state, browser-push subscriptions, and expiry alarms; `subumbra-proxy` polls Worker gate status and re-submits only approved requests; the dashboard now exposes push subscription and pending gate visibility. Verification is still pending before this moves into the closed-round ledger.
 
 
 ---

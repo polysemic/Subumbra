@@ -345,6 +345,12 @@ docker logs subumbra-agent | tail -30
 
 No matching Subumbra session is open for that adapter/key pair. Re-open a scoped session.
 
+### Sign requests now wait for approval longer than 30 seconds
+
+Gate-enabled SSH keys use `SUBUMBRA_SIGN_TIMEOUT` in both `subumbra-proxy` and
+`subumbra-agent`. The default remains `30`, but Gate policies with longer
+`timeout_seconds` need a larger runtime ceiling in `.env`.
+
 ### GitHub works but another host does not
 
 Verify your `authorized_keys` entry or deploy-key setup on the remote host. A successful sign only proves the agent path is working; the remote host must still trust the current public key.

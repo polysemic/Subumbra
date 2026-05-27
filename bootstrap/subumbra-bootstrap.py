@@ -19,6 +19,7 @@ from subumbra_cf import (
     run_nuke_cloudflare,
     run_push_registry,
     run_update_access,
+    run_update_gate,
     run_update_tunnel,
 )
 from subumbra_core import die
@@ -79,6 +80,7 @@ if __name__ == "__main__":
         "--publish-policy",
         "--update-tunnel",
         "--update-access",
+        "--update-gate",
         "--nuke-cloudflare",
         "--status",
     )
@@ -183,6 +185,8 @@ if __name__ == "__main__":
         run_update_tunnel()
     elif "--update-access" in sys.argv:
         run_update_access()
+    elif "--update-gate" in sys.argv:
+        run_update_gate()
     elif "--nuke-cloudflare" in sys.argv:
         run_nuke_cloudflare()
     else:

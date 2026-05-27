@@ -75,7 +75,14 @@ if SUBUMBRA_RATE_LIMIT_RPM <= 0:
     SUBUMBRA_RATE_LIMIT_RPM = 60
 
 SSH_HOST_FINGERPRINT_RE = re.compile(r"^SHA256:[A-Za-z0-9+/]{43}$")
-AUDIT_ENDPOINT_FILTERS = {"ssh_sign", "get_key", "stats", "audit", "sessions"}
+AUDIT_ENDPOINT_FILTERS = {
+    "ssh_sign",
+    "get_key",
+    "stats",
+    "audit",
+    "sessions",
+    "gate",
+}
 
 _required = ("SUBUMBRA_ADAPTER_REGISTRY", "SUBUMBRA_HMAC_KEY")
 for _var in _required:
@@ -1325,7 +1332,7 @@ def audit() -> tuple[Response, int]:
     endpoint_filter = (request.args.get("endpoint") or "").strip()
     verdict_filter = (request.args.get("verdict") or "").strip()
     target_host_filter = (request.args.get("target_host") or "").strip()
-    if verdict_filter and verdict_filter not in {"allow", "deny"}:
+    if verdict_filter and verdict_filter not in {"allow", "deny", "gate_approved", "gate_denied", "gate_timeout"}:
         return _err("invalid verdict filter", 400)
     if endpoint_filter and endpoint_filter not in AUDIT_ENDPOINT_FILTERS:
         return _err("invalid endpoint filter", 400)
@@ -1439,7 +1446,7 @@ def write_audit() -> tuple[Response, int]:
         or not isinstance(endpoint, str)
         or not endpoint
         or not isinstance(verdict, str)
-        or verdict not in {"allow", "deny"}
+        or verdict not in {"allow", "deny", "gate_approved", "gate_denied", "gate_timeout"}
         or not isinstance(reason_code, str)
         or not reason_code
         or not isinstance(source_adapter_id, str)

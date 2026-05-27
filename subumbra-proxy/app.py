@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import hmac
 import json
@@ -25,6 +26,12 @@ CF_WORKER_URL = os.environ.get("CF_WORKER_URL", "").rstrip("/")
 CF_ACCESS_CLIENT_ID = os.environ.get("CF_ACCESS_CLIENT_ID", "")
 CF_ACCESS_CLIENT_SECRET = os.environ.get("CF_ACCESS_CLIENT_SECRET", "")
 SUBUMBRA_ADAPTER_REGISTRY_RAW = os.environ.get("SUBUMBRA_ADAPTER_REGISTRY", "")
+try:
+    SUBUMBRA_SIGN_TIMEOUT = float(os.environ.get("SUBUMBRA_SIGN_TIMEOUT", "30") or "30")
+except ValueError:
+    SUBUMBRA_SIGN_TIMEOUT = 30.0
+if SUBUMBRA_SIGN_TIMEOUT <= 0:
+    SUBUMBRA_SIGN_TIMEOUT = 30.0
 
 REQUIRED = (
     "SUBUMBRA_HMAC_KEY",
@@ -484,6 +491,132 @@ def effective_response_allow_headers(record: dict[str, Any] | None) -> set[str] 
     return allowed or None
 
 
+async def send_worker_request_with_gate(
+    *,
+    path: str,
+    adapter_token: str | None,
+    payload: dict[str, Any],
+    timeout_seconds: float,
+    key_id: str,
+    adapter_id: str,
+    flow: str,
+    target_host: str | None = None,
+) -> httpx.Response:
+    def build_request(body: dict[str, Any], timeout_value: float) -> httpx.Request:
+        return CLIENT.build_request(
+            "POST",
+            f"{CF_WORKER_URL}{path}",
+            headers=worker_headers(adapter_token=adapter_token),
+            json=body,
+            timeout=timeout_value,
+        )
+
+    worker_resp = await CLIENT.send(build_request(payload, timeout_seconds), stream=True)
+    if worker_resp.status_code != 202:
+        return worker_resp
+
+    try:
+        gate_payload = json.loads(await worker_resp.aread())
+    except Exception:
+        await worker_resp.aclose()
+        return httpx.Response(
+            502,
+            json={"error": "gate_invalid_response"},
+            headers={"content-type": "application/json"},
+        )
+    await worker_resp.aclose()
+
+    request_id = gate_payload.get("request_id")
+    poll_url = gate_payload.get("poll_url")
+    if not isinstance(request_id, str) or not request_id or not isinstance(poll_url, str) or not poll_url:
+        return httpx.Response(
+            502,
+            json={"error": "gate_invalid_response"},
+            headers={"content-type": "application/json"},
+        )
+
+    deadline = time.monotonic() + timeout_seconds
+    poll_delay = 2.0
+    LOG.info("gate_pending request_id=%s flow=%s", request_id, flow)
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            LOG.warning("gate_terminal request_id=%s status=expired", request_id)
+            await post_audit_event(
+                source_adapter_id=adapter_id,
+                key_id=key_id,
+                endpoint="gate",
+                target_host=target_host,
+                verdict="gate_timeout",
+                reason_code=flow,
+            )
+            return httpx.Response(
+                403,
+                json={"error": "gate_timeout"},
+                headers={"content-type": "application/json"},
+            )
+
+        await asyncio.sleep(min(poll_delay, remaining))
+        poll_delay = min(5.0, poll_delay + 1.0)
+        try:
+            status_resp = await CLIENT.get(
+                f"{CF_WORKER_URL}{poll_url}",
+                headers=worker_headers(adapter_token=adapter_token),
+                timeout=min(remaining, 5.0),
+            )
+        except httpx.RequestError:
+            return httpx.Response(
+                502,
+                json={"error": "gate_status_unavailable"},
+                headers={"content-type": "application/json"},
+            )
+
+        try:
+            status_payload = status_resp.json()
+        except Exception:
+            status_payload = {}
+        status_value = status_payload.get("status")
+        if status_value == "pending":
+            continue
+        if status_value == "approved":
+            LOG.info("gate_terminal request_id=%s status=approved", request_id)
+            await post_audit_event(
+                source_adapter_id=adapter_id,
+                key_id=key_id,
+                endpoint="gate",
+                target_host=target_host,
+                verdict="gate_approved",
+                reason_code=flow,
+            )
+            approved_payload = dict(payload)
+            approved_payload["gate_approved_id"] = request_id
+            return await CLIENT.send(build_request(approved_payload, timeout_seconds), stream=True)
+        if status_value == "consumed":
+            LOG.warning("gate_terminal request_id=%s status=consumed", request_id)
+            return httpx.Response(
+                409,
+                json={"error": "gate_replayed"},
+                headers={"content-type": "application/json"},
+            )
+        error_code = status_payload.get("error")
+        if not isinstance(error_code, str) or not error_code:
+            error_code = "gate_denied" if status_value == "denied" else "gate_timeout"
+        LOG.warning("gate_terminal request_id=%s status=%s", request_id, status_value)
+        await post_audit_event(
+            source_adapter_id=adapter_id,
+            key_id=key_id,
+            endpoint="gate",
+            target_host=target_host,
+            verdict="gate_denied" if status_value == "denied" else "gate_timeout",
+            reason_code=flow,
+        )
+        return httpx.Response(
+            403,
+            json={"error": error_code},
+            headers={"content-type": "application/json"},
+        )
+
+
 async def proxy_via_worker(
     key_id: str,
     target_url: str,
@@ -538,14 +671,16 @@ async def proxy_via_worker(
         intent=intent,
     )
 
-    worker_req = CLIENT.build_request(
-        "POST",
-        f"{CF_WORKER_URL}/proxy",
-        headers=worker_headers(adapter_token=adapter_token),
-        json=payload,
-        timeout=120.0,
+    worker_resp = await send_worker_request_with_gate(
+        path="/proxy",
+        adapter_token=adapter_token,
+        payload=payload,
+        timeout_seconds=120.0,
+        key_id=key_id,
+        adapter_id=adapter_id or "",
+        flow="proxy",
+        target_host=target_host,
     )
-    worker_resp = await CLIENT.send(worker_req, stream=True)
 
     response_allow_headers = effective_response_allow_headers(record)
     response_headers: dict[str, str] = {}
@@ -688,15 +823,17 @@ async def handle_ssh_sign_request(key_id: str, request: Request):
     if isinstance(verified_host_fingerprint, str):
         worker_payload["verified_host_fingerprint"] = verified_host_fingerprint
 
-    worker_req = CLIENT.build_request(
-        "POST",
-        f"{CF_WORKER_URL}/ssh/sign",
-        headers=worker_headers(adapter_token=adapter_token),
-        json=worker_payload,
-        timeout=30.0,
-    )
     LOG.info("ssh-sign request adapter=%s key_id=%s", adapter_id, key_id)
-    worker_resp = await CLIENT.send(worker_req, stream=True)
+    worker_resp = await send_worker_request_with_gate(
+        path="/ssh/sign",
+        adapter_token=adapter_token,
+        payload=worker_payload,
+        timeout_seconds=SUBUMBRA_SIGN_TIMEOUT,
+        key_id=key_id,
+        adapter_id=adapter_id,
+        flow="ssh_sign",
+        target_host=verified_host_fingerprint,
+    )
     session_metadata = parse_session_sign_headers(worker_resp.headers)
 
     response_headers: dict[str, str] = {}

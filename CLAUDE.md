@@ -20,6 +20,7 @@ subumbra-keys (docker internal network only)
     ↓ returns V3 envelope: ciphertext + wrapped_dek + pub_key_fp + policy_hash + vault_instance
     ↓ (useless without the matching RSA private key in the selected SubumbraVault DO)
 Cloudflare Worker + Durable Object
+    ↓ optional Gate DO approval hold for selected `/proxy` or `/ssh/sign` calls
     ↓ verifies fingerprint, unwraps DEK, decrypts provider key, injects auth
 API Provider
     ↓ streams response
@@ -32,6 +33,7 @@ API Provider
 - Asymmetric hybrid envelope encryption (V3): RSA-4096 wraps per-record AES-256-GCM DEKs
 - subumbra-keys container: holds wrapped DEK + AES-GCM ciphertext only (useless without RSA private key)
 - SubumbraVault DO: holds RSA-4096 private key in SQLite custody (never extractable after import)
+- SubumbraGate DO: holds only pending approval state, browser subscriptions, and expiry timers
 - Neither side can reconstruct keys alone
 - Shared-vault keys use vault instance `vault`; opt-in isolated keys use `vault-<key_id>`
 - AAD binding (`subumbra:v3:<key_id>:<policy_hash>`) prevents ciphertext transplant and policy replay
@@ -252,6 +254,7 @@ CF_ACCESS_CLIENT_SECRET=<from CF Access dashboard>
 - Read-only visibility into V3 policy metadata including `policy_id`, `policy_hash`, capability class, auth scheme, and per-key allowlist relationships
 - Operator-facing labels that distinguish locked policy/binding data from metadata or state that may become editable later
 - Heartbeat-only `/api/events` plus 30-second `/api/status` polling fallback for dashboard freshness
+- Gate card for browser-push subscription state and pending approval visibility
 
 ## Build Order
 1. docker-compose.yml skeleton

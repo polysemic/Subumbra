@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='template.css') }}?v=3">
   <link rel="stylesheet" href="{{ url_for('static', filename='main.css') }}?v=5">
 </head>
-<body>
+<body data-gate-vapid-public-key="{{ gate_vapid_public_key }}">
 
   <!-- ── Top bar ────────────────────────────────────────────── -->
   <header class="topbar" role="banner">
@@ -78,6 +78,54 @@
       <div class="stat-card">
         <div class="stat-value small" id="stat-last-req">–</div>
         <div class="stat-label">Last Request</div>
+      </div>
+    </section>
+
+    <section class="panel" aria-label="Gate approvals">
+      <div class="panel-header">
+        <h2 class="panel-title">Gate Approvals</h2>
+        <div style="display:flex;align-items:center;gap:var(--space-3);">
+          <span class="panel-meta" id="gate-subscription-status">push not configured</span>
+          <button class="btn btn-primary" type="button" id="gate-subscribe-btn">Enable browser push</button>
+        </div>
+      </div>
+      <div class="panel-body gate-panel-body">
+        <div class="gate-metrics">
+          <div class="gate-metric">
+            <span class="gate-metric-label">Subscriptions</span>
+            <span class="gate-metric-value" id="gate-subscription-count">—</span>
+          </div>
+          <div class="gate-metric">
+            <span class="gate-metric-label">Pending</span>
+            <span class="gate-metric-value" id="gate-pending-count">—</span>
+          </div>
+          <div class="gate-metric">
+            <span class="gate-metric-label">Approved (24h)</span>
+            <span class="gate-metric-value" id="gate-approved-count">—</span>
+          </div>
+          <div class="gate-metric">
+            <span class="gate-metric-label">Denied / Timeout (24h)</span>
+            <span class="gate-metric-value" id="gate-denied-count">—</span>
+          </div>
+        </div>
+        <div class="log-scroll">
+          <table class="log-table" aria-label="Pending gate requests">
+            <thead>
+              <tr>
+                <th scope="col">Created</th>
+                <th scope="col">Flow</th>
+                <th scope="col">Adapter</th>
+                <th scope="col">Key ID</th>
+                <th scope="col">Target</th>
+                <th scope="col">Expires</th>
+                <th scope="col">Status</th>
+              </tr>
+            </thead>
+            <tbody id="gate-body">
+              <tr><td colspan="7" class="empty-state">No pending approvals.</td></tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </section>
 
@@ -333,6 +381,7 @@
     </div>
   </div>
 
+  <script src="{{ url_for('static', filename='push.js') }}?v=1"></script>
   <script src="{{ url_for('static', filename='dashboard.js') }}?v=2"></script>
 </body>
 </html>

@@ -513,3 +513,20 @@ These values are fixed in the current release (not env-tunable). Useful if you'r
 **Multiple dashboard tabs:** the SSE `/api/events` stream holds a thread for each open tab. With many tabs open simultaneously, you may notice the 30-second `/api/status` polling becomes slightly slower as threads compete.
 
 **Rate-limit identity on localhost:** when the UI is accessed via `127.0.0.1:6563`, `request.remote_addr` is often the Docker bridge gateway IP, so all host-originated traffic shares one rate-limit bucket.
+
+## Gate approvals
+
+When a key policy includes `gate.require_approval`, selected Worker `/proxy`
+and `/ssh/sign` requests no longer dispatch immediately. The Worker returns
+`202`, `subumbra-proxy` polls `GET /gate/status/<request_id>`, and only an
+approved request is re-submitted into the normal Vault path.
+
+- Browser subscription and pending visibility live in the dashboard Gate card.
+- Approval links are one-time capability URLs and expire to `gate_timeout`.
+- The bounded day-2 update path is:
+
+```bash
+./bootstrap.sh --deploy-worker
+./bootstrap.sh --update-gate
+docker compose up -d --force-recreate
+```

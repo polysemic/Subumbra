@@ -31,6 +31,10 @@ from flask import Flask, Response, jsonify, render_template, request, stream_wit
 SUBUMBRA_KEYS_URL = os.environ.get("SUBUMBRA_KEYS_URL", "http://subumbra-keys:9090").rstrip("/")
 SUBUMBRA_ACCESS_TOKEN = os.environ.get("SUBUMBRA_ACCESS_TOKEN", "")
 SUBUMBRA_PROXY_URL = os.environ.get("SUBUMBRA_PROXY_URL", "http://subumbra-proxy:8090").rstrip("/")
+CF_WORKER_URL = os.environ.get("CF_WORKER_URL", "").rstrip("/")
+CF_ACCESS_CLIENT_ID = os.environ.get("CF_ACCESS_CLIENT_ID", "")
+CF_ACCESS_CLIENT_SECRET = os.environ.get("CF_ACCESS_CLIENT_SECRET", "")
+SUBUMBRA_GATE_VAPID_PUBLIC_KEY = os.environ.get("SUBUMBRA_GATE_VAPID_PUBLIC_KEY", "")
 UI_USERNAME = os.environ.get("UI_USERNAME", "")
 UI_PASSWORD = os.environ.get("UI_PASSWORD", "")
 AUTH_WINDOW_SECONDS = 60
@@ -69,6 +73,10 @@ _http = httpx.Client(
 
 _proxy_http = httpx.Client(
     timeout=httpx.Timeout(connect=3.0, read=3.0, write=3.0, pool=3.0),
+)
+
+_worker_http = httpx.Client(
+    timeout=httpx.Timeout(connect=3.0, read=5.0, write=5.0, pool=3.0),
 )
 
 
@@ -133,6 +141,34 @@ def _proxy_get(path: str) -> tuple[dict | list | None, str | None]:
         return None, f"Proxy unreachable: {type(e).__name__}"
 
 
+def _worker_headers() -> dict[str, str]:
+    headers: dict[str, str] = {}
+    if CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET:
+        headers["CF-Access-Client-Id"] = CF_ACCESS_CLIENT_ID
+        headers["CF-Access-Client-Secret"] = CF_ACCESS_CLIENT_SECRET
+    return headers
+
+
+def _worker_request(method: str, path: str, *, json_payload: dict | None = None) -> tuple[dict | list | None, str | None]:
+    if not CF_WORKER_URL:
+        return None, "worker URL not configured"
+    try:
+        response = _worker_http.request(
+            method,
+            f"{CF_WORKER_URL}{path}",
+            headers=_worker_headers(),
+            json=json_payload,
+        )
+        response.raise_for_status()
+        if not response.content:
+            return {}, None
+        return response.json(), None
+    except httpx.HTTPStatusError as e:
+        return None, f"worker returned {e.response.status_code}"
+    except httpx.RequestError as e:
+        return None, f"worker unreachable: {type(e).__name__}"
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Routes
 # ─────────────────────────────────────────────────────────────────────────────
@@ -157,7 +193,14 @@ def health():
 @app.get("/")
 @_require_auth
 def index():
-    return render_template("index.html")
+    return render_template("index.html", gate_vapid_public_key=SUBUMBRA_GATE_VAPID_PUBLIC_KEY)
+
+
+@app.get("/sw.js")
+def service_worker():
+    response = app.send_static_file("sw.js")
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.get("/api/events")
@@ -323,3 +366,27 @@ def api_status():
         "audit_filter": audit_mode if audit_mode == "ssh_sign" else "",
         "dashboard_time": now,
     })
+
+
+@app.get("/api/gate/pending")
+@_require_auth
+def api_gate_pending():
+    payload, error = _worker_request("GET", "/gate/pending")
+    if error is not None:
+        return jsonify({"error": error}), 502
+    return jsonify(payload or {}), 200
+
+
+@app.post("/api/gate/subscribe")
+@_require_auth
+def api_gate_subscribe():
+    try:
+        payload = request.get_json(force=True, silent=False)
+    except Exception:
+        return jsonify({"error": "invalid JSON body"}), 400
+    if not isinstance(payload, dict):
+        return jsonify({"error": "invalid JSON body"}), 400
+    forwarded, error = _worker_request("POST", "/gate/subscribe", json_payload=payload)
+    if error is not None:
+        return jsonify({"error": error}), 502
+    return jsonify(forwarded or {"status": "ok"}), 200

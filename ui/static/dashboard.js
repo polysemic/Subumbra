@@ -22,6 +22,7 @@ const PROVIDER_CLASS = {
 
 let _status = null;
 let _es     = null;   // EventSource instance
+let _gateData = null;
 
 /* ── DOM helper ──────────────────────────────────────────────── */
 
@@ -323,6 +324,40 @@ function renderWarnings(data) {
   setAlert($("audit-warning"), auditUnavail);
 }
 
+function renderGate(data) {
+  _gateData = data;
+  const subscriptionCount = Number(data?.subscription_count ?? 0);
+  const pending = Array.isArray(data?.pending) ? data.pending : [];
+  const recent = data?.recent_counts_24h || {};
+  $("gate-subscription-count").textContent = String(subscriptionCount);
+  $("gate-pending-count").textContent = String(Number(data?.pending_count ?? pending.length));
+  $("gate-approved-count").textContent = String(Number(recent.approved ?? 0));
+  $("gate-denied-count").textContent = `${Number(recent.denied ?? 0)} / ${Number(recent.timeout ?? 0)}`;
+
+  const statusLabel = $("gate-subscription-status");
+  if (document.body.dataset.gateVapidPublicKey) {
+    statusLabel.textContent = subscriptionCount > 0 ? "browser push ready" : "push available";
+  } else {
+    statusLabel.textContent = "push not configured";
+  }
+
+  const tbody = $("gate-body");
+  if (!pending.length) {
+    tbody.innerHTML = `<tr><td colspan="7" class="empty-state">No pending approvals.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = pending.map((entry) => `
+<tr>
+  <td class="td-ts">${esc(fmtTimestamp(entry.created_at))}</td>
+  <td>${esc(entry.flow ?? "—")}</td>
+  <td class="td-mono">${esc(entry.adapter_id ?? "—")}</td>
+  <td class="td-mono">${esc(entry.key_id ?? "—")}</td>
+  <td class="td-mono">${esc(entry.target_summary ?? "—")}</td>
+  <td class="td-ts">${esc(fmtTimestamp(entry.expires_at))}</td>
+  <td>${esc(entry.status ?? "—")}</td>
+</tr>`).join("");
+}
+
 /* ── Fetch & live updates via SSE ────────────────────────────── */
 
 function applyStatus(data) {
@@ -334,6 +369,7 @@ function applyStatus(data) {
   renderKeys(data.keys);
   renderLog(data.recent_log, data.audit_available !== false);
   renderWarnings(data);
+  loadGatePending();
 }
 
 /* One-shot fetch — used on init and manual refresh button */
@@ -362,6 +398,59 @@ function initEventSource() {
     /* EventSource will auto-retry; just update the indicator */
     setLiveIndicator("reconnecting");
   });
+}
+
+function base64UrlToUint8Array(value) {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
+  const raw = atob(padded);
+  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+}
+
+async function loadGatePending() {
+  try {
+    const resp = await fetch("/api/gate/pending");
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    renderGate(await resp.json());
+  } catch (err) {
+    renderGate({ pending: [], recent_counts_24h: { approved: 0, denied: 0, timeout: 0 }, subscription_count: 0, pending_count: 0 });
+    $("gate-subscription-status").textContent = `gate unavailable: ${err.message}`;
+  }
+}
+
+async function ensurePushSubscription() {
+  if (typeof window.ensureSubumbraPushSubscription === "function") {
+    await window.ensureSubumbraPushSubscription();
+    $("gate-subscription-status").textContent = "browser push ready";
+    await loadGatePending();
+    return;
+  }
+  const publicKey = document.body.dataset.gateVapidPublicKey || "";
+  if (!publicKey) {
+    $("gate-subscription-status").textContent = "push not configured";
+    return;
+  }
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+    $("gate-subscription-status").textContent = "push unsupported";
+    return;
+  }
+
+  const registration = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+  const existing = await registration.pushManager.getSubscription();
+  const subscription = existing || await registration.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: base64UrlToUint8Array(publicKey),
+  });
+  const resp = await fetch("/api/gate/subscribe", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(subscription.toJSON()),
+  });
+  if (!resp.ok) {
+    throw new Error(`HTTP ${resp.status}`);
+  }
+  $("gate-subscription-status").textContent = "browser push ready";
+  await loadGatePending();
 }
 
 /* Update the live connection badge in the topbar */
@@ -562,6 +651,16 @@ document.addEventListener("DOMContentLoaded", () => {
   loadStatus();      // immediate snapshot on load
   initEventSource(); // then switch to live push
   window.setInterval(loadStatus, STATUS_POLL_MS);
+  const gateButton = $("gate-subscribe-btn");
+  if (gateButton) {
+    gateButton.addEventListener("click", async () => {
+      try {
+        await ensurePushSubscription();
+      } catch (err) {
+        $("gate-subscription-status").textContent = `push failed: ${err.message}`;
+      }
+    });
+  }
 
   document.addEventListener("click", (e) => {
     const card = e.target.closest("[data-key-id]");

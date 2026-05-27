@@ -58,6 +58,51 @@ function optionalStringArray(value) {
   return parsed;
 }
 
+function optionalGatePolicy(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  if (!Array.isArray(value.require_approval) || value.require_approval.length === 0) {
+    return null;
+  }
+  const rules = [];
+  for (const entry of value.require_approval) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      return null;
+    }
+    if (!Number.isInteger(entry.timeout_seconds) || entry.timeout_seconds <= 0) {
+      return null;
+    }
+    const when = entry.when;
+    if (!when || typeof when !== "object" || Array.isArray(when)) {
+      return null;
+    }
+    const normalizedWhen = {};
+    if (when.any_request === true) {
+      normalizedWhen.any_request = true;
+    }
+    if (typeof when.adapter === "string" && when.adapter) {
+      normalizedWhen.adapter = when.adapter;
+    }
+    if (typeof when.method === "string" && when.method) {
+      normalizedWhen.method = when.method;
+    }
+    if (typeof when.path_prefix === "string" && when.path_prefix) {
+      normalizedWhen.path_prefix = when.path_prefix;
+    }
+    if (Object.keys(normalizedWhen).length === 0) {
+      return null;
+    }
+    rules.push({
+      when: normalizedWhen,
+      timeout_seconds: entry.timeout_seconds,
+    });
+  }
+  return {
+    require_approval: rules,
+  };
+}
+
 async function getRegistryEntry(env, keyId) {
   const registryVersion = await env.PROVIDER_REGISTRY_KV.get("registry_version", {
     cacheTtl: 30,
@@ -136,6 +181,7 @@ async function getRegistryEntry(env, keyId) {
     response_allow_headers: Array.isArray(policy.response?.allow_headers)
       ? policy.response.allow_headers
       : [],
+    gate: optionalGatePolicy(policy.gate),
     velocity: policy.velocity && typeof policy.velocity === "object"
       ? {
           adapter_rpm: typeof policy.velocity.adapter_rpm === "number" ? policy.velocity.adapter_rpm : null,
@@ -172,6 +218,7 @@ const HOP_BY_HOP_HEADERS = new Set([
 ]);
 
 const VAULT_INSTANCE_NAME = "vault";
+const GATE_INSTANCE_NAME = "gate";
 const VAULT_SETUP_PATH = "/setup-keygen";
 const VAULT_SSH_KEYGEN_PATH = "/ssh-keygen";
 const VAULT_SSH_IMPORT_PATH = "/ssh-import";
@@ -182,6 +229,8 @@ const VAULT_ROTATE_PATH = "/rotate";
 const VAULT_RESET_PATH = "/reset";
 const VAULT_MANAGEMENT_AUDIT_PATH = "/management-audit";
 const VAULT_RATE_CHECK_PATH = "/rate-check";
+const GATE_SUBMIT_PATH = "/submit";
+const GATE_CONSUME_PATH = "/consume";
 const AUTH_RATE_LIMITS = {
   "auth-ping": 20,
   "manage-key": 20,
@@ -194,6 +243,30 @@ const AUTH_RATE_LIMITS = {
   "internal-vault-status": 5,
   "internal-vault-reset": 5,
 };
+const GATE_SCHEMA = `
+  CREATE TABLE IF NOT EXISTS pending_requests (
+    request_id TEXT PRIMARY KEY,
+    flow TEXT NOT NULL,
+    key_id TEXT NOT NULL,
+    adapter_id TEXT NOT NULL,
+    target_summary TEXT NOT NULL,
+    request_digest TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    status TEXT NOT NULL,
+    approval_token_hash TEXT NOT NULL,
+    terminal_at TEXT,
+    consumed_at TEXT
+  );
+  CREATE TABLE IF NOT EXISTS push_subscriptions (
+    endpoint_hash TEXT PRIMARY KEY,
+    endpoint TEXT NOT NULL,
+    p256dh TEXT NOT NULL,
+    auth_secret TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL
+  );
+`;
 const VAULT_SCHEMA = `
   CREATE TABLE IF NOT EXISTS custody (
     id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -486,10 +559,643 @@ function bytesToBase64(bytes) {
   return btoa(String.fromCharCode(...bytes));
 }
 
+function bytesToBase64Url(bytes) {
+  return bytesToBase64(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
 function base64UrlToBytes(value) {
   const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
   const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
   return Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
+}
+
+function canonicalizeJson(value) {
+  if (Array.isArray(value)) {
+    return value.map((entry) => canonicalizeJson(entry));
+  }
+  if (value && typeof value === "object") {
+    const out = {};
+    for (const key of Object.keys(value).sort()) {
+      out[key] = canonicalizeJson(value[key]);
+    }
+    return out;
+  }
+  return value;
+}
+
+function normalizeHeaderMap(headers) {
+  const normalized = {};
+  for (const [key, value] of Object.entries(headers || {})) {
+    if (typeof value !== "string") {
+      continue;
+    }
+    normalized[key.toLowerCase()] = value;
+  }
+  return canonicalizeJson(normalized);
+}
+
+async function sha256HexBytes(bytes) {
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return bytesToHex(new Uint8Array(digest));
+}
+
+async function sha256HexText(value) {
+  return sha256HexBytes(new TextEncoder().encode(value));
+}
+
+function htmlResponse(body, status = 200) {
+  return new Response(body, {
+    status,
+    headers: {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-store",
+      "pragma": "no-cache",
+      "x-content-type-options": "nosniff",
+    },
+  });
+}
+
+function getGateStub(env) {
+  const gateId = env.SUBUMBRA_GATE.idFromName(GATE_INSTANCE_NAME);
+  return env.SUBUMBRA_GATE.get(gateId);
+}
+
+function matchGateRule(gatePolicy, context) {
+  if (!gatePolicy || !Array.isArray(gatePolicy.require_approval)) {
+    return null;
+  }
+  for (const rule of gatePolicy.require_approval) {
+    const when = rule.when || {};
+    if (when.adapter && when.adapter !== context.adapterId) {
+      continue;
+    }
+    if (context.flow === "proxy") {
+      if (when.method && when.method !== context.method) {
+        continue;
+      }
+      if (when.path_prefix && !context.path.startsWith(when.path_prefix)) {
+        continue;
+      }
+    } else if (when.method || when.path_prefix) {
+      continue;
+    }
+    if (when.any_request !== true && !when.adapter && !when.method && !when.path_prefix) {
+      continue;
+    }
+    return rule;
+  }
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Durable Object — SubumbraGate
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class SubumbraGate {
+  constructor(state, env) {
+    this.state = state;
+    this.env = env;
+    this._constructorError = null;
+    this.state.blockConcurrencyWhile(async () => {
+      try {
+        this.state.storage.sql.exec(GATE_SCHEMA);
+      } catch (err) {
+        this._constructorError = err;
+        console.error("subumbra: gate DO constructor failed — instance is degraded");
+      }
+    });
+  }
+
+  async fetch(request) {
+    if (this._constructorError) {
+      console.error("subumbra: gate DO degraded — request rejected");
+      return jsonError("gate unavailable", 503);
+    }
+
+    const url = new URL(request.url);
+    if (request.method === "POST" && url.pathname === GATE_SUBMIT_PATH) {
+      return this._handleSubmit(request);
+    }
+    if (request.method === "POST" && url.pathname === GATE_CONSUME_PATH) {
+      return this._handleConsume(request);
+    }
+    if (request.method === "POST" && url.pathname === "/gate/subscribe") {
+      return this._handleSubscribe(request);
+    }
+    if (request.method === "GET" && url.pathname === "/gate/pending") {
+      return this._handlePending();
+    }
+    if (request.method === "GET" && url.pathname.startsWith("/gate/status/")) {
+      return this._handleStatus(url.pathname.slice("/gate/status/".length));
+    }
+    if (request.method === "GET" && url.pathname.startsWith("/gate/approve/")) {
+      return this._handleDecisionPage("approved", url.pathname.slice("/gate/approve/".length), url.searchParams);
+    }
+    if (request.method === "POST" && url.pathname.startsWith("/gate/approve/")) {
+      return this._handleDecisionAction("approved", url.pathname.slice("/gate/approve/".length), request);
+    }
+    if (request.method === "GET" && url.pathname.startsWith("/gate/deny/")) {
+      return this._handleDecisionPage("denied", url.pathname.slice("/gate/deny/".length), url.searchParams);
+    }
+    if (request.method === "POST" && url.pathname.startsWith("/gate/deny/")) {
+      return this._handleDecisionAction("denied", url.pathname.slice("/gate/deny/".length), request);
+    }
+    return jsonError("not found", 404);
+  }
+
+  async alarm() {
+    const nowIso = new Date().toISOString();
+    const expiredRows = this.state.storage.sql.exec(
+      "SELECT request_id FROM pending_requests WHERE status='pending' AND expires_at <= ?",
+      nowIso,
+    ).toArray();
+    if (expiredRows.length > 0) {
+      this.state.storage.sql.exec(
+        "UPDATE pending_requests SET status='expired', terminal_at=? WHERE status='pending' AND expires_at <= ?",
+        nowIso,
+        nowIso,
+      );
+      for (const row of expiredRows) {
+        console.warn("gate_expire request_id=%s", row.request_id);
+      }
+    }
+    await this._scheduleNextAlarm();
+  }
+
+  _loadPendingRow(requestId) {
+    const rows = this.state.storage.sql.exec(
+      `SELECT request_id, flow, key_id, adapter_id, target_summary, request_digest,
+              created_at, expires_at, status, approval_token_hash, terminal_at, consumed_at
+         FROM pending_requests
+        WHERE request_id = ?`,
+      requestId,
+    ).toArray();
+    return rows.length > 0 ? rows[0] : null;
+  }
+
+  async _tokenMac(requestId, nonce, expiryUnix) {
+    const rawKey = this.env.SUBUMBRA_GATE_HMAC_KEY ?? "";
+    if (!rawKey) {
+      throw new Error("gate hmac secret missing");
+    }
+    const cryptoKey = await crypto.subtle.importKey(
+      "raw",
+      new TextEncoder().encode(rawKey),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"],
+    );
+    const payload = new TextEncoder().encode(`${requestId}\n${nonce}\n${expiryUnix}`);
+    const mac = await crypto.subtle.sign("HMAC", cryptoKey, payload);
+    return bytesToBase64Url(new Uint8Array(mac));
+  }
+
+  async _buildCapabilityToken(requestId, expiresAtIso) {
+    const nonce = crypto.randomUUID();
+    const expiryUnix = Math.floor(Date.parse(expiresAtIso) / 1000);
+    const mac = await this._tokenMac(requestId, nonce, expiryUnix);
+    return `${nonce}.${expiryUnix}.${mac}`;
+  }
+
+  async _hashApprovalToken(token) {
+    return sha256HexText(token);
+  }
+
+  async _validateToken(requestId, token) {
+    if (!token || typeof token !== "string") {
+      console.warn("gate_token_invalid request_id=%s reason=missing", requestId);
+      return { ok: false, response: htmlResponse("<h1>Forbidden</h1><p>Missing token.</p>", 403) };
+    }
+    const parts = token.split(".");
+    if (parts.length !== 3 || !parts[0] || !parts[1] || !parts[2]) {
+      console.warn("gate_token_invalid request_id=%s reason=malformed", requestId);
+      return { ok: false, response: htmlResponse("<h1>Forbidden</h1><p>Malformed token.</p>", 403) };
+    }
+    const [nonce, expiryRaw, mac] = parts;
+    const expiryUnix = Number.parseInt(expiryRaw, 10);
+    if (!Number.isFinite(expiryUnix) || expiryUnix <= 0) {
+      console.warn("gate_token_invalid request_id=%s reason=malformed", requestId);
+      return { ok: false, response: htmlResponse("<h1>Forbidden</h1><p>Malformed token.</p>", 403) };
+    }
+    if (Date.now() >= expiryUnix * 1000) {
+      console.warn("gate_token_invalid request_id=%s reason=expired", requestId);
+      return { ok: false, response: htmlResponse("<h1>Forbidden</h1><p>Token expired.</p>", 403) };
+    }
+    const expectedMac = await this._tokenMac(requestId, nonce, expiryUnix);
+    const macOk = await timingSafeEqual(mac, expectedMac);
+    if (!macOk) {
+      console.warn("gate_token_invalid request_id=%s reason=hmac", requestId);
+      return { ok: false, response: htmlResponse("<h1>Forbidden</h1><p>Invalid token.</p>", 403) };
+    }
+    const row = this._loadPendingRow(requestId);
+    if (!row) {
+      console.warn("gate_token_invalid request_id=%s reason=not_found", requestId);
+      return { ok: false, response: htmlResponse("<h1>Forbidden</h1><p>Request not found.</p>", 403) };
+    }
+    const tokenHash = await this._hashApprovalToken(token);
+    const tokenHashOk = await timingSafeEqual(tokenHash, row.approval_token_hash);
+    if (!tokenHashOk) {
+      console.warn("gate_token_invalid request_id=%s reason=hash", requestId);
+      return { ok: false, response: htmlResponse("<h1>Forbidden</h1><p>Invalid token.</p>", 403) };
+    }
+    if (row.status === "consumed" || row.status === "approved" || row.status === "denied") {
+      return { ok: false, response: htmlResponse("<h1>Conflict</h1><p>Request already resolved.</p>", 409) };
+    }
+    if (row.status === "expired" || Date.parse(row.expires_at) <= Date.now()) {
+      if (row.status === "pending") {
+        const nowIso = new Date().toISOString();
+        this.state.storage.sql.exec(
+          "UPDATE pending_requests SET status='expired', terminal_at=? WHERE request_id=? AND status='pending'",
+          nowIso,
+          requestId,
+        );
+      }
+      return { ok: false, response: htmlResponse("<h1>Forbidden</h1><p>Request expired.</p>", 403) };
+    }
+    return { ok: true, row };
+  }
+
+  _renderDecisionPage(action, requestId, token) {
+    const verb = action === "approved" ? "Approve" : "Deny";
+    return htmlResponse(
+      `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${verb} Gate Request</title></head><body><main><h1>${verb} request</h1><p>Request ID: <code>${requestId}</code></p><form method="post"><input type="hidden" name="token" value="${token.replace(/"/g, "&quot;")}"><button type="submit">${verb}</button></form></main></body></html>`,
+      200,
+    );
+  }
+
+  async _scheduleNextAlarm() {
+    const rows = this.state.storage.sql.exec(
+      "SELECT MIN(expires_at) AS next_expires_at FROM pending_requests WHERE status='pending'",
+    ).toArray();
+    const nextIso = rows.length > 0 ? rows[0].next_expires_at : null;
+    if (!nextIso) {
+      await this.state.storage.deleteAlarm();
+      return;
+    }
+    const nextMs = Date.parse(nextIso);
+    if (Number.isFinite(nextMs)) {
+      await this.state.storage.setAlarm(nextMs);
+    }
+  }
+
+  async _importVapidPrivateKey() {
+    const rawJwk = this.env.SUBUMBRA_GATE_VAPID_PRIVATE_JWK ?? "";
+    if (!rawJwk) {
+      throw new Error("gate vapid secret missing");
+    }
+    let jwk;
+    try {
+      jwk = JSON.parse(rawJwk);
+    } catch {
+      throw new Error("gate vapid secret invalid");
+    }
+    return crypto.subtle.importKey(
+      "jwk",
+      jwk,
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["sign"],
+    );
+  }
+
+  _vapidPublicKeyFromSecret() {
+    const rawJwk = this.env.SUBUMBRA_GATE_VAPID_PRIVATE_JWK ?? "";
+    if (!rawJwk) {
+      throw new Error("gate vapid secret missing");
+    }
+    let jwk;
+    try {
+      jwk = JSON.parse(rawJwk);
+    } catch {
+      throw new Error("gate vapid secret invalid");
+    }
+    if (typeof jwk.x !== "string" || typeof jwk.y !== "string") {
+      throw new Error("gate vapid secret invalid");
+    }
+    const x = base64UrlToBytes(jwk.x);
+    const y = base64UrlToBytes(jwk.y);
+    const publicKey = new Uint8Array(65);
+    publicKey[0] = 0x04;
+    publicKey.set(x, 1);
+    publicKey.set(y, 33);
+    return bytesToBase64Url(publicKey);
+  }
+
+  async _buildVapidHeaders(endpoint) {
+    const audience = new URL(endpoint).origin;
+    const privateKey = await this._importVapidPrivateKey();
+    const publicKey = this._vapidPublicKeyFromSecret();
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const header = bytesToBase64Url(new TextEncoder().encode(JSON.stringify({ typ: "JWT", alg: "ES256" })));
+    const claims = bytesToBase64Url(
+      new TextEncoder().encode(
+        JSON.stringify({
+          aud: audience,
+          exp: nowSeconds + 12 * 60 * 60,
+          sub: "mailto:subumbra@localhost.invalid",
+        }),
+      ),
+    );
+    const signingInput = `${header}.${claims}`;
+    const signature = await crypto.subtle.sign(
+      { name: "ECDSA", hash: "SHA-256" },
+      privateKey,
+      new TextEncoder().encode(signingInput),
+    );
+    const jwt = `${signingInput}.${bytesToBase64Url(new Uint8Array(signature))}`;
+    return {
+      Authorization: `vapid t=${jwt}, k=${publicKey}`,
+      "Crypto-Key": `p256ecdsa=${publicKey}`,
+      TTL: "60",
+      Urgency: "high",
+    };
+  }
+
+  async _deliverPushNotifications(message) {
+    const rows = this.state.storage.sql.exec(
+      "SELECT endpoint_hash, endpoint FROM push_subscriptions ORDER BY last_seen_at DESC",
+    ).toArray();
+    for (const row of rows) {
+      try {
+        const vapidHeaders = await this._buildVapidHeaders(row.endpoint);
+        const response = await fetch(row.endpoint, {
+          method: "POST",
+          headers: {
+            Topic: message.request_id,
+            ...vapidHeaders,
+          },
+        });
+        if (response.ok) {
+          console.info("gate_notification_dispatch_success request_id=%s endpoint_hash=%s", message.request_id, row.endpoint_hash);
+          continue;
+        }
+        if (response.status === 404 || response.status === 410) {
+          this.state.storage.sql.exec(
+            "DELETE FROM push_subscriptions WHERE endpoint_hash = ?",
+            row.endpoint_hash,
+          );
+        }
+        console.warn(
+          "gate_notification_dispatch_failed request_id=%s endpoint_hash=%s status=%s",
+          message.request_id,
+          row.endpoint_hash,
+          response.status,
+        );
+      } catch {
+        console.warn("gate_notification_dispatch_failed request_id=%s endpoint_hash=%s status=error", message.request_id, row.endpoint_hash);
+        // Best-effort only. Approval still fails closed on timeout.
+      }
+    }
+  }
+
+  async _handleSubmit(request) {
+    let payload;
+    try {
+      payload = await request.json();
+    } catch {
+      return jsonError("invalid JSON body", 400);
+    }
+    const {
+      flow,
+      key_id: keyId,
+      adapter_id: adapterId,
+      target_summary: targetSummary,
+      request_digest: requestDigest,
+      timeout_seconds: timeoutSeconds,
+      origin,
+    } = payload ?? {};
+    if (
+      (flow !== "proxy" && flow !== "ssh_sign")
+      || typeof keyId !== "string" || !keyId
+      || typeof adapterId !== "string" || !adapterId
+      || typeof targetSummary !== "string" || !targetSummary
+      || typeof requestDigest !== "string" || !requestDigest
+      || !Number.isInteger(timeoutSeconds) || timeoutSeconds <= 0
+      || typeof origin !== "string" || !origin
+    ) {
+      return jsonError("missing required fields", 400);
+    }
+    const requestId = crypto.randomUUID();
+    const createdAt = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + timeoutSeconds * 1000).toISOString();
+    const capabilityToken = await this._buildCapabilityToken(requestId, expiresAt);
+    const approvalTokenHash = await this._hashApprovalToken(capabilityToken);
+    this.state.storage.sql.exec(
+      `INSERT INTO pending_requests
+       (request_id, flow, key_id, adapter_id, target_summary, request_digest, created_at, expires_at, status, approval_token_hash, terminal_at, consumed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL, NULL)`,
+      requestId,
+      flow,
+      keyId,
+      adapterId,
+      targetSummary,
+      requestDigest,
+      createdAt,
+      expiresAt,
+      approvalTokenHash,
+    );
+    await this._scheduleNextAlarm();
+
+    const approveUrl = new URL(`/gate/approve/${requestId}`, origin);
+    approveUrl.searchParams.set("token", capabilityToken);
+    const denyUrl = new URL(`/gate/deny/${requestId}`, origin);
+    denyUrl.searchParams.set("token", capabilityToken);
+
+    console.info("gate_submit request_id=%s flow=%s key_id=%s adapter=%s", requestId, flow, keyId, adapterId);
+    await this._deliverPushNotifications({
+      request_id: requestId,
+      approve_url: approveUrl.toString(),
+      deny_url: denyUrl.toString(),
+    });
+    return jsonResponse({
+      request_id: requestId,
+      poll_url: `/gate/status/${requestId}`,
+      status: "pending",
+    }, 202);
+  }
+
+  async _handleConsume(request) {
+    let payload;
+    try {
+      payload = await request.json();
+    } catch {
+      return jsonError("invalid JSON body", 400);
+    }
+    const {
+      request_id: requestId,
+      request_digest: requestDigest,
+      flow,
+      key_id: keyId,
+      adapter_id: adapterId,
+    } = payload ?? {};
+    if (
+      typeof requestId !== "string" || !requestId
+      || typeof requestDigest !== "string" || !requestDigest
+      || (flow !== "proxy" && flow !== "ssh_sign")
+      || typeof keyId !== "string" || !keyId
+      || typeof adapterId !== "string" || !adapterId
+    ) {
+      return jsonError("missing required fields", 400);
+    }
+    const row = this._loadPendingRow(requestId);
+    if (!row) {
+      return jsonError("gate_not_found", 404);
+    }
+    if (row.adapter_id !== adapterId || row.key_id !== keyId || row.flow !== flow) {
+      return jsonError("gate_digest_mismatch", 403);
+    }
+    if (row.status === "pending") {
+      return jsonError("gate_pending", 409);
+    }
+    if (row.status === "denied" || row.status === "expired") {
+      return jsonError(row.status === "denied" ? "gate_denied" : "gate_timeout", 403);
+    }
+    if (row.status === "consumed" || row.consumed_at) {
+      return jsonError("gate_replayed", 409);
+    }
+    const digestOk = await timingSafeEqual(requestDigest, row.request_digest);
+    if (!digestOk) {
+      return jsonError("gate_digest_mismatch", 403);
+    }
+    const nowIso = new Date().toISOString();
+    this.state.storage.sql.exec(
+      "UPDATE pending_requests SET status='consumed', consumed_at=? WHERE request_id=? AND status='approved'",
+      nowIso,
+      requestId,
+    );
+    console.info("gate_consume request_id=%s", requestId);
+    return new Response(null, { status: 204 });
+  }
+
+  async _handleSubscribe(request) {
+    let payload;
+    try {
+      payload = await request.json();
+    } catch {
+      return jsonError("invalid JSON body", 400);
+    }
+    const endpoint = payload?.endpoint;
+    const p256dh = payload?.keys?.p256dh;
+    const authSecret = payload?.keys?.auth;
+    if (
+      typeof endpoint !== "string" || !endpoint
+      || typeof p256dh !== "string" || !p256dh
+      || typeof authSecret !== "string" || !authSecret
+    ) {
+      return jsonError("missing required fields", 400);
+    }
+    const endpointHash = await sha256HexText(endpoint);
+    const nowIso = new Date().toISOString();
+    this.state.storage.sql.exec(
+      `INSERT INTO push_subscriptions (endpoint_hash, endpoint, p256dh, auth_secret, created_at, last_seen_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(endpoint_hash) DO UPDATE SET
+         endpoint=excluded.endpoint,
+         p256dh=excluded.p256dh,
+         auth_secret=excluded.auth_secret,
+         last_seen_at=excluded.last_seen_at`,
+      endpointHash,
+      endpoint,
+      p256dh,
+      authSecret,
+      nowIso,
+      nowIso,
+    );
+    return jsonResponse({ status: "ok" }, 200);
+  }
+
+  async _handlePending() {
+    const pending = this.state.storage.sql.exec(
+      `SELECT request_id, flow, key_id, adapter_id, target_summary, created_at, expires_at, status
+         FROM pending_requests
+        WHERE status='pending'
+        ORDER BY created_at DESC`,
+    ).toArray();
+    const subscriptionCountRows = this.state.storage.sql.exec(
+      "SELECT COUNT(*) AS count FROM push_subscriptions",
+    ).toArray();
+    const sinceIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const countRows = this.state.storage.sql.exec(
+      `SELECT status, COUNT(*) AS count
+         FROM pending_requests
+        WHERE terminal_at IS NOT NULL AND terminal_at >= ?
+          AND status IN ('approved', 'denied', 'expired')
+        GROUP BY status`,
+      sinceIso,
+    ).toArray();
+    const recentCounts = { approved: 0, denied: 0, timeout: 0 };
+    for (const row of countRows) {
+      if (row.status === "approved") {
+        recentCounts.approved = row.count;
+      } else if (row.status === "denied") {
+        recentCounts.denied = row.count;
+      } else if (row.status === "expired") {
+        recentCounts.timeout = row.count;
+      }
+    }
+    return jsonResponse({
+      subscription_count: subscriptionCountRows.length > 0 ? subscriptionCountRows[0].count : 0,
+      pending_count: pending.length,
+      recent_counts_24h: recentCounts,
+      pending,
+    }, 200);
+  }
+
+  async _handleStatus(requestId) {
+    const row = this._loadPendingRow(requestId);
+    if (!row) {
+      return jsonError("gate_not_found", 404);
+    }
+    let error = null;
+    if (row.status === "denied") {
+      error = "gate_denied";
+    } else if (row.status === "expired") {
+      error = "gate_timeout";
+    } else if (row.status === "consumed") {
+      error = "gate_replayed";
+    }
+    return jsonResponse({
+      request_id: row.request_id,
+      status: row.status,
+      created_at: row.created_at,
+      expires_at: row.expires_at,
+      ...(error ? { error } : {}),
+    }, 200);
+  }
+
+  async _handleDecisionPage(action, requestId, searchParams) {
+    const token = searchParams.get("token") ?? "";
+    const validated = await this._validateToken(requestId, token);
+    if (!validated.ok) {
+      return validated.response;
+    }
+    return this._renderDecisionPage(action, requestId, token);
+  }
+
+  async _handleDecisionAction(action, requestId, request) {
+    const url = new URL(request.url);
+    let token = url.searchParams.get("token") ?? "";
+    if (!token) {
+      const formData = await request.formData();
+      token = String(formData.get("token") ?? "");
+    }
+    const validated = await this._validateToken(requestId, token);
+    if (!validated.ok) {
+      return validated.response;
+    }
+    const nowIso = new Date().toISOString();
+    this.state.storage.sql.exec(
+      "UPDATE pending_requests SET status=?, terminal_at=? WHERE request_id=? AND status='pending'",
+      action,
+      nowIso,
+      requestId,
+    );
+    console.info("%s request_id=%s", action === "approved" ? "gate_approve" : "gate_deny", requestId);
+    return htmlResponse(
+      `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Gate decision recorded</title></head><body><main><h1>${action === "approved" ? "Approved" : "Denied"}</h1><p>Request <code>${requestId}</code> is now ${action}.</p></main></body></html>`,
+      200,
+    );
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1570,6 +2276,9 @@ export default {
    * @param {Request}         request
    * @param {{ SUBUMBRA_ADAPTER_TOKENS: string,
    *           SUBUMBRA_MANAGEMENT_TOKEN?: string,
+   *           SUBUMBRA_GATE_HMAC_KEY?: string,
+   *           SUBUMBRA_GATE_VAPID_PRIVATE_JWK?: string,
+   *           SUBUMBRA_GATE: DurableObjectNamespace,
    *           SUBUMBRA_VAULT: DurableObjectNamespace,
    *           PROVIDER_REGISTRY_KV: KVNamespace,
    *           SUBUMBRA_SETUP_TOKEN?: string }} env
@@ -1585,6 +2294,25 @@ export default {
 
     if (request.method === "GET" && url.pathname === "/auth-ping") {
       return handleAuthPing(request, env);
+    }
+
+    if (request.method === "POST" && url.pathname === "/gate/subscribe") {
+      return handleGateSubscribe(request, env);
+    }
+
+    if (request.method === "GET" && url.pathname === "/gate/pending") {
+      return handleGatePending(request, env);
+    }
+
+    if (request.method === "GET" && url.pathname.startsWith("/gate/status/")) {
+      return handleGateStatus(request, env);
+    }
+
+    if (
+      (request.method === "GET" || request.method === "POST")
+      && (url.pathname.startsWith("/gate/approve/") || url.pathname.startsWith("/gate/deny/"))
+    ) {
+      return handleGateDecision(request, env);
     }
 
     if (request.method === "POST" && url.pathname === "/setup/keygen") {
@@ -1632,6 +2360,43 @@ export default {
     return jsonError("not found", 404);
   },
 };
+
+async function forwardGateRequest(request, env) {
+  if (!env.SUBUMBRA_GATE) {
+    console.error("subumbra: gate binding missing");
+    return jsonError("gate unavailable", 503);
+  }
+  const gate = getGateStub(env);
+  let body = undefined;
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    body = await request.text();
+  }
+  return gate.fetch(`https://do-internal${new URL(request.url).pathname}${new URL(request.url).search}`, {
+    method: request.method,
+    headers: request.headers,
+    body,
+  });
+}
+
+async function handleGateSubscribe(request, env) {
+  return forwardGateRequest(request, env);
+}
+
+async function handleGatePending(request, env) {
+  return forwardGateRequest(request, env);
+}
+
+async function handleGateDecision(request, env) {
+  return forwardGateRequest(request, env);
+}
+
+async function handleGateStatus(request, env) {
+  const auth = await authorizeRequest(request, env);
+  if (!auth.ok) {
+    return auth.response;
+  }
+  return forwardGateRequest(request, env);
+}
 
 async function handleSetupKeygen(request, env) {
   const rateLimitResponse = await checkAuthRateLimit(request, env, "setup-keygen");
@@ -2012,6 +2777,10 @@ async function handleSshSign(request, env) {
   ) {
     return jsonError("missing required fields", 400);
   }
+  const gateApprovedId =
+    typeof payload.gate_approved_id === "string" && payload.gate_approved_id
+      ? payload.gate_approved_id
+      : null;
 
   const keyRaw = await env.PROVIDER_REGISTRY_KV.get(`key:${payload.key_id}`, {
     cacheTtl: 30,
@@ -2090,6 +2859,55 @@ async function handleSshSign(request, env) {
     typeof keyEntry.vault_instance === "string" && keyEntry.vault_instance
       ? keyEntry.vault_instance
       : VAULT_INSTANCE_NAME;
+
+  const requestDigest = await sha256HexText(JSON.stringify(canonicalizeJson({
+    flow: "ssh_sign",
+    key_id: payload.key_id,
+    adapter_id: auth.adapterId,
+    challenge: payload.challenge,
+    verified_host_fingerprint: verifiedHostFingerprint,
+    policy_hash: keyEntry.policy_hash,
+    vault_instance: vaultInstance,
+  })));
+  const gateRule = matchGateRule(keyEntry.policy?.gate ?? optionalGatePolicy(keyEntry.policy?.gate), {
+    flow: "ssh_sign",
+    adapterId: auth.adapterId,
+    method: "POST",
+    path: "/ssh/sign",
+  });
+  if (gateRule) {
+    if (!gateApprovedId) {
+      try {
+        return await submitGateApproval(env, {
+          flow: "ssh_sign",
+          key_id: payload.key_id,
+          adapter_id: auth.adapterId,
+          target_summary: verifiedHostFingerprint ? `ssh:${verifiedHostFingerprint}` : "ssh:unverified-host",
+          request_digest: requestDigest,
+          timeout_seconds: gateRule.timeout_seconds,
+          origin: new URL(request.url).origin,
+        });
+      } catch {
+        console.error("subumbra: gate submit unavailable");
+        return jsonError("gate_unavailable", 503);
+      }
+    }
+    try {
+      const gateConsumeResponse = await consumeGateApproval(env, {
+        request_id: gateApprovedId,
+        request_digest: requestDigest,
+        flow: "ssh_sign",
+        key_id: payload.key_id,
+        adapter_id: auth.adapterId,
+      });
+      if (gateConsumeResponse.status !== 204) {
+        return gateConsumeResponse;
+      }
+    } catch {
+      console.error("subumbra: gate consume unavailable");
+      return jsonError("gate_unavailable", 503);
+    }
+  }
 
   try {
     if (!env.SUBUMBRA_VAULT) {
@@ -2252,6 +3070,34 @@ async function writeManagementAudit(env, payload, vaultInstance = VAULT_INSTANCE
   }
 }
 
+async function submitGateApproval(env, payload) {
+  if (!env.SUBUMBRA_GATE) {
+    throw new Error("gate binding missing");
+  }
+  const gate = getGateStub(env);
+  return gate.fetch(`https://do-internal${GATE_SUBMIT_PATH}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+}
+
+async function consumeGateApproval(env, payload) {
+  if (!env.SUBUMBRA_GATE) {
+    throw new Error("gate binding missing");
+  }
+  const gate = getGateStub(env);
+  return gate.fetch(`https://do-internal${GATE_CONSUME_PATH}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+}
+
 async function handleAuthPing(request, env) {
   const rateLimitResponse = await checkAuthRateLimit(request, env, "auth-ping");
   if (rateLimitResponse) {
@@ -2301,6 +3147,10 @@ async function handleProxy(request, env) {
   const { ciphertext, provider, target_url, method, headers: fwdHeaders, body: reqBody,
     wrapped_dek, pub_key_fp, key_id, enc_version, policy_id, policy_hash } = body;
   const vaultInstance = body.vault_instance ?? VAULT_INSTANCE_NAME;
+  const gateApprovedId =
+    typeof body.gate_approved_id === "string" && body.gate_approved_id
+      ? body.gate_approved_id
+      : null;
 
   if (!ciphertext || typeof ciphertext !== "string") {
     return jsonError("missing or invalid field: ciphertext", 400);
@@ -2569,6 +3419,57 @@ async function handleProxy(request, env) {
       if (!requestAllowHeaders.has(k.toLowerCase())) {
         delete cleanHeaders[k];
       }
+    }
+  }
+
+  const requestDigest = await sha256HexText(JSON.stringify(canonicalizeJson({
+    flow: "proxy",
+    key_id,
+    adapter_id: auth.adapterId,
+    target_url,
+    method: method ?? "POST",
+    headers: normalizeHeaderMap(cleanHeaders),
+    body: canonicalizeJson(reqBody ?? null),
+    policy_hash: registryEntry.policy_hash,
+    vault_instance: vaultInstance,
+  })));
+  const gateRule = matchGateRule(registryEntry.gate, {
+    flow: "proxy",
+    adapterId: auth.adapterId,
+    method: method ?? "POST",
+    path: targetPath,
+  });
+  if (gateRule) {
+    if (!gateApprovedId) {
+      try {
+        return await submitGateApproval(env, {
+          flow: "proxy",
+          key_id,
+          adapter_id: auth.adapterId,
+          target_summary: `${parsedTarget.hostname}${targetPath}`,
+          request_digest: requestDigest,
+          timeout_seconds: gateRule.timeout_seconds,
+          origin: new URL(request.url).origin,
+        });
+      } catch {
+        console.error("subumbra: gate submit unavailable");
+        return jsonError("gate_unavailable", 503);
+      }
+    }
+    try {
+      const gateConsumeResponse = await consumeGateApproval(env, {
+        request_id: gateApprovedId,
+        request_digest: requestDigest,
+        flow: "proxy",
+        key_id,
+        adapter_id: auth.adapterId,
+      });
+      if (gateConsumeResponse.status !== 204) {
+        return gateConsumeResponse;
+      }
+    } catch {
+      console.error("subumbra: gate consume unavailable");
+      return jsonError("gate_unavailable", 503);
     }
   }
 

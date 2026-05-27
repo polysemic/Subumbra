@@ -79,6 +79,11 @@ def _compute_ssh_policy_hash(policy_doc: dict[str, Any]) -> str:
         "algorithm": policy_doc["algorithm"],
         "allow": baseline_allow,
     }
+    gate = policy_doc.get("gate")
+    if isinstance(gate, dict) and isinstance(gate.get("require_approval"), list):
+        baseline_obj["gate"] = {
+            "require_approval": gate["require_approval"],
+        }
     canonical = json.dumps(baseline_obj, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(canonical).hexdigest()
 
@@ -187,6 +192,7 @@ def build_ssh_policy(
     key_id: str,
     adapters: list[str],
     allowed_host_fingerprints: list[str] | None = None,
+    gate: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     allow: dict[str, Any] = {
         "adapters": sorted(adapters),
@@ -194,13 +200,16 @@ def build_ssh_policy(
     normalized_hosts = _normalize_host_fingerprints(allowed_host_fingerprints)
     if normalized_hosts:
         allow["hosts"] = normalized_hosts
-    return {
+    policy = {
         "type": "ssh_key",
         "policy_id": f"ssh-{key_id}",
         "key_id": key_id,
         "algorithm": "ed25519",
         "allow": allow,
     }
+    if gate:
+        policy["gate"] = gate
+    return policy
 
 
 def build_ssh_record(

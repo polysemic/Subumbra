@@ -40,6 +40,12 @@ ADAPTER_ID = os.environ.get("SUBUMBRA_AGENT_ADAPTER_ID", "sshtest")
 ADAPTER_TOKEN = os.environ.get("SUBUMBRA_AGENT_ADAPTER_TOKEN", "")
 AGENT_UID = int(os.environ.get("SUBUMBRA_AGENT_UID", "1000"))
 AGENT_GID = int(os.environ.get("SUBUMBRA_AGENT_GID", "1000"))
+try:
+    SIGN_TIMEOUT = float(os.environ.get("SUBUMBRA_SIGN_TIMEOUT", "30") or "30")
+except ValueError:
+    SIGN_TIMEOUT = 30.0
+if SIGN_TIMEOUT <= 0:
+    SIGN_TIMEOUT = 30.0
 
 if not ADAPTER_TOKEN:
     print("ERROR: SUBUMBRA_AGENT_ADAPTER_TOKEN is required", file=sys.stderr)
@@ -275,7 +281,7 @@ def forward_sign_request(
         },
     )
     try:
-        with request.urlopen(req, timeout=30) as resp:
+        with request.urlopen(req, timeout=SIGN_TIMEOUT) as resp:
             return resp.status, resp.read()
     except error.HTTPError as exc:
         return exc.code, exc.read()

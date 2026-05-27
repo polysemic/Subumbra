@@ -259,6 +259,47 @@ body {
   line-height: var(--leading-normal);
 }
 
+.gate-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.gate-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+@media (min-width: 768px) {
+  .gate-metrics {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.gate-metric {
+  background-color: var(--bg-raised);
+  border: var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.gate-metric-label {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.gate-metric-value {
+  font-size: var(--text-lg);
+  color: var(--text-primary);
+  font-weight: var(--weight-bold);
+}
+
 .stat-label {
   font-size: var(--text-xs);
   color: var(--text-faint);
@@ -1136,4 +1177,3 @@ body {
   color: var(--alert-note-fg);
   font-size: var(--text-xs);
 }
-
