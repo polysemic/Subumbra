@@ -68,7 +68,12 @@ subumbra/
 │
 ├── bootstrap/                   ← one-shot key generation container
 │   ├── Dockerfile
-│   ├── subumbra-bootstrap.py    ← encrypts keys, deploys CF Worker, clears memory
+│   ├── subumbra-bootstrap.py    ← thin CLI entrypoint / flag dispatch
+│   ├── subumbra_core.py         ← shared bootstrap constants and generic helpers
+│   ├── subumbra_cf.py           ← Cloudflare deploy / KV / Access / tunnel operations
+│   ├── subumbra_session.py      ← session lifecycle + KV gate reconciliation
+│   ├── subumbra_adapters.py     ← adapter listing / show / mutation commands
+│   ├── subumbra_keys.py         ← bootstrap, provision, rotate, revoke, and status pipeline
 │   └── requirements.txt
 │
 ├── subumbra-keys/                  ← encrypted blob storage service
@@ -251,7 +256,7 @@ CF_ACCESS_CLIENT_SECRET=<from CF Access dashboard>
 ## Build Order
 1. docker-compose.yml skeleton
 2. subumbra-keys/app.py (simplest component)
-3. bootstrap/subumbra-bootstrap.py (key generation + wrangler)
+3. bootstrap/subumbra-bootstrap.py + bootstrap/subumbra_*.py (bootstrap CLI + helper domains)
 4. worker/src/worker.js (CF Worker with Durable Object)
 5. subumbra-proxy/app.py (transparent sidecar)
 6. ui/app.py (dashboard)
