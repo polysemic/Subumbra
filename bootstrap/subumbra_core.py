@@ -101,6 +101,21 @@ ADAPTER_SCOPE_VARS: dict[str, str] = {
 BUILTIN_ADAPTER_IDS = tuple(ADAPTER_SCOPE_VARS.keys())
 BUILTIN_TOKEN_SUFFIXES = {"PROXY", "UI", "PROBE"}
 
+POLICY_PROTOCOLS = {"openai_compatible", "http_rest"}
+POLICY_CAPABILITY_CLASSES = {
+    "llm",
+    "payments_read",
+    "payments_write",
+    "source_control_read",
+    "source_control_write",
+    "email_send",
+    "webhook_verify",
+    "custom_rest",
+}
+POLICY_SOURCES = {"env", "import_path"}
+POLICY_AUTH_SCHEMES = {"bearer", "basic", "header", "query"}
+POLICY_ALLOWED_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE"}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Logging helpers
 # ─────────────────────────────────────────────────────────────────────────────

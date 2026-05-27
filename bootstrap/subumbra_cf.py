@@ -783,21 +783,6 @@ IMPORT_EXCLUSION_LIST: frozenset[str] = frozenset({
     "JWT_SECRET",
 })
 
-POLICY_PROTOCOLS = {"openai_compatible", "http_rest"}
-POLICY_CAPABILITY_CLASSES = {
-    "llm",
-    "payments_read",
-    "payments_write",
-    "source_control_read",
-    "source_control_write",
-    "email_send",
-    "webhook_verify",
-    "custom_rest",
-}
-POLICY_SOURCES = {"env", "import_path"}
-POLICY_AUTH_SCHEMES = {"bearer", "basic", "header", "query"}
-POLICY_ALLOWED_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE"}
-
 def _cf_api_json(path: str, cf_creds: dict[str, str]) -> Any:
     request = urllib.request.Request(
         f"https://api.cloudflare.com/client/v4{path}",
