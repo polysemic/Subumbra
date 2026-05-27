@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import base64
 
+from cryptography.hazmat.primitives.asymmetric import ec
+
 from subumbra_core import *
 from subumbra_core import (
     _delete_file_if_present,
