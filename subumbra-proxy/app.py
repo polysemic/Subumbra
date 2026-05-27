@@ -537,7 +537,7 @@ async def send_worker_request_with_gate(
 
     deadline = time.monotonic() + timeout_seconds
     poll_delay = 2.0
-    LOG.info("gate_pending request_id=%s flow=%s", request_id, flow)
+    LOG.info("gate_pending request_id=%s flow=%s key_id=%s", request_id, flow, key_id)
     while True:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
@@ -576,6 +576,7 @@ async def send_worker_request_with_gate(
         except Exception:
             status_payload = {}
         status_value = status_payload.get("status")
+        LOG.info("gate_poll request_id=%s status=%s", request_id, status_value or "unknown")
         if status_value == "pending":
             continue
         if status_value == "approved":
