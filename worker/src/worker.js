@@ -184,11 +184,11 @@ async function getRegistryEntry(env, keyId) {
     gate: optionalGatePolicy(policy.gate),
     velocity: policy.velocity && typeof policy.velocity === "object"
       ? {
-          adapter_rpm: typeof policy.velocity.adapter_rpm === "number" ? policy.velocity.adapter_rpm : null,
-          key_rpm: typeof policy.velocity.key_rpm === "number" ? policy.velocity.key_rpm : null,
-          breaker_failures: typeof policy.velocity.breaker_failures === "number" ? policy.velocity.breaker_failures : null,
-          breaker_cooldown_seconds: typeof policy.velocity.breaker_cooldown_seconds === "number" ? policy.velocity.breaker_cooldown_seconds : null,
-        }
+        adapter_rpm: typeof policy.velocity.adapter_rpm === "number" ? policy.velocity.adapter_rpm : null,
+        key_rpm: typeof policy.velocity.key_rpm === "number" ? policy.velocity.key_rpm : null,
+        breaker_failures: typeof policy.velocity.breaker_failures === "number" ? policy.velocity.breaker_failures : null,
+        breaker_cooldown_seconds: typeof policy.velocity.breaker_cooldown_seconds === "number" ? policy.velocity.breaker_cooldown_seconds : null,
+      }
       : null,
   };
 }
@@ -1074,6 +1074,7 @@ export class SubumbraGate {
       requestId,
     );
     console.info("gate_consume request_id=%s", requestId);
+    console.info("gate_vault_dispatch request_id=%s flow=%s", requestId, row.flow);
     return new Response(null, { status: 204 });
   }
 
@@ -1916,7 +1917,7 @@ export class SubumbraVault {
     cleanUrl.password = "";
     cleanUrl.hash = "";
     for (const p of ["key", "api_key", "apikey", "api-key", "apiKey",
-                     "access_token", "token", "auth_token", "Authorization", "secret"]) {
+      "access_token", "token", "auth_token", "Authorization", "secret"]) {
       cleanUrl.searchParams.delete(p);
     }
 
@@ -1951,8 +1952,8 @@ export class SubumbraVault {
 
     // ── R49: circuit breaker outcome recording ────────────────────────────
     if (velocity && typeof velocity === "object" &&
-        typeof velocity.breaker_failures === "number" &&
-        typeof velocity.breaker_cooldown_seconds === "number") {
+      typeof velocity.breaker_failures === "number" &&
+      typeof velocity.breaker_cooldown_seconds === "number") {
       const effectiveAdapterId = adapterId ?? "";
       const isTrackedFailure =
         fetchFailed ||
@@ -1987,8 +1988,8 @@ export class SubumbraVault {
             );
           }
         } else if (upstreamResponse !== null &&
-                   upstreamResponse.status >= 200 && upstreamResponse.status < 300 &&
-                   brkFailures > 0) {
+          upstreamResponse.status >= 200 && upstreamResponse.status < 300 &&
+          brkFailures > 0) {
           this.state.storage.sql.exec(
             "UPDATE circuit_breaker_state SET consecutive_failures=0 WHERE key_id=?",
             keyId
@@ -2932,10 +2933,10 @@ async function handleSshSign(request, env) {
         challenge: payload.challenge,
         ...(sessionQuota && sessionQuota.maxSignOps !== null
           ? {
-              session_id: sessionQuota.sessionId,
-              adapter_id: sessionQuota.adapterId,
-              max_sign_ops: sessionQuota.maxSignOps,
-            }
+            session_id: sessionQuota.sessionId,
+            adapter_id: sessionQuota.adapterId,
+            max_sign_ops: sessionQuota.maxSignOps,
+          }
           : {}),
       }),
     });
@@ -3280,7 +3281,7 @@ async function handleProxy(request, env) {
 
   if (
     ((allowedInitiators && allowedInitiators.length > 0) ||
-     (allowedContentSources && allowedContentSources.length > 0)) &&
+      (allowedContentSources && allowedContentSources.length > 0)) &&
     intentField === null
   ) {
     console.warn(
