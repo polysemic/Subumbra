@@ -915,6 +915,7 @@ export class SubumbraGate {
     const rows = this.state.storage.sql.exec(
       "SELECT endpoint_hash, endpoint FROM push_subscriptions ORDER BY last_seen_at DESC",
     ).toArray();
+    let successCount = 0;
     for (const row of rows) {
       try {
         const vapidHeaders = await this._buildVapidHeaders(row.endpoint);
@@ -926,7 +927,7 @@ export class SubumbraGate {
           },
         });
         if (response.ok) {
-          console.info("gate_notification_dispatch_success request_id=%s endpoint_hash=%s", message.request_id, row.endpoint_hash);
+          successCount += 1;
           continue;
         }
         if (response.status === 404 || response.status === 410) {
@@ -936,15 +937,17 @@ export class SubumbraGate {
           );
         }
         console.warn(
-          "gate_notification_dispatch_failed request_id=%s endpoint_hash=%s status=%s",
+          "gate_notification_dispatch_failure request_id=%s status=%s",
           message.request_id,
-          row.endpoint_hash,
           response.status,
         );
       } catch {
-        console.warn("gate_notification_dispatch_failed request_id=%s endpoint_hash=%s status=error", message.request_id, row.endpoint_hash);
+        console.warn("gate_notification_dispatch_failure request_id=%s status=error", message.request_id);
         // Best-effort only. Approval still fails closed on timeout.
       }
+    }
+    if (successCount > 0) {
+      console.info("gate_notification_dispatch_success request_id=%s subscription_count=%s", message.request_id, successCount);
     }
   }
 
@@ -1001,7 +1004,14 @@ export class SubumbraGate {
     const denyUrl = new URL(`/gate/deny/${requestId}`, origin);
     denyUrl.searchParams.set("token", capabilityToken);
 
-    console.info("gate_submit request_id=%s flow=%s key_id=%s adapter=%s", requestId, flow, keyId, adapterId);
+    console.info(
+      "gate_submit request_id=%s flow=%s key_id=%s adapter=%s expires_at=%s",
+      requestId,
+      flow,
+      keyId,
+      adapterId,
+      expiresAt,
+    );
     await this._deliverPushNotifications({
       request_id: requestId,
       approve_url: approveUrl.toString(),
