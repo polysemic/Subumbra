@@ -160,6 +160,20 @@ dry_run="${DRY_RUN:-0}"
 deploy_worker="${DEPLOY_WORKER:-0}"
 
 cd "$repo"
+if [[ -z "${CF_API_TOKEN:-}" || -z "${CF_ACCOUNT_ID:-}" ]]; then
+    if [[ -f .env.bootstrap_bak ]]; then
+        echo "[vps-proof-run] Loading Cloudflare credentials from remote .env.bootstrap_bak..." >&2
+        if [[ -z "${CF_API_TOKEN:-}" ]]; then
+            CF_API_TOKEN="$(grep '^CF_API_TOKEN=' .env.bootstrap_bak | cut -d= -f2- | tr -d '"'\'' ' || true)"
+        fi
+        if [[ -z "${CF_ACCOUNT_ID:-}" ]]; then
+            CF_ACCOUNT_ID="$(grep '^CF_ACCOUNT_ID=' .env.bootstrap_bak | cut -d= -f2- | tr -d '"'\'' ' || true)"
+        fi
+    fi
+fi
+export CF_API_TOKEN
+export CF_ACCOUNT_ID
+
 artifact_dir="${repo}/council/${round}/runs/${run_id}"
 mkdir -p "$artifact_dir"
 timeline_file="${artifact_dir}/timeline.jsonl"
@@ -409,6 +423,8 @@ prepare_cf_api_workspace() {
         -e "s/^    container_name: subumbra-keys$/    container_name: ${compose_project}-subumbra-keys/" \
         -e "s/^    container_name: subumbra-proxy$/    container_name: ${compose_project}-subumbra-proxy/" \
         -e "s/^    container_name: subumbra-ui$/    container_name: ${compose_project}-subumbra-ui/" \
+        -e "s/^    container_name: subumbra-agent$/    container_name: ${compose_project}-subumbra-agent/" \
+        -e "s/^    container_name: subumbra-probe$/    container_name: ${compose_project}-subumbra-probe/" \
         -e "s/^    container_name: cloudflared$/    container_name: ${compose_project}-cloudflared/" \
         "${workdir}/docker-compose.yml"
     # Allocate a free host port for the proof proxy; strip the UI port.
@@ -453,6 +469,8 @@ install_fresh_once() {
         -e "s/^    container_name: subumbra-keys$/    container_name: ${compose_project}-subumbra-keys/" \
         -e "s/^    container_name: subumbra-proxy$/    container_name: ${compose_project}-subumbra-proxy/" \
         -e "s/^    container_name: subumbra-ui$/    container_name: ${compose_project}-subumbra-ui/" \
+        -e "s/^    container_name: subumbra-agent$/    container_name: ${compose_project}-subumbra-agent/" \
+        -e "s/^    container_name: subumbra-probe$/    container_name: ${compose_project}-subumbra-probe/" \
         "${workdir}/docker-compose.yml"
     # Allocate a free host port for the proof proxy and remap the UI port away.
     # The UI host port is not needed by verify-round.sh; strip it entirely.
