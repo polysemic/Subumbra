@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Upcoming — Subumbra Console{% endblock %}
+
+{% block content %}
+{% set up = data.upcoming %}
+{% set q3 = up|selectattr('eta','equalto','Q3 2026')|list %}
+{% set q4 = up|selectattr('eta','equalto','Q4 2026')|list %}
+
+<div class="page-head">
+  <div>
+    <h1 class="page-title">Upcoming</h1>
+    <p class="page-sub">What's coming next. Items here aren't a committed sequence — order shifts with real installs and feedback.</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="https://github.com/polysemic/Subumbra/blob/main/ROADMAP.md" target="_blank" rel="noreferrer">Open roadmap ↗</a>
+    <button class="btn">Subscribe to changelog</button>
+  </div>
+</div>
+
+<div class="grid-3" style="margin-bottom:18px">
+  <sub-stat-card label="Next quarter" value="{{ q3|length }}" unit="items"
+                 sub="Q3 2026 · management API, SSH confirm, CF analytics"></sub-stat-card>
+  <sub-stat-card label="Following quarter" value="{{ q4|length }}" unit="items"
+                 sub="Q4 2026 · OAuth broker, intent trust, SSO + RBAC"></sub-stat-card>
+  <sub-stat-card label="Last shipped" value="SSH agent" unit="· 25 May"
+                 sub="r85-1-ssh-daily-use · day-2 ssh ops"></sub-stat-card>
+</div>
+
+<div class="card" style="padding:0;overflow:hidden">
+  <div class="card__head">
+    <div class="card__title">Roadmap · {{ up|length }} items</div>
+    <div class="card__meta">last updated 2026-05-25</div>
+  </div>
+  <div>
+    {% for u in up %}
+      <div class="upcoming-row">
+        <div>
+          <span class="upcoming-eta">{{ u.eta }}</span>
+          <div class="upcoming-id mono">{{ u.id }}</div>
+        </div>
+        <div>
+          <div class="upcoming-title">{{ u.title }}</div>
+          <div class="upcoming-note">{{ u.note }}</div>
+        </div>
+        <div style="text-align:right">
+          <span class="tag" style="color:var(--text-dim)">planned</span>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

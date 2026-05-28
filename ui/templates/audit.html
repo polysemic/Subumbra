@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Audit log — Subumbra Console{% endblock %}
+
+{% block content %}
+{% set log = data.audit %}
+
+<div class="page-head">
+  <div>
+    <h1 class="page-title">Audit log</h1>
+    <p class="page-sub">Every proxy and SSH sign verdict, durable in SQLite. Filter, save views, export.</p>
+  </div>
+  <div class="page-actions">
+    <button class="btn">Saved views ▾</button>
+    <button class="btn">Export CSV</button>
+    <button class="btn btn--primary" id="audit-stream-btn">Stream live</button>
+  </div>
+</div>
+
+<div class="card" style="padding:14px 16px;margin-bottom:14px">
+  <div class="chips">
+    <button class="chip"><span style="color:var(--text-dim)">Time</span> · last 1h ▾</button>
+    <button class="chip"><span style="color:var(--text-dim)">Adapter</span> · any ▾</button>
+    <button class="chip"><span style="color:var(--text-dim)">Key</span> · any ▾</button>
+    <button class="chip is-active"><span style="opacity:0.7">Provider</span> · openai, anthropic <span class="x">×</span></button>
+    <button class="chip"><span style="color:var(--text-dim)">Verdict</span> · any ▾</button>
+    <button class="chip"><span style="color:var(--text-dim)">Endpoint</span> · search…</button>
+    <span style="margin-left:auto"></span>
+    <button class="chip" style="color:var(--text-dim)">⊕ add filter</button>
+  </div>
+</div>
+
+<div class="card" style="padding:0;overflow:hidden">
+  <table class="tbl">
+    <thead>
+      <tr>
+        <th>Timestamp</th><th>Adapter</th><th>Method</th><th>Endpoint</th>
+        <th>Key</th><th>Provider</th><th>Remote</th><th>Verdict</th><th>Reason</th>
+      </tr>
+    </thead>
+    <tbody id="audit-rows">
+      {% for e in log %}
+        <tr>
+          <td class="ts">{{ e.date }} · {{ e.ts }}</td>
+          <td class="mono">{{ e.adapter }}</td>
+          <td><span class="tag" style="font-size:10px">{{ e.method }}</span></td>
+          <td class="mono" style="color:var(--text-muted);font-size:11px">{{ e.endpoint }}</td>
+          <td class="mono">{{ e.keyId }}</td>
+          <td><span class="badge badge--{{ e.provider }}">{{ e.provider }}</span></td>
+          <td class="mono" style="color:var(--text-dim);font-size:11px">{{ e.remote }}</td>
+          <td class="{{ 'verdict-allow' if e.verdict == 'allow' else 'verdict-deny' }}">{{ e.verdict }}</td>
+          <td class="mono" style="font-size:11px;color:{{ 'var(--warn)' if e.verdict == 'deny' else 'var(--text-dim)' }}">{{ e.reason }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div style="display:flex;align-items:center;gap:12px;margin-top:12px;font-size:11px;color:var(--text-dim)">
+  <span>Showing {{ log|length }} events · last 1h</span>
+  <span style="margin-left:auto"></span>
+  <button class="btn btn--ghost">← Older</button>
+  <button class="btn btn--ghost">Newer →</button>
+</div>
+{% endblock %}

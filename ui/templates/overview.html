@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+{% block title %}Overview — Subumbra Console{% endblock %}
+
+{% block content %}
+{% set sess = data.sessions.active %}
+{% set total_q = sess|sum(attribute='queries_used') %}
+{% set total_req = data['keys']|sum(attribute='requests') %}
+{% set active_keys = data['keys']|selectattr('status','equalto','active')|list %}
+
+<div class="page-head">
+  <div>
+    <h1 class="page-title">Vault posture</h1>
+    <p class="page-sub">A glance at custody, sessions, and the request fleet. Subumbra is locked by default — temporary windows open access.</p>
+  </div>
+  <div class="page-actions">
+    <button class="btn">Run subumbra-verify</button>
+    <a class="btn btn--primary" href="/sessions">Open scoped session</a>
+  </div>
+</div>
+
+{# ── Hero: lockdown state ─────────────────────────────────────── #}
+<div class="hero">
+  <div class="hero__mark-wrap">
+    <span class="umbrella umbrella--lg" aria-hidden="true">
+      <span class="umbrella__dome"></span>
+      <span class="umbrella__stem"></span>
+    </span>
+    <div class="hero__shields"><div class="sh"></div><div class="sh mid"></div><div class="sh"></div></div>
+  </div>
+  <div>
+    <div class="hero__meta">Lockdown · {{ 'window open' if sess else 'fully locked' }}</div>
+    <div class="hero__title">
+      {% if sess %}
+        Vault unlocked through {{ sess|length }} scoped session{{ 's' if sess|length > 1 else '' }}
+      {% else %}
+        Vault locked
+      {% endif %}
+    </div>
+    <div class="hero__sub">
+      {% if sess %}
+        Soonest expiry in {{ sess|map(attribute='ttl_label')|sort|first }} · {{ total_q }} queries served this window
+      {% else %}
+        No active session. All proxy and SSH routes fail closed.
+      {% endif %}
+    </div>
+  </div>
+  <div class="hero__cta">
+    {% if sess %}
+      <button class="btn" data-action="lock-all">Lock now</button>
+    {% endif %}
+    <a class="btn btn--primary" href="/sessions">+ Open session</a>
+  </div>
+</div>
+
+{# ── Stat tiles ───────────────────────────────────────────────── #}
+<div class="grid-4" style="margin-bottom:18px">
+  <sub-stat-card label="Vault inventory"  value="{{ data['keys']|length }}"
+                 sub="{{ data['keys']|selectattr('type','equalto','api')|list|length }} api · {{ data.ssh_keys|length }} ssh · {{ data['keys']|rejectattr('status','equalto','active')|list|length }} paused"></sub-stat-card>
+
+  <sub-stat-card label="Requests · 24h" value="{{ '{:,}'.format(total_req) }}"
+                 spark="20,35,28,42,55,48,62,70,85,72,90,68"></sub-stat-card>
+
+  <sub-stat-card label="SSH signs · 24h" value="{{ data.ssh_keys|sum(attribute='signs') }}"
+                 sub="{{ data.ssh_keys|length }} keys · multi-host"></sub-stat-card>
+
+  <sub-stat-card label="Deny rate · 24h" value="0.42" unit="%"
+                 sub="{{ data.audit|selectattr('verdict','equalto','deny')|list|length }} denies · all policy-bound"></sub-stat-card>
+</div>
+
+{# ── Attention + recent activity ──────────────────────────────── #}
+<div class="grid-2">
+
+  <div class="card">
+    <div class="card__head">
+      <div class="card__title">Needs attention</div>
+      <div class="card__meta">{{ data.attention|length }} items</div>
+    </div>
+    <div class="card__body" style="padding:12px">
+      {% for a in data.attention %}
+        <div class="attn">
+          <div class="attn__icon attn__icon--{{ a.sev }}">{{ '!' if a.sev == 'warn' else 'i' }}</div>
+          <div class="attn__body">
+            <div class="attn__title">{{ a.title }}</div>
+            <div class="attn__sub">{{ a.body }}</div>
+          </div>
+          <a class="attn__cta" href="{{ a.href }}">{{ a.cta }}</a>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card__head">
+      <div class="card__title">Recent activity</div>
+      <div class="card__meta">live · last 8 events</div>
+    </div>
+    <div>
+      {% for e in data.audit[:8] %}
+        <div class="stream-row">
+          <span class="ts">{{ e.ts }}</span>
+          <span class="badge badge--{{ e.provider }}">{{ e.provider }}</span>
+          <span class="mono truncate" style="color:var(--text-muted)">
+            {{ e.adapter }} → <span style="color:var(--text)">{{ e.keyId }}</span>
+          </span>
+          <span class="mono truncate" style="color:var(--text-dim);font-size:11px">{{ e.endpoint }}</span>
+          <span class="{{ 'verdict-allow' if e.verdict == 'allow' else 'verdict-deny' }}">{{ e.verdict }}</span>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+
+</div>
+
+{# ── Gate Approvals ───────────────────────────────────────────── #}
+{% if data.gate is not none %}
+<div class="card" style="margin-top:18px">
+  <div class="card__head">
+    <div class="card__title">Gate Approvals</div>
+    <div class="card__meta">
+      {{ data.gate.subscription_count|default(0) }} subscriber{{ 's' if (data.gate.subscription_count|default(0)) != 1 else '' }}
+      · {{ data.gate.pending_count|default(0) }} pending
+    </div>
+  </div>
+  <div class="card__body" style="padding:12px">
+    {% set pending = data.gate.pending|default([]) %}
+    {% if pending %}
+      <table style="width:100%;font-size:12px;border-collapse:collapse">
+        <thead>
+          <tr style="color:var(--text-dim);text-align:left">
+            <th style="padding:4px 8px">Created</th>
+            <th style="padding:4px 8px">Flow</th>
+            <th style="padding:4px 8px">Adapter</th>
+            <th style="padding:4px 8px">Key ID</th>
+            <th style="padding:4px 8px">Expires</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for req in pending %}
+          <tr style="border-top:1px solid var(--border)">
+            <td style="padding:4px 8px;color:var(--text-muted)" class="mono">{{ req.created_at|default('—') }}</td>
+            <td style="padding:4px 8px">{{ req.flow|default('—') }}</td>
+            <td style="padding:4px 8px">{{ req.adapter_id|default('—') }}</td>
+            <td style="padding:4px 8px" class="mono">{{ req.key_id|default('—') }}</td>
+            <td style="padding:4px 8px;color:var(--text-muted)" class="mono">{{ req.expires_at|default('—') }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div style="color:var(--text-dim);font-size:13px">No pending approvals.</div>
+    {% endif %}
+  </div>
+</div>
+{% else %}
+<div class="card" style="margin-top:18px">
+  <div class="card__head">
+    <div class="card__title">Gate Approvals</div>
+    <div class="card__meta" style="color:var(--text-dim)">worker unreachable</div>
+  </div>
+  <div class="card__body" style="padding:12px">
+    <div style="color:var(--text-dim);font-size:13px">Gate data unavailable — CF Worker is not reachable.</div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

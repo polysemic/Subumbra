@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}Cloudflare — Subumbra Console{% endblock %}
+
+{% block content %}
+{% set cf = data.cloudflare %}
+
+<div class="page-head">
+  <div>
+    <h1 class="page-title">Cloudflare</h1>
+    <p class="page-sub">The other half of split-trust custody. Decrypt authority lives in your Worker + Durable Object; this is where you operate it.</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="https://dash.cloudflare.com/" target="_blank" rel="noreferrer">Open in Cloudflare dash ↗</a>
+    <button class="btn btn--primary">Run verify-deploy</button>
+  </div>
+</div>
+
+<div class="grid-3" style="margin-bottom:14px">
+
+  <div class="cf-card">
+    <div class="cf-card__head">
+      <div class="cf-icon">☁</div>
+      <div>
+        <div class="cf-card__title">Worker</div>
+        <div class="cf-card__sub">decrypt + proxy authority</div>
+      </div>
+      <span class="pill pill--active" style="margin-left:auto">active</span>
+    </div>
+    <div class="cf-grid">
+      <div class="k">URL</div><div class="v truncate">{{ cf.worker.url }}</div>
+      <div class="k">Deployed SHA</div><div class="v">{{ cf.worker.sha }}</div>
+      <div class="k">Deployed at</div><div class="v">May 24, 22:14</div>
+      <div class="k">Integrity</div><div class="v" style="color:var(--ok)">pinned · drift-free</div>
+      <div class="k">Vaults</div><div class="v">{{ cf.worker.vaultsCount }} DO instances</div>
+      <div class="k">Last verify</div><div class="v">{{ cf.worker.verifyAge }} ago</div>
+    </div>
+    <div class="cf-card__actions">
+      <button class="btn">Deploy worker</button>
+      <button class="btn">Inspect bundle</button>
+    </div>
+  </div>
+
+  <div class="cf-card">
+    <div class="cf-card__head">
+      <div class="cf-icon">⌥</div>
+      <div>
+        <div class="cf-card__title">Tunnel</div>
+        <div class="cf-card__sub">edge ingress</div>
+      </div>
+      <span class="pill pill--active" style="margin-left:auto">active</span>
+    </div>
+    <div class="cf-grid">
+      <div class="k">Hostname</div><div class="v truncate">{{ cf.tunnel.hostname }}</div>
+      <div class="k">Tunnel ID</div><div class="v truncate">{{ cf.tunnel.tunnelId[:18] }}…</div>
+      <div class="k">CNAME</div><div class="v truncate">{{ cf.tunnel.cnameTarget[:20] }}…</div>
+      <div class="k">Token age</div><div class="v" style="color:var(--warn)">{{ cf.tunnel.tokenAge }} · rotate soon</div>
+    </div>
+    <div class="cf-card__actions">
+      <button class="btn">Update tunnel</button>
+      <button class="btn">Rotate token</button>
+    </div>
+  </div>
+
+  <div class="cf-card">
+    <div class="cf-card__head">
+      <div class="cf-icon">⌘</div>
+      <div>
+        <div class="cf-card__title">Access</div>
+        <div class="cf-card__sub">zero-trust gate</div>
+      </div>
+      <span class="pill pill--active" style="margin-left:auto">active</span>
+    </div>
+    <div class="cf-grid">
+      <div class="k">App</div><div class="v truncate">{{ cf.access.appName }}</div>
+      <div class="k">Policy</div><div class="v">{{ cf.access.policyName }}</div>
+      <div class="k">Client ID</div><div class="v">{{ cf.access.clientIdMasked }}</div>
+      <div class="k">Token age</div><div class="v">{{ cf.access.serviceTokenAge }}</div>
+    </div>
+    <div class="cf-card__actions">
+      <button class="btn">Update access</button>
+      <button class="btn">Rotate service token</button>
+    </div>
+  </div>
+
+</div>
+
+<div class="grid-2">
+
+  <div class="card">
+    <div class="card__head">
+      <div class="card__title">Provider registry · KV</div>
+      <div class="card__meta">{{ cf.kv.namespace }}</div>
+    </div>
+    <div class="card__body" style="display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;align-items:baseline;gap:12px">
+        <div style="font-size:28px;font-weight:600">{{ cf.kv.recordCount }}</div>
+        <div style="font-size:12px;color:var(--text-muted)">records · policy, key, registry_version</div>
+      </div>
+      <div style="font-size:11px;color:var(--text-dim);font-family:var(--font-mono)">last sync · {{ cf.kv.lastSync }}</div>
+      <div style="display:flex;gap:8px;padding-top:8px;border-top:1px solid var(--border)">
+        <button class="btn">Push registry</button>
+        <button class="btn">Re-sign catalog</button>
+        <button class="btn btn--danger" style="margin-left:auto" data-action="nuke-cloudflare">Nuke Cloudflare</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card__head">
+      <div class="card__title">Edge analytics</div>
+      <div class="card__meta">coming in next round</div>
+    </div>
+    <div class="card__body">
+      <div class="empty">
+        <div class="empty__eyebrow">Q3 2026 · Logpush + Analytics Engine</div>
+        <div class="empty__title">Request volume · edge latency · deny rates</div>
+        <div style="font-size:12px;color:var(--text-dim);max-width:360px">
+          Once log streaming is wired up, this card surfaces per-key edge metrics, P95 latency, and deny-rate spikes alongside the audit log.
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

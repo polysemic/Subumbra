@@ -1,0 +1,139 @@
+{# ─────────────────────────────────────────────────────────────────
+   base.html — application shell
+   Sidebar, topbar, page-head, content slot.
+   ───────────────────────────────────────────────────────────────── #}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="X-Content-Type-Options" content="nosniff">
+  <title>{% block title %}Subumbra Console{% endblock %}</title>
+
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/tokens.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/shell.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/components.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/pages.css') }}">
+
+  <script src="{{ url_for('static', filename='js/components.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/api.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/pages.js') }}" defer></script>
+</head>
+<body data-page="{{ active }}" data-demo="{{ '1' if data.health.demo else '0' }}" data-gate-vapid-public-key="{{ gate_vapid_public_key }}">
+
+<div class="shell">
+
+  {# ── Sidebar ───────────────────────────────────────────────── #}
+  <aside class="side" id="sidebar">
+
+    <div class="side__brand">
+      <span class="umbrella" aria-hidden="true">
+        <span class="umbrella__dome"></span>
+        <span class="umbrella__stem"></span>
+      </span>
+      <div>
+        <div class="side__brand-name">Subumbra</div>
+        <div class="side__brand-sub">v{{ VERSION }}</div>
+      </div>
+    </div>
+
+    <div class="side__org" role="button" tabindex="0">
+      <div class="side__org-dot"></div>
+      <div>
+        <div class="side__org-name">{{ ORG.name }}</div>
+        <div class="side__org-instance">{{ ORG.instance }}</div>
+      </div>
+      <div class="side__org-caret">▾</div>
+    </div>
+
+    <nav class="side__nav">
+      <div class="side__section">Operate</div>
+      {% for item in NAV[:4] %}
+        <a href="{{ item.href }}" class="side__item {{ 'is-active' if item.id == active else '' }}">
+          <span class="side__icon">{{ item.icon }}</span>
+          <span>{{ item.label }}</span>
+          {% if item.badge %}<span class="side__badge">{{ item.badge }}</span>{% endif %}
+        </a>
+      {% endfor %}
+
+      <div class="side__section">Govern</div>
+      {% for item in NAV[4:7] %}
+        <a href="{{ item.href }}" class="side__item {{ 'is-active' if item.id == active else '' }}">
+          <span class="side__icon">{{ item.icon }}</span>
+          <span>{{ item.label }}</span>
+        </a>
+      {% endfor %}
+
+      <div class="side__section">Platform</div>
+      {% for item in NAV[7:] %}
+        <a href="{{ item.href }}" class="side__item {{ 'is-active' if item.id == active else '' }}">
+          <span class="side__icon">{{ item.icon }}</span>
+          <span>{{ item.label }}</span>
+        </a>
+      {% endfor %}
+    </nav>
+
+    <div class="side__foot">
+      <div class="side__foot-dot"></div>
+      <div>
+        <div style="color:var(--text-muted)">All services healthy</div>
+        <div class="side__foot-mono">sha {{ data.health.workerSha }}</div>
+      </div>
+    </div>
+  </aside>
+
+  {# ── Main column ───────────────────────────────────────────── #}
+  <div class="main">
+
+    {# ── Top bar ─────────────────────────────────────────────── #}
+    <header class="top">
+      <div class="top__crumbs">
+        {% for c in crumbs %}
+          {% if not loop.first %}<span class="sep">/</span>{% endif %}
+          <span class="{{ 'here' if loop.last else '' }}">{{ c }}</span>
+        {% endfor %}
+      </div>
+
+      <div class="top__right">
+        {% set sess = data.sessions.active %}
+        <a href="/sessions" class="session-indicator {{ 'is-locked' if not sess else '' }}">
+          <span class="dot"></span>
+          <span>{{ 'Vault unlocked' if sess else 'Vault locked' }}</span>
+          <span class="ttl">
+            {% if sess|length == 0 %}System locked
+            {% elif sess|length == 1 %}1 session · {{ sess[0].ttl_label }}
+            {% else %}{{ sess|length }} sessions
+            {% endif %}
+          </span>
+        </a>
+        <button class="top__icon" title="Command palette (⌘K)">⌘K</button>
+        <button class="top__icon" title="Notifications">◔</button>
+        <div class="top__user" title="{{ ORG.user }}">{{ ORG.user[0]|upper }}</div>
+      </div>
+    </header>
+
+    {# ── Content ─────────────────────────────────────────────── #}
+    <main class="content">
+      {% if data.health.demo %}
+        <div class="alert alert--info" style="margin-bottom:var(--space-4)">
+          <span>ⓘ</span>
+          <div>
+            <strong>Demo mode</strong> — rendering the mock dataset.
+            Connect <code class="mono">subumbra-keys</code> on
+            <code class="mono">{{ data.org.instance }}</code> or unset
+            <code class="mono">SUBUMBRA_UI_DEMO</code> to see live data.
+          </div>
+        </div>
+      {% endif %}
+
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</div>
+
+{# Where modals teleport to (escapes any stacking context) #}
+<div id="modal-root"></div>
+
+</body>
+</html>

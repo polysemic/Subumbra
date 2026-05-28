@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Adapters — Subumbra Console{% endblock %}
+
+{% block content %}
+{% set adapters = data.adapters %}
+
+<div class="page-head">
+  <div>
+    <h1 class="page-title">Adapters</h1>
+    <p class="page-sub">Each app gets its own scoped token. Revoke one without touching the rest. Tokens authorise capability, never reveal keys.</p>
+  </div>
+  <div class="page-actions">
+    <button class="btn">Export token bundle</button>
+    <button class="btn btn--primary" data-action="add-adapter">+ Add adapter</button>
+  </div>
+</div>
+
+<div class="chips" style="margin-bottom:14px">
+  <button class="chip is-active">All <span class="chip__count">{{ adapters|length }}</span></button>
+  <button class="chip">Active <span class="chip__count">{{ adapters|selectattr('status','equalto','active')|list|length }}</span></button>
+  <button class="chip">Paused <span class="chip__count">{{ adapters|selectattr('status','equalto','paused')|list|length }}</span></button>
+  <span class="chip__sep"></span>
+  <button class="chip">llm-chat</button>
+  <button class="chip">ssh-sign</button>
+  <span style="margin-left:auto"></span>
+  <button class="chip" style="color:var(--text-dim)">↧ Sort: Last seen</button>
+</div>
+
+<div class="grid-3">
+  {% for a in adapters %}
+    <article class="adapter-card">
+      <div class="adapter-card__head">
+        <div class="adapter-logo">{{ a.logo }}</div>
+        <div>
+          <div class="adapter-card__name">{{ a.name }}</div>
+          <div class="adapter-card__id">{{ a.id }} · {{ a.lastSeen }}</div>
+        </div>
+        <span class="pill pill--{{ a.status }}" style="margin-left:auto">{{ a.status }}</span>
+      </div>
+
+      <div class="adapter-card__row">
+        <div class="lbl">Capability</div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap">
+          {% for c in a.caps %}
+            <span class="tag {{ 'tag--cap-ssh' if c.startswith('ssh') else 'tag--cap-llm' }}">{{ c }}</span>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="adapter-card__row">
+        <div class="lbl">Allowed keys</div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap;flex:1;min-width:0">
+          {% for k in a['keys'][:3] %}<span class="tag mono">{{ k }}</span>{% endfor %}
+          {% if a['keys']|length > 3 %}<span class="tag" style="color:var(--text-dim)">+{{ a['keys']|length - 3 }} more</span>{% endif %}
+        </div>
+      </div>
+
+      <div class="adapter-card__row">
+        <div class="lbl">Token</div>
+        <div class="adapter-token">
+          <span class="truncate" style="max-width:180px">{{ a.token }}</span>
+          <button class="copy" data-copy="{{ a.token }}">⎘</button>
+        </div>
+        <span style="margin-left:auto;font-size:10px;color:var(--text-dim);font-family:var(--font-mono)">{{ a.tokenAge }}</span>
+      </div>
+
+      <div class="adapter-card__foot">
+        <button class="btn">Inspect</button>
+        <button class="btn" data-action="rotate-adapter" data-id="{{ a.id }}">Rotate token</button>
+        <button class="btn btn--danger" style="margin-left:auto" data-action="revoke-adapter" data-id="{{ a.id }}">Revoke</button>
+      </div>
+    </article>
+  {% endfor %}
+</div>
+{% endblock %}

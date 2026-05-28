@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}Sessions — Subumbra Console{% endblock %}
+
+{% block content %}
+{% set sess = data.sessions.active %}
+
+<div class="page-head">
+  <div>
+    <h1 class="page-title">Sessions</h1>
+    <p class="page-sub">Subumbra is locked by default. Sessions temporarily lift the lock for a bounded set of adapters and keys.</p>
+  </div>
+  <div class="page-actions">
+    <button class="btn">Session history</button>
+    <button class="btn btn--danger" data-action="lock-all">Lock all</button>
+  </div>
+</div>
+
+<div class="split-drawer">
+
+  <div>
+    <div class="card__title" style="margin-bottom:10px">Active sessions · {{ sess|length }}</div>
+    <div style="display:flex; flex-direction:column; gap:10px">
+      {% for s in sess %}
+        {% set pct = (s.queries_used * 100 // s.queries_max) if s.queries_max else 8 %}
+        <div class="sess">
+          <div class="sess__head">
+            <div class="sess__name">{{ s.name }}</div>
+            <div class="sess__id">{{ s.id }}</div>
+            <div class="sess__ttl">{{ s.ttl_label }} left</div>
+          </div>
+          <div class="sess__row">
+            <div class="lbl">Adapters</div>
+            <div style="display:flex;gap:4px;flex-wrap:wrap">
+              {% for a in s.adapters %}<span class="tag">{{ a }}</span>{% endfor %}
+            </div>
+          </div>
+          <div class="sess__row">
+            <div class="lbl">Keys</div>
+            <div style="display:flex;gap:4px;flex-wrap:wrap">
+              {% for k in s['keys'] %}<span class="tag mono">{{ k }}</span>{% endfor %}
+            </div>
+          </div>
+          <div class="sess__row">
+            <div class="lbl">Queries</div>
+            <div style="flex:1">
+              <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px">
+                <span class="mono" style="color:var(--text-muted)">{{ '{:,}'.format(s.queries_used) }} {% if s.queries_max %}/ {{ s.queries_max }}{% else %}served · unlimited{% endif %}</span>
+                <span class="mono" style="color:var(--text-dim)">opened {{ s.opened_at[11:16] }}</span>
+              </div>
+              <div class="sess__bar"><div style="width:{{ pct }}%"></div></div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;padding-top:4px;border-top:1px solid var(--border)">
+            <button class="btn">Inspect</button>
+            <button class="btn btn--ghost">Extend</button>
+            <button class="btn btn--danger" style="margin-left:auto" data-action="close-session" data-id="{{ s.id }}">Close now</button>
+          </div>
+        </div>
+      {% else %}
+        <div class="empty">
+          <div class="empty__eyebrow">System locked</div>
+          <div class="empty__title">No active sessions</div>
+          <div>Open a scoped session below to lift the lock for a bounded set of adapters and keys.</div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card__head"><div class="card__title">Open scoped session</div></div>
+    <form class="card__body" id="open-session-form" data-action="open-session" style="display:flex;flex-direction:column;gap:14px">
+
+      <div class="form-row">
+        <label class="form-label">Session name</label>
+        <input class="input" name="name" value="afternoon work">
+        <div class="form-help">A label so audit reads cleanly. Not security-bearing.</div>
+      </div>
+
+      <div class="form-row">
+        <label class="form-label">Duration</label>
+        <div class="chips" data-radio="ttl">
+          <button type="button" class="chip" data-value="15m">15m</button>
+          <button type="button" class="chip" data-value="1h">1h</button>
+          <button type="button" class="chip is-active" data-value="4h">4h</button>
+          <button type="button" class="chip" data-value="8h">8h</button>
+          <button type="button" class="chip" data-value="custom">Custom…</button>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label class="form-label">Adapters allowed</label>
+        <div class="multi">
+          <span class="multi__tag">litellm <span class="x">×</span></span>
+          <span class="multi__tag">openwebui <span class="x">×</span></span>
+          <span class="multi__placeholder">+ add adapter…</span>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label class="form-label">Keys allowed</label>
+        <div class="multi">
+          <span class="multi__tag">openai_prod <span class="x">×</span></span>
+          <span class="multi__tag">anthropic_prod <span class="x">×</span></span>
+          <span class="multi__tag">groq_prod <span class="x">×</span></span>
+          <span class="multi__placeholder">+ add key…</span>
+        </div>
+        <div class="form-help">Effective scope must be disjoint from any other active session.</div>
+      </div>
+
+      <div style="display:flex;gap:12px">
+        <div class="form-row" style="flex:1">
+          <label class="form-label">Max queries</label>
+          <input class="input mono" placeholder="unlimited">
+        </div>
+        <div class="form-row" style="flex:1">
+          <label class="form-label">Velocity cap</label>
+          <input class="input mono" value="inherit policy">
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;padding-top:8px;border-top:1px solid var(--border)">
+        <button type="button" class="btn btn--ghost">Cancel</button>
+        <button type="submit" class="btn btn--primary" style="margin-left:auto">Open session →</button>
+      </div>
+    </form>
+  </div>
+
+</div>
+{% endblock %}

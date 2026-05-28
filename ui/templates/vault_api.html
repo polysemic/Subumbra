@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}Vault › API keys — Subumbra Console{% endblock %}
+
+{% block content %}
+{% set keys = data['keys'] %}
+{% set selected = keys[0] %}
+
+<div class="page-head">
+  <div>
+    <h1 class="page-title">Vault</h1>
+    <p class="page-sub">Encrypted secrets under split-trust custody. Ciphertext lives here; decrypt authority lives in Cloudflare.</p>
+  </div>
+  <div class="page-actions">
+    <button class="btn" data-action="import-env">Import .env</button>
+    <button class="btn btn--primary" data-action="add-key">+ Add key</button>
+  </div>
+</div>
+
+<nav class="tabs">
+  <a class="tabs__tab is-active" href="/vault">API keys <span class="soon">· {{ keys|length }}</span></a>
+  <a class="tabs__tab" href="/vault/ssh">SSH keys <span class="soon">· {{ data.ssh_keys|length }}</span></a>
+  <span class="tabs__tab">OAuth tokens <span class="soon">soon</span></span>
+  <span class="tabs__tab">Certificates <span class="soon">soon</span></span>
+</nav>
+
+<div class="chips" style="margin-bottom:14px">
+  <button class="chip is-active">All providers <span class="chip__count">{{ keys|length }}</span></button>
+  <button class="chip">Anthropic <span class="chip__count">{{ keys|selectattr('provider','equalto','anthropic')|list|length }}</span></button>
+  <button class="chip">OpenAI <span class="chip__count">{{ keys|selectattr('provider','equalto','openai')|list|length }}</span></button>
+  <button class="chip">Groq <span class="chip__count">{{ keys|selectattr('provider','equalto','groq')|list|length }}</span></button>
+  <button class="chip">DeepSeek <span class="chip__count">{{ keys|selectattr('provider','equalto','deepseek')|list|length }}</span></button>
+  <span class="chip__sep"></span>
+  <button class="chip">Active only</button>
+  <button class="chip">Shared vault</button>
+  <button class="chip">Isolated vault</button>
+  <span style="margin-left:auto"></span>
+  <button class="chip" style="color:var(--text-dim)">↧ Sort: Last used</button>
+</div>
+
+<div class="split-drawer">
+
+  {# ── Table ─────────────────────────────────────────────────── #}
+  <div class="card" style="padding:0; overflow:hidden">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th></th><th>Key ID</th><th>Provider</th><th>Capability</th><th>Vault</th>
+          <th>Last used</th><th style="text-align:right">Requests</th><th>Status</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for k in keys %}
+          <tr class="{{ 'is-selected' if k.id == selected.id else '' }}" data-key-id="{{ k.id }}">
+            <td style="width:40px; padding-right:0"><div class="key-icon">◆</div></td>
+            <td>
+              <div class="row-id">{{ k.id }}</div>
+              <div class="mono" style="font-size:10px;color:var(--text-dim);margin-top:2px">{{ k.target }}</div>
+            </td>
+            <td><span class="badge badge--{{ k.provider }}">{{ k.provider }}</span></td>
+            <td><span class="tag tag--cap-llm">{{ k.capability }}</span></td>
+            <td><span class="tag">{{ 'shared vault' if k.vault == 'shared' else 'vault-' + k.id }}</span></td>
+            <td class="ts">{{ k.lastUsed }}</td>
+            <td style="text-align:right" class="mono">{{ '{:,}'.format(k.requests) }}</td>
+            <td><span class="pill pill--{{ k.status }}">{{ k.status }}</span></td>
+            <td style="text-align:right; color:var(--text-dim)">⋯</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {# ── Drawer ────────────────────────────────────────────────── #}
+  <div class="drawer">
+    <div class="drawer__head">
+      <div style="display:flex; align-items:center; gap:10px">
+        <div class="key-icon">◆</div>
+        <div style="flex:1; min-width:0">
+          <div style="display:flex; align-items:center; gap:8px">
+            <span class="mono" style="font-weight:600; font-size:14px">{{ selected.id }}</span>
+            <span class="pill pill--{{ selected.status }}">{{ selected.status }}</span>
+          </div>
+          <div style="display:flex; gap:6px; margin-top:5px">
+            <span class="badge badge--{{ selected.provider }}">{{ selected.provider }}</span>
+            <span class="tag tag--cap-llm">{{ selected.capability }}</span>
+            <span class="tag">shared vault</span>
+          </div>
+        </div>
+        <button class="btn btn--ghost" style="font-size:14px">×</button>
+      </div>
+    </div>
+    <div class="drawer__tabs">
+      <button class="drawer__tab is-active">Overview</button>
+      <button class="drawer__tab">Policy</button>
+      <button class="drawer__tab">Allow</button>
+      <button class="drawer__tab">Velocity</button>
+      <button class="drawer__tab">Audit</button>
+    </div>
+    <div class="drawer__body">
+      <div class="section-title">Identity</div>
+      <div class="field"><div class="field__label">Key ID</div><div class="field__value mono">{{ selected.id }}</div></div>
+      <div class="field"><div class="field__label">Target host</div><div class="field__value mono">{{ selected.target }}</div></div>
+      <div class="field"><div class="field__label">Policy ID</div><div class="field__value mono">{{ selected.policyId }}</div></div>
+      <div class="field"><div class="field__label">Policy hash</div><div class="field__value mono">{{ selected.policyHash }}</div></div>
+      <div class="field"><div class="field__label">Vault</div><div class="field__value">Shared vault DO</div></div>
+      <div class="field"><div class="field__label">Created</div><div class="field__value mono">{{ selected.created }}</div></div>
+
+      <div class="section-title">Usage</div>
+      <div class="field"><div class="field__label">Requests</div><div class="field__value">{{ '{:,}'.format(selected.requests) }} <span style="color:var(--text-dim)">· {{ selected.rpm }}/min cap</span></div></div>
+      <div class="field"><div class="field__label">Last used</div><div class="field__value">{{ selected.lastUsed }}</div></div>
+      <div class="field"><div class="field__label">Adapters</div>
+        <div class="field__value" style="display:flex;gap:4px;flex-wrap:wrap">
+          {% for a in selected.adapters %}<span class="tag">{{ a }}</span>{% endfor %}
+        </div>
+      </div>
+
+      <div class="locked-note">⚿ Policy &amp; auth fields are AAD-bound to the ciphertext. Editing requires rotation.</div>
+
+      <div style="display:flex; gap:8px; margin-top:4px">
+        <button class="btn" data-action="pause-key" data-key="{{ selected.id }}">Pause</button>
+        <button class="btn" data-action="rotate-key" data-key="{{ selected.id }}">Rotate</button>
+        <button class="btn btn--danger" style="margin-left:auto" data-action="revoke-key" data-key="{{ selected.id }}">Revoke</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
