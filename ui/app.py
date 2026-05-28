@@ -260,6 +260,41 @@ def _require_json(view):
     return wrapped
 
 
+def _map_session(s: dict) -> dict:
+    opened_at = s.get("created_at") or datetime.now(timezone.utc).isoformat()
+    expires_at = s.get("expires_at")
+    ttl_label = "—"
+    ttl_seconds = 0
+    if expires_at:
+        try:
+            exp = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+            diff = (exp - datetime.now(timezone.utc)).total_seconds()
+            if diff > 0:
+                ttl_seconds = int(diff)
+                if diff < 60:
+                    ttl_label = f"{int(diff)}s"
+                elif diff < 3600:
+                    ttl_label = f"{int(diff/60)}m"
+                else:
+                    ttl_label = f"{int(diff/3600)}h {int((diff%3600)/60)}m"
+            else:
+                ttl_label = "expired"
+        except Exception:
+            pass
+
+    return {
+        "id":           s.get("session_id"),
+        "name":         s.get("name") or ("unnamed" if s.get("session_type") != "operator" else "operator"),
+        "adapters":     s.get("allowed_adapters") or ["universal"],
+        "keys":         s.get("allowed_keys") or ["universal"],
+        "ttl_seconds":  ttl_seconds,
+        "ttl_label":    ttl_label,
+        "queries_used": s.get("queries_used", 0),
+        "queries_max":  s.get("max_queries"),
+        "opened_at":    opened_at,
+    }
+
+
 def build_console_data() -> dict:
     """
     Merge live data from subumbra-keys + proxy + CF Worker with the mock skeleton.
@@ -289,7 +324,7 @@ def build_console_data() -> dict:
     if sess_data:
         data["sessions"] = {
             "lockdown_enabled": sess_data.get("lockdown_enabled", True),
-            "active": sess_data.get("active_sessions", []),
+            "active": [_map_session(s) for s in sess_data.get("active_sessions", [])],
         }
 
     data["gate"] = gate_data if gate_err is None else None
@@ -315,21 +350,43 @@ def build_console_data() -> dict:
     return data
 
 
+def _get_ssh_fingerprint(pubkey_str: str | None) -> str:
+    if not pubkey_str or not isinstance(pubkey_str, str):
+        return "—"
+    parts = pubkey_str.strip().split()
+    if len(parts) < 2:
+        return "—"
+    try:
+        import base64
+        import hashlib
+        blob = base64.b64decode(parts[1])
+        fp = base64.b64encode(hashlib.sha256(blob).digest()).decode('utf-8').rstrip('=')
+        return f"SHA256:{fp}"
+    except Exception:
+        return "—"
+
+
 def _merge_keys(keys: list, stats: dict) -> list:
     per_key = {s["key_id"]: s for s in (stats.get("per_key") or [])}
     merged = []
     for k in keys:
         s = per_key.get(k.get("key_id"), {})
+        is_ssh = k.get("type") == "ssh_key"
+        
+        # SSH policy allowed hosts mapping
+        allow = k.get("policy", {}).get("allow", {})
+        hosts = allow.get("hosts", [])
+        
         merged.append({
             "id":          k.get("key_id"),
-            "type":        "ssh" if k.get("type") == "ssh_key" else "api",
+            "type":        "ssh" if is_ssh else "api",
             "provider":    k.get("provider", "generic"),
-            "capability":  k.get("capability_class", "llm-chat"),
+            "capability":  k.get("capability_class", "llm-chat") if k.get("capability_class") else ("ssh-sign" if is_ssh else "llm-chat"),
             "vault":       "isolated" if k.get("vault_instance", "").startswith("vault-") else "shared",
             "lastUsed":    _fmt_rel(s.get("last_access")),
             "lastUsedAbs": s.get("last_access"),
             "requests":    s.get("request_count", 0),
-            "signs":       0,
+            "signs":       s.get("request_count", 0) if is_ssh else 0,
             "status":      "paused" if k.get("paused") else ("revoked" if k.get("revoked") else "active"),
             "target":      k.get("target_host", "—"),
             "policyHash":  (k.get("policy_hash") or "")[:8] + "…",
@@ -337,6 +394,12 @@ def _merge_keys(keys: list, stats: dict) -> list:
             "rpm":         k.get("velocity_rpm", 60),
             "adapters":    k.get("allow_adapters", []),
             "created":     k.get("created_at", "")[:10],
+            # SSH specific fields
+            "alg":         k.get("algorithm", "ed25519"),
+            "fpr":         _get_ssh_fingerprint(k.get("public_key")),
+            "hosts":       hosts,
+            "pub":         k.get("public_key", "—"),
+            "adapter":     k.get("allow_adapters", ["—"])[0] if k.get("allow_adapters") else "—",
         })
     return merged
 

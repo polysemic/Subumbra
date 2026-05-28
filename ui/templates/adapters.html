@@ -50,8 +50,8 @@
       <div class="adapter-card__row">
         <div class="lbl">Allowed keys</div>
         <div style="display:flex;gap:4px;flex-wrap:wrap;flex:1;min-width:0">
-          {% for k in a['keys'][:3] %}<span class="tag mono">{{ k }}</span>{% endfor %}
-          {% if a['keys']|length > 3 %}<span class="tag" style="color:var(--text-dim)">+{{ a['keys']|length - 3 }} more</span>{% endif %}
+          {% for k in a.get('keys', [])[:3] %}<span class="tag mono">{{ k }}</span>{% endfor %}
+          {% if a.get('keys', [])|length > 3 %}<span class="tag" style="color:var(--text-dim)">+{{ a.get('keys', [])|length - 3 }} more</span>{% endif %}
         </div>
       </div>
 

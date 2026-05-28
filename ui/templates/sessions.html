@@ -37,7 +37,7 @@
           <div class="sess__row">
             <div class="lbl">Keys</div>
             <div style="display:flex;gap:4px;flex-wrap:wrap">
-              {% for k in s['keys'] %}<span class="tag mono">{{ k }}</span>{% endfor %}
+              {% for k in s.get('keys', []) %}<span class="tag mono">{{ k }}</span>{% endfor %}
             </div>
           </div>
           <div class="sess__row">
