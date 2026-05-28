@@ -56,6 +56,12 @@
   position: relative;
   flex-shrink: 0;
 }
+.hero__logo {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+  border-radius: var(--r);
+}
 .hero__meta {
   font-size: var(--fs-xs);
   text-transform: uppercase;

@@ -28,10 +28,7 @@
   <aside class="side" id="sidebar">
 
     <div class="side__brand">
-      <span class="umbrella" aria-hidden="true">
-        <span class="umbrella__dome"></span>
-        <span class="umbrella__stem"></span>
-      </span>
+      <img src="{{ url_for('static', filename='sumumbra-logo.jpg') }}" alt="Subumbra" class="side__logo">
       <div>
         <div class="side__brand-name">Subumbra</div>
         <div class="side__brand-sub">v{{ VERSION }}</div>
@@ -107,6 +104,13 @@
             {% endif %}
           </span>
         </a>
+        {% if data.gate is not none %}
+          {% set gate_pending = data.gate.pending_count|default(0) %}
+          <a href="/audit" class="gate-indicator {{ 'has-pending' if gate_pending > 0 else '' }}" title="Gate approvals — {{ gate_pending }} pending">
+            <span class="gate-dot"></span>
+            <span>{% if gate_pending > 0 %}{{ gate_pending }} pending{% else %}Gate{% endif %}</span>
+          </a>
+        {% endif %}
         <button class="top__icon" title="Command palette (⌘K)">⌘K</button>
         <button class="top__icon" title="Notifications">◔</button>
         <div class="top__user" title="{{ ORG.user }}">{{ ORG.user[0]|upper }}</div>

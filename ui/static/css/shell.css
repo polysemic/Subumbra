@@ -42,6 +42,15 @@
   margin-top: 2px;
 }
 
+/* Brand logo image */
+.side__logo {
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+  flex-shrink: 0;
+  border-radius: 4px;
+}
+
 /* Umbrella mark — pure CSS, recognisable at 24-26px */
 .umbrella {
   width: 26px;
@@ -300,6 +309,32 @@
 .session-indicator .ttl {
   font-family: var(--font-mono);
   color: var(--text-muted);
+}
+
+.gate-indicator {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  transition: border-color var(--t-fast), color var(--t-fast);
+  color: var(--text-muted);
+  text-decoration: none;
+}
+.gate-indicator:hover { border-color: var(--border-strong); color: var(--text); }
+.gate-indicator.has-pending { border-color: var(--warn); color: var(--text); }
+.gate-indicator .gate-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--border-strong);
+}
+.gate-indicator.has-pending .gate-dot {
+  background: var(--warn);
+  box-shadow: 0 0 6px var(--warn);
 }
 
 .top__icon {
