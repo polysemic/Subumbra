@@ -11,7 +11,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir --require-hashes -r requirements.txt
 
-COPY app.py .
+COPY app.py console_data.py ./
 COPY _hash_utils.py .
 COPY templates/ templates/
 COPY static/ static/

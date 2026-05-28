@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}Settings — Subumbra Console{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1 class="page-title">Settings</h1>
+    <p class="page-sub">Console authentication, team access, retention, integrations.</p>
+  </div>
+</div>
+
+<div class="settings-grid">
+  <nav class="settings-nav">
+    <a class="settings-nav__item is-active" href="#account">Account</a>
+    <a class="settings-nav__item" href="#auth">Authentication</a>
+    <a class="settings-nav__item" href="#team">Team & SSO</a>
+    <a class="settings-nav__item" href="#retention">Audit retention</a>
+    <a class="settings-nav__item" href="#integrations">Integrations</a>
+    <a class="settings-nav__item" href="#theme">Theme & density</a>
+    <a class="settings-nav__item" href="#danger" style="color:var(--err);margin-top:auto">Danger zone</a>
+  </nav>
+
+  <div style="display:flex;flex-direction:column;gap:18px">
+
+    <section class="settings-card" id="account">
+      <div>
+        <div class="settings-card__title">Account</div>
+        <div class="settings-card__sub">You're signed in as a local operator. Single-user mode — multi-tenant SSO is coming in Q4.</div>
+      </div>
+      <div class="settings-divider"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div class="form-row">
+          <label class="form-label">Operator</label>
+          <input class="input" value="{{ ORG.user }}" autocomplete="off">
+        </div>
+        <div class="form-row">
+          <label class="form-label">Role</label>
+          <input class="input" value="{{ ORG.role }}" disabled style="opacity:0.7" autocomplete="off">
+        </div>
+        <div class="form-row">
+          <label class="form-label">Console URL</label>
+          <input class="input mono" value="subumbra.{{ ORG.name|lower }}.dev" disabled style="opacity:0.7" autocomplete="off">
+        </div>
+        <div class="form-row">
+          <label class="form-label">Instance ID</label>
+          <input class="input mono" value="{{ ORG.instance }}" disabled style="opacity:0.7" autocomplete="off">
+        </div>
+      </div>
+    </section>
+
+    <section class="settings-card" id="auth">
+      <div>
+        <div class="settings-card__title">Authentication</div>
+        <div class="settings-card__sub">How the console gates itself. Pick one — both can stack, but only one is required.</div>
+      </div>
+      <div class="settings-divider"></div>
+      <div class="settings-toggle">
+        <div class="settings-toggle__info">
+          <div class="settings-toggle__name">Cloudflare Access (recommended)</div>
+          <div class="settings-toggle__desc">Edge zero-trust gate fronts the console. Leave Basic Auth disabled when this is on.</div>
+        </div>
+        <button class="switch is-on" aria-label="toggle"></button>
+      </div>
+      <div class="settings-toggle">
+        <div class="settings-toggle__info">
+          <div class="settings-toggle__name">HTTP Basic Auth</div>
+          <div class="settings-toggle__desc">Username + password on the container. Disabled while CF Access is active.</div>
+        </div>
+        <button class="switch" aria-label="toggle"></button>
+      </div>
+      <div class="settings-toggle">
+        <div class="settings-toggle__info">
+          <div class="settings-toggle__name">Mandatory MFA on management writes</div>
+          <div class="settings-toggle__desc">Adds a second factor before Add / Rotate / Revoke once the management API ships.</div>
+        </div>
+        <button class="switch is-on" aria-label="toggle"></button>
+      </div>
+    </section>
+
+    <section class="settings-card" id="retention">
+      <div>
+        <div class="settings-card__title">Audit retention</div>
+        <div class="settings-card__sub">SQLite audit row growth is capped locally. Configure rolling window + export here.</div>
+      </div>
+      <div class="settings-divider"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div class="form-row">
+          <label class="form-label">Max rows</label>
+          <input class="input mono" value="1,000,000" autocomplete="off">
+        </div>
+        <div class="form-row">
+          <label class="form-label">Rolling window</label>
+          <input class="input mono" value="90 days" autocomplete="off">
+        </div>
+        <div class="form-row" style="grid-column:1 / span 2">
+          <label class="form-label">Archive destination</label>
+          <input class="input mono" placeholder="s3://… or webhook URL (coming in Q3)" autocomplete="off">
+        </div>
+      </div>
+    </section>
+
+  </div>
+</div>
+{% endblock %}

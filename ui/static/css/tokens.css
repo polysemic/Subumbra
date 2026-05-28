@@ -1,0 +1,139 @@
+/* ─────────────────────────────────────────────────────────────────
+   tokens.css — Subumbra Console design tokens
+   Loaded first. Every other CSS file references these vars.
+   Future light mode = swap one block below.
+   ───────────────────────────────────────────────────────────────── */
+
+:root {
+  /* Surface scale */
+  --bg:            #0a1126;
+  --surface:       #131b34;
+  --raised:        #1b2440;
+  --sunken:        #060c1e;
+
+  /* Borders */
+  --border:        rgba(255,255,255,0.07);
+  --border-strong: rgba(255,255,255,0.12);
+
+  /* Text */
+  --text:          #e6ebf7;
+  --text-muted:    #8a96b8;
+  --text-dim:      #5a6789;
+
+  /* Interactive accent — cool blue */
+  --accent:        #6b8eff;
+  --accent-soft:   rgba(107,142,255,0.12);
+  --accent-strong: #90aaff;
+
+  /* Brand — umbrella amber (from the Subumbra mark) */
+  --brand:         #e0a868;
+  --brand-soft:    rgba(224,168,104,0.12);
+  --brand-strong:  #ecc28e;
+  --brand-deep:    #b3804d;
+
+  /* Shield blue — used by the brand mark + protected indicators */
+  --shield:        #3a6db0;
+  --shield-soft:   rgba(58,109,176,0.15);
+
+  /* Semantic */
+  --ok:            #4ec88e;
+  --ok-soft:       rgba(78,200,142,0.14);
+  --warn:          #e0a868;
+  --warn-soft:     rgba(224,168,104,0.14);
+  --err:           #e57c7c;
+  --err-soft:      rgba(229,124,124,0.12);
+
+  /* Provider hues — used by .badge.provider-* */
+  --prov-openai-bg:    rgba(74,222,128,0.12);   --prov-openai-fg:    #4ade80;
+  --prov-anthropic-bg: rgba(251,146,60,0.14);   --prov-anthropic-fg: #fb923c;
+  --prov-groq-bg:      rgba(167,139,250,0.14); --prov-groq-fg:      #a78bfa;
+  --prov-deepseek-bg:  rgba(56,189,248,0.14);  --prov-deepseek-fg:  #38bdf8;
+  --prov-github-bg:    rgba(233,233,233,0.12); --prov-github-fg:    #e9e9e9;
+  --prov-generic-bg:   rgba(138,150,184,0.14); --prov-generic-fg:   #a8b1cc;
+
+  /* Geometry */
+  --r:             4px;
+  --r-lg:          6px;
+  --r-pill:        999px;
+
+  /* Type */
+  --font-sans:     'Helvetica Neue', Helvetica, Arial, system-ui, sans-serif;
+  --font-mono:     'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace;
+
+  --fs-xs:         11px;
+  --fs-sm:         12px;
+  --fs-md:         13px;
+  --fs-lg:         15px;
+  --fs-xl:         22px;
+  --fs-2xl:        28px;
+
+  --fw-regular:    400;
+  --fw-medium:     500;
+  --fw-semibold:   600;
+  --fw-bold:       700;
+
+  /* Spacing scale (rem-relative; 13px base ⇒ 4/8/12/16/24/32/48) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  /* Layout */
+  --sidebar-w:     224px;
+  --topbar-h:      56px;
+  --content-max:   1400px;
+
+  /* Motion */
+  --t-fast:        0.12s ease;
+  --t-base:        0.18s ease;
+}
+
+/* Reset (Eric Meyer-lite) */
+
+*,
+*::before,
+*::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { font-size: 16px; -webkit-text-size-adjust: 100%; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--fs-md);
+  line-height: 1.45;
+  letter-spacing: -0.005em;
+  min-height: 100dvh;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  padding: 0;
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+a { color: var(--accent-strong); text-decoration: none; }
+a:hover { color: var(--accent); }
+
+.mono { font-family: var(--font-mono); }
+.truncate { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+/* Scrollbar — slim, themed */
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; }
+*::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }

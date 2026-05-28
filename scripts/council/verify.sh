@@ -63,7 +63,7 @@ worker_url="$(grep '^CF_WORKER_URL=' .env | cut -d= -f2- || true)"
 cf_access_client_id="${CF_ACCESS_CLIENT_ID:-$(grep '^CF_ACCESS_CLIENT_ID=' .env | cut -d= -f2- || true)}"
 cf_access_client_secret="${CF_ACCESS_CLIENT_SECRET:-$(grep '^CF_ACCESS_CLIENT_SECRET=' .env | cut -d= -f2- || true)}"
 ui_username="$(grep '^UI_USERNAME=' .env | cut -d= -f2- || true)"
-ui_password="$(grep '^UI_PASSWORD=' .env | cut -d= -f2- || true)"
+ui_password="${VERIFY_UI_PASSWORD:-$(grep '^UI_PASSWORD=' .env | cut -d= -f2- || true)}"
 
 if [[ -z "$worker_url" ]]; then
     echo "ERROR: CF_WORKER_URL not found in .env" >&2

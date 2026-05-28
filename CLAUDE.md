@@ -105,13 +105,25 @@ subumbra/
 │   ├── council/                 ← verification harness scripts
 │   └── subumbra-expire-adapter.sh  ← operational adapter expiry tool
 │
-└── ui/                          ← basic management dashboard
+└── ui/                          ← multi-page management console
     ├── Dockerfile
-    ├── app.py                   ← Flask dashboard
+    ├── app.py                   ← Flask console; auth, Gate integration, hardening
+    ├── console_data.py          ← mock/merge base dataset, NAV, ORG structures
     ├── _hash_utils.py           ← stdlib PBKDF2 helpers for in-process UI auth
     ├── requirements.txt
+    ├── requirements.in
+    ├── static/
+    │   ├── css/                 ← tokens.css, shell.css, components.css, pages.css
+    │   ├── js/                  ← api.js, components.js, pages.js
+    │   ├── push.js              ← browser push subscription client
+    │   └── sw.js                ← service worker for Gate push notifications
     └── templates/
-        └── index.html
+        ├── base.html            ← app shell: sidebar, topbar, VAPID key injection
+        ├── overview.html        ← vault posture + Gate Approvals panel
+        ├── sessions.html, vault_api.html, vault_ssh.html
+        ├── adapters.html, policies.html, audit.html
+        ├── cloudflare.html, observability.html, settings.html, upcoming.html
+        └── README.md
 ```
 
 ## Dependency Maintenance Note
@@ -256,16 +268,16 @@ CF_ACCESS_CLIENT_ID=<from CF Access dashboard>
 CF_ACCESS_CLIENT_SECRET=<from CF Access dashboard>
 ```
 
-## UI Dashboard Features (POC)
-- List of key IDs loaded (names only, never values)
-- Last request time per key
-- Request count per key  
-- Health status of subumbra-keys container
-- Recent request log (provider, timestamp, status)
+## UI Console Features (r88+)
+- Multi-page console: Overview, Sessions, Vault (API/SSH), Adapters, Policies, Audit, Cloudflare, Observability, Settings
+- Auth: PBKDF2-SHA256 (`UI_PASSWORD_HASH` + `_hash_utils.verify_ui_password()`); fail-closed startup (`sys.exit(1)`) when neither `UI_PASSWORD_HASH` nor `CF_ACCESS_PROTECTED=true` is configured
+- Gate Approvals panel on Overview: subscription count, pending count, pending request table; degrades gracefully when Worker is unreachable
+- VAPID public key injected via `data-gate-vapid-public-key` on `<body>` for service-worker push subscription
+- `GET /sw.js` route serves service-worker asset with `Cache-Control: no-store`
+- Live data wiring: SSH keys partitioned from API keys (`data["ssh_keys"]` vs `data["keys"]`); Gate state from Worker; Cloudflare env (`CF_WORKER_URL`, `CF_WORKER_NAME`) in `data["cloudflare"]`
+- Security hardening: `Cross-Origin-Opener-Policy: same-origin`, `Permissions-Policy: clipboard-read=()`, `_require_json` guard (415) on all write routes, per-IP sliding-window rate limit on `GET /api/key-session` (10 req/60s)
 - Read-only visibility into V3 policy metadata including `policy_id`, `policy_hash`, capability class, auth scheme, and per-key allowlist relationships
-- Operator-facing labels that distinguish locked policy/binding data from metadata or state that may become editable later
-- Heartbeat-only `/api/events` plus 30-second `/api/status` polling fallback for dashboard freshness
-- Gate card for browser-push subscription state and pending approval visibility
+- Heartbeat-only `/api/events` plus 30-second `/api/status` polling fallback for console freshness
 
 ## Build Order
 1. docker-compose.yml skeleton
