@@ -597,6 +597,21 @@ This does **not** run Cloudflare bootstrap, rotate keys, or change `.env`
 `subumbra-probe` / `cloudflared` use Compose profiles — rebuild or restart those
 separately if you use them (see comments in `docker-compose.yml`).
 
+## Gate DO day-2 update
+
+If the pulled round adds or changes Gate DO behavior, do the Worker/edge update
+before recreating the app stack:
+
+```bash
+./bootstrap.sh --deploy-worker
+./bootstrap.sh --update-gate
+docker compose up -d --force-recreate
+```
+
+`--update-gate` is the bounded existing-stack path that ensures the Gate HMAC
+secret, VAPID keypair, repo-local `SUBUMBRA_GATE_VAPID_PUBLIC_KEY`, and the
+narrow Cloudflare Access bypass apps for `/gate/approve/*` and `/gate/deny/*`.
+
 ## Next
 
 - [docs/provider-templates.md](provider-templates.md)

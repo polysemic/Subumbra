@@ -3,6 +3,10 @@
 
 from __future__ import annotations
 
+import base64
+
+from cryptography.hazmat.primitives.asymmetric import ec
+
 from subumbra_core import *
 from subumbra_core import (
     _delete_file_if_present,
@@ -198,6 +202,9 @@ def _cf_create_access_policy(
     account_id: str,
     access_app_id: str,
     policy_name: str,
+    *,
+    decision: str = "non_identity",
+    include: list[dict[str, Any]] | None = None,
 ) -> str:
     parsed = _cf_api_request(
         "POST",
@@ -206,8 +213,8 @@ def _cf_create_access_policy(
         account_id=account_id,
         payload={
             "name": policy_name,
-            "decision": "non_identity",
-            "include": [{"any_valid_service_token": {}}],
+            "decision": decision,
+            "include": include if include is not None else [{"any_valid_service_token": {}}],
             "session_duration": "24h",
         },
     )
@@ -237,6 +244,82 @@ def _cf_create_service_token(
     if not service_token_id or not client_id or not client_secret:
         raise BootstrapFlowError("Cloudflare Access service token create response missing required fields")
     return service_token_id, client_id, client_secret
+
+
+def _b64url_no_pad(value: bytes) -> str:
+    return base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
+
+
+def _generate_gate_vapid_material() -> tuple[str, str]:
+    private_key = ec.generate_private_key(ec.SECP256R1())
+    numbers = private_key.private_numbers()
+    public_numbers = numbers.public_numbers
+    x = public_numbers.x.to_bytes(32, "big")
+    y = public_numbers.y.to_bytes(32, "big")
+    d = numbers.private_value.to_bytes(32, "big")
+    public_key = b"\x04" + x + y
+    jwk = {
+        "kty": "EC",
+        "crv": "P-256",
+        "x": _b64url_no_pad(x),
+        "y": _b64url_no_pad(y),
+        "d": _b64url_no_pad(d),
+    }
+    return json.dumps(jwk, separators=(",", ":")), _b64url_no_pad(public_key)
+
+
+def _ensure_gate_access_bypass(cf_creds: dict[str, str], worker_host: str) -> None:
+    manifest = _load_cf_resources()
+    manifest_changed = False
+    action_specs = [
+        ("approve", "/gate/approve/*"),
+        ("deny", "/gate/deny/*"),
+    ]
+    for action, path in action_specs:
+        app_id_key = f"gate_{action}_access_app_id"
+        policy_id_key = f"gate_{action}_access_policy_id"
+        app_name = _default_cf_gate_access_app_name(cf_creds["CF_WORKER_NAME"], action)
+        domain = f"{worker_host}{path}"
+        access_app_id = str(manifest.get(app_id_key, "")).strip()
+        if not access_app_id or not _cf_object_exists(
+            f"/access/apps/{access_app_id}",
+            cf_creds["CF_API_TOKEN"],
+            account_id=cf_creds["CF_ACCOUNT_ID"],
+        ):
+            access_app_id = _cf_create_access_app(
+                cf_creds["CF_API_TOKEN"],
+                cf_creds["CF_ACCOUNT_ID"],
+                app_name,
+                domain,
+            )
+            ok(f"Created Cloudflare Access gate app {access_app_id} for {domain}")
+            manifest[app_id_key] = access_app_id
+            manifest_changed = True
+        else:
+            info(f"Reusing tracked Cloudflare Access gate app {access_app_id} for {domain}")
+
+        access_policy_id = str(manifest.get(policy_id_key, "")).strip()
+        if not access_policy_id or not _cf_object_exists(
+            f"/access/apps/{access_app_id}/policies/{access_policy_id}",
+            cf_creds["CF_API_TOKEN"],
+            account_id=cf_creds["CF_ACCOUNT_ID"],
+        ):
+            access_policy_id = _cf_create_access_policy(
+                cf_creds["CF_API_TOKEN"],
+                cf_creds["CF_ACCOUNT_ID"],
+                access_app_id,
+                f"{app_name}-bypass",
+                decision="bypass",
+                include=[{"everyone": {}}],
+            )
+            ok(f"Created Cloudflare Access gate bypass policy {access_policy_id} for {domain}")
+            manifest[policy_id_key] = access_policy_id
+            manifest_changed = True
+        else:
+            info(f"Reusing tracked Cloudflare Access gate policy {access_policy_id} for {domain}")
+
+    if manifest_changed:
+        _write_cf_resources(manifest)
 
 
 def _cf_delete_tunnel(cf_api_token: str, account_id: str, tunnel_id: str) -> None:
@@ -351,6 +434,10 @@ def _default_cf_access_app_name(cf_worker_name: str) -> str:
 
 def _default_cf_service_token_name(cf_worker_name: str) -> str:
     return f"{_sanitize_cf_name_component(cf_worker_name)}-service-token"
+
+
+def _default_cf_gate_access_app_name(cf_worker_name: str, action: str) -> str:
+    return f"{_sanitize_cf_name_component(cf_worker_name)}-gate-{action}"
 
 
 def _load_cf_autoprovision_from_sources(
@@ -1858,3 +1945,34 @@ def run_update_access() -> None:
     info("Restart affected containers to pick up new credentials: docker compose up -d --force-recreate")
 
 
+def run_update_gate() -> None:
+    """Day-2: ensure Gate DO secrets, VAPID public key, and narrow Access bypass apps."""
+    print(BANNER, flush=True)
+    step("Ensure Gate runtime secrets and Access bypass")
+    cf_creds = _get_push_registry_cf_creds()
+    worker_url = _read_env_file_value(HOST_ENV_FILE, "CF_WORKER_URL").strip()
+    worker_host = urllib.parse.urlparse(worker_url).hostname or ""
+    if not worker_host:
+        die(
+            "Cannot configure gate runtime without CF_WORKER_URL in host .env.\n"
+            "  Set CF_WORKER_URL first, then rerun ./bootstrap.sh --update-gate."
+        )
+
+    manifest = _load_cf_resources()
+    gate_public_key = _read_env_file_value(HOST_ENV_FILE, "SUBUMBRA_GATE_VAPID_PUBLIC_KEY").strip()
+    if not manifest.get("gate_secrets_initialized") or not gate_public_key:
+        gate_hmac_key = secrets.token_urlsafe(32)
+        gate_private_jwk, gate_public_key = _generate_gate_vapid_material()
+        step("Pushing SUBUMBRA_GATE_HMAC_KEY to CF Secrets")
+        _put_worker_secret(cf_creds, "SUBUMBRA_GATE_HMAC_KEY", gate_hmac_key)
+        step("Pushing SUBUMBRA_GATE_VAPID_PRIVATE_JWK to CF Secrets")
+        _put_worker_secret(cf_creds, "SUBUMBRA_GATE_VAPID_PRIVATE_JWK", gate_private_jwk)
+        _sync_host_env_file({"SUBUMBRA_GATE_VAPID_PUBLIC_KEY": gate_public_key})
+        manifest["gate_secrets_initialized"] = True
+        _write_cf_resources(manifest)
+        ok("Gate secrets initialized and public key written to host .env")
+    else:
+        info("Gate secrets already initialized; reusing existing host .env public key")
+
+    _ensure_gate_access_bypass(cf_creds, worker_host)
+    ok("Gate Access bypass paths ensured")

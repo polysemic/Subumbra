@@ -90,6 +90,9 @@ services:
       SUBUMBRA_ACCESS_TOKEN: ${SUBUMBRA_TOKEN_UI}
       SUBUMBRA_KEYS_URL: http://subumbra-keys:9090
       CF_WORKER_URL: ${CF_WORKER_URL}
+      CF_ACCESS_CLIENT_ID: ${CF_ACCESS_CLIENT_ID:-}
+      CF_ACCESS_CLIENT_SECRET: ${CF_ACCESS_CLIENT_SECRET:-}
+      SUBUMBRA_GATE_VAPID_PUBLIC_KEY: ${SUBUMBRA_GATE_VAPID_PUBLIC_KEY:-}
       # Optional: set both for HTTP Basic Auth; leave unset for CF Access mode.
       UI_USERNAME: ${UI_USERNAME:-}
       UI_PASSWORD: ${UI_PASSWORD:-}
@@ -158,6 +161,7 @@ services:
       CF_WORKER_URL: ${CF_WORKER_URL}
       CF_ACCESS_CLIENT_ID: ${CF_ACCESS_CLIENT_ID:-}
       CF_ACCESS_CLIENT_SECRET: ${CF_ACCESS_CLIENT_SECRET:-}
+      SUBUMBRA_SIGN_TIMEOUT: ${SUBUMBRA_SIGN_TIMEOUT:-30}
     depends_on:
       subumbra-keys:
         condition: service_healthy
@@ -187,6 +191,7 @@ services:
       SUBUMBRA_AGENT_PROXY_URL: http://subumbra-proxy:8090
       SUBUMBRA_AGENT_SOCKET_PATH: /run/subumbra/ssh-agent.sock
       SUBUMBRA_AGENT_KEYS_PATH: /app/data/keys.json
+      SUBUMBRA_SIGN_TIMEOUT: ${SUBUMBRA_SIGN_TIMEOUT:-30}
     volumes:
       # Mount the whole keys_data volume read-only at /app/data. We can't use a
       # per-file `volume.subpath: keys.json` mount because day-2 commands

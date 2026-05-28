@@ -1363,6 +1363,7 @@ def run_bootstrap() -> None:
         worker_name=cf_creds["CF_WORKER_NAME"],
         setup_token=setup_token,
         cf_runtime_creds=cf_runtime_creds,
+        gate_vapid_public_key=_read_env_file_value(HOST_ENV_FILE, "SUBUMBRA_GATE_VAPID_PUBLIC_KEY").strip(),
     )
     _sync_host_env_file(host_env_updates)
 
@@ -1411,6 +1412,7 @@ def run_bootstrap() -> None:
             worker_name=cf_creds["CF_WORKER_NAME"],
             setup_token=setup_token,
             cf_runtime_creds=cf_runtime_creds,
+            gate_vapid_public_key=_read_env_file_value(HOST_ENV_FILE, "SUBUMBRA_GATE_VAPID_PUBLIC_KEY").strip(),
         )
         _sync_host_env_file(host_env_updates)
 
@@ -1624,6 +1626,7 @@ def run_bootstrap() -> None:
         management_token=management_token,
         worker_url=worker_url,
         primary_pub_key_fp=primary_pub_key_fp,
+        gate_vapid_public_key=_read_env_file_value(HOST_ENV_FILE, "SUBUMBRA_GATE_VAPID_PUBLIC_KEY").strip(),
     )
     _write_runtime_env_file(runtime_env_lines)
     _sync_host_env_file(host_env_updates)
@@ -1735,4 +1738,3 @@ def run_bootstrap() -> None:
     Policy publish: ./bootstrap.sh --publish-policy <key_id>
     Targeted repair: ./bootstrap.sh --provision <key_id>
 """))
-

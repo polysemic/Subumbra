@@ -10,12 +10,20 @@ compatibility_date = "2024-09-23"
 name       = "SUBUMBRA_VAULT"      # env.SUBUMBRA_VAULT in Worker code
 class_name = "SubumbraVault"       # exported class name in worker.js
 
+[[durable_objects.bindings]]
+name       = "SUBUMBRA_GATE"       # env.SUBUMBRA_GATE in Worker code
+class_name = "SubumbraGate"        # exported class name in worker.js
+
 [[migrations]]
 tag = "v2"
 new_sqlite_classes = ["SubumbraVault"]
 
 [[migrations]]
 tag = "v3"
+
+[[migrations]]
+tag = "v4"
+new_sqlite_classes = ["SubumbraGate"]
 
 
 # ── Observability ─────────────────────────────────────────────────────────────
@@ -28,6 +36,8 @@ head_sampling_rate = 1
 # runtime as env bindings. Listing them here for documentation only:
 #
 #   SUBUMBRA_ADAPTER_TOKENS — JSON token map, set by bootstrap
+#   SUBUMBRA_GATE_HMAC_KEY — one-time gate capability HMAC secret
+#   SUBUMBRA_GATE_VAPID_PRIVATE_JWK — browser push private key (JWK JSON)
 #   SUBUMBRA_MANAGEMENT_TOKEN — management bearer token, set by bootstrap
 #   SUBUMBRA_HMAC_KEY       — HMAC signing key, set by bootstrap
 #   SUBUMBRA_SETUP_TOKEN    — transient bootstrap-time setup token

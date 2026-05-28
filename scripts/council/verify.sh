@@ -156,6 +156,7 @@ run_round_hooks() {
             VERIFY_ARTIFACT_DIR="$artifact_dir" \
             VERIFY_PREFLIGHT_FILE="$preflight_file" \
             VERIFY_SUMMARY_FILE="$summary_file" \
+            VERIFY_RESULT_FILE="${artifact_dir}/verify-result.json" \
             bash "$hook" >"$hook_log" 2>&1; then
             round_hook_status="FAIL"
             return 1

@@ -86,6 +86,11 @@ keys:
   #   key_source: generated
   #   adapters: [sshtest]
   #   unique_vault: false
+  #   gate:
+  #     require_approval:
+  #       - when:
+  #           any_request: true
+  #         timeout_seconds: 90
   #   allow:
   #     hosts:
   #       - github.com           # resolved to the verified GitHub host-key fingerprint at bootstrap
@@ -128,6 +133,12 @@ keys:
   #       content_types: [application/json]
   #       max_body_bytes: 8388608     # 8MB — covers ~200K token context in JSON; verify at docs.anthropic.com
   #       request_headers: [content-type, accept, anthropic-version]
+  #     gate:
+  #       require_approval:
+  #         - when:
+  #             method: POST
+  #             path_prefix: /v1/messages
+  #           timeout_seconds: 60
   #     # deny:
   #     #   path_prefixes: []
   #     # intent:
