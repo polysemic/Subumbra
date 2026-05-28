@@ -13,7 +13,6 @@ Routes:
 from __future__ import annotations
 
 from collections import defaultdict, deque
-import hmac
 import logging
 import os
 import sys
@@ -23,6 +22,7 @@ from datetime import datetime, timezone
 
 import httpx
 from flask import Flask, Response, jsonify, render_template, request, stream_with_context
+from _hash_utils import verify_ui_password
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Config
@@ -36,7 +36,14 @@ CF_ACCESS_CLIENT_ID = os.environ.get("CF_ACCESS_CLIENT_ID", "")
 CF_ACCESS_CLIENT_SECRET = os.environ.get("CF_ACCESS_CLIENT_SECRET", "")
 SUBUMBRA_GATE_VAPID_PUBLIC_KEY = os.environ.get("SUBUMBRA_GATE_VAPID_PUBLIC_KEY", "")
 UI_USERNAME = os.environ.get("UI_USERNAME", "")
-UI_PASSWORD = os.environ.get("UI_PASSWORD", "")
+UI_PASSWORD_HASH = os.environ.get("UI_PASSWORD_HASH", "")
+LEGACY_UI_PASSWORD = os.environ.get("UI_PASSWORD", "")
+CF_ACCESS_PROTECTED = os.environ.get("CF_ACCESS_PROTECTED", "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 AUTH_WINDOW_SECONDS = 60
 AUTH_FAILURE_THRESHOLD = 5
 _auth_failures: defaultdict[str, deque[float]] = defaultdict(deque)
@@ -56,11 +63,23 @@ logging.basicConfig(
 
 if not SUBUMBRA_ACCESS_TOKEN:
     logging.warning("subumbra-ui: SUBUMBRA_ACCESS_TOKEN not set — dashboard will show errors")
-if UI_USERNAME and not UI_PASSWORD:
-    log.error("ui: UI_USERNAME set but UI_PASSWORD is missing")
+if LEGACY_UI_PASSWORD:
+    log.warning("ui: UI_PASSWORD is deprecated and ignored; use UI_PASSWORD_HASH via ./bootstrap.sh --update-ui-auth")
+if UI_PASSWORD_HASH and not UI_USERNAME:
+    log.error("ui: UI_PASSWORD_HASH set but UI_USERNAME is missing")
     sys.exit(1)
-elif not UI_USERNAME:
-    log.info("ui: no Basic Auth configured — expecting CF Access or localhost-only deployment")
+if UI_USERNAME and not UI_PASSWORD_HASH:
+    log.error("ui: UI_USERNAME set but UI_PASSWORD_HASH is missing")
+    sys.exit(1)
+if not UI_PASSWORD_HASH and not CF_ACCESS_PROTECTED:
+    log.error("ui: missing auth configuration; set UI_PASSWORD_HASH or CF_ACCESS_PROTECTED=true")
+    sys.exit(1)
+if UI_PASSWORD_HASH and CF_ACCESS_PROTECTED:
+    log.info("ui: CF Access outer gate enabled with in-process Basic Auth")
+elif UI_PASSWORD_HASH:
+    log.info("ui: in-process Basic Auth enabled")
+else:
+    log.info("ui: CF Access protected mode enabled without in-process Basic Auth")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # HTTP client (shared, connection-pooled)
@@ -98,7 +117,7 @@ def _subumbra_get(path: str) -> tuple[dict | list | None, str | None]:
 def _require_auth(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
-        if not UI_USERNAME:
+        if not UI_PASSWORD_HASH:
             return view(*args, **kwargs)
         remote = request.remote_addr or "unknown"
         attempts = _auth_failures[remote]
@@ -106,20 +125,20 @@ def _require_auth(view):
         while attempts and now - attempts[0] > AUTH_WINDOW_SECONDS:
             attempts.popleft()
         if len(attempts) >= AUTH_FAILURE_THRESHOLD:
-            log.warning("ui: rate limit reached remote=%s", remote)
+            log.warning("ui: auth_lockout ip=%s", remote)
             return Response("Too Many Requests", 429)
 
         auth = request.authorization
         if not auth:
             attempts.append(now)
-            log.warning("ui: auth failed remote=%s", remote)
+            log.warning("ui: auth_failure ip=%s", remote)
             return Response("Unauthorized", 401, {"WWW-Authenticate": 'Basic realm="Subumbra"'})
 
-        user_ok = hmac.compare_digest(auth.username or "", UI_USERNAME)
-        pass_ok = hmac.compare_digest(auth.password or "", UI_PASSWORD)
+        user_ok = (auth.username or "") == UI_USERNAME
+        pass_ok = verify_ui_password(auth.password or "", UI_PASSWORD_HASH)
         if not (user_ok and pass_ok):
             attempts.append(now)
-            log.warning("ui: auth failed remote=%s", remote)
+            log.warning("ui: auth_failure ip=%s", remote)
             return Response("Unauthorized", 401, {"WWW-Authenticate": 'Basic realm="Subumbra"'})
 
         attempts.clear()

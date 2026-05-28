@@ -21,6 +21,7 @@ from subumbra_cf import (
     run_update_access,
     run_update_gate,
     run_update_tunnel,
+    run_update_ui_auth,
 )
 from subumbra_core import die
 from subumbra_keys import (
@@ -80,6 +81,7 @@ if __name__ == "__main__":
         "--publish-policy",
         "--update-tunnel",
         "--update-access",
+        "--update-ui-auth",
         "--update-gate",
         "--nuke-cloudflare",
         "--status",
@@ -185,6 +187,8 @@ if __name__ == "__main__":
         run_update_tunnel()
     elif "--update-access" in sys.argv:
         run_update_access()
+    elif "--update-ui-auth" in sys.argv:
+        run_update_ui_auth()
     elif "--update-gate" in sys.argv:
         run_update_gate()
     elif "--nuke-cloudflare" in sys.argv:

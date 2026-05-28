@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import base64
+from _hash_utils import hash_ui_password
 
 from cryptography.hazmat.primitives.asymmetric import ec
 
@@ -1943,6 +1944,49 @@ def run_update_access() -> None:
     _sync_host_env_file({"CF_ACCESS_CLIENT_ID": client_id, "CF_ACCESS_CLIENT_SECRET": client_secret})
     ok("CF Access credentials updated in host .env (secret value not printed)")
     info("Restart affected containers to pick up new credentials: docker compose up -d --force-recreate")
+
+
+def run_update_ui_auth() -> None:
+    """Day-2: update UI auth state in the host .env without re-running bootstrap."""
+    print(BANNER, flush=True)
+    step("Update UI authentication")
+    env_mode = os.environ.get("UI_AUTH_MODE", "").strip().lower()
+    env_username = os.environ.get("UI_USERNAME", "").strip()
+    env_password = os.environ.get("UI_PASSWORD", "").strip()
+
+    if env_mode:
+        if env_mode not in UI_AUTH_MODES:
+            die("UI_AUTH_MODE must be one of: basic, cf_access, both")
+        mode = env_mode
+    else:
+        print("  Auth mode:")
+        print("    (1) Username / password")
+        print("    (2) Cloudflare Access")
+        print("    (3) Both")
+        choice = input("  Choice [1]: ").strip() or "1"
+        mode_map = {"1": "basic", "2": "cf_access", "3": "both"}
+        if choice not in mode_map:
+            die("Invalid UI auth choice. Expected 1, 2, or 3.")
+        mode = mode_map[choice]
+
+    updates = {
+        "UI_USERNAME": "",
+        "UI_PASSWORD_HASH": "",
+        "CF_ACCESS_PROTECTED": "true" if mode in {"cf_access", "both"} else "false",
+    }
+    if mode in {"basic", "both"}:
+        username = env_username or input("  UI username: ").strip()
+        if not username:
+            die("UI username cannot be blank when auth mode is basic or both")
+        password = env_password or _prompt_hidden_line("UI password")
+        if not password:
+            die("UI password cannot be blank when auth mode is basic or both")
+        updates["UI_USERNAME"] = username
+        updates["UI_PASSWORD_HASH"] = hash_ui_password(password)
+
+    _sync_host_env_file(updates)
+    ok("UI auth settings updated in host .env (secret value not printed)")
+    info("Restart affected containers to pick up the new UI auth settings: docker compose up -d --force-recreate")
 
 
 def run_update_gate() -> None:

@@ -1,5 +1,5 @@
 # PROJECT_STATUS
-*Current state — updated 2026-05-27 (r87-gate-do verified and fully closed)*
+*Current state — updated 2026-05-28 (r88-bootstrap-services implementation on branch; r87-gate-do verified and fully closed)*
 
 
 
@@ -22,6 +22,7 @@ V3 Asymmetric Envelope Encryption (deployed, all three council verifiers PASS).
 - **SSH destination binding hardening (r85-2, verified):** the local agent now parses native OpenSSH `session-bind@openssh.com` frames, restricted SSH keys may declare `allow.hosts`, bootstrap resolves those host labels into stored SSH host-key fingerprints, and the SSH sign path now fail-closes with `host_required` / `host_not_allowed` when a restricted key lacks verified destination context or is used against the wrong host.
 - **SSH sign quota and audit (r85-3, verified):** `max_sign_ops` SSH-session quota is now enforced at the Worker/VaultDO signing boundary — signatures issued by Subumbra count against the quota, not downstream acceptance. The DO `ssh_session_quota` table is the sole counter authority; `session_sign_limit_reached` (403) enforces exhaustion; `session_quota_unavailable` (503) fails closed on state errors. Bootstrap writes `ssh_session_scope:{adapter_id}:{key_id}` KV entries on session start and cleans them on session end. SSH audit events now include `target_host` (verified host fingerprint when present); `subumbra-keys` supports server-side `endpoint=ssh_sign` and `target_host=SHA256:...` filters. The dashboard renders SSH quota labels and `target_host` in the SSH audit drill-down.
 - **Gate approval flow (r87, verified and closed):** selected HTTP and SSH requests route through a dedicated `SubumbraGate` Durable Object that stores pending approval state, browser-push subscriptions, and expiry alarms; `subumbra-proxy` polls Worker gate status and re-submits only approved requests; the dashboard exposes push subscription and pending gate visibility. The entire flow has been verified under a 16-thread high-concurrency stress test with zero failures.
+- **Bootstrap services and UI auth (r88, implementation branch):** bootstrap now resolves top-level manifest `services.ui.deploy`, `services.ui.auth.mode`, and `services.ssh_agent.deploy`; runtime `.env` now persists `DEPLOY_UI`, `DEPLOY_SSH`, `UI_USERNAME`, `UI_PASSWORD_HASH`, and `CF_ACCESS_PROTECTED`; `bootstrap.sh --upgrade` re-applies the corresponding Compose profiles; `./bootstrap.sh --update-ui-auth` rotates UI auth without a full re-bootstrap; and `ui/app.py` now fails closed unless either hashed Basic Auth or `CF_ACCESS_PROTECTED=true` is configured.
 
 
 

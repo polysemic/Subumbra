@@ -20,6 +20,17 @@
 #    on the next bootstrap run. Use unique_vault: true for keys that require full isolation.
 #
 # ─────────────────────────────────────────────────────────────────────────────
+# Optional service bootstrap examples
+# ─────────────────────────────────────────────────────────────────────────────
+# services:
+#   ui:
+#     deploy: true
+#     auth:
+#       mode: basic        # basic | cf_access | both
+#   ssh_agent:
+#     deploy: true
+#
+# ─────────────────────────────────────────────────────────────────────────────
 # Inline policy field guide
 # ─────────────────────────────────────────────────────────────────────────────
 #   policy:                    (required if template is omitted)
