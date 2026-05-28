@@ -76,6 +76,8 @@ services:
       dockerfile: Dockerfile
     container_name: subumbra-ui
     restart: unless-stopped
+    profiles:
+      - ui
     networks:
       - internal # reaches subumbra-keys via Docker DNS
       - external # required for host port mapping (internal: true blocks it)
@@ -93,9 +95,11 @@ services:
       CF_ACCESS_CLIENT_ID: ${CF_ACCESS_CLIENT_ID:-}
       CF_ACCESS_CLIENT_SECRET: ${CF_ACCESS_CLIENT_SECRET:-}
       SUBUMBRA_GATE_VAPID_PUBLIC_KEY: ${SUBUMBRA_GATE_VAPID_PUBLIC_KEY:-}
-      # Optional: set both for HTTP Basic Auth; leave unset for CF Access mode.
+      # Optional: set UI_PASSWORD_HASH for in-process Basic Auth and
+      # CF_ACCESS_PROTECTED=true when Cloudflare Access is the outer auth gate.
       UI_USERNAME: ${UI_USERNAME:-}
-      UI_PASSWORD: ${UI_PASSWORD:-}
+      UI_PASSWORD_HASH: ${UI_PASSWORD_HASH:-}
+      CF_ACCESS_PROTECTED: ${CF_ACCESS_PROTECTED:-false}
     depends_on:
       subumbra-keys:
         condition: service_healthy
@@ -183,6 +187,8 @@ services:
         max-size: "50m"
         max-file: "3"
     restart: unless-stopped
+    profiles:
+      - ssh
     networks:
       - internal
     environment:

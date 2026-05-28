@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from _hash_utils import hash_ui_password
 from subumbra_core import *
 from subumbra_cf import *
 from subumbra_core import (
@@ -22,6 +23,7 @@ from subumbra_core import (
     _load_manifest_key_ids_only,
     _load_manifest_records,
     _load_manifest_repair_authority,
+    _load_manifest_service_config,
     _load_policy_index,
     _load_public_key_from_pem,
     _load_unique_key_flags,
@@ -64,6 +66,42 @@ from subumbra_cf import (
     _worker_control_headers,
 )
 
+def _resolve_ui_auth_state(
+    ui_auth_mode: str,
+    ui_username: str,
+    ui_password: str,
+) -> tuple[str, str, bool]:
+    cf_access_protected = ui_auth_mode in {"cf_access", "both"}
+    if ui_auth_mode in {"basic", "both"}:
+        if not ui_username:
+            die("UI_USERNAME is required when services.ui.auth.mode is basic or both")
+        if not ui_password:
+            die("UI_PASSWORD is required when services.ui.auth.mode is basic or both")
+        return ui_username, hash_ui_password(ui_password), cf_access_protected
+    return "", "", cf_access_protected
+
+
+def _load_ui_auth_from_env(service_config: dict[str, Any]) -> tuple[str, str, bool]:
+    if not service_config["deploy_ui"]:
+        return "", "", False
+    manifest_mode = str(service_config["ui_auth_mode"]).strip().lower()
+    env_mode = os.environ.get("UI_AUTH_MODE", "").strip().lower()
+    if env_mode and env_mode not in UI_AUTH_MODES:
+        die("UI_AUTH_MODE must be one of: basic, cf_access, both")
+    if env_mode and manifest_mode and env_mode != manifest_mode:
+        die(
+            "UI_AUTH_MODE does not match services.ui.auth.mode in the manifest.\n"
+            f"  manifest: {manifest_mode}\n"
+            f"  env: {env_mode}"
+        )
+    effective_mode = manifest_mode or env_mode
+    if effective_mode not in UI_AUTH_MODES:
+        die("services.ui.auth.mode is required when services.ui.deploy is true")
+    ui_username = os.environ.get("UI_USERNAME", "").strip()
+    ui_password = os.environ.get("UI_PASSWORD", "").strip()
+    return _resolve_ui_auth_state(effective_mode, ui_username, ui_password)
+
+
 def _load_manifest_bootstrap() -> tuple[
     dict[str, tuple[str, str, str, str, str]],
     dict[str, str],
@@ -75,8 +113,13 @@ def _load_manifest_bootstrap() -> tuple[
     dict[str, bool],
     dict[str, dict[str, Any]],
     list[dict[str, Any]],
+    dict[str, Any],
+    str,
+    str,
+    bool,
 ]:
     records = _load_manifest_records()
+    service_config = _load_manifest_service_config()
 
     cf_creds: dict[str, str] = {}
     missing_cf: list[str] = []
@@ -100,6 +143,7 @@ def _load_manifest_bootstrap() -> tuple[
         runtime_creds=cf_runtime_creds,
         cf_worker_name=cf_creds["CF_WORKER_NAME"],
     )
+    ui_username, ui_password_hash, cf_access_protected = _load_ui_auth_from_env(service_config)
 
     declared_adapter_ids: list[str] = []
     seen_declared: set[str] = set()
@@ -154,6 +198,10 @@ def _load_manifest_bootstrap() -> tuple[
         unique_key_flags,
         policy_by_key_id,
         ssh_records,
+        service_config,
+        ui_username,
+        ui_password_hash,
+        cf_access_protected,
     )
 
 
@@ -199,6 +247,10 @@ def run_interactive_wizard(
     dict[str, bool],
     dict[str, dict[str, Any]],
     list[dict[str, Any]],
+    dict[str, Any],
+    str,
+    str,
+    bool,
     list[str],
 ]:
     """
@@ -335,7 +387,75 @@ def run_interactive_wizard(
 
     step("Loading manifest records")
     records = _load_manifest_records()
+    service_config = _load_manifest_service_config()
     ok(f"Found {len(records)} manifest key record(s)")
+
+    deploy_ui = bool(service_config["deploy_ui"])
+    deploy_ssh = bool(service_config["deploy_ssh"])
+    ui_auth_mode = str(service_config["ui_auth_mode"]).strip().lower()
+
+    step("Optional service deployment")
+    if not service_config["ui_declared"]:
+        deploy_ui = input("  Deploy UI dashboard? [y/N]: ").strip().lower() in ("y", "yes")
+    else:
+        info(f"Manifest services.ui.deploy → {'true' if deploy_ui else 'false'}")
+    if not service_config["ssh_declared"]:
+        deploy_ssh = input(
+            "  Deploy SSH agent (required for SSH key signing via Subumbra)? [y/N]: "
+        ).strip().lower() in ("y", "yes")
+    else:
+        info(f"Manifest services.ssh_agent.deploy → {'true' if deploy_ssh else 'false'}")
+
+    ui_username = ""
+    ui_password_hash = ""
+    cf_access_protected = False
+    if deploy_ui:
+        access_creds_present = bool(
+            cf_runtime_creds.get("CF_ACCESS_CLIENT_ID")
+            and cf_runtime_creds.get("CF_ACCESS_CLIENT_SECRET")
+        )
+        if not ui_auth_mode:
+            step("UI authentication")
+            if access_creds_present:
+                print("  UI auth method:")
+                print("    (1) Username / password")
+                print("    (2) Cloudflare Access")
+                print("    (3) Both (CF Access outer gate + username/password inner gate)")
+                choice = input("  Choice [1]: ").strip() or "1"
+                mode_map = {"1": "basic", "2": "cf_access", "3": "both"}
+                if choice not in mode_map:
+                    die("Invalid UI auth choice. Expected 1, 2, or 3.")
+                ui_auth_mode = mode_map[choice]
+            else:
+                info("CF Access credentials are not configured in this session; using username/password mode.")
+                ui_auth_mode = "basic"
+        if ui_auth_mode not in UI_AUTH_MODES:
+            die("services.ui.auth.mode must be one of: basic, cf_access, both")
+        if ui_auth_mode in {"basic", "both"}:
+            while True:
+                ui_username = input("  UI username: ").strip()
+                if ui_username:
+                    break
+                print("  ✗  UI username cannot be empty.\n")
+            while True:
+                ui_password_a = _prompt_hidden_line("UI password")
+                if not ui_password_a:
+                    print("  ✗  UI password cannot be empty.\n")
+                    continue
+                ui_password_b = _prompt_hidden_line("Confirm UI password")
+                if ui_password_a != ui_password_b:
+                    print("  ✗  Passwords do not match. Try again.\n")
+                    continue
+                ui_password_hash = hash_ui_password(ui_password_a)
+                break
+        cf_access_protected = ui_auth_mode in {"cf_access", "both"}
+    service_config = {
+        "deploy_ui": deploy_ui,
+        "ui_auth_mode": ui_auth_mode,
+        "deploy_ssh": deploy_ssh,
+        "ui_declared": bool(service_config["ui_declared"]),
+        "ssh_declared": bool(service_config["ssh_declared"]),
+    }
 
     step("Per-key provider secrets (RAM only; not echoed)")
     accepted: list[dict[str, Any]] = []
@@ -431,6 +551,10 @@ def run_interactive_wizard(
         unique_key_flags,
         policy_by_key_id,
         ssh_records,
+        service_config,
+        ui_username,
+        ui_password_hash,
+        cf_access_protected,
         shred_paths,
     )
 
@@ -1141,6 +1265,10 @@ def run_bootstrap() -> None:
                 unique_key_flags,
                 policy_by_key_id,
                 ssh_records,
+                service_config,
+                ui_username,
+                ui_password_hash,
+                cf_access_protected,
             ) = _load_manifest_bootstrap()
             ok(
                 f"Loaded {len(key_adapters_by_key_id)} manifest key(s): "
@@ -1175,6 +1303,10 @@ def run_bootstrap() -> None:
                 unique_key_flags,
                 policy_by_key_id,
                 ssh_records,
+                service_config,
+                ui_username,
+                ui_password_hash,
+                cf_access_protected,
                 shred_paths,
             ) = run_interactive_wizard(existing_keys)
         except KeyboardInterrupt:
@@ -1188,6 +1320,16 @@ def run_bootstrap() -> None:
             policy_index = _load_policy_index()
             policy_by_key_id = {}
             ssh_records = []
+            service_config = {
+                "deploy_ui": False,
+                "ui_auth_mode": "",
+                "deploy_ssh": False,
+                "ui_declared": False,
+                "ssh_declared": False,
+            }
+            ui_username = ""
+            ui_password_hash = ""
+            cf_access_protected = False
             for key_id, (provider, target_host, _auth_header, _auth_prefix, _secret_ref) in api_keys.items():
                 policy_by_key_id[key_id] = _resolve_policy_for_key(
                     key_id,
@@ -1364,6 +1506,11 @@ def run_bootstrap() -> None:
         setup_token=setup_token,
         cf_runtime_creds=cf_runtime_creds,
         gate_vapid_public_key=_read_env_file_value(HOST_ENV_FILE, "SUBUMBRA_GATE_VAPID_PUBLIC_KEY").strip(),
+        ui_username=ui_username,
+        ui_password_hash=ui_password_hash,
+        cf_access_protected=cf_access_protected,
+        deploy_ui=bool(service_config["deploy_ui"]),
+        deploy_ssh=bool(service_config["deploy_ssh"]),
     )
     _sync_host_env_file(host_env_updates)
 
@@ -1413,6 +1560,11 @@ def run_bootstrap() -> None:
             setup_token=setup_token,
             cf_runtime_creds=cf_runtime_creds,
             gate_vapid_public_key=_read_env_file_value(HOST_ENV_FILE, "SUBUMBRA_GATE_VAPID_PUBLIC_KEY").strip(),
+            ui_username=ui_username,
+            ui_password_hash=ui_password_hash,
+            cf_access_protected=cf_access_protected,
+            deploy_ui=bool(service_config["deploy_ui"]),
+            deploy_ssh=bool(service_config["deploy_ssh"]),
         )
         _sync_host_env_file(host_env_updates)
 
@@ -1627,6 +1779,11 @@ def run_bootstrap() -> None:
         worker_url=worker_url,
         primary_pub_key_fp=primary_pub_key_fp,
         gate_vapid_public_key=_read_env_file_value(HOST_ENV_FILE, "SUBUMBRA_GATE_VAPID_PUBLIC_KEY").strip(),
+        ui_username=ui_username,
+        ui_password_hash=ui_password_hash,
+        cf_access_protected=cf_access_protected,
+        deploy_ui=bool(service_config["deploy_ui"]),
+        deploy_ssh=bool(service_config["deploy_ssh"]),
     )
     _write_runtime_env_file(runtime_env_lines)
     _sync_host_env_file(host_env_updates)
