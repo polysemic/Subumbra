@@ -77,8 +77,8 @@ poll_ui() {
     body="$(mktemp)"
     trap 'rm -f "$headers" "$body"' RETURN
 
-    ui_user="$(grep '^UI_USERNAME=' .env 2>/dev/null | cut -d= -f2- || true)"
-    ui_pass="$(grep '^UI_PASSWORD=' .env 2>/dev/null | cut -d= -f2- || true)"
+    ui_user="${UI_USERNAME:-$(grep '^UI_USERNAME=' .env 2>/dev/null | cut -d= -f2- || true)}"
+    ui_pass="${VERIFY_UI_PASSWORD:-${UI_PASSWORD:-$(grep '^UI_PASSWORD=' .env 2>/dev/null | cut -d= -f2- || true)}}"
     if [[ -n "$ui_user" && -n "$ui_pass" ]]; then
         ui_auth_args=(-u "${ui_user}:${ui_pass}")
     fi
