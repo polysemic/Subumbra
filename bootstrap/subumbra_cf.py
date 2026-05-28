@@ -1986,7 +1986,7 @@ def run_update_ui_auth() -> None:
 
     _sync_host_env_file(updates)
     ok("UI auth settings updated in host .env (secret value not printed)")
-    info("Restart affected containers to pick up the new UI auth settings: docker compose up -d --force-recreate")
+    info("Restart the UI container to pick up the new credentials: docker compose --profile ui up -d subumbra-ui")
 
 
 def run_update_gate() -> None:
