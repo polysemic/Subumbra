@@ -80,6 +80,9 @@ LEGACY_UI_PASSWORD    = os.environ.get("UI_PASSWORD", "")
 CF_ACCESS_PROTECTED   = os.environ.get("CF_ACCESS_PROTECTED", "").strip().lower() in {
     "1", "true", "yes", "on",
 }
+TUNNEL_TOKEN          = os.environ.get("TUNNEL_TOKEN", "")
+CF_TUNNEL_HOSTNAME    = os.environ.get("CF_TUNNEL_HOSTNAME", "")
+
 # When SUBUMBRA_UI_DEMO=1, render the mock dataset so the console is usable
 # standalone (during install, dev, demos).
 DEMO_MODE             = os.environ.get("SUBUMBRA_UI_DEMO", "").lower() in {"1", "true", "yes"}
@@ -853,12 +856,30 @@ def add_security_headers(response):
 
 @app.context_processor
 def inject_globals():
+    try:
+        host_url = request.host_url.rstrip('/')
+        host_name = request.host
+    except Exception:
+        host_url = ""
+        host_name = ""
+
+    tunnel_configured = bool(TUNNEL_TOKEN or CF_TUNNEL_HOSTNAME)
+    access_configured = bool(CF_ACCESS_PROTECTED)
+    auth_configured = bool(UI_USERNAME and UI_PASSWORD_HASH)
+
     return {
         "NAV":                   NAV,
         "ORG":                   ORG,
         "VERSION":               os.environ.get("SUBUMBRA_VERSION", "1.1.1-alpha"),
         "now":                   datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "gate_vapid_public_key": SUBUMBRA_GATE_VAPID_PUBLIC_KEY,
+        "console_url":           host_url,
+        "console_host":          host_name,
+        "tunnel_configured":     tunnel_configured,
+        "tunnel_hostname":       CF_TUNNEL_HOSTNAME,
+        "access_configured":     access_configured,
+        "auth_configured":       auth_configured,
+        "ui_username":           UI_username if 'UI_username' in globals() else (UI_USERNAME if 'UI_USERNAME' in globals() else ""),
     }
 
 

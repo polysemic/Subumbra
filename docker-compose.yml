@@ -101,6 +101,8 @@ services:
       UI_USERNAME: ${UI_USERNAME:-}
       UI_PASSWORD_HASH: ${UI_PASSWORD_HASH:-}
       CF_ACCESS_PROTECTED: ${CF_ACCESS_PROTECTED:-false}
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
+      CF_TUNNEL_HOSTNAME: ${CF_TUNNEL_HOSTNAME:-}
     depends_on:
       subumbra-keys:
         condition: service_healthy
