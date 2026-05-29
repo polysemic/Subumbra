@@ -36,14 +36,7 @@
       <button class="side__collapse-btn" id="sideCollapseBtn" title="Collapse sidebar" aria-label="Toggle sidebar">‹</button>
     </div>
 
-    <div class="side__org" role="button" tabindex="0">
-      <div class="side__org-dot"></div>
-      <div>
-        <div class="side__org-name">{{ ORG.name }}</div>
-        <div class="side__org-instance">{{ ORG.instance }}</div>
-      </div>
-      <div class="side__org-caret">▾</div>
-    </div>
+    {# org switcher — deferred until multi-instance support is built #}
 
     <nav class="side__nav">
       <div class="side__section">Operate</div>
@@ -120,8 +113,8 @@
           </a>
         {% endif %}
         <button class="top__icon" title="Command palette (⌘K)">⌘K</button>
-        <button class="top__icon" title="Notifications">◔</button>
-        <div class="top__user" title="{{ ORG.user }}">{{ ORG.user[0]|upper }}</div>
+        {# notifications — deferred until push/alert model is defined #}
+        {# user avatar — deferred until account management / multi-tenancy #}
       </div>
     </header>
 

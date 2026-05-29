@@ -140,8 +140,6 @@ if DEMO_MODE:
 
 try:
     from cryptography.hazmat.primitives.asymmetric import rsa
-    from cryptography.hazmat.primitives import serialization, hashes
-    from cryptography.hazmat.primitives.asymmetric.padding import OAEP, MGF1
     _HAS_CRYPTO = True
 except Exception:
     _HAS_CRYPTO = False
@@ -887,7 +885,7 @@ def inject_globals():
     return {
         "NAV":                   NAV,
         "ORG":                   ORG,
-        "VERSION":               os.environ.get("SUBUMBRA_VERSION", "1.1.1-alpha"),
+        "VERSION":               os.environ.get("SUBUMBRA_VERSION", "1.3.0-alpha"),
         "now":                   datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "gate_vapid_public_key": SUBUMBRA_GATE_VAPID_PUBLIC_KEY,
         "console_url":           host_url,

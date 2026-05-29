@@ -49,6 +49,58 @@
   </div>
 </div>
 
+{# ── Janus Approvals ───────────────────────────────────────────── #}
+{% if data.gate is not none %}
+<div class="card" style="margin-bottom:18px">
+  <div class="card__head">
+    <div class="card__title">Janus Approvals</div>
+    <div class="card__meta">
+      {{ data.gate.subscription_count|default(0) }} subscriber{{ 's' if (data.gate.subscription_count|default(0)) != 1 else '' }}
+      · {{ data.gate.pending_count|default(0) }} pending
+    </div>
+  </div>
+  <div class="card__body" style="padding:12px">
+    {% set pending = data.gate.pending|default([]) %}
+    {% if pending %}
+      <table style="width:100%;font-size:12px;border-collapse:collapse">
+        <thead>
+          <tr style="color:var(--text-dim);text-align:left">
+            <th style="padding:4px 8px">Created</th>
+            <th style="padding:4px 8px">Flow</th>
+            <th style="padding:4px 8px">Adapter</th>
+            <th style="padding:4px 8px">Key ID</th>
+            <th style="padding:4px 8px">Expires</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for req in pending %}
+          <tr style="border-top:1px solid var(--border)">
+            <td style="padding:4px 8px;color:var(--text-muted)" class="mono">{{ req.created_at|default('—') }}</td>
+            <td style="padding:4px 8px">{{ req.flow|default('—') }}</td>
+            <td style="padding:4px 8px">{{ req.adapter_id|default('—') }}</td>
+            <td style="padding:4px 8px" class="mono">{{ req.key_id|default('—') }}</td>
+            <td style="padding:4px 8px;color:var(--text-muted)" class="mono">{{ req.expires_at|default('—') }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div style="color:var(--text-dim);font-size:13px">No pending approvals.</div>
+    {% endif %}
+  </div>
+</div>
+{% else %}
+<div class="card" style="margin-bottom:18px">
+  <div class="card__head">
+    <div class="card__title">Janus Approvals</div>
+    <div class="card__meta" style="color:var(--text-dim)">worker unreachable</div>
+  </div>
+  <div class="card__body" style="padding:12px">
+    <div style="color:var(--text-dim);font-size:13px">Janus data unavailable — CF Worker is not reachable.</div>
+  </div>
+</div>
+{% endif %}
+
 {# ── Stat tiles ───────────────────────────────────────────────── #}
 <div class="grid-4" style="margin-bottom:18px">
   <sub-stat-card label="Vault inventory"  value="{{ data['keys']|length }}"
@@ -117,55 +169,4 @@
 
 </div>
 
-{# ── Janus Approvals ───────────────────────────────────────────── #}
-{% if data.gate is not none %}
-<div class="card" style="margin-top:18px">
-  <div class="card__head">
-    <div class="card__title">Janus Approvals</div>
-    <div class="card__meta">
-      {{ data.gate.subscription_count|default(0) }} subscriber{{ 's' if (data.gate.subscription_count|default(0)) != 1 else '' }}
-      · {{ data.gate.pending_count|default(0) }} pending
-    </div>
-  </div>
-  <div class="card__body" style="padding:12px">
-    {% set pending = data.gate.pending|default([]) %}
-    {% if pending %}
-      <table style="width:100%;font-size:12px;border-collapse:collapse">
-        <thead>
-          <tr style="color:var(--text-dim);text-align:left">
-            <th style="padding:4px 8px">Created</th>
-            <th style="padding:4px 8px">Flow</th>
-            <th style="padding:4px 8px">Adapter</th>
-            <th style="padding:4px 8px">Key ID</th>
-            <th style="padding:4px 8px">Expires</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for req in pending %}
-          <tr style="border-top:1px solid var(--border)">
-            <td style="padding:4px 8px;color:var(--text-muted)" class="mono">{{ req.created_at|default('—') }}</td>
-            <td style="padding:4px 8px">{{ req.flow|default('—') }}</td>
-            <td style="padding:4px 8px">{{ req.adapter_id|default('—') }}</td>
-            <td style="padding:4px 8px" class="mono">{{ req.key_id|default('—') }}</td>
-            <td style="padding:4px 8px;color:var(--text-muted)" class="mono">{{ req.expires_at|default('—') }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    {% else %}
-      <div style="color:var(--text-dim);font-size:13px">No pending approvals.</div>
-    {% endif %}
-  </div>
-</div>
-{% else %}
-<div class="card" style="margin-top:18px">
-  <div class="card__head">
-    <div class="card__title">Janus Approvals</div>
-    <div class="card__meta" style="color:var(--text-dim)">worker unreachable</div>
-  </div>
-  <div class="card__body" style="padding:12px">
-    <div style="color:var(--text-dim);font-size:13px">Janus data unavailable — CF Worker is not reachable.</div>
-  </div>
-</div>
-{% endif %}
 {% endblock %}
