@@ -719,7 +719,13 @@ def build_console_data() -> dict:
         data["keys"] = [k for k in merged_keys if k.get("type") != "ssh"]
         data["ssh_keys"] = [k for k in merged_keys if k.get("type") == "ssh"]
     if audit_data:
-        data["audit"] = _map_audit_events(audit_data.get("events", [])[:50], raw_keys)
+        all_events = audit_data.get("events", [])
+        data["audit"] = _map_audit_events(all_events[:50], raw_keys)
+        data["audit_stats"] = {
+            "total":  len(all_events),
+            "denies": sum(1 for e in all_events if e.get("verdict") == "deny"),
+            "allows": sum(1 for e in all_events if e.get("verdict") == "allow"),
+        }
     if sess_data:
         data["sessions"] = {
             "lockdown_enabled": sess_data.get("lockdown_enabled", True),

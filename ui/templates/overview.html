@@ -54,14 +54,19 @@
   <sub-stat-card label="Vault inventory"  value="{{ data['keys']|length }}"
                  sub="{{ data['keys']|selectattr('type','equalto','api')|list|length }} api · {{ data.ssh_keys|length }} ssh · {{ data['keys']|rejectattr('status','equalto','active')|list|length }} paused"></sub-stat-card>
 
-  <sub-stat-card label="Requests · 24h" value="{{ '{:,}'.format(total_req) }}"
-                 spark="20,35,28,42,55,48,62,70,85,72,90,68"></sub-stat-card>
+  <sub-stat-card label="Requests · all time" value="{{ '{:,}'.format(total_req) }}"
+                 sub="lifetime total across all keys"></sub-stat-card>
 
-  <sub-stat-card label="SSH signs · 24h" value="{{ data.ssh_keys|sum(attribute='signs') }}"
+  <sub-stat-card label="SSH signs · all time" value="{{ data.ssh_keys|sum(attribute='signs') }}"
                  sub="{{ data.ssh_keys|length }} keys · multi-host"></sub-stat-card>
 
-  <sub-stat-card label="Deny rate · 24h" value="0.42" unit="%"
-                 sub="{{ data.audit|selectattr('verdict','equalto','deny')|list|length }} denies · all policy-bound"></sub-stat-card>
+  {% if data.audit_stats is defined %}
+  <sub-stat-card label="Denies" value="{{ data.audit_stats.denies }}"
+                 sub="of {{ data.audit_stats.total }} logged events"></sub-stat-card>
+  {% else %}
+  <sub-stat-card label="Denies" value="—"
+                 sub="audit log unavailable"></sub-stat-card>
+  {% endif %}
 </div>
 
 {# ── Attention + recent activity ──────────────────────────────── #}
