@@ -41,10 +41,10 @@
       {% for e in log %}
         <tr>
           <td class="ts">{{ e.date }} · {{ e.ts }}</td>
-          <td class="mono">{{ e.adapter }}</td>
+          <td class="mono"><a href="/adapters?select={{ e.adapter }}">{{ e.adapter }}</a></td>
           <td><span class="tag" style="font-size:10px">{{ e.method }}</span></td>
           <td class="mono" style="color:var(--text-muted);font-size:11px">{{ e.endpoint }}</td>
-          <td class="mono">{{ e.keyId }}</td>
+          <td class="mono"><a href="/vault?select={{ e.keyId }}">{{ e.keyId }}</a></td>
           <td><span class="badge badge--{{ e.provider }}">{{ e.provider }}</span></td>
           <td class="mono" style="color:var(--text-dim);font-size:11px">{{ e.remote }}</td>
           <td class="{{ 'verdict-allow' if e.verdict == 'allow' else 'verdict-deny' }}">{{ e.verdict }}</td>

@@ -426,8 +426,6 @@ def _render_template_value(raw_value: str, adapter_token: str, key_id: str | Non
     rendered = rendered.replace("{adapter_token}", adapter_token)
     if key_id is not None:
         rendered = rendered.replace("{key_id}", key_id)
-    if CF_WORKER_URL:
-        rendered = rendered.replace("http://subumbra-proxy:8090", CF_WORKER_URL.rstrip("/"))
     return rendered
 
 
@@ -458,22 +456,21 @@ def _build_adapter_caps(adapter: dict, raw_keys: list[dict]) -> list[str]:
     return sorted(set(caps))
 
 
-def _build_proxy_urls(template: dict | None, allowed_keys: list[str]) -> list[dict]:
-    if not CF_WORKER_URL:
-        return []
-
-    template_values: list[str] = []
-    if template:
-        template_values = [str(field.get("value", "")) for field in template.get("fields", [])]
-
+def _build_proxy_urls(allowed_keys: list[str]) -> list[dict]:
     proxy_urls: list[dict] = []
     for key_id in allowed_keys:
-        url = f"{CF_WORKER_URL.rstrip('/')}/t/{key_id}"
-        for raw_value in template_values:
-            if "/t/{key_id}" in raw_value:
-                url = _render_template_value(raw_value, "", key_id)
-                break
-        proxy_urls.append({"key_id": key_id, "url": url})
+        proxy_urls.append({
+            "key_id": key_id,
+            "topology": "docker-internal",
+            "label": "Docker-internal (sibling containers)",
+            "url": f"http://subumbra-proxy:8090/t/{key_id}",
+        })
+        proxy_urls.append({
+            "key_id": key_id,
+            "topology": "host-local",
+            "label": "Host / Local network",
+            "url": f"http://127.0.0.1:10199/t/{key_id}",
+        })
     return proxy_urls
 
 
@@ -548,7 +545,7 @@ def _build_adapter_rows(adapters_payload: dict | None, raw_keys: list[dict], aud
             "caps": _build_adapter_caps(adapter, raw_keys),
             "issuedAt": issued_at or "—",
             "expiresAt": expires_at or "—",
-            "proxy_urls": _build_proxy_urls(template, allowed_keys),
+            "proxy_urls": _build_proxy_urls(allowed_keys),
             "config_blocks": _build_config_blocks(template, str(adapter.get("token", "")), allowed_keys),
             "docsPath": (template or {}).get("docs_path") or "",
         })
@@ -807,6 +804,12 @@ def _merge_keys(keys: list, stats: dict) -> list:
             "hosts":       hosts,
             "pub":         k.get("public_key", "—"),
             "adapter":     k.get("allow_adapters", ["—"])[0] if k.get("allow_adapters") else "—",
+            # Policy detail fields
+            "authScheme":        k.get("auth_scheme", "—"),
+            "basePath":          k.get("base_path", ""),
+            "allowMethods":      k.get("allow_methods", []),
+            "allowPathPrefixes": k.get("allow_path_prefixes", []),
+            "maxSignOps":        k.get("policy", {}).get("max_sign_ops") if is_ssh else None,
         })
     return merged
 
@@ -879,13 +882,17 @@ def overview():
 @app.get("/vault")
 @_require_auth
 def vault_api():
-    return page("vault_api.html", active="vault", crumbs=["Vault", "API keys"])
+    selected_id = request.args.get("select", "")
+    return page("vault_api.html", active="vault", crumbs=["Vault", "API keys"],
+                selected_id=selected_id)
 
 
 @app.get("/vault/ssh")
 @_require_auth
 def vault_ssh():
-    return page("vault_ssh.html", active="vault", crumbs=["Vault", "SSH keys"])
+    selected_id = request.args.get("select", "")
+    return page("vault_ssh.html", active="vault", crumbs=["Vault", "SSH keys"],
+                selected_id=selected_id)
 
 
 @app.get("/sessions")
@@ -897,13 +904,17 @@ def sessions():
 @app.get("/adapters")
 @_require_auth
 def adapters():
-    return page("adapters.html", active="adapters", crumbs=["Adapters"])
+    selected_id = request.args.get("select", "")
+    return page("adapters.html", active="adapters", crumbs=["Adapters"],
+                selected_id=selected_id)
 
 
 @app.get("/policies")
 @_require_auth
 def policies():
-    return page("policies.html", active="policies", crumbs=["Policies & Templates"])
+    selected_id = request.args.get("select", "")
+    return page("policies.html", active="policies", crumbs=["Policies & Templates"],
+                selected_id=selected_id)
 
 
 @app.get("/audit")

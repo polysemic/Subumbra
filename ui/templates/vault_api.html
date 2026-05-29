@@ -3,7 +3,8 @@
 
 {% block content %}
 {% set keys = data['keys'] %}
-{% set selected = keys[0] %}
+{% set selected = (keys | selectattr('id', 'equalto', selected_id) | list | first) if selected_id else None %}
+{% set selected = selected if selected else (keys[0] if keys else None) %}
 
 <div class="page-head">
   <div>
@@ -96,30 +97,104 @@
       <button class="drawer__tab">Audit</button>
     </div>
     <div class="drawer__body">
-      <div class="section-title">Identity</div>
-      <div class="field"><div class="field__label">Key ID</div><div class="field__value mono">{{ selected.id }}</div></div>
-      <div class="field"><div class="field__label">Target host</div><div class="field__value mono">{{ selected.target }}</div></div>
-      <div class="field"><div class="field__label">Policy ID</div><div class="field__value mono">{{ selected.policyId }}</div></div>
-      <div class="field"><div class="field__label">Policy hash</div><div class="field__value mono">{{ selected.policyHash }}</div></div>
-      <div class="field"><div class="field__label">Vault</div><div class="field__value">Shared vault DO</div></div>
-      <div class="field"><div class="field__label">Created</div><div class="field__value mono">{{ selected.created }}</div></div>
 
-      <div class="section-title">Usage</div>
-      <div class="field"><div class="field__label">Requests</div><div class="field__value">{{ '{:,}'.format(selected.requests) }} <span style="color:var(--text-dim)">· {{ selected.rpm }}/min cap</span></div></div>
-      <div class="field"><div class="field__label">Last used</div><div class="field__value">{{ selected.lastUsed }}</div></div>
-      <div class="field"><div class="field__label">Adapters</div>
-        <div class="field__value" style="display:flex;gap:4px;flex-wrap:wrap">
-          {% for a in selected.adapters %}<span class="tag">{{ a }}</span>{% endfor %}
+      <!-- Pane 0: Overview (visible by default) -->
+      <div class="drawer__pane">
+        <div class="section-title">Identity</div>
+        <div class="field"><div class="field__label">Key ID</div><div class="field__value mono">{{ selected.id }}</div></div>
+        <div class="field"><div class="field__label">Target host</div><div class="field__value mono">{{ selected.target }}</div></div>
+        <div class="field"><div class="field__label">Policy ID</div><div class="field__value mono">{{ selected.policyId }}</div></div>
+        <div class="field"><div class="field__label">Policy hash</div><div class="field__value mono">{{ selected.policyHash }}</div></div>
+        <div class="field"><div class="field__label">Vault</div><div class="field__value">Shared vault DO</div></div>
+        <div class="field"><div class="field__label">Created</div><div class="field__value mono">{{ selected.created }}</div></div>
+
+        <div class="section-title">Usage</div>
+        <div class="field"><div class="field__label">Requests</div><div class="field__value">{{ '{:,}'.format(selected.requests) }} <span style="color:var(--text-dim)">· {{ selected.rpm }}/min cap</span></div></div>
+        <div class="field"><div class="field__label">Last used</div><div class="field__value">{{ selected.lastUsed }}</div></div>
+        <div class="field"><div class="field__label">Adapters</div>
+          <div class="field__value" style="display:flex;gap:4px;flex-wrap:wrap">
+            {% for a in selected.adapters %}<span class="tag">{{ a }}</span>{% endfor %}
+          </div>
+        </div>
+
+        <div class="locked-note">⚿ Policy &amp; auth fields are AAD-bound to the ciphertext. Editing requires rotation.</div>
+
+        <div style="display:flex; gap:8px; margin-top:4px">
+          <button class="btn" data-action="pause-key" data-key="{{ selected.id }}">Pause</button>
+          <button class="btn" data-action="rotate-key" data-key="{{ selected.id }}">Rotate</button>
+          <button class="btn btn--danger" style="margin-left:auto" data-action="revoke-key" data-key="{{ selected.id }}">Revoke</button>
         </div>
       </div>
 
-      <div class="locked-note">⚿ Policy &amp; auth fields are AAD-bound to the ciphertext. Editing requires rotation.</div>
-
-      <div style="display:flex; gap:8px; margin-top:4px">
-        <button class="btn" data-action="pause-key" data-key="{{ selected.id }}">Pause</button>
-        <button class="btn" data-action="rotate-key" data-key="{{ selected.id }}">Rotate</button>
-        <button class="btn btn--danger" style="margin-left:auto" data-action="revoke-key" data-key="{{ selected.id }}">Revoke</button>
+      <!-- Pane 1: Policy -->
+      <div class="drawer__pane is-hidden">
+        <div class="section-title">Policy</div>
+        <div class="field"><div class="field__label">Policy ID</div><div class="field__value mono">{{ selected.policyId }}</div></div>
+        <div class="field"><div class="field__label">Policy hash</div><div class="field__value mono">{{ selected.policyHash }}</div></div>
+        <div class="field"><div class="field__label">Capability class</div><div class="field__value">{{ selected.capability }}</div></div>
+        <div class="field"><div class="field__label">Auth scheme</div><div class="field__value mono">{{ selected.authScheme }}</div></div>
+        <div class="field"><div class="field__label">Target host</div><div class="field__value mono">{{ selected.target }}</div></div>
+        <div class="field"><div class="field__label">Base path</div><div class="field__value mono">{{ selected.basePath or '/' }}</div></div>
+        <div class="field">
+          <div class="field__label">Allowed methods</div>
+          <div class="field__value" style="display:flex;gap:4px;flex-wrap:wrap">
+            {% for m in selected.allowMethods %}<span class="tag mono">{{ m }}</span>{% endfor %}
+            {% if not selected.allowMethods %}<span style="color:var(--text-dim)">unrestricted</span>{% endif %}
+          </div>
+        </div>
+        <div class="field">
+          <div class="field__label">Path prefixes</div>
+          <div class="field__value" style="display:flex;gap:4px;flex-wrap:wrap">
+            {% for p in selected.allowPathPrefixes %}<span class="tag mono">{{ p }}</span>{% endfor %}
+            {% if not selected.allowPathPrefixes %}<span style="color:var(--text-dim)">unrestricted</span>{% endif %}
+          </div>
+        </div>
+        <div class="locked-note">⚿ Policy fields are AAD-bound to the ciphertext. Editing requires rotation.</div>
       </div>
+
+      <!-- Pane 2: Allow -->
+      <div class="drawer__pane is-hidden">
+        <div class="section-title">Allow</div>
+        <div class="field">
+          <div class="field__label">Adapter allowlist</div>
+          <div class="field__value" style="display:flex;gap:4px;flex-wrap:wrap">
+            {% for a in selected.adapters %}<a class="tag" href="/adapters?select={{ a }}">{{ a }}</a>{% endfor %}
+            {% if not selected.adapters %}<span style="color:var(--text-dim)">no adapter restriction</span>{% endif %}
+          </div>
+        </div>
+      </div>
+
+      <!-- Pane 3: Velocity -->
+      <div class="drawer__pane is-hidden">
+        <div class="section-title">Velocity</div>
+        {% set vel_entry = data.observability.velocity | selectattr('key_id', 'equalto', selected.id) | list | first %}
+        <div class="field"><div class="field__label">Requests (last 60 s)</div><div class="field__value mono">{{ vel_entry.request_count if vel_entry else 0 }}</div></div>
+        <div class="field"><div class="field__label">Rate-limit cap</div><div class="field__value mono">{{ selected.rpm }}/min</div></div>
+      </div>
+
+      <!-- Pane 4: Audit -->
+      <div class="drawer__pane is-hidden">
+        <div class="section-title">Recent audit (last 50 events)</div>
+        {% set key_events = data.audit | selectattr('keyId', 'equalto', selected.id) | list %}
+        {% if key_events %}
+        <table class="tbl" style="font-size:11px">
+          <thead><tr><th>Time</th><th>Verdict</th><th>Endpoint</th><th>Reason</th></tr></thead>
+          <tbody>
+            {% for e in key_events[:10] %}
+            <tr>
+              <td class="mono ts">{{ e.ts }}</td>
+              <td class="{{ 'verdict-allow' if e.verdict == 'allow' else 'verdict-deny' }}">{{ e.verdict }}</td>
+              <td class="mono">{{ e.endpoint }}</td>
+              <td class="mono" style="color:var(--text-dim)">{{ e.reason }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <p style="color:var(--text-dim);font-size:12px">No recent audit events for this key.</p>
+        {% endif %}
+      </div>
+
     </div>
   </div>
 

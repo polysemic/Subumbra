@@ -97,7 +97,7 @@
           <span class="ts">{{ e.ts }}</span>
           <span class="badge badge--{{ e.provider }}">{{ e.provider }}</span>
           <span class="mono truncate" style="color:var(--text-muted)">
-            {{ e.adapter }} → <span style="color:var(--text)">{{ e.keyId }}</span>
+            <a href="/adapters?select={{ e.adapter }}">{{ e.adapter }}</a> → <a href="/vault?select={{ e.keyId }}" style="color:var(--text)">{{ e.keyId }}</a>
           </span>
           <span class="mono truncate" style="color:var(--text-dim);font-size:11px">{{ e.endpoint }}</span>
           <span class="{{ 'verdict-allow' if e.verdict == 'allow' else 'verdict-deny' }}">{{ e.verdict }}</span>

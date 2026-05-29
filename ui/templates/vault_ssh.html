@@ -3,7 +3,8 @@
 
 {% block content %}
 {% set ssh = data.ssh_keys %}
-{% set selected = ssh[0] %}
+{% set selected = (ssh | selectattr('id', 'equalto', selected_id) | list | first) if selected_id else None %}
+{% set selected = selected if selected else (ssh[0] if ssh else None) %}
 
 <div class="page-head">
   <div>
@@ -93,57 +94,81 @@
     </div>
     <div class="drawer__body">
 
-      <div class="section-title">Identity</div>
-      <div class="field"><div class="field__label">Algorithm</div><div class="field__value mono">{{ selected.alg }}</div></div>
-      <div class="field"><div class="field__label">Fingerprint</div><div class="field__value mono" style="color:var(--brand)">{{ selected.fpr }}</div></div>
-      <div class="field" style="grid-template-columns:1fr;gap:6px">
-        <div class="field__label">Public key</div>
-        <div class="pubkey-row">
-          <div class="pubkey">{{ selected.pub }}</div>
-          <button class="pubkey-copy" title="Copy" data-copy="{{ selected.pub }}">⎘</button>
+      <!-- Pane 0: Overview (visible by default) -->
+      <div class="drawer__pane">
+        <div class="section-title">Identity</div>
+        <div class="field"><div class="field__label">Algorithm</div><div class="field__value mono">{{ selected.alg }}</div></div>
+        <div class="field"><div class="field__label">Fingerprint</div><div class="field__value mono" style="color:var(--brand)">{{ selected.fpr }}</div></div>
+        <div class="field" style="grid-template-columns:1fr;gap:6px">
+          <div class="field__label">Public key</div>
+          <div class="pubkey-row">
+            <div class="pubkey">{{ selected.pub }}</div>
+            <button class="pubkey-copy" title="Copy" data-copy="{{ selected.pub }}">⎘</button>
+          </div>
+          <div style="font-size:10px;color:var(--text-dim);margin-top:4px">
+            Paste this into <span class="mono">authorized_keys</span> or a GitHub deploy key field.
+          </div>
         </div>
-        <div style="font-size:10px;color:var(--text-dim);margin-top:4px">
-          Paste this into <span class="mono">authorized_keys</span> or a GitHub deploy key field.
+        <div class="field"><div class="field__label">Vault</div><div class="field__value">Shared vault DO</div></div>
+        <div class="field">
+          <div class="field__label">Adapter</div>
+          <div class="field__value" style="display:flex; gap:4px">
+            <a class="tag" href="/adapters?select={{ selected.adapter }}">{{ selected.adapter }}</a>
+          </div>
         </div>
-      </div>
-      <div class="field"><div class="field__label">Vault</div><div class="field__value">Shared vault DO</div></div>
 
-      <div class="section-title">Authorisation</div>
-      <div class="field">
-        <div class="field__label">Allowed hosts</div>
-        <div class="field__value" style="display:flex;gap:4px;flex-wrap:wrap">
-          {% for h in selected.hosts %}<span class="tag mono">{{ h }}</span>{% endfor %}
-          <span class="tag tag--dashed">+ add host</span>
+        <div class="locked-note">⚿ Allowed-host enforcement is AAD-bound. Adding a host requires rotation.</div>
+
+        <div style="display:flex; gap:8px; margin-top:4px">
+          <button class="btn" data-action="pause-key" data-key="{{ selected.id }}">Pause</button>
+          <button class="btn" data-action="rotate-key" data-key="{{ selected.id }}">Rotate</button>
+          <button class="btn btn--danger" style="margin-left:auto" data-action="revoke-key" data-key="{{ selected.id }}">Revoke</button>
         </div>
-      </div>
-      <div class="field">
-        <div class="field__label">Confirm each sign</div>
-        <div class="field__value" style="display:flex; align-items:center; gap:8px">
-          <span class="pill pill--soon">coming Q3</span>
-          <span style="color:var(--text-dim); font-size:11px">Optional interactive confirmation per sign</span>
-        </div>
-      </div>
-      <div class="field">
-        <div class="field__label">Max sign ops</div>
-        <div class="field__value mono" style="color:var(--text-dim)">
-          unlimited
-          <span style="font-family:inherit; font-size:11px; margin-left:4px">(quota lands Q3)</span>
-        </div>
-      </div>
-      <div class="field">
-        <div class="field__label">Adapter</div>
-        <div class="field__value" style="display:flex; gap:4px"><span class="tag">{{ selected.adapter }}</span></div>
       </div>
 
-      <div class="locked-note">
-        ⚿ Allowed-host enforcement is the AAD-bound part. Adding a host requires rotation. Sign-quota fields land in r87 and become editable inline.
+      <!-- Pane 1: Hosts -->
+      <div class="drawer__pane is-hidden">
+        <div class="section-title">Allowed hosts</div>
+        {% if selected.hosts %}
+        {% for h in selected.hosts %}
+        <div class="field"><div class="field__label">Host</div><div class="field__value mono">{{ h }}</div></div>
+        {% endfor %}
+        {% else %}
+        <p style="color:var(--text-dim);font-size:12px">No host restriction — key may sign for any destination.</p>
+        {% endif %}
+        <div class="locked-note">⚿ Allowed-host list is AAD-bound. Adding a host requires rotation.</div>
       </div>
 
-      <div style="display:flex; gap:8px; margin-top:4px">
-        <button class="btn" data-action="pause-key" data-key="{{ selected.id }}">Pause</button>
-        <button class="btn" data-action="rotate-key" data-key="{{ selected.id }}">Rotate</button>
-        <button class="btn btn--danger" style="margin-left:auto" data-action="revoke-key" data-key="{{ selected.id }}">Revoke</button>
+      <!-- Pane 2: Quota -->
+      <div class="drawer__pane is-hidden">
+        <div class="section-title">Sign quota</div>
+        <div class="field"><div class="field__label">Signs used (session)</div><div class="field__value mono">{{ selected.signs }}</div></div>
+        <div class="field"><div class="field__label">Max sign ops</div><div class="field__value mono">{{ selected.maxSignOps or 'unlimited' }}</div></div>
       </div>
+
+      <!-- Pane 3: Audit -->
+      <div class="drawer__pane is-hidden">
+        <div class="section-title">Recent audit (last 50 events)</div>
+        {% set key_events = data.audit | selectattr('keyId', 'equalto', selected.id) | list %}
+        {% if key_events %}
+        <table class="tbl" style="font-size:11px">
+          <thead><tr><th>Time</th><th>Verdict</th><th>Endpoint</th><th>Reason</th></tr></thead>
+          <tbody>
+            {% for e in key_events[:10] %}
+            <tr>
+              <td class="mono ts">{{ e.ts }}</td>
+              <td class="{{ 'verdict-allow' if e.verdict == 'allow' else 'verdict-deny' }}">{{ e.verdict }}</td>
+              <td class="mono">{{ e.endpoint }}</td>
+              <td class="mono" style="color:var(--text-dim)">{{ e.reason }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <p style="color:var(--text-dim);font-size:12px">No recent audit events for this key.</p>
+        {% endif %}
+      </div>
+
     </div>
   </div>
 

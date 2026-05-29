@@ -587,3 +587,8 @@
   color: var(--text);
   margin-top: 2px;
 }
+
+
+/* ── Drawer panes (tab body switching) ─────────────────────────── */
+.drawer__pane { display: block; }
+.drawer__pane.is-hidden { display: none; }

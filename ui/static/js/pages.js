@@ -41,9 +41,8 @@ function initChips() {
 
 /* ── Tabs (drawer + page) ────────────────────────────────────────
    .drawer__tabs and .tabs both contain .drawer__tab / .tabs__tab.
-   Click switches is-active across the group. (No body swapping yet —
-   the drawer body is the same template; future enhancement is to
-   render different content per tab.)
+   Click switches is-active across the group and swaps .drawer__pane
+   siblings by index inside the nearest .drawer ancestor.
    ───────────────────────────────────────────────────────────── */
 function initTabs() {
   ["[role='tablist'],.drawer__tabs,.tabs"].forEach(sel => {
@@ -51,8 +50,19 @@ function initTabs() {
       bar.addEventListener("click", (e) => {
         const tab = e.target.closest(".drawer__tab,.tabs__tab");
         if (!tab || !bar.contains(tab) || tab.tagName === "A") return;
-        bar.querySelectorAll(".drawer__tab,.tabs__tab").forEach(t => t.classList.remove("is-active"));
+
+        // Activate tab button
+        const tabs = [...bar.querySelectorAll(".drawer__tab,.tabs__tab")];
+        tabs.forEach(t => t.classList.remove("is-active"));
         tab.classList.add("is-active");
+
+        // Swap drawer panes if present
+        const drawer = bar.closest(".drawer");
+        if (drawer) {
+          const panes = [...drawer.querySelectorAll(".drawer__pane")];
+          const idx = tabs.indexOf(tab);
+          panes.forEach((p, i) => p.classList.toggle("is-hidden", i !== idx));
+        }
       });
     });
   });

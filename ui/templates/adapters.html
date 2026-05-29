@@ -3,6 +3,7 @@
 
 {% block content %}
 {% set adapters = data.adapters %}
+{% set selected_adapter = (adapters | selectattr('id', 'equalto', selected_id) | list | first) if selected_id else None %}
 
 <div class="page-head">
   <div>
@@ -22,7 +23,7 @@
 
 <div class="grid-3">
   {% for a in adapters %}
-    <article class="adapter-card">
+    <article class="adapter-card{{ ' is-active' if selected_adapter and a['id'] == selected_adapter['id'] else '' }}" data-adapter-id="{{ a['id'] }}">
       <div class="adapter-card__head">
         <div class="adapter-logo">{{ a["logo"] }}</div>
         <div>
@@ -45,7 +46,7 @@
         <div class="lbl">Allowed keys</div>
         <div style="display:flex;gap:4px;flex-wrap:wrap;flex:1">
           {% for key_id in a["keys"] %}
-            <span class="tag mono">{{ key_id }}</span>
+            <a class="tag mono" href="/vault?select={{ key_id }}">{{ key_id }}</a>
           {% endfor %}
         </div>
       </div>
@@ -73,15 +74,20 @@
       {% if a["proxy_urls"] %}
       <div class="adapter-card__row" style="align-items:flex-start">
         <div class="lbl">Proxy URLs</div>
-        <div style="display:flex;flex-direction:column;gap:8px;flex:1">
-          {% for proxy in a["proxy_urls"] %}
-            <div style="display:flex;flex-direction:column;gap:4px">
-              <div class="mono" style="font-size:11px;color:var(--text-dim)">{{ proxy.key_id }}</div>
-              <div class="adapter-token" style="justify-content:space-between;gap:8px">
-                <code class="mono" style="word-break:break-all;flex:1">{{ proxy.url }}</code>
-                <button class="copy" data-copy="{{ proxy.url }}">⎘</button>
+        <div style="display:flex;flex-direction:column;gap:12px;flex:1">
+          {% for key_id in a["keys"] %}
+            {% for topo in ['docker-internal', 'host-local'] %}
+              {% set entry = a["proxy_urls"] | selectattr('topology', 'equalto', topo) | selectattr('key_id', 'equalto', key_id) | list | first %}
+              {% if entry %}
+              <div>
+                <div style="font-size:11px;color:var(--text-dim);margin-bottom:2px">{{ entry.label }}{% if a["keys"]|length > 1 %} · {{ key_id }}{% endif %}</div>
+                <div class="adapter-token" style="justify-content:space-between;gap:8px">
+                  <code class="mono" style="word-break:break-all;flex:1;font-size:11px">{{ entry.url }}</code>
+                  <button class="copy" data-copy="{{ entry.url }}" title="Copy">⎘</button>
+                </div>
               </div>
-            </div>
+              {% endif %}
+            {% endfor %}
           {% endfor %}
         </div>
       </div>
