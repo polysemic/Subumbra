@@ -94,10 +94,14 @@
   <div class="card">
     <div class="card__head">
       <div class="card__title">Recent activity</div>
-      <div class="card__meta">live · last 8 events</div>
+      <div class="card__meta">last 8 key operations</div>
     </div>
     <div>
-      {% for e in data.audit[:8] %}
+      {% set activity = data.audit_activity if data.audit_activity is defined else [] %}
+      {% if not activity %}
+        <div style="padding:16px 12px;color:var(--text-dim);font-size:13px">No key operations recorded yet.</div>
+      {% endif %}
+      {% for e in activity %}
         <div class="stream-row">
           <span class="ts">{{ e.ts }}</span>
           <span class="badge badge--{{ e.provider }}">{{ e.provider }}</span>

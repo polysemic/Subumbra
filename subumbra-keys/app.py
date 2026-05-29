@@ -69,10 +69,15 @@ AUDIT_DB_PATH = AUDIT_DIR / "audit.db"
 SESSION_DB_PATH = DATA_DIR / "sessions.db"
 AUDIT_MAX_ROWS = int(os.environ.get("AUDIT_MAX_ROWS", "10000"))
 SUBUMBRA_RATE_LIMIT_RPM = int(os.environ.get("SUBUMBRA_RATE_LIMIT_RPM", "60"))
+# Internal (RFC1918 / Docker) callers get a higher limit; the token must still
+# be valid — this only relaxes the pre-auth IP bucket for trusted networks.
+SUBUMBRA_RATE_LIMIT_INTERNAL_RPM = int(os.environ.get("SUBUMBRA_RATE_LIMIT_INTERNAL_RPM", "600"))
 if AUDIT_MAX_ROWS <= 0:
     AUDIT_MAX_ROWS = 10000
 if SUBUMBRA_RATE_LIMIT_RPM <= 0:
     SUBUMBRA_RATE_LIMIT_RPM = 60
+if SUBUMBRA_RATE_LIMIT_INTERNAL_RPM <= 0:
+    SUBUMBRA_RATE_LIMIT_INTERNAL_RPM = 600
 
 SSH_HOST_FINGERPRINT_RE = re.compile(r"^SHA256:[A-Za-z0-9+/]{43}$")
 AUDIT_ENDPOINT_FILTERS = {
@@ -226,6 +231,15 @@ app.config["JSON_SORT_KEYS"] = False
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
+
+import ipaddress as _ipaddress
+
+def _is_private_ip(addr: str) -> bool:
+    """Return True for RFC1918 / loopback / Docker-internal addresses."""
+    try:
+        return _ipaddress.ip_address(addr).is_private
+    except ValueError:
+        return False
 
 
 def _load_keys() -> dict:
@@ -803,11 +817,15 @@ def _resolve_adapter() -> dict | _AdapterDenial:
             message="service unavailable",
             retry_after=None,
         )
-    if not allowed:
+    # Private/Docker-internal callers get a higher per-IP ceiling; the token
+    # still must be valid — this only relaxes the pre-auth IP bucket.
+    effective_limit = SUBUMBRA_RATE_LIMIT_INTERNAL_RPM if _is_private_ip(remote) else SUBUMBRA_RATE_LIMIT_RPM
+    if attempt_count > effective_limit:
         log.warning(
-            "rate_limit_exceeded remote=%s attempts=%d window_seconds=%d",
+            "rate_limit_exceeded remote=%s attempts=%d limit=%d window_seconds=%d",
             remote,
             attempt_count,
+            effective_limit,
             _RATE_LIMIT_WINDOW_SECONDS,
         )
         return _AdapterDenial(

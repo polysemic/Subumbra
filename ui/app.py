@@ -726,6 +726,14 @@ def build_console_data() -> dict:
             "denies": sum(1 for e in all_events if e.get("verdict") == "deny"),
             "allows": sum(1 for e in all_events if e.get("verdict") == "allow"),
         }
+        # Activity feed: only events that resolved to a real adapter or key —
+        # filters out pre-auth noise (rate_limit_exceeded, audit_unavailable)
+        # where adapter_id and key_id are both null.
+        meaningful = [
+            e for e in all_events
+            if e.get("adapter_id") or e.get("key_id")
+        ]
+        data["audit_activity"] = _map_audit_events(meaningful[:8], raw_keys)
     if sess_data:
         data["sessions"] = {
             "lockdown_enabled": sess_data.get("lockdown_enabled", True),
@@ -888,7 +896,7 @@ def inject_globals():
         "tunnel_hostname":       CF_TUNNEL_HOSTNAME,
         "access_configured":     access_configured,
         "auth_configured":       auth_configured,
-        "ui_username":           UI_username if 'UI_username' in globals() else (UI_USERNAME if 'UI_USERNAME' in globals() else ""),
+        "ui_username":           UI_USERNAME,
     }
 
 
