@@ -6,6 +6,7 @@
 "use strict";
 
 document.addEventListener("DOMContentLoaded", () => {
+  initSidebar();
   initChips();
   initTabs();
   initSelectRows();
@@ -14,6 +15,73 @@ document.addEventListener("DOMContentLoaded", () => {
   initActions();
   initLiveData();
 });
+
+/* ── Sidebar toggle ──────────────────────────────────────────────
+   Desktop: .shell.is-side-collapsed → icons-only 52px rail.
+   Mobile:  .side.is-open + backdrop overlay.
+   Preference persisted in localStorage as "sideCollapsed".
+   ───────────────────────────────────────────────────────────── */
+function initSidebar() {
+  const shell    = document.querySelector(".shell");
+  const sidebar  = document.getElementById("sidebar");
+  const colBtn   = document.getElementById("sideCollapseBtn");
+  const menuBtn  = document.getElementById("sideMenuBtn");
+  const backdrop = document.getElementById("sideBackdrop");
+  if (!shell || !sidebar) return;
+
+  const isMobile = () => window.innerWidth <= 880;
+
+  function openMobile() {
+    sidebar.classList.add("is-open");
+    backdrop.classList.add("is-visible");
+    if (menuBtn) { menuBtn.setAttribute("aria-expanded", "true"); menuBtn.textContent = "✕"; }
+  }
+  function closeMobile() {
+    sidebar.classList.remove("is-open");
+    backdrop.classList.remove("is-visible");
+    if (menuBtn) { menuBtn.setAttribute("aria-expanded", "false"); menuBtn.textContent = "☰"; }
+  }
+
+  function setDesktopCollapsed(collapsed) {
+    shell.classList.toggle("is-side-collapsed", collapsed);
+    localStorage.setItem("sideCollapsed", collapsed ? "1" : "0");
+  }
+
+  // Restore desktop preference
+  if (!isMobile() && localStorage.getItem("sideCollapsed") === "1") {
+    shell.classList.add("is-side-collapsed");
+  }
+
+  // Desktop collapse button
+  if (colBtn) {
+    colBtn.addEventListener("click", () => {
+      if (isMobile()) return;
+      setDesktopCollapsed(!shell.classList.contains("is-side-collapsed"));
+    });
+  }
+
+  // Mobile hamburger
+  if (menuBtn) {
+    menuBtn.addEventListener("click", () => {
+      if (sidebar.classList.contains("is-open")) closeMobile(); else openMobile();
+    });
+  }
+
+  // Backdrop tap closes mobile sidebar
+  if (backdrop) {
+    backdrop.addEventListener("click", closeMobile);
+  }
+
+  // Close mobile sidebar on nav link click
+  sidebar.querySelectorAll(".side__item").forEach((link) => {
+    link.addEventListener("click", () => { if (isMobile()) closeMobile(); });
+  });
+
+  // Re-evaluate on resize
+  window.addEventListener("resize", () => {
+    if (!isMobile()) closeMobile();
+  });
+}
 
 /* ── Select rows (key/SSH/policy/adapter navigation) ────────────
    Rows and cards that carry a select-target attribute navigate to

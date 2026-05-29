@@ -29,10 +29,11 @@
 
     <div class="side__brand">
       <img src="{{ url_for('static', filename='sumumbra-logo.jpg') }}" alt="Subumbra" class="side__logo">
-      <div>
+      <div class="side__brand-text">
         <div class="side__brand-name">Subumbra</div>
         <div class="side__brand-sub">v{{ VERSION }}</div>
       </div>
+      <button class="side__collapse-btn" id="sideCollapseBtn" title="Collapse sidebar" aria-label="Toggle sidebar">‹</button>
     </div>
 
     <div class="side__org" role="button" tabindex="0">
@@ -47,7 +48,7 @@
     <nav class="side__nav">
       <div class="side__section">Operate</div>
       {% for item in NAV[:4] %}
-        <a href="{{ item.href }}" class="side__item {{ 'is-active' if item.id == active else '' }}">
+        <a href="{{ item.href }}" class="side__item {{ 'is-active' if item.id == active else '' }}" data-label="{{ item.label }}">
           <span class="side__icon">{{ item.icon }}</span>
           <span>{{ item.label }}</span>
           {% if item.badge %}<span class="side__badge">{{ item.badge }}</span>{% endif %}
@@ -56,7 +57,7 @@
 
       <div class="side__section">Govern</div>
       {% for item in NAV[4:7] %}
-        <a href="{{ item.href }}" class="side__item {{ 'is-active' if item.id == active else '' }}">
+        <a href="{{ item.href }}" class="side__item {{ 'is-active' if item.id == active else '' }}" data-label="{{ item.label }}">
           <span class="side__icon">{{ item.icon }}</span>
           <span>{{ item.label }}</span>
         </a>
@@ -64,7 +65,7 @@
 
       <div class="side__section">Platform</div>
       {% for item in NAV[7:] %}
-        <a href="{{ item.href }}" class="side__item {{ 'is-active' if item.id == active else '' }}">
+        <a href="{{ item.href }}" class="side__item {{ 'is-active' if item.id == active else '' }}" data-label="{{ item.label }}">
           <span class="side__icon">{{ item.icon }}</span>
           <span>{{ item.label }}</span>
         </a>
@@ -85,6 +86,7 @@
 
     {# ── Top bar ─────────────────────────────────────────────── #}
     <header class="top">
+      <button class="top__menu-btn" id="sideMenuBtn" aria-label="Open menu" aria-expanded="false">☰</button>
       <div class="top__crumbs">
         {% for c in crumbs %}
           {% if not loop.first %}<span class="sep">/</span>{% endif %}
@@ -138,6 +140,7 @@
 
 {# Where modals teleport to (escapes any stacking context) #}
 <div id="modal-root"></div>
+<div class="side-backdrop" id="sideBackdrop"></div>
 
 </body>
 </html>
