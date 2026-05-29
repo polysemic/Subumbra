@@ -8,11 +8,41 @@
 document.addEventListener("DOMContentLoaded", () => {
   initChips();
   initTabs();
+  initSelectRows();
   initCopy();
   initSwitches();
   initActions();
   initLiveData();
 });
+
+/* ── Select rows (key/SSH/policy/adapter navigation) ────────────
+   Rows and cards that carry a select-target attribute navigate to
+   ?select=<id> on click so the server renders the drawer pre-opened.
+   Attribute map:
+     [data-key-id]      → /vault?select=  (API and SSH tables)
+     [data-policy]      → /policies?select=
+     [data-adapter-id]  → /adapters?select=
+   ───────────────────────────────────────────────────────────── */
+function initSelectRows() {
+  const map = [
+    { sel: "[data-key-id]",     param: (el) => el.dataset.keyId },
+    { sel: "[data-policy]",     param: (el) => el.dataset.policy },
+    { sel: "[data-adapter-id]", param: (el) => el.dataset.adapterId },
+  ];
+  map.forEach(({ sel, param }) => {
+    document.querySelectorAll(sel).forEach((el) => {
+      el.style.cursor = "pointer";
+      el.addEventListener("click", (e) => {
+        if (e.target.closest("a,button,input,select,textarea")) return;
+        const id = param(el);
+        if (!id) return;
+        const url = new URL(location.href);
+        url.searchParams.set("select", id);
+        location.href = url.toString();
+      });
+    });
+  });
+}
 
 /* ── Chip groups ─────────────────────────────────────────────────
    - .chips[data-radio="key"] → single-select (click sets is-active on
