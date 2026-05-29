@@ -517,9 +517,10 @@ def _build_adapter_rows(adapters_payload: dict | None, raw_keys: list[dict], aud
         if adapter_id and adapter_id not in audit_last_seen:
             audit_last_seen[adapter_id] = _fmt_rel(timestamp)
 
+    _internal_ids = {"subumbra-ui", "subumbra-proxy", "subumbra-probe"}
     for adapter in (adapters_payload or {}).get("adapters", []):
         adapter_id = str(adapter.get("adapter_id", "")).strip()
-        if not adapter_id:
+        if not adapter_id or adapter_id in _internal_ids:
             continue
         template = _load_adapter_template(adapter_id)
         allowed_keys = [str(key_id) for key_id in adapter.get("allowed_keys", []) if key_id]
