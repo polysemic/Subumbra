@@ -8,11 +8,93 @@
 document.addEventListener("DOMContentLoaded", () => {
   initChips();
   initTabs();
+  initSelectRows();
   initCopy();
   initSwitches();
   initActions();
   initLiveData();
 });
+
+/* ── Select rows (key/SSH/policy/adapter navigation) ────────────
+   Rows and cards that carry a select-target attribute navigate to
+   ?select=<id> on click so the server renders the drawer pre-opened.
+   Attribute map:
+     [data-key-id]      → /vault?select=  (API and SSH tables)
+     [data-policy]      → /policies?select=
+     [data-adapter-id]  → /adapters?select=
+   ───────────────────────────────────────────────────────────── */
+function initSelectRows() {
+  const map = [
+    { sel: "[data-key-id]",     param: (el) => el.dataset.keyId },
+    { sel: "[data-policy]",     param: (el) => el.dataset.policy },
+    { sel: "[data-adapter-id]", param: (el) => el.dataset.adapterId },
+  ];
+  map.forEach(({ sel, param }) => {
+    document.querySelectorAll(sel).forEach((el) => {
+      if (el.dataset.jsBound === "1") return;
+      el.dataset.jsBound = "1";
+      el.style.cursor = "pointer";
+      el.addEventListener("click", async (e) => {
+        if (e.target.closest("a,button,input,select,textarea")) return;
+        const id = param(el);
+        if (!id) return;
+        if (sel === "[data-key-id]" && (location.pathname === "/vault" || location.pathname === "/vault/ssh")) {
+          e.preventDefault();
+          await updateVaultDrawer(id, el);
+          return;
+        }
+        const url = new URL(location.href);
+        url.searchParams.set("select", id);
+        location.href = url.toString();
+      });
+    });
+  });
+}
+
+async function updateVaultDrawer(id, row) {
+  const container = document.querySelector(".split-drawer");
+  const drawer = container?.querySelector(".drawer");
+  if (!container || !drawer) {
+    const url = new URL(location.href);
+    url.searchParams.set("select", id);
+    location.href = url.toString();
+    return;
+  }
+
+  const url = new URL(location.href);
+  url.searchParams.set("select", id);
+  url.searchParams.set("partial", "drawer");
+
+  document.body.style.cursor = "progress";
+  row?.classList.add("is-loading");
+  try {
+    const resp = await fetch(url.toString(), {
+      credentials: "same-origin",
+      headers: { "X-Requested-With": "XMLHttpRequest" },
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+    const html = await resp.text();
+    drawer.outerHTML = html;
+    document.querySelectorAll("[data-key-id].is-selected").forEach((el) => el.classList.remove("is-selected"));
+    if (row) row.classList.add("is-selected");
+
+    const nextUrl = new URL(location.href);
+    nextUrl.searchParams.set("select", id);
+    nextUrl.searchParams.delete("partial");
+    history.replaceState({}, "", nextUrl.toString());
+
+    initTabs();
+  } catch (err) {
+    console.error("vault drawer update failed", err);
+    const nextUrl = new URL(location.href);
+    nextUrl.searchParams.set("select", id);
+    location.href = nextUrl.toString();
+  } finally {
+    row?.classList.remove("is-loading");
+    document.body.style.cursor = "";
+  }
+}
 
 /* ── Chip groups ─────────────────────────────────────────────────
    - .chips[data-radio="key"] → single-select (click sets is-active on
@@ -41,18 +123,30 @@ function initChips() {
 
 /* ── Tabs (drawer + page) ────────────────────────────────────────
    .drawer__tabs and .tabs both contain .drawer__tab / .tabs__tab.
-   Click switches is-active across the group. (No body swapping yet —
-   the drawer body is the same template; future enhancement is to
-   render different content per tab.)
+   Click switches is-active across the group and swaps .drawer__pane
+   siblings by index inside the nearest .drawer ancestor.
    ───────────────────────────────────────────────────────────── */
 function initTabs() {
   ["[role='tablist'],.drawer__tabs,.tabs"].forEach(sel => {
     document.querySelectorAll(sel).forEach((bar) => {
+      if (bar.dataset.jsBound === "1") return;
+      bar.dataset.jsBound = "1";
       bar.addEventListener("click", (e) => {
         const tab = e.target.closest(".drawer__tab,.tabs__tab");
         if (!tab || !bar.contains(tab) || tab.tagName === "A") return;
-        bar.querySelectorAll(".drawer__tab,.tabs__tab").forEach(t => t.classList.remove("is-active"));
+
+        // Activate tab button
+        const tabs = [...bar.querySelectorAll(".drawer__tab,.tabs__tab")];
+        tabs.forEach(t => t.classList.remove("is-active"));
         tab.classList.add("is-active");
+
+        // Swap drawer panes if present
+        const drawer = bar.closest(".drawer");
+        if (drawer) {
+          const panes = [...drawer.querySelectorAll(".drawer__pane")];
+          const idx = tabs.indexOf(tab);
+          panes.forEach((p, i) => p.classList.toggle("is-hidden", i !== idx));
+        }
       });
     });
   });
@@ -173,10 +267,12 @@ async function openAddKey() {
 
   // Wire the submit button — POSTs the ciphertext.
   const submit = modal.querySelector("[data-bind='submit']");
-  submit.disabled = true;
-  paste.addEventListener("subumbra:captured", () => { submit.disabled = false; }, { once: true });
+  submit.replaceWith(submit.cloneNode(true));
+  const submitBtn = modal.querySelector("[data-bind='submit']");
+  submitBtn.disabled = true;
+  paste.addEventListener("subumbra:captured", () => { submitBtn.disabled = false; }, { once: true });
 
-  submit.onclick = async () => {
+  const onSubmit = async () => {
     if (!paste.value) return;
     const keyId     = modal.querySelector("[data-bind='key-id']").value;
     const provider  = modal.querySelector("[data-bind='provider']").value;
@@ -189,6 +285,7 @@ async function openAddKey() {
       _showApiToast(resp, `add ${keyId}`);
     }
   };
+  submitBtn.addEventListener("click", onSubmit, { once: true });
 
   // Drop the server session when the modal closes (releases the private key).
   modal.addEventListener("close", () => { Api.dropKeySession(sessionId); paste.reset(); }, { once: true });
@@ -280,16 +377,19 @@ async function openLockAll() {
   modal.open();
 
   const confirm = modal.querySelector("[data-bind='confirm']");
+  confirm.replaceWith(confirm.cloneNode(true));
+  const confirmBtn = modal.querySelector("[data-bind='confirm']");
   const input   = modal.querySelector("[data-bind='confirm-input']");
-  const update  = () => confirm.disabled = (input.value.trim() !== "LOCK");
+  const update  = () => confirmBtn.disabled = (input.value.trim() !== "LOCK");
   input.addEventListener("input", update);
   update();
 
-  confirm.onclick = async () => {
+  const onConfirm = async () => {
     const r = await Api.lockAll();
     if (r.ok) { SubToast.show("All sessions closed"); modal.close(); setTimeout(() => location.reload(), 600); }
     else _showApiToast(r, "lock all");
   };
+  confirmBtn.addEventListener("click", onConfirm, { once: true });
 }
 
 function mountLockAllModal() {
@@ -383,7 +483,7 @@ function fillLockAllModal(modal, sess) {
 
 /* ── Live data: SSE + periodic refresh ───────────────────────── */
 function initLiveData() {
-  if (window.initEventStream) window.initEventStream();
+  if (document.body.dataset.page === "audit" && window.initEventStream) window.initEventStream();
   // Refresh the audit page on SSE tick (a future round can be more granular)
   if (document.body.dataset.page === "audit") {
     window.addEventListener("subumbra:status", async () => {
@@ -405,12 +505,4 @@ function initLiveData() {
       `).join("");
     });
   }
-}
-
-/* Local escape — duplicated from components.js because pages.js
-   loads independently and we don't want a cross-file global. */
-function _esc(s) {
-  return String(s ?? "")
-    .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
-    .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
 }

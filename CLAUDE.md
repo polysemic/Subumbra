@@ -268,7 +268,7 @@ CF_ACCESS_CLIENT_ID=<from CF Access dashboard>
 CF_ACCESS_CLIENT_SECRET=<from CF Access dashboard>
 ```
 
-## UI Console Features (r88+)
+## UI Console Features (r90+)
 - Multi-page console: Overview, Sessions, Vault (API/SSH), Adapters, Policies, Audit, Cloudflare, Observability, Settings
 - Auth: PBKDF2-SHA256 (`UI_PASSWORD_HASH` + `_hash_utils.verify_ui_password()`); fail-closed startup (`sys.exit(1)`) when neither `UI_PASSWORD_HASH` nor `CF_ACCESS_PROTECTED=true` is configured
 - Gate Approvals panel on Overview: subscription count, pending count, pending request table; degrades gracefully when Worker is unreachable
@@ -278,6 +278,10 @@ CF_ACCESS_CLIENT_SECRET=<from CF Access dashboard>
 - Security hardening: `Cross-Origin-Opener-Policy: same-origin`, `Permissions-Policy: clipboard-read=()`, `_require_json` guard (415) on all write routes, per-IP sliding-window rate limit on `GET /api/key-session` (10 req/60s)
 - Read-only visibility into V3 policy metadata including `policy_id`, `policy_hash`, capability class, auth scheme, and per-key allowlist relationships
 - Heartbeat-only `/api/events` plus 30-second `/api/status` polling fallback for console freshness
+- Vault drawer sub-tabs render separate content panes: API key drawers have 5 panes (Overview, Policy, Allow, Velocity, Audit); SSH key drawers have 4 panes (Overview, Hosts, Quota, Audit); tab clicks swap pane visibility via `.drawer__pane`/`.is-hidden` CSS
+- `?select=<id>` query parameter accepted by `/vault`, `/vault/ssh`, `/policies`, `/adapters` routes to pre-select a specific key, policy, or adapter on load
+- Adapter proxy URL snippets show dual-topology entries: Docker-internal (`http://subumbra-proxy:8090/t/<key_id>`) and host-local (`http://127.0.0.1:10199/t/<key_id>`) — CF Worker URL is not used for transparent `/t/` routing
+- Cross-page navigation links: audit log key/adapter columns, overview activity stream, and vault Policy/Allow panes link to focused `?select=` views
 
 ## Build Order
 1. docker-compose.yml skeleton

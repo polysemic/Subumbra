@@ -3,7 +3,8 @@
 
 {% block content %}
 {% set keys = data['keys'] %}
-{% set selected = keys[0] %}
+{% set selected = (keys | selectattr('id', 'equalto', selected_id) | list | first) if selected_id else None %}
+{% set selected = selected if selected else (keys[0] if keys else None) %}
 
 <div class="page-head">
   <div>
@@ -70,58 +71,7 @@
   </div>
 
   {# ── Drawer ────────────────────────────────────────────────── #}
-  <div class="drawer">
-    <div class="drawer__head">
-      <div style="display:flex; align-items:center; gap:10px">
-        <div class="key-icon">◆</div>
-        <div style="flex:1; min-width:0">
-          <div style="display:flex; align-items:center; gap:8px">
-            <span class="mono" style="font-weight:600; font-size:14px">{{ selected.id }}</span>
-            <span class="pill pill--{{ selected.status }}">{{ selected.status }}</span>
-          </div>
-          <div style="display:flex; gap:6px; margin-top:5px">
-            <span class="badge badge--{{ selected.provider }}">{{ selected.provider }}</span>
-            <span class="tag tag--cap-llm">{{ selected.capability }}</span>
-            <span class="tag">shared vault</span>
-          </div>
-        </div>
-        <button class="btn btn--ghost" style="font-size:14px">×</button>
-      </div>
-    </div>
-    <div class="drawer__tabs">
-      <button class="drawer__tab is-active">Overview</button>
-      <button class="drawer__tab">Policy</button>
-      <button class="drawer__tab">Allow</button>
-      <button class="drawer__tab">Velocity</button>
-      <button class="drawer__tab">Audit</button>
-    </div>
-    <div class="drawer__body">
-      <div class="section-title">Identity</div>
-      <div class="field"><div class="field__label">Key ID</div><div class="field__value mono">{{ selected.id }}</div></div>
-      <div class="field"><div class="field__label">Target host</div><div class="field__value mono">{{ selected.target }}</div></div>
-      <div class="field"><div class="field__label">Policy ID</div><div class="field__value mono">{{ selected.policyId }}</div></div>
-      <div class="field"><div class="field__label">Policy hash</div><div class="field__value mono">{{ selected.policyHash }}</div></div>
-      <div class="field"><div class="field__label">Vault</div><div class="field__value">Shared vault DO</div></div>
-      <div class="field"><div class="field__label">Created</div><div class="field__value mono">{{ selected.created }}</div></div>
-
-      <div class="section-title">Usage</div>
-      <div class="field"><div class="field__label">Requests</div><div class="field__value">{{ '{:,}'.format(selected.requests) }} <span style="color:var(--text-dim)">· {{ selected.rpm }}/min cap</span></div></div>
-      <div class="field"><div class="field__label">Last used</div><div class="field__value">{{ selected.lastUsed }}</div></div>
-      <div class="field"><div class="field__label">Adapters</div>
-        <div class="field__value" style="display:flex;gap:4px;flex-wrap:wrap">
-          {% for a in selected.adapters %}<span class="tag">{{ a }}</span>{% endfor %}
-        </div>
-      </div>
-
-      <div class="locked-note">⚿ Policy &amp; auth fields are AAD-bound to the ciphertext. Editing requires rotation.</div>
-
-      <div style="display:flex; gap:8px; margin-top:4px">
-        <button class="btn" data-action="pause-key" data-key="{{ selected.id }}">Pause</button>
-        <button class="btn" data-action="rotate-key" data-key="{{ selected.id }}">Rotate</button>
-        <button class="btn btn--danger" style="margin-left:auto" data-action="revoke-key" data-key="{{ selected.id }}">Revoke</button>
-      </div>
-    </div>
-  </div>
+  {% include "_vault_api_drawer.html" %}
 
 </div>
 {% endblock %}

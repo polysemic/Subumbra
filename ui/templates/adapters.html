@@ -3,6 +3,7 @@
 
 {% block content %}
 {% set adapters = data.adapters %}
+{% set selected_adapter = (adapters | selectattr('id', 'equalto', selected_id) | list | first) if selected_id else None %}
 
 <div class="page-head">
   <div>
@@ -14,6 +15,99 @@
   </div>
 </div>
 
+<div class="attn" style="margin-bottom:20px; flex-direction:column; gap:16px; padding:18px 20px; border-color:var(--border-strong); background:linear-gradient(135deg, var(--surface) 0%, var(--raised) 100%)">
+  <div style="display:flex; width:100%; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px">
+    <div>
+      <div style="font-size: var(--fs-md); font-weight: var(--fw-semibold); display:flex; align-items:center; gap:8px">
+        <span style="color:var(--accent-strong)">🌐</span> Console Gateway & Security Status
+      </div>
+      <p style="font-size:var(--fs-xs); color:var(--text-dim); margin-top:4px; max-width:600px">
+        Your Console UI address and secure gateway status. Copy this URL as the base for local development or remote client connections.
+      </p>
+    </div>
+    <div style="display:flex; gap:8px; flex-wrap:wrap">
+      {% if tunnel_configured %}
+        <span class="pill pill--active" style="display:inline-flex; align-items:center; gap:4px">
+          <span style="color:var(--ok)">✓</span> Cloudflare Tunnel
+        </span>
+      {% else %}
+        <span class="pill" style="display:inline-flex; align-items:center; gap:4px; background:var(--sunken); color:var(--text-dim); border:1px dashed var(--border)">
+          <span>✗</span> Local Only
+        </span>
+      {% endif %}
+
+      {% if access_configured %}
+        <span class="pill pill--active" style="display:inline-flex; align-items:center; gap:4px">
+          <span style="color:var(--ok)">✓</span> CF Access Gate
+        </span>
+      {% else %}
+        <span class="pill" style="display:inline-flex; align-items:center; gap:4px; background:var(--sunken); color:var(--text-dim); border:1px dashed var(--border)">
+          <span>✗</span> No CF Access
+        </span>
+      {% endif %}
+
+      {% if auth_configured %}
+        <span class="pill pill--active" style="display:inline-flex; align-items:center; gap:4px">
+          <span style="color:var(--ok)">✓</span> Basic Auth
+        </span>
+      {% else %}
+        <span class="pill pill--paused" style="display:inline-flex; align-items:center; gap:4px">
+          <span style="color:var(--warn)">!</span> Basic Auth Off
+        </span>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="settings-divider" style="width:100%; margin:0; height:1px; background:var(--border)"></div>
+
+  <div style="display:flex; width:100%; gap:24px; flex-wrap:wrap; align-items:flex-start">
+    <div style="flex:1; min-width:280px">
+      <div class="lbl" style="margin-bottom:6px">Console UI Address & Port</div>
+      <div class="adapter-token" style="justify-content:space-between; gap:12px; width:100%; max-width:550px; box-sizing:border-box">
+        <code class="mono" style="word-break:break-all; flex:1; font-size:12px">{{ console_url or 'http://127.0.0.1:6563' }}</code>
+        <button class="copy" data-copy="{{ console_url or 'http://127.0.0.1:6563' }}" style="border:none; background:none; font-size:14px; padding:0; line-height:1; cursor:pointer" title="Copy UI Address">⎘</button>
+      </div>
+    </div>
+    
+    <div style="flex:1; min-width:280px; display:flex; flex-direction:column; gap:8px; font-size:var(--fs-xs); color:var(--text-muted)">
+      <div style="display:flex; justify-content:space-between; padding:2px 0; border-bottom:1px solid rgba(255,255,255,0.03)">
+        <span style="color:var(--text-dim)">Gateway Host</span>
+        <span class="mono">{{ console_host or '127.0.0.1:6563' }}</span>
+      </div>
+      <div style="display:flex; justify-content:space-between; padding:2px 0; border-bottom:1px solid rgba(255,255,255,0.03)">
+        <span style="color:var(--text-dim)">Cloudflare Tunnel</span>
+        <span>
+          {% if tunnel_configured %}
+            <span style="color:var(--ok)">Active</span>{% if tunnel_hostname %} <span class="mono" style="color:var(--text-dim)">({{ tunnel_hostname }})</span>{% endif %}
+          {% else %}
+            <span style="color:var(--text-dim)">Local Port Mapping Only</span>
+          {% endif %}
+        </span>
+      </div>
+      <div style="display:flex; justify-content:space-between; padding:2px 0; border-bottom:1px solid rgba(255,255,255,0.03)">
+        <span style="color:var(--text-dim)">Cloudflare Access Guard</span>
+        <span>
+          {% if access_configured %}
+            <span style="color:var(--ok)">Enabled</span>
+          {% else %}
+            <span style="color:var(--text-dim)">Disabled</span>
+          {% endif %}
+        </span>
+      </div>
+      <div style="display:flex; justify-content:space-between; padding:2px 0; border-bottom:1px solid rgba(255,255,255,0.03)">
+        <span style="color:var(--text-dim)">Console Basic Authentication</span>
+        <span>
+          {% if auth_configured %}
+            <span style="color:var(--ok)">Configured</span> <span class="mono" style="color:var(--text-dim)">({{ ui_username }})</span>
+          {% else %}
+            <span style="color:var(--warn)">Not Set (Inherited Outer Security Only)</span>
+          {% endif %}
+        </span>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="chips" style="margin-bottom:14px">
   <button class="chip is-active">All <span class="chip__count">{{ adapters|length }}</span></button>
   <button class="chip">Active <span class="chip__count">{{ adapters|selectattr('status','equalto','active')|list|length }}</span></button>
@@ -22,7 +116,7 @@
 
 <div class="grid-3">
   {% for a in adapters %}
-    <article class="adapter-card">
+    <article class="adapter-card{{ ' is-active' if selected_adapter and a['id'] == selected_adapter['id'] else '' }}" data-adapter-id="{{ a['id'] }}">
       <div class="adapter-card__head">
         <div class="adapter-logo">{{ a["logo"] }}</div>
         <div>
@@ -45,7 +139,7 @@
         <div class="lbl">Allowed keys</div>
         <div style="display:flex;gap:4px;flex-wrap:wrap;flex:1">
           {% for key_id in a["keys"] %}
-            <span class="tag mono">{{ key_id }}</span>
+            <a class="tag mono" href="/vault?select={{ key_id }}">{{ key_id }}</a>
           {% endfor %}
         </div>
       </div>
@@ -73,15 +167,20 @@
       {% if a["proxy_urls"] %}
       <div class="adapter-card__row" style="align-items:flex-start">
         <div class="lbl">Proxy URLs</div>
-        <div style="display:flex;flex-direction:column;gap:8px;flex:1">
-          {% for proxy in a["proxy_urls"] %}
-            <div style="display:flex;flex-direction:column;gap:4px">
-              <div class="mono" style="font-size:11px;color:var(--text-dim)">{{ proxy.key_id }}</div>
-              <div class="adapter-token" style="justify-content:space-between;gap:8px">
-                <code class="mono" style="word-break:break-all;flex:1">{{ proxy.url }}</code>
-                <button class="copy" data-copy="{{ proxy.url }}">⎘</button>
+        <div style="display:flex;flex-direction:column;gap:12px;flex:1">
+          {% for key_id in a["keys"] %}
+            {% for topo in ['docker-internal', 'host-local'] %}
+              {% set entry = a["proxy_urls"] | selectattr('topology', 'equalto', topo) | selectattr('key_id', 'equalto', key_id) | list | first %}
+              {% if entry %}
+              <div>
+                <div style="font-size:11px;color:var(--text-dim);margin-bottom:2px">{{ entry.label }}{% if a["keys"]|length > 1 %} · {{ key_id }}{% endif %}</div>
+                <div class="adapter-token" style="justify-content:space-between;gap:8px">
+                  <code class="mono" style="word-break:break-all;flex:1;font-size:11px">{{ entry.url }}</code>
+                  <button class="copy" data-copy="{{ entry.url }}" title="Copy">⎘</button>
+                </div>
               </div>
-            </div>
+              {% endif %}
+            {% endfor %}
           {% endfor %}
         </div>
       </div>

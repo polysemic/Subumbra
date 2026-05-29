@@ -80,6 +80,9 @@ LEGACY_UI_PASSWORD    = os.environ.get("UI_PASSWORD", "")
 CF_ACCESS_PROTECTED   = os.environ.get("CF_ACCESS_PROTECTED", "").strip().lower() in {
     "1", "true", "yes", "on",
 }
+TUNNEL_TOKEN          = os.environ.get("TUNNEL_TOKEN", "")
+CF_TUNNEL_HOSTNAME    = os.environ.get("CF_TUNNEL_HOSTNAME", "")
+
 # When SUBUMBRA_UI_DEMO=1, render the mock dataset so the console is usable
 # standalone (during install, dev, demos).
 DEMO_MODE             = os.environ.get("SUBUMBRA_UI_DEMO", "").lower() in {"1", "true", "yes"}
@@ -426,8 +429,6 @@ def _render_template_value(raw_value: str, adapter_token: str, key_id: str | Non
     rendered = rendered.replace("{adapter_token}", adapter_token)
     if key_id is not None:
         rendered = rendered.replace("{key_id}", key_id)
-    if CF_WORKER_URL:
-        rendered = rendered.replace("http://subumbra-proxy:8090", CF_WORKER_URL.rstrip("/"))
     return rendered
 
 
@@ -458,22 +459,21 @@ def _build_adapter_caps(adapter: dict, raw_keys: list[dict]) -> list[str]:
     return sorted(set(caps))
 
 
-def _build_proxy_urls(template: dict | None, allowed_keys: list[str]) -> list[dict]:
-    if not CF_WORKER_URL:
-        return []
-
-    template_values: list[str] = []
-    if template:
-        template_values = [str(field.get("value", "")) for field in template.get("fields", [])]
-
+def _build_proxy_urls(allowed_keys: list[str]) -> list[dict]:
     proxy_urls: list[dict] = []
     for key_id in allowed_keys:
-        url = f"{CF_WORKER_URL.rstrip('/')}/t/{key_id}"
-        for raw_value in template_values:
-            if "/t/{key_id}" in raw_value:
-                url = _render_template_value(raw_value, "", key_id)
-                break
-        proxy_urls.append({"key_id": key_id, "url": url})
+        proxy_urls.append({
+            "key_id": key_id,
+            "topology": "docker-internal",
+            "label": "Docker-internal (sibling containers)",
+            "url": f"http://subumbra-proxy:8090/t/{key_id}",
+        })
+        proxy_urls.append({
+            "key_id": key_id,
+            "topology": "host-local",
+            "label": "Host / Local network",
+            "url": f"http://127.0.0.1:10199/t/{key_id}",
+        })
     return proxy_urls
 
 
@@ -548,7 +548,7 @@ def _build_adapter_rows(adapters_payload: dict | None, raw_keys: list[dict], aud
             "caps": _build_adapter_caps(adapter, raw_keys),
             "issuedAt": issued_at or "—",
             "expiresAt": expires_at or "—",
-            "proxy_urls": _build_proxy_urls(template, allowed_keys),
+            "proxy_urls": _build_proxy_urls(allowed_keys),
             "config_blocks": _build_config_blocks(template, str(adapter.get("token", "")), allowed_keys),
             "docsPath": (template or {}).get("docs_path") or "",
         })
@@ -599,7 +599,8 @@ def _build_attention_rows(raw_keys: list[dict], session_data: dict | None) -> li
             "title": f"{len(paused)} key{'s' if len(paused) != 1 else ''} paused",
             "body": ", ".join(str(key_id) for key_id in paused[:4]),
             "cta": "Review keys",
-            "href": "/vault",
+            "href": f"/vault?select={paused[0]}" if len(paused) == 1 else "/vault",
+            "keyId": paused[0] if len(paused) == 1 else None,
         })
     if revoked:
         items.append({
@@ -607,7 +608,8 @@ def _build_attention_rows(raw_keys: list[dict], session_data: dict | None) -> li
             "title": f"{len(revoked)} key{'s' if len(revoked) != 1 else ''} revoked",
             "body": ", ".join(str(key_id) for key_id in revoked[:4]),
             "cta": "Review keys",
-            "href": "/vault",
+            "href": f"/vault?select={revoked[0]}" if len(revoked) == 1 else "/vault",
+            "keyId": revoked[0] if len(revoked) == 1 else None,
         })
     if lockdown_enabled and not sessions:
         items.append({
@@ -807,6 +809,12 @@ def _merge_keys(keys: list, stats: dict) -> list:
             "hosts":       hosts,
             "pub":         k.get("public_key", "—"),
             "adapter":     k.get("allow_adapters", ["—"])[0] if k.get("allow_adapters") else "—",
+            # Policy detail fields
+            "authScheme":        k.get("auth_scheme", "—"),
+            "basePath":          k.get("base_path", ""),
+            "allowMethods":      k.get("allow_methods", []),
+            "allowPathPrefixes": k.get("allow_path_prefixes", []),
+            "maxSignOps":        k.get("policy", {}).get("max_sign_ops") if is_ssh else None,
         })
     return merged
 
@@ -835,7 +843,13 @@ def add_security_headers(response):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("Referrer-Policy", "no-referrer")
     response.headers.setdefault("Content-Security-Policy",
-        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+        "default-src 'self'; "
+        "script-src 'self' https://static.cloudflareinsights.com "
+        "'unsafe-inline' "
+        "'sha256-e4fd6zTyWMEIusJCbxl56KGhXrQZxaE8OyuY6PqBjQI=' "
+        "'sha256-CtZ5OpVZxc24Sg2W7Ppz9D25/OYzGQT/XWFsG0YgiBs=' "
+        "'sha256-tlrPY8qn6o8RYzcIbE5YJqyUSsc3mVCfgFe0SIhOJ8g='; "
+        "style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data:; font-src 'self' data:; connect-src 'self'")
     response.headers.setdefault("Cache-Control", "no-store")
     response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
@@ -845,12 +859,30 @@ def add_security_headers(response):
 
 @app.context_processor
 def inject_globals():
+    try:
+        host_url = request.host_url.rstrip('/')
+        host_name = request.host
+    except Exception:
+        host_url = ""
+        host_name = ""
+
+    tunnel_configured = bool(TUNNEL_TOKEN or CF_TUNNEL_HOSTNAME)
+    access_configured = bool(CF_ACCESS_PROTECTED)
+    auth_configured = bool(UI_USERNAME and UI_PASSWORD_HASH)
+
     return {
         "NAV":                   NAV,
         "ORG":                   ORG,
         "VERSION":               os.environ.get("SUBUMBRA_VERSION", "1.1.1-alpha"),
         "now":                   datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "gate_vapid_public_key": SUBUMBRA_GATE_VAPID_PUBLIC_KEY,
+        "console_url":           host_url,
+        "console_host":          host_name,
+        "tunnel_configured":     tunnel_configured,
+        "tunnel_hostname":       CF_TUNNEL_HOSTNAME,
+        "access_configured":     access_configured,
+        "auth_configured":       auth_configured,
+        "ui_username":           UI_username if 'UI_username' in globals() else (UI_USERNAME if 'UI_USERNAME' in globals() else ""),
     }
 
 
@@ -879,13 +911,31 @@ def overview():
 @app.get("/vault")
 @_require_auth
 def vault_api():
-    return page("vault_api.html", active="vault", crumbs=["Vault", "API keys"])
+    selected_id = request.args.get("select", "")
+    if request.args.get("partial") == "drawer":
+        data = build_console_data()
+        keys = data["keys"]
+        selected = next((entry for entry in keys if entry.get("id") == selected_id), None)
+        if selected is None and keys:
+            selected = keys[0]
+        return render_template("_vault_api_drawer.html", data=data, selected=selected)
+    return page("vault_api.html", active="vault", crumbs=["Vault", "API keys"],
+                selected_id=selected_id)
 
 
 @app.get("/vault/ssh")
 @_require_auth
 def vault_ssh():
-    return page("vault_ssh.html", active="vault", crumbs=["Vault", "SSH keys"])
+    selected_id = request.args.get("select", "")
+    if request.args.get("partial") == "drawer":
+        data = build_console_data()
+        ssh_keys = data["ssh_keys"]
+        selected = next((entry for entry in ssh_keys if entry.get("id") == selected_id), None)
+        if selected is None and ssh_keys:
+            selected = ssh_keys[0]
+        return render_template("_vault_ssh_drawer.html", data=data, selected=selected)
+    return page("vault_ssh.html", active="vault", crumbs=["Vault", "SSH keys"],
+                selected_id=selected_id)
 
 
 @app.get("/sessions")
@@ -897,13 +947,17 @@ def sessions():
 @app.get("/adapters")
 @_require_auth
 def adapters():
-    return page("adapters.html", active="adapters", crumbs=["Adapters"])
+    selected_id = request.args.get("select", "")
+    return page("adapters.html", active="adapters", crumbs=["Adapters"],
+                selected_id=selected_id)
 
 
 @app.get("/policies")
 @_require_auth
 def policies():
-    return page("policies.html", active="policies", crumbs=["Policies & Templates"])
+    selected_id = request.args.get("select", "")
+    return page("policies.html", active="policies", crumbs=["Policies & Templates"],
+                selected_id=selected_id)
 
 
 @app.get("/audit")

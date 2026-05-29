@@ -5,6 +5,17 @@ All notable changes to Subumbra should be summarized here.
 This file is intentionally concise. For longer release writeups, operator notes,
 and release-specific context, see `docs/releases/`.
 
+## 1.2.1-alpha - 2026-05-29
+
+### Changed
+
+- Vault drawer sub-tabs now swap content panes (Overview/Policy/Allow/Velocity/Audit for API keys; Overview/Hosts/Quota/Audit for SSH keys) instead of toggling CSS classes only.
+- Adapter proxy URL snippets now show two topology entries per key — Docker-internal (`http://subumbra-proxy:8090/t/<key_id>`) and host-local (`http://127.0.0.1:10199/t/<key_id>`) — replacing the incorrect CF Worker URL.
+- SSH key list endpoint (`GET /keys`) now includes `public_key` and `algorithm` fields, enabling real fingerprint display in the SSH vault drawer.
+- Vault, SSH vault, policies, and adapters pages accept `?select=<id>` query parameter to pre-select a key, policy, or adapter on load.
+- Cross-page navigation links added: audit log key/adapter columns link to vault and adapters pages; overview recent activity stream links key IDs and adapter names.
+- Removed stale "coming Q3" and "quota lands Q3" placeholder strings from the SSH vault drawer.
+
 ## 1.1.1-alpha - 2026-05-20
 
 ### Changed

@@ -3,7 +3,8 @@
 
 {% block content %}
 {% set ssh = data.ssh_keys %}
-{% set selected = ssh[0] %}
+{% set selected = (ssh | selectattr('id', 'equalto', selected_id) | list | first) if selected_id else None %}
+{% set selected = selected if selected else (ssh[0] if ssh else None) %}
 
 <div class="page-head">
   <div>
@@ -67,85 +68,7 @@
     </table>
   </div>
 
-  <div class="drawer">
-    <div class="drawer__head">
-      <div style="display:flex; align-items:center; gap:10px">
-        <div class="key-icon key-icon--ssh">⌬</div>
-        <div style="flex:1; min-width:0">
-          <div style="display:flex; align-items:center; gap:8px">
-            <span class="mono" style="font-weight:600; font-size:14px">{{ selected.id }}</span>
-            <span class="pill pill--{{ selected.status }}">{{ selected.status }}</span>
-          </div>
-          <div style="display:flex; gap:6px; margin-top:5px">
-            <span class="badge badge--{{ selected.provider }}">{{ selected.provider }}</span>
-            <span class="tag tag--cap-ssh">ssh-sign</span>
-            <span class="tag">shared vault</span>
-          </div>
-        </div>
-        <button class="btn btn--ghost" style="font-size:14px">×</button>
-      </div>
-    </div>
-    <div class="drawer__tabs">
-      <button class="drawer__tab is-active">Overview</button>
-      <button class="drawer__tab">Hosts</button>
-      <button class="drawer__tab">Quota</button>
-      <button class="drawer__tab">Audit</button>
-    </div>
-    <div class="drawer__body">
-
-      <div class="section-title">Identity</div>
-      <div class="field"><div class="field__label">Algorithm</div><div class="field__value mono">{{ selected.alg }}</div></div>
-      <div class="field"><div class="field__label">Fingerprint</div><div class="field__value mono" style="color:var(--brand)">{{ selected.fpr }}</div></div>
-      <div class="field" style="grid-template-columns:1fr;gap:6px">
-        <div class="field__label">Public key</div>
-        <div class="pubkey-row">
-          <div class="pubkey">{{ selected.pub }}</div>
-          <button class="pubkey-copy" title="Copy" data-copy="{{ selected.pub }}">⎘</button>
-        </div>
-        <div style="font-size:10px;color:var(--text-dim);margin-top:4px">
-          Paste this into <span class="mono">authorized_keys</span> or a GitHub deploy key field.
-        </div>
-      </div>
-      <div class="field"><div class="field__label">Vault</div><div class="field__value">Shared vault DO</div></div>
-
-      <div class="section-title">Authorisation</div>
-      <div class="field">
-        <div class="field__label">Allowed hosts</div>
-        <div class="field__value" style="display:flex;gap:4px;flex-wrap:wrap">
-          {% for h in selected.hosts %}<span class="tag mono">{{ h }}</span>{% endfor %}
-          <span class="tag tag--dashed">+ add host</span>
-        </div>
-      </div>
-      <div class="field">
-        <div class="field__label">Confirm each sign</div>
-        <div class="field__value" style="display:flex; align-items:center; gap:8px">
-          <span class="pill pill--soon">coming Q3</span>
-          <span style="color:var(--text-dim); font-size:11px">Optional interactive confirmation per sign</span>
-        </div>
-      </div>
-      <div class="field">
-        <div class="field__label">Max sign ops</div>
-        <div class="field__value mono" style="color:var(--text-dim)">
-          unlimited
-          <span style="font-family:inherit; font-size:11px; margin-left:4px">(quota lands Q3)</span>
-        </div>
-      </div>
-      <div class="field">
-        <div class="field__label">Adapter</div>
-        <div class="field__value" style="display:flex; gap:4px"><span class="tag">{{ selected.adapter }}</span></div>
-      </div>
-
-      <div class="locked-note">
-        ⚿ Allowed-host enforcement is the AAD-bound part. Adding a host requires rotation. Sign-quota fields land in r87 and become editable inline.
-      </div>
-
-      <div style="display:flex; gap:8px; margin-top:4px">
-        <button class="btn" data-action="pause-key" data-key="{{ selected.id }}">Pause</button>
-        <button class="btn" data-action="rotate-key" data-key="{{ selected.id }}">Rotate</button>
-        <button class="btn btn--danger" style="margin-left:auto" data-action="revoke-key" data-key="{{ selected.id }}">Revoke</button>
-      </div>
-    </div>
-  </div>
+  {% include "_vault_ssh_drawer.html" %}
 
 </div>
 {% endblock %}

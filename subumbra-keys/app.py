@@ -1025,6 +1025,8 @@ def list_keys() -> tuple[Response, int]:
             "allow_adapters": allow.get("adapters", []),
             "allow_methods": allow.get("methods", []),
             "allow_path_prefixes": allow.get("path_prefixes", []),
+            "public_key": meta.get("public_key") if meta.get("type") == "ssh_key" else None,
+            "algorithm": meta.get("algorithm", "ed25519") if meta.get("type") == "ssh_key" else None,
         })
 
     return jsonify({"keys": payload}), 200

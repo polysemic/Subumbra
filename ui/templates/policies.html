@@ -3,7 +3,8 @@
 
 {% block content %}
 {% set policies = data.policies %}
-{% set selected = policies[0] if policies else none %}
+{% set selected = (data.policies | selectattr('id', 'equalto', selected_id) | list | first) if selected_id else None %}
+{% set selected = selected if selected else (data.policies[0] if data.policies else None) %}
 
 <div class="page-head">
   <div>

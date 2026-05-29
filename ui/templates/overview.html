@@ -77,7 +77,7 @@
         <div class="attn">
           <div class="attn__icon attn__icon--{{ a.sev }}">{{ '!' if a.sev == 'warn' else 'i' }}</div>
           <div class="attn__body">
-            <div class="attn__title">{{ a.title }}</div>
+            <div class="attn__title">{{ a.title }}{% if a.keyId %} — <a href="/vault?select={{ a.keyId }}" style="font-family:var(--font-mono);font-size:12px">{{ a.keyId }}</a>{% endif %}</div>
             <div class="attn__sub">{{ a.body }}</div>
           </div>
           <a class="attn__cta" href="{{ a.href }}">{{ a.cta }}</a>
@@ -97,7 +97,7 @@
           <span class="ts">{{ e.ts }}</span>
           <span class="badge badge--{{ e.provider }}">{{ e.provider }}</span>
           <span class="mono truncate" style="color:var(--text-muted)">
-            {{ e.adapter }} → <span style="color:var(--text)">{{ e.keyId }}</span>
+            <a href="/adapters?select={{ e.adapter }}">{{ e.adapter }}</a> → <a href="/vault?select={{ e.keyId }}" style="color:var(--text)">{{ e.keyId }}</a>
           </span>
           <span class="mono truncate" style="color:var(--text-dim);font-size:11px">{{ e.endpoint }}</span>
           <span class="{{ 'verdict-allow' if e.verdict == 'allow' else 'verdict-deny' }}">{{ e.verdict }}</span>
