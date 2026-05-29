@@ -460,6 +460,40 @@
   margin-left: 2px;
 }
 
+/* Subscribe badge — shown when this device has no push subscription */
+.janus-subscribe {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border-left: 1px solid var(--border);
+  padding-left: var(--space-2);
+  margin-left: 2px;
+}
+.janus-subscribe__btn {
+  background: transparent;
+  border: none;
+  color: var(--accent-strong);
+  font-size: 10px;
+  font-weight: var(--fw-semibold);
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  transition: color var(--t-fast);
+}
+.janus-subscribe__btn:hover { color: var(--accent); }
+.janus-subscribe__btn:disabled { color: var(--text-dim); cursor: default; }
+.janus-subscribe__dismiss {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  font-size: 9px;
+  cursor: pointer;
+  padding: 0 0 0 2px;
+  line-height: 1;
+  transition: color var(--t-fast);
+}
+.janus-subscribe__dismiss:hover { color: var(--text); }
+
 .top__icon {
   width: 32px;
   height: 32px;

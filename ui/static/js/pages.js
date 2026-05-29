@@ -18,18 +18,66 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 /* ── Janus indicator ─────────────────────────────────────────────
-   Checks whether this browser has an active push subscription and
-   adds .is-subscribed to the indicator so the dot turns green.
-   Runs async after load; no-ops silently if Push API is unavailable.
+   • Subscribed device  → green dot, no badge.
+   • Unsubscribed device → amber "Subscribe" badge with a ✕ dismiss.
+     Dismissed state saved to localStorage; clicking Subscribe calls
+     window.ensureSubumbraPushSubscription() from push.js.
+   No-ops silently if Push API is unavailable or VAPID key missing.
    ───────────────────────────────────────────────────────────── */
 function initJanus() {
   const el = document.getElementById("janusIndicator");
   if (!el || !("serviceWorker" in navigator)) return;
+
+  const DISMISS_KEY = "janus-subscribe-dismissed";
+
+  function addSubscribeBadge() {
+    if (localStorage.getItem(DISMISS_KEY) === "1") return;
+    if (el.querySelector(".janus-subscribe")) return;
+
+    const badge = document.createElement("span");
+    badge.className = "janus-subscribe";
+
+    const btn = document.createElement("button");
+    btn.className = "janus-subscribe__btn";
+    btn.textContent = "Subscribe";
+    btn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!window.ensureSubumbraPushSubscription) return;
+      btn.textContent = "…";
+      btn.disabled = true;
+      try {
+        await window.ensureSubumbraPushSubscription();
+        badge.remove();
+        el.classList.add("is-subscribed");
+      } catch {
+        btn.textContent = "Subscribe";
+        btn.disabled = false;
+      }
+    });
+
+    const dismiss = document.createElement("button");
+    dismiss.className = "janus-subscribe__dismiss";
+    dismiss.textContent = "✕";
+    dismiss.setAttribute("aria-label", "Dismiss");
+    dismiss.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      localStorage.setItem(DISMISS_KEY, "1");
+      badge.remove();
+    });
+
+    badge.appendChild(btn);
+    badge.appendChild(dismiss);
+    el.appendChild(badge);
+  }
+
   navigator.serviceWorker.getRegistration("/").then((reg) => {
-    if (!reg) return;
-    return reg.pushManager.getSubscription();
-  }).then((sub) => {
-    if (sub) el.classList.add("is-subscribed");
+    if (!reg) { addSubscribeBadge(); return; }
+    return reg.pushManager.getSubscription().then((sub) => {
+      if (sub) el.classList.add("is-subscribed");
+      else addSubscribeBadge();
+    });
   }).catch(() => {});
 }
 
