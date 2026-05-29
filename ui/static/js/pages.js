@@ -213,10 +213,12 @@ async function openAddKey() {
 
   // Wire the submit button — POSTs the ciphertext.
   const submit = modal.querySelector("[data-bind='submit']");
-  submit.disabled = true;
-  paste.addEventListener("subumbra:captured", () => { submit.disabled = false; }, { once: true });
+  submit.replaceWith(submit.cloneNode(true));
+  const submitBtn = modal.querySelector("[data-bind='submit']");
+  submitBtn.disabled = true;
+  paste.addEventListener("subumbra:captured", () => { submitBtn.disabled = false; }, { once: true });
 
-  submit.onclick = async () => {
+  const onSubmit = async () => {
     if (!paste.value) return;
     const keyId     = modal.querySelector("[data-bind='key-id']").value;
     const provider  = modal.querySelector("[data-bind='provider']").value;
@@ -229,6 +231,7 @@ async function openAddKey() {
       _showApiToast(resp, `add ${keyId}`);
     }
   };
+  submitBtn.addEventListener("click", onSubmit, { once: true });
 
   // Drop the server session when the modal closes (releases the private key).
   modal.addEventListener("close", () => { Api.dropKeySession(sessionId); paste.reset(); }, { once: true });
@@ -320,16 +323,19 @@ async function openLockAll() {
   modal.open();
 
   const confirm = modal.querySelector("[data-bind='confirm']");
+  confirm.replaceWith(confirm.cloneNode(true));
+  const confirmBtn = modal.querySelector("[data-bind='confirm']");
   const input   = modal.querySelector("[data-bind='confirm-input']");
-  const update  = () => confirm.disabled = (input.value.trim() !== "LOCK");
+  const update  = () => confirmBtn.disabled = (input.value.trim() !== "LOCK");
   input.addEventListener("input", update);
   update();
 
-  confirm.onclick = async () => {
+  const onConfirm = async () => {
     const r = await Api.lockAll();
     if (r.ok) { SubToast.show("All sessions closed"); modal.close(); setTimeout(() => location.reload(), 600); }
     else _showApiToast(r, "lock all");
   };
+  confirmBtn.addEventListener("click", onConfirm, { once: true });
 }
 
 function mountLockAllModal() {

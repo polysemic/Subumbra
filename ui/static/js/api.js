@@ -4,6 +4,9 @@
 
 "use strict";
 
+let _subumbraEventSource = null;
+let _subumbraEventStreamWired = false;
+
 const Api = {
 
   async _fetch(path, opts = {}) {
@@ -46,15 +49,28 @@ const Api = {
    whether to re-fetch /api/status on the tick. */
 function initEventStream() {
   if (!("EventSource" in window)) return;
-  let es;
+  if (_subumbraEventSource) _subumbraEventSource.close();
+
   function connect() {
-    es = new EventSource("/api/events");
-    es.addEventListener("open",  () => window.dispatchEvent(new CustomEvent("subumbra:live")));
-    es.addEventListener("error", () => window.dispatchEvent(new CustomEvent("subumbra:reconnecting")));
-    es.addEventListener("message", () => window.dispatchEvent(new CustomEvent("subumbra:status")));
+    _subumbraEventSource = new EventSource("/api/events");
+    _subumbraEventSource.addEventListener("open",  () => window.dispatchEvent(new CustomEvent("subumbra:live")));
+    _subumbraEventSource.addEventListener("error", () => window.dispatchEvent(new CustomEvent("subumbra:reconnecting")));
+    _subumbraEventSource.addEventListener("message", () => window.dispatchEvent(new CustomEvent("subumbra:status")));
   }
+
   connect();
-  // Browsers auto-reconnect EventSource; nothing else to do.
+
+  if (!_subumbraEventStreamWired) {
+    const disconnect = () => {
+      if (_subumbraEventSource) {
+        _subumbraEventSource.close();
+        _subumbraEventSource = null;
+      }
+    };
+    window.addEventListener("pagehide", disconnect);
+    window.addEventListener("beforeunload", disconnect);
+    _subumbraEventStreamWired = true;
+  }
 }
 
 window.Api = Api;
