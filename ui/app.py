@@ -674,6 +674,7 @@ def _build_observability_data(
             "key_id": key_id or "—",
             "provider": key_meta.get("provider", "unknown"),
             "request_count": entry.get("request_count", 0),
+            "hourly": entry.get("hourly", []),
         })
     decrypt_errors = [
         {

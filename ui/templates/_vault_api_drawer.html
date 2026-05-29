@@ -92,6 +92,14 @@
       {% set vel_entry = data.observability.velocity | selectattr('key_id', 'equalto', selected.id) | list | first %}
       <div class="field"><div class="field__label">Requests (last 60 s)</div><div class="field__value mono">{{ vel_entry.request_count if vel_entry else 0 }}</div></div>
       <div class="field"><div class="field__label">Rate-limit cap</div><div class="field__value mono">{{ selected.rpm }}/min</div></div>
+      {% if vel_entry and vel_entry.hourly %}
+      <div class="field" style="flex-direction:column;gap:6px">
+        <div class="field__label">Last 24 h · hourly</div>
+        <div data-chart="bars"
+             data-values="{{ vel_entry.hourly | join(',') }}"
+             data-label="24 h · oldest → now"></div>
+      </div>
+      {% endif %}
     </div>
 
     <div class="drawer__pane is-hidden">

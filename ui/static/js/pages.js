@@ -16,6 +16,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initSwitches();
   initActions();
   initLiveData();
+  renderCharts();
 });
 
 /* ── Janus indicator ─────────────────────────────────────────────
@@ -676,4 +677,87 @@ function initLiveData() {
       `).join("");
     });
   }
+}
+
+/* ── Charts — pure SVG, no dependencies ─────────────────────────
+   Finds [data-chart] elements and replaces them with inline SVG.
+
+   data-chart="donut"   data-values="13,1,0"  data-colors="#4c9,#f80,#f44"
+   data-chart="fill"    data-value="0.12"      (0–1 fraction)
+   data-chart="bars"    data-values="2,5,8…"  (raw counts, 24 bars)
+   ─────────────────────────────────────────────────────────────── */
+function renderCharts() {
+  document.querySelectorAll("[data-chart]").forEach(el => {
+    const type = el.dataset.chart;
+    if (type === "donut")  el.innerHTML = _chartDonut(el);
+    if (type === "fill")   el.innerHTML = _chartFill(el);
+    if (type === "bars")   el.innerHTML = _chartBars(el);
+  });
+}
+
+function _chartDonut(el) {
+  const vals   = (el.dataset.values || "").split(",").map(Number).filter(v => !isNaN(v));
+  const colors = (el.dataset.colors || "").split(",");
+  const labels = (el.dataset.labels || "").split(",");
+  const total  = vals.reduce((s, v) => s + v, 0);
+  if (total === 0) return "";
+  const r = 18, cx = 22, cy = 22, sw = 7;
+  const circ = 2 * Math.PI * r;
+  let offset = 0;
+  let arcs = "";
+  vals.forEach((v, i) => {
+    const frac = v / total;
+    const dash = frac * circ;
+    const gap  = circ - dash;
+    arcs += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none"
+      stroke="${colors[i] || "var(--border-strong)"}" stroke-width="${sw}"
+      stroke-dasharray="${dash.toFixed(2)} ${gap.toFixed(2)}"
+      stroke-dashoffset="${(-offset * circ / (2 * Math.PI * r)).toFixed(2)}"
+      transform="rotate(-90 ${cx} ${cy})"/>`;
+    offset += dash;
+  });
+  const legendItems = vals.map((v, i) => {
+    const lbl = labels[i] || "";
+    return lbl ? `<div style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--text-dim)">
+      <span style="width:7px;height:7px;border-radius:50%;background:${colors[i]};flex-shrink:0"></span>${lbl} ${v}
+    </div>` : "";
+  }).join("");
+  return `<div style="display:flex;align-items:center;gap:10px">
+    <svg width="44" height="44" viewBox="0 0 44 44" style="flex-shrink:0">${arcs}</svg>
+    <div style="display:flex;flex-direction:column;gap:3px">${legendItems}</div>
+  </div>`;
+}
+
+function _chartFill(el) {
+  const val = Math.min(1, Math.max(0, parseFloat(el.dataset.value || "0")));
+  const pct = (val * 100).toFixed(1);
+  const color = val > 0.2 ? "var(--err)" : val > 0.05 ? "var(--warn)" : "var(--ok)";
+  return `<div style="margin-top:6px">
+    <svg width="100%" height="6" style="display:block;border-radius:3px;overflow:hidden">
+      <rect width="100%" height="6" fill="var(--sunken)"/>
+      <rect width="${pct}%" height="6" fill="${color}" rx="3"/>
+    </svg>
+    <div style="font-size:10px;color:var(--text-dim);margin-top:3px">${pct}% deny rate</div>
+  </div>`;
+}
+
+function _chartBars(el) {
+  const vals = (el.dataset.values || "").split(",").map(Number).filter(v => !isNaN(v));
+  if (!vals.length) return "";
+  const w = 160, h = 36, gap = 2;
+  const bw = (w - gap * (vals.length - 1)) / vals.length;
+  const max = Math.max(...vals, 1);
+  const label = el.dataset.label || "";
+  const bars = vals.map((v, i) => {
+    const bh = Math.max(2, (v / max) * h);
+    const x  = i * (bw + gap);
+    const y  = h - bh;
+    const opacity = 0.4 + 0.6 * (v / max);
+    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}"
+      fill="var(--accent)" opacity="${opacity.toFixed(2)}" rx="1"/>`;
+  }).join("");
+  return `<div>
+    <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="display:block">${bars}</svg>
+    ${label ? `<div style="font-size:10px;color:var(--text-dim);margin-top:4px">${_esc(label)}</div>` : ""}
+  </div>`;
 }

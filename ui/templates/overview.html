@@ -6,6 +6,11 @@
 {% set total_q = sess|sum(attribute='queries_used') %}
 {% set total_req = data['keys']|sum(attribute='requests') %}
 {% set active_keys = data['keys']|selectattr('status','equalto','active')|list %}
+{% set n_active = data['keys']|selectattr('status','equalto','active')|list|length %}
+{% set n_paused = data['keys']|rejectattr('status','equalto','active')|list|length %}
+{% set deny_total = data.audit_stats.total if data.audit_stats is defined else 0 %}
+{% set deny_count = data.audit_stats.denies if data.audit_stats is defined else 0 %}
+{% set deny_frac  = (deny_count / deny_total) if deny_total > 0 else 0 %}
 
 <div class="page-head">
   <div>
@@ -103,8 +108,18 @@
 
 {# ── Stat tiles ───────────────────────────────────────────────── #}
 <div class="grid-4" style="margin-bottom:18px">
-  <sub-stat-card label="Vault inventory"  value="{{ data['keys']|length }}"
-                 sub="{{ data['keys']|selectattr('type','equalto','api')|list|length }} api · {{ data.ssh_keys|length }} ssh · {{ data['keys']|rejectattr('status','equalto','active')|list|length }} paused"></sub-stat-card>
+
+  {# Vault inventory — donut shows active/paused split #}
+  <div class="stat">
+    <div class="stat__label">Vault inventory</div>
+    <div class="stat__value">{{ data['keys']|length }}</div>
+    <div class="stat__sub">{{ data['keys']|selectattr('type','equalto','api')|list|length }} api · {{ data.ssh_keys|length }} ssh</div>
+    <div data-chart="donut"
+         data-values="{{ n_active }},{{ n_paused }}"
+         data-colors="var(--ok,#4c9),var(--warn,#f90)"
+         data-labels="active,paused"
+         style="margin-top:10px"></div>
+  </div>
 
   <sub-stat-card label="Requests · all time" value="{{ '{:,}'.format(total_req) }}"
                  sub="lifetime total across all keys"></sub-stat-card>
@@ -112,13 +127,16 @@
   <sub-stat-card label="SSH signs · all time" value="{{ data.ssh_keys|sum(attribute='signs') }}"
                  sub="{{ data.ssh_keys|length }} keys · multi-host"></sub-stat-card>
 
-  {% if data.audit_stats is defined %}
-  <sub-stat-card label="Denies" value="{{ data.audit_stats.denies }}"
-                 sub="of {{ data.audit_stats.total }} logged events"></sub-stat-card>
-  {% else %}
-  <sub-stat-card label="Denies" value="—"
-                 sub="audit log unavailable"></sub-stat-card>
-  {% endif %}
+  {# Denies — fill bar shows deny rate at a glance #}
+  <div class="stat">
+    <div class="stat__label">Denies</div>
+    <div class="stat__value">{{ deny_count if deny_total > 0 else '—' }}</div>
+    <div class="stat__sub">of {{ deny_total }} logged events</div>
+    {% if deny_total > 0 %}
+    <div data-chart="fill" data-value="{{ '%.4f'|format(deny_frac) }}" style="margin-top:6px"></div>
+    {% endif %}
+  </div>
+
 </div>
 
 {# ── Attention + recent activity ──────────────────────────────── #}

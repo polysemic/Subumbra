@@ -183,9 +183,12 @@ CONSOLE_DATA = {
             {"name":"cf worker","status":"ok","sub":"https://subumbra-proxy.polysemic.workers.dev","note":"gate read ok"},
         ],
         "velocity": [
-            {"key_id":"openai_prod","provider":"openai","request_count":62},
-            {"key_id":"anthropic_prod","provider":"anthropic","request_count":41},
-            {"key_id":"github_vps_test","provider":"github","request_count":3},
+            {"key_id":"openai_prod","provider":"openai","request_count":62,
+             "hourly":[4,7,12,18,24,31,28,22,19,14,10,8,6,9,13,17,21,26,30,27,23,18,15,11]},
+            {"key_id":"anthropic_prod","provider":"anthropic","request_count":41,
+             "hourly":[2,3,5,8,11,14,16,13,10,8,6,4,3,5,7,10,12,15,17,14,11,9,7,5]},
+            {"key_id":"github_vps_test","provider":"github","request_count":3,
+             "hourly":[0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1]},
         ],
         "decrypt_errors": [
             {"reason_code":"key_paused","count":14},
