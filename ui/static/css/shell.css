@@ -675,11 +675,12 @@
     overflow: hidden;
   }
 
-  /* card--flush in those pages scrolls vertically (horizontal already set on the class itself) */
+  /* card--flush restores both scroll axes — parent > * override killed overflow-x too */
   body[data-page="vault"] .split-drawer .card--flush,
   body[data-page="vault-ssh"] .split-drawer .card--flush,
   body[data-page="policies"] .split-drawer .card--flush {
     overflow-y: auto;
+    overflow-x: auto;
   }
 
   /* Sessions: plain card children need their own vertical scroll */
