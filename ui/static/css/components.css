@@ -757,15 +757,19 @@
 }
 
 /* ── Card variants ───────────────────────────────────────────── */
-.card--flush { padding: 0; overflow: hidden; }
-
-/* Horizontal-scroll wrapper for wide tables */
-.tbl-wrap {
+/* overflow-x: auto → horizontal scroll on narrow screens.
+   overflow-y: hidden → clips border-radius without creating a
+   y-scroll container, so sticky thead can work at the card level.
+   Fixed-height layouts override overflow-y to auto in shell.css,
+   making the card the single scroll context for both axes. */
+.card--flush {
+  padding: 0;
   overflow-x: auto;
+  overflow-y: hidden;
   scrollbar-width: thin;
   scrollbar-color: var(--border-strong) var(--sunken);
 }
-.tbl-wrap::-webkit-scrollbar { height: 5px; }
-.tbl-wrap::-webkit-scrollbar-track { background: var(--sunken); }
-.tbl-wrap::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
-.tbl-wrap::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+.card--flush::-webkit-scrollbar { width: 5px; height: 5px; }
+.card--flush::-webkit-scrollbar-track { background: var(--sunken); }
+.card--flush::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
+.card--flush::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }

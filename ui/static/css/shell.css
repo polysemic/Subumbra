@@ -667,11 +667,23 @@
     align-items: stretch;
   }
 
-  /* Each grid column scrolls independently */
+  /* Grid columns clip — card--flush provides its own scroll context */
   body[data-page="vault"] .split-drawer > *,
   body[data-page="vault-ssh"] .split-drawer > *,
-  body[data-page="sessions"] .split-drawer > *,
   body[data-page="policies"] .split-drawer > * {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* card--flush in those pages scrolls vertically (horizontal already set on the class itself) */
+  body[data-page="vault"] .split-drawer .card--flush,
+  body[data-page="vault-ssh"] .split-drawer .card--flush,
+  body[data-page="policies"] .split-drawer .card--flush {
+    overflow-y: auto;
+  }
+
+  /* Sessions: plain card children need their own vertical scroll */
+  body[data-page="sessions"] .split-drawer > * {
     min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
