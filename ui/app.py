@@ -1019,12 +1019,6 @@ def upcoming():
     return page("upcoming.html", active="upcoming", crumbs=["Upcoming"])
 
 
-@app.get("/ecosystem")
-@_require_auth
-def ecosystem():
-    return page("ecosystem.html", active="ecosystem", crumbs=["Ecosystem Comparison"])
-
-
 @app.get("/settings")
 @_require_auth
 def settings():

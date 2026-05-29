@@ -16,7 +16,6 @@ NAV = [
     {"id": "audit",         "label": "Audit",         "icon": "▤", "href": "/audit"},
     {"id": "observability", "label": "Observability", "icon": "◉", "href": "/observability"},
     {"id": "cloudflare",    "label": "Cloudflare",    "icon": "☁", "href": "/cloudflare"},
-    {"id": "ecosystem",     "label": "Ecosystem",     "icon": "⚖", "href": "/ecosystem"},
     {"id": "upcoming",      "label": "Upcoming",      "icon": "✧", "href": "/upcoming"},
     {"id": "settings",      "label": "Settings",      "icon": "✿", "href": "/settings"},
 ]
@@ -24,7 +23,7 @@ NAV = [
 NAV_SECTIONS = [
     ("Operate",  ["overview", "vault", "sessions", "adapters"]),
     ("Govern",   ["policies", "audit", "observability"]),
-    ("Platform", ["cloudflare", "ecosystem", "upcoming", "settings"]),
+    ("Platform", ["cloudflare", "upcoming", "settings"]),
 ]
 
 ORG = {
