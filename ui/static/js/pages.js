@@ -416,11 +416,3 @@ function initLiveData() {
     });
   }
 }
-
-/* Local escape — duplicated from components.js because pages.js
-   loads independently and we don't want a cross-file global. */
-function _esc(s) {
-  return String(s ?? "")
-    .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
-    .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
-}
