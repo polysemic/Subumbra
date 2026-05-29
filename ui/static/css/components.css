@@ -26,14 +26,15 @@
 .btn:disabled, .btn[aria-disabled="true"] { opacity: 0.5; cursor: not-allowed; }
 
 .btn--primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--bg);
+  background: var(--brand-soft);
+  border-color: rgba(224,168,104,0.35);
+  color: var(--brand-strong);
   font-weight: var(--fw-semibold);
 }
 .btn--primary:hover:not(:disabled) {
-  background: var(--accent-strong);
-  border-color: var(--accent-strong);
+  background: rgba(224,168,104,0.2);
+  border-color: rgba(224,168,104,0.55);
+  color: var(--brand-strong);
 }
 
 .btn--ghost {

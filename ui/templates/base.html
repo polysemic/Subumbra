@@ -51,7 +51,8 @@
         <a href="{{ item.href }}" class="side__item {{ 'is-active' if item.id == active else '' }}" data-label="{{ item.label }}">
           <span class="side__icon">{{ item.icon }}</span>
           <span>{{ item.label }}</span>
-          {% if item.badge %}<span class="side__badge">{{ item.badge }}</span>{% endif %}
+          {% set bval = nav_badges[item.id] if (nav_badges is defined and item.id in nav_badges) else item.badge|default(none) %}
+          {% if bval is not none and bval != 0 and bval != "" %}<span class="side__badge">{{ bval }}</span>{% endif %}
         </a>
       {% endfor %}
 

@@ -9,8 +9,8 @@ added here should also be filled in by the live merge path.
 
 NAV = [
     {"id": "overview",      "label": "Overview",      "icon": "◐", "href": "/overview"},
-    {"id": "vault",         "label": "Vault",         "icon": "▣", "href": "/vault", "badge": "8"},
-    {"id": "sessions",      "label": "Sessions",      "icon": "◷", "href": "/sessions", "badge": "2"},
+    {"id": "vault",         "label": "Vault",         "icon": "▣", "href": "/vault"},
+    {"id": "sessions",      "label": "Sessions",      "icon": "◷", "href": "/sessions"},
     {"id": "adapters",      "label": "Adapters",      "icon": "⌖", "href": "/adapters"},
     {"id": "policies",      "label": "Policies",      "icon": "≡", "href": "/policies"},
     {"id": "audit",         "label": "Audit",         "icon": "▤", "href": "/audit"},

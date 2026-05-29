@@ -907,7 +907,11 @@ def inject_globals():
 def page(template: str, **extra):
     """Render a page template with the merged console dataset."""
     data = build_console_data()
-    return render_template(template, data=data, **extra)
+    nav_badges = {
+        "vault":    len(data.get("keys", [])) + len(data.get("ssh_keys", [])),
+        "sessions": len((data.get("sessions") or {}).get("active", [])),
+    }
+    return render_template(template, data=data, nav_badges=nav_badges, **extra)
 
 
 @app.get("/")

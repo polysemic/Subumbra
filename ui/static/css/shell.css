@@ -301,13 +301,15 @@
   font-size: 10px;
   padding: 1px 6px;
   border-radius: 8px;
-  background: var(--raised);
-  color: var(--text-muted);
+  background: var(--brand-soft);
+  color: var(--brand-strong);
+  border: 1px solid rgba(224,168,104,0.25);
   font-family: var(--font-mono);
 }
 .side__item.is-active .side__badge {
-  background: rgba(107,142,255,0.18);
-  color: var(--accent-strong);
+  background: rgba(224,168,104,0.2);
+  color: var(--brand-strong);
+  border-color: rgba(224,168,104,0.4);
 }
 
 /* Foot */
