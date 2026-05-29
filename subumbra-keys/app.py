@@ -81,6 +81,8 @@ AUDIT_ENDPOINT_FILTERS = {
     "stats",
     "audit",
     "sessions",
+    "adapters",
+    "observability",
     "gate",
 }
 
@@ -679,6 +681,65 @@ def _sqlite_recent_log_last50(allowed_keys: set[str], list_all: bool) -> list[di
     ]
     recent.reverse()
     return recent
+
+
+def _audit_allowed_key_sql(allowed_keys: set[str], list_all: bool) -> tuple[str, list[str]]:
+    if list_all:
+        return "", []
+    if not allowed_keys:
+        return " WHERE 1=0", []
+    placeholders = ",".join("?" * len(allowed_keys))
+    return f" WHERE key_id IN ({placeholders})", sorted(allowed_keys)
+
+
+def _sqlite_recent_velocity_rows(allowed_keys: set[str], list_all: bool) -> list[dict]:
+    if _audit_conn is None:
+        return []
+    where_sql, query_params = _audit_allowed_key_sql(allowed_keys, list_all)
+    rows = _audit_conn.execute(
+        f"""
+        SELECT key_id, COUNT(*) AS request_count
+        FROM audit_events
+        {where_sql}
+        {"AND" if where_sql else "WHERE"} key_id IS NOT NULL
+          AND timestamp >= ?
+        GROUP BY key_id
+        ORDER BY request_count DESC, key_id ASC
+        """,
+        tuple(query_params + [_recent_cutoff_iso(60)]),
+    ).fetchall()
+    return [
+        {"key_id": str(row[0]), "request_count": int(row[1])}
+        for row in rows
+        if row[0]
+    ]
+
+
+def _sqlite_recent_deny_reason_rows(allowed_keys: set[str], list_all: bool) -> list[dict]:
+    if _audit_conn is None:
+        return []
+    where_sql, query_params = _audit_allowed_key_sql(allowed_keys, list_all)
+    rows = _audit_conn.execute(
+        f"""
+        SELECT reason_code, COUNT(*) AS deny_count
+        FROM audit_events
+        {where_sql}
+        {"AND" if where_sql else "WHERE"} verdict = 'deny'
+          AND timestamp >= ?
+        GROUP BY reason_code
+        ORDER BY deny_count DESC, reason_code ASC
+        """,
+        tuple(query_params + [_recent_cutoff_iso(24 * 60 * 60)]),
+    ).fetchall()
+    return [
+        {"reason_code": str(row[0]), "count": int(row[1])}
+        for row in rows
+        if row[0]
+    ]
+
+
+def _recent_cutoff_iso(seconds: int) -> str:
+    return datetime.fromtimestamp(time.time() - seconds, tz=timezone.utc).isoformat(timespec="seconds")
 
 
 def _record_audit(
@@ -1289,6 +1350,109 @@ def stats() -> tuple[Response, int]:
         "per_key": per_key,
         "recent_log": recent,
         "timestamp": _now_iso(),
+    }), 200
+
+
+@app.get("/adapters")
+def adapters() -> tuple[Response, int]:
+    remote = request.remote_addr or ""
+    adapter_result = _resolve_adapter()
+    if isinstance(adapter_result, _AdapterDenial):
+        _record_audit(
+            adapter_id=adapter_result.adapter_id,
+            key_id=None,
+            endpoint="adapters",
+            verdict="deny",
+            reason_code=adapter_result.reason_code,
+            remote=remote,
+        )
+        return _denial_response(adapter_result)
+
+    adapter = adapter_result
+    if not adapter.get("can_list_all_keys", False):
+        log.warning(
+            "adapters: forbidden adapter=%s remote=%s reason=adapters_scope_denied",
+            adapter["adapter_id"],
+            remote,
+        )
+        _record_audit(
+            adapter_id=adapter["adapter_id"],
+            key_id=None,
+            endpoint="adapters",
+            verdict="deny",
+            reason_code="adapters_scope_denied",
+            remote=remote,
+        )
+        return _err("forbidden", 403)
+
+    payload = [
+        {
+            "adapter_id": entry["adapter_id"],
+            "token": entry["token"],
+            "allowed_keys": entry["allowed_keys"],
+            "can_list_keys": entry["can_list_keys"],
+            "can_read_stats": entry["can_read_stats"],
+            "can_write_audit": entry["can_write_audit"],
+            "can_list_all_keys": entry["can_list_all_keys"],
+            "issued_at": entry["issued_at"],
+            "expires_at": entry["expires_at"],
+        }
+        for entry in sorted(
+            SUBUMBRA_ADAPTER_REGISTRY.values(),
+            key=lambda item: item["adapter_id"],
+        )
+    ]
+    return jsonify({"adapters": payload, "timestamp": _now_iso()}), 200
+
+
+@app.get("/observability")
+def observability() -> tuple[Response, int]:
+    remote = request.remote_addr or ""
+    adapter_result = _resolve_adapter()
+    if isinstance(adapter_result, _AdapterDenial):
+        _record_audit(
+            adapter_id=adapter_result.adapter_id,
+            key_id=None,
+            endpoint="observability",
+            verdict="deny",
+            reason_code=adapter_result.reason_code,
+            remote=remote,
+        )
+        return _denial_response(adapter_result)
+
+    adapter = adapter_result
+    if not adapter["can_read_stats"]:
+        log.warning(
+            "observability: forbidden adapter=%s remote=%s reason=observability_scope_denied",
+            adapter["adapter_id"],
+            remote,
+        )
+        _record_audit(
+            adapter_id=adapter["adapter_id"],
+            key_id=None,
+            endpoint="observability",
+            verdict="deny",
+            reason_code="observability_scope_denied",
+            remote=remote,
+        )
+        return _err("forbidden", 403)
+
+    if _audit_conn is None:
+        return _err("audit unavailable", 503)
+
+    try:
+        allowed = set(adapter["allowed_keys"])
+        list_all = adapter.get("can_list_all_keys", False)
+        velocity = _sqlite_recent_velocity_rows(allowed, list_all)
+        decrypt_errors = _sqlite_recent_deny_reason_rows(allowed, list_all)
+    except sqlite3.Error as exc:
+        log.warning("observability_read_error error=%s", exc)
+        return _err("audit unavailable", 503)
+
+    return jsonify({
+        "timestamp": _now_iso(),
+        "velocity": velocity,
+        "decrypt_errors": decrypt_errors,
     }), 200
 
 

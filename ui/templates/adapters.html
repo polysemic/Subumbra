@@ -7,68 +7,110 @@
 <div class="page-head">
   <div>
     <h1 class="page-title">Adapters</h1>
-    <p class="page-sub">Each app gets its own scoped token. Revoke one without touching the rest. Tokens authorise capability, never reveal keys.</p>
+    <p class="page-sub">Live adapter registry, scoped credentials, and copy-ready integration snippets.</p>
   </div>
   <div class="page-actions">
-    <button class="btn">Export token bundle</button>
-    <button class="btn btn--primary" data-action="add-adapter">+ Add adapter</button>
+    <button class="btn">Read-only view</button>
   </div>
 </div>
 
 <div class="chips" style="margin-bottom:14px">
   <button class="chip is-active">All <span class="chip__count">{{ adapters|length }}</span></button>
   <button class="chip">Active <span class="chip__count">{{ adapters|selectattr('status','equalto','active')|list|length }}</span></button>
-  <button class="chip">Paused <span class="chip__count">{{ adapters|selectattr('status','equalto','paused')|list|length }}</span></button>
-  <span class="chip__sep"></span>
-  <button class="chip">llm-chat</button>
-  <button class="chip">ssh-sign</button>
-  <span style="margin-left:auto"></span>
-  <button class="chip" style="color:var(--text-dim)">↧ Sort: Last seen</button>
+  <button class="chip">Expired <span class="chip__count">{{ adapters|selectattr('status','equalto','paused')|list|length }}</span></button>
 </div>
 
 <div class="grid-3">
   {% for a in adapters %}
     <article class="adapter-card">
       <div class="adapter-card__head">
-        <div class="adapter-logo">{{ a.logo }}</div>
+        <div class="adapter-logo">{{ a["logo"] }}</div>
         <div>
-          <div class="adapter-card__name">{{ a.name }}</div>
-          <div class="adapter-card__id">{{ a.id }} · {{ a.lastSeen }}</div>
+          <div class="adapter-card__name">{{ a["name"] }}</div>
+          <div class="adapter-card__id">{{ a["id"] }} · last seen {{ a["lastSeen"] }}</div>
         </div>
-        <span class="pill pill--{{ a.status }}" style="margin-left:auto">{{ a.status }}</span>
+        <span class="pill pill--{{ a["status"] }}" style="margin-left:auto">{{ a["statusLabel"] }}</span>
       </div>
 
       <div class="adapter-card__row">
-        <div class="lbl">Capability</div>
-        <div style="display:flex;gap:4px;flex-wrap:wrap">
-          {% for c in a.caps %}
-            <span class="tag {{ 'tag--cap-ssh' if c.startswith('ssh') else 'tag--cap-llm' }}">{{ c }}</span>
+        <div class="lbl">Capabilities</div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap;flex:1">
+          {% for cap in a["caps"] %}
+            <span class="tag mono">{{ cap }}</span>
           {% endfor %}
         </div>
       </div>
 
       <div class="adapter-card__row">
         <div class="lbl">Allowed keys</div>
-        <div style="display:flex;gap:4px;flex-wrap:wrap;flex:1;min-width:0">
-          {% for k in a.get('keys', [])[:3] %}<span class="tag mono">{{ k }}</span>{% endfor %}
-          {% if a.get('keys', [])|length > 3 %}<span class="tag" style="color:var(--text-dim)">+{{ a.get('keys', [])|length - 3 }} more</span>{% endif %}
+        <div style="display:flex;gap:4px;flex-wrap:wrap;flex:1">
+          {% for key_id in a["keys"] %}
+            <span class="tag mono">{{ key_id }}</span>
+          {% endfor %}
         </div>
       </div>
 
-      <div class="adapter-card__row">
+      <div class="adapter-card__row" style="align-items:flex-start">
         <div class="lbl">Token</div>
-        <div class="adapter-token">
-          <span class="truncate" style="max-width:180px">{{ a.token }}</span>
-          <button class="copy" data-copy="{{ a.token }}">⎘</button>
+        <div style="display:flex;flex-direction:column;gap:8px;flex:1">
+          <div class="adapter-token" style="justify-content:space-between;gap:8px">
+            <code class="mono">{{ a["tokenMasked"] }}</code>
+            <button class="copy" data-copy="{{ a["token"] }}">⎘</button>
+          </div>
+          <details>
+            <summary class="btn btn--ghost" style="display:inline-flex">Reveal token</summary>
+            <div style="margin-top:8px;display:flex;gap:8px;align-items:flex-start">
+              <code class="mono" style="word-break:break-all;flex:1">{{ a["token"] }}</code>
+              <button class="copy" data-copy="{{ a["token"] }}">Copy</button>
+            </div>
+          </details>
+          <div style="font-size:11px;color:var(--text-dim)">
+            issued {{ a["tokenAge"] }} · expires {{ a["expiresAt"] }}
+          </div>
         </div>
-        <span style="margin-left:auto;font-size:10px;color:var(--text-dim);font-family:var(--font-mono)">{{ a.tokenAge }}</span>
       </div>
 
-      <div class="adapter-card__foot">
-        <button class="btn">Inspect</button>
-        <button class="btn" data-action="rotate-adapter" data-id="{{ a.id }}">Rotate token</button>
-        <button class="btn btn--danger" style="margin-left:auto" data-action="revoke-adapter" data-id="{{ a.id }}">Revoke</button>
+      {% if a["proxy_urls"] %}
+      <div class="adapter-card__row" style="align-items:flex-start">
+        <div class="lbl">Proxy URLs</div>
+        <div style="display:flex;flex-direction:column;gap:8px;flex:1">
+          {% for proxy in a["proxy_urls"] %}
+            <div style="display:flex;flex-direction:column;gap:4px">
+              <div class="mono" style="font-size:11px;color:var(--text-dim)">{{ proxy.key_id }}</div>
+              <div class="adapter-token" style="justify-content:space-between;gap:8px">
+                <code class="mono" style="word-break:break-all;flex:1">{{ proxy.url }}</code>
+                <button class="copy" data-copy="{{ proxy.url }}">⎘</button>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
       </div>
+      {% endif %}
+
+      {% if a["config_blocks"] %}
+      <div class="adapter-card__row" style="align-items:flex-start">
+        <div class="lbl">Config snippets</div>
+        <div style="display:flex;flex-direction:column;gap:10px;flex:1">
+          {% for block in a["config_blocks"] %}
+            <div>
+              <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px">
+                {{ block.label }}{% if block.target %} · {{ block.target }}{% endif %}
+              </div>
+              <div style="display:flex;gap:8px;align-items:flex-start">
+                <pre class="mono" style="margin:0;white-space:pre-wrap;word-break:break-word;flex:1">{{ block.copy }}</pre>
+                <button class="copy" data-copy="{{ block.copy }}">Copy</button>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      {% if a["docsPath"] %}
+      <div class="adapter-card__foot">
+        <span style="font-size:11px;color:var(--text-dim)">Docs: {{ a["docsPath"] }}</span>
+      </div>
+      {% endif %}
     </article>
   {% endfor %}
 </div>

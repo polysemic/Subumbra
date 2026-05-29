@@ -3,50 +3,47 @@
 
 {% block content %}
 {% set policies = data.policies %}
-{% set selected = policies[0] %}
+{% set selected = policies[0] if policies else none %}
 
 <div class="page-head">
   <div>
     <h1 class="page-title">Policies & Templates</h1>
-    <p class="page-sub">Ed25519-signed built-in catalog plus your local workspace overrides. Every key's AAD is bound to a frozen policy hash.</p>
+    <p class="page-sub">Live policy shape derived from the loaded key catalog.</p>
   </div>
   <div class="page-actions">
-    <button class="btn">Re-sign catalog</button>
-    <button class="btn btn--primary">+ New template</button>
+    <button class="btn">Read-only view</button>
   </div>
 </div>
 
 <nav class="tabs">
-  <button class="tabs__tab is-active">All policies <span class="soon">· {{ policies|length }}</span></button>
-  <button class="tabs__tab">Signed catalog <span class="soon">· {{ policies|selectattr('source','equalto','signed')|list|length }}</span></button>
-  <button class="tabs__tab">Local overrides <span class="soon">· {{ policies|selectattr('source','equalto','local')|list|length }}</span></button>
+  <button class="tabs__tab is-active">Active policies <span class="soon">· {{ policies|length }}</span></button>
 </nav>
 
+{% if selected %}
 <div class="split-drawer">
-
   <div class="card" style="padding:0; overflow:hidden">
     <div>
       {% for p in policies %}
         <div class="policy-row {{ 'is-active' if p.id == selected.id else '' }}" data-policy="{{ p.id }}">
-          <div style="width:36px;height:36px;border-radius:var(--r);background:var(--sunken);display:grid;place-items:center;font-family:var(--font-mono);font-size:11px;color:{% if p.source == 'signed' %}var(--brand){% else %}var(--accent-strong){% endif %};flex-shrink:0">
-            {{ '✓' if p.source == 'signed' else '~' }}
+          <div style="width:36px;height:36px;border-radius:var(--r);background:var(--sunken);display:grid;place-items:center;font-family:var(--font-mono);font-size:11px;color:var(--brand);flex-shrink:0">
+            {{ loop.index }}
           </div>
           <div style="flex:1;min-width:0">
             <div style="display:flex;align-items:center;gap:8px">
               <span class="mono" style="font-weight:500">{{ p.id }}</span>
-              <span class="tag" style="font-size:10px">{{ p.version }}</span>
+              <span class="tag" style="font-size:10px">{{ p.provider }}</span>
             </div>
             <div class="policy-mini">
               <span>{{ p.name }}</span>
               <span>·</span>
-              <span style="color:{% if p.source == 'signed' %}var(--brand){% else %}var(--accent-strong){% endif %}">
-                {{ 'signed by ' + p.signedBy if p.source == 'signed' else 'local · forked by ' + p.signedBy }}
-              </span>
+              <span>{{ p.capability_class }}</span>
+              <span>·</span>
+              <span>{{ p.usedBy }} key{{ 's' if p.usedBy != 1 else '' }}</span>
             </div>
           </div>
           <div style="text-align:right">
             <div class="mono" style="font-size:11px;color:var(--text-dim)">{{ p.hash }}</div>
-            <div style="font-size:10px;color:var(--text-dim);margin-top:2px">{{ p.usedBy }} key{{ 's' if p.usedBy > 1 else '' }}</div>
+            <div style="font-size:10px;color:var(--text-dim);margin-top:2px">{{ p.target_host }}</div>
           </div>
         </div>
       {% endfor %}
@@ -57,7 +54,7 @@
     <div style="padding:18px 20px;border-bottom:1px solid var(--border)">
       <div style="display:flex;align-items:center;gap:8px">
         <span class="mono" style="font-weight:600;font-size:14px">{{ selected.id }}</span>
-        <span class="tag tag--brand">{{ selected.source }}</span>
+        <span class="tag tag--brand">{{ selected.provider }}</span>
       </div>
       <div style="font-size:12px;color:var(--text-muted);margin-top:4px">{{ selected.name }}</div>
       <div class="mono" style="font-size:11px;color:var(--text-dim);margin-top:4px">hash {{ selected.hash }}</div>
@@ -65,39 +62,60 @@
 
     <div class="policy-detail-section">
       <div class="section-title" style="border:0;padding:0;margin-bottom:10px">Target</div>
-      <div class="policy-row-kv"><div class="k">Host</div><div class="v">api.anthropic.com</div></div>
-      <div class="policy-row-kv"><div class="k">Base path</div><div class="v">/v1</div></div>
-      <div class="policy-row-kv"><div class="k">Capability class</div><div class="v">llm-chat</div></div>
+      <div class="policy-row-kv"><div class="k">Host</div><div class="v">{{ selected.target_host }}</div></div>
+      <div class="policy-row-kv"><div class="k">Base path</div><div class="v mono">{{ selected.base_path }}</div></div>
+      <div class="policy-row-kv"><div class="k">Capability class</div><div class="v">{{ selected.capability_class }}</div></div>
     </div>
 
     <div class="policy-detail-section">
       <div class="section-title" style="border:0;padding:0;margin-bottom:10px">Auth</div>
-      <div class="policy-row-kv"><div class="k">Scheme</div><div class="v">header</div></div>
-      <div class="policy-row-kv"><div class="k">Header</div><div class="v">x-api-key</div></div>
-      <div class="policy-row-kv"><div class="k">Anthropic version</div><div class="v">2023-06-01</div></div>
+      <div class="policy-row-kv"><div class="k">Scheme</div><div class="v">{{ selected.auth_scheme }}</div></div>
+      <div class="policy-row-kv"><div class="k">Header</div><div class="v mono">{{ selected.auth_header }}</div></div>
+      <div class="policy-row-kv"><div class="k">Prefix</div><div class="v mono">{{ selected.auth_prefix }}</div></div>
     </div>
 
     <div class="policy-detail-section">
       <div class="section-title" style="border:0;padding:0;margin-bottom:10px">Allow</div>
-      <div class="policy-row-kv"><div class="k">Methods</div><div class="v"><span class="tag">POST</span></div></div>
-      <div class="policy-row-kv"><div class="k">Path prefixes</div><div class="v" style="display:flex;gap:4px;flex-wrap:wrap"><span class="tag">/messages</span><span class="tag">/messages/count_tokens</span></div></div>
-      <div class="policy-row-kv"><div class="k">Content types</div><div class="v"><span class="tag">application/json</span></div></div>
-      <div class="policy-row-kv"><div class="k">Max body</div><div class="v">1,048,576 bytes</div></div>
+      <div class="policy-row-kv">
+        <div class="k">Adapters</div>
+        <div class="v" style="display:flex;gap:4px;flex-wrap:wrap">
+          {% for adapter_id in selected.allow_adapters %}
+            <span class="tag mono">{{ adapter_id }}</span>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="policy-row-kv">
+        <div class="k">Methods</div>
+        <div class="v" style="display:flex;gap:4px;flex-wrap:wrap">
+          {% for method in selected.allow_methods %}
+            <span class="tag mono">{{ method }}</span>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="policy-row-kv">
+        <div class="k">Path prefixes</div>
+        <div class="v" style="display:flex;gap:4px;flex-wrap:wrap">
+          {% for prefix in selected.allow_path_prefixes %}
+            <span class="tag mono">{{ prefix }}</span>
+          {% endfor %}
+        </div>
+      </div>
     </div>
 
     <div class="policy-detail-section">
-      <div class="section-title" style="border:0;padding:0;margin-bottom:10px">Velocity & breaker</div>
-      <div class="policy-row-kv"><div class="k">Adapter RPM</div><div class="v">180</div></div>
-      <div class="policy-row-kv"><div class="k">Key RPM</div><div class="v">120</div></div>
-      <div class="policy-row-kv"><div class="k">Breaker</div><div class="v">5 fails · 60s window · 30s open</div></div>
-    </div>
-
-    <div style="padding:14px 18px;display:flex;gap:8px;border-top:1px solid var(--border)">
-      <button class="btn">View JSON</button>
-      <button class="btn">Fork to local</button>
-      <button class="btn btn--primary" style="margin-left:auto">Apply to new key</button>
+      <div class="section-title" style="border:0;padding:0;margin-bottom:10px">Used by keys</div>
+      <div style="display:flex;gap:4px;flex-wrap:wrap">
+        {% for key_id in selected.key_ids %}
+          <span class="tag mono">{{ key_id }}</span>
+        {% endfor %}
+      </div>
     </div>
   </div>
-
 </div>
+{% else %}
+<div class="card">
+  <div class="card__title">No policies loaded</div>
+  <div class="card__meta">The UI did not receive any live policy data from the key catalog.</div>
+</div>
+{% endif %}
 {% endblock %}

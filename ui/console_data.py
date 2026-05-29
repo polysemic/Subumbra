@@ -126,22 +126,14 @@ CONSOLE_DATA = {
     ],
 
     "adapters": [
-        {"id":"litellm",   "name":"LiteLLM",     "logo":"LL", "token":"sk-litellm-3fbe4c3f…",  "tokenAge":"47d", "status":"active",  "caps":["llm-chat"], "keys":["openai_prod","openai_dev","anthropic_prod","groq_prod","deepseek_prod"], "lastSeen":"2m ago"},
-        {"id":"openwebui", "name":"OpenWebUI",   "logo":"OW", "token":"sk-openwebui-19d1262d…","tokenAge":"47d", "status":"active",  "caps":["llm-chat"], "keys":["openai_prod","anthropic_prod"], "lastSeen":"4m ago"},
-        {"id":"librechat", "name":"LibreChat",   "logo":"LC", "token":"sk-librechat-7e4b8c11…","tokenAge":"31d", "status":"active",  "caps":["llm-chat"], "keys":["anthropic_prod","anthropic_canary"], "lastSeen":"32m ago"},
-        {"id":"n8n",       "name":"n8n",         "logo":"N8", "token":"sk-n8n-44a1f9e2…",      "tokenAge":"18d", "status":"active",  "caps":["llm-chat"], "keys":["openai_dev"], "lastSeen":"1h ago"},
-        {"id":"bifrost",   "name":"Bifrost",     "logo":"BF", "token":"sk-bifrost-9c2d0a18…",  "tokenAge":"12d", "status":"paused",  "caps":["llm-chat"], "keys":["openai_prod"], "lastSeen":"3d ago"},
-        {"id":"sshtest",   "name":"SSH bridge",  "logo":"SH", "token":"sk-sshtest-fa20a7b1…",  "tokenAge":"2d",  "status":"active",  "caps":["ssh-sign"], "keys":["github_vps_test","verify_vps_key","deploy_bot_staging","ci_runner_rsync","backup_cron_b2"], "lastSeen":"12m ago"},
+        {"id":"litellm","name":"LiteLLM","logo":"LL","token":"sk-litellm-3fbe4c3f","tokenMasked":"sk-lit…4c3f","tokenAge":"47d ago","status":"active","statusLabel":"active","caps":["llm-chat","list-all-keys","read-stats"],"keys":["openai_prod","openai_dev","anthropic_prod"],"lastSeen":"2m ago","expiresAt":"2026-07-01T00:00:00Z","proxy_urls":[{"key_id":"openai_prod","url":"https://subumbra-proxy.polysemic.workers.dev/t/openai_prod"},{"key_id":"anthropic_prod","url":"https://subumbra-proxy.polysemic.workers.dev/t/anthropic_prod"}],"config_blocks":[{"label":"openai_prod","target":"config.yaml","copy":"SUBUMBRA_TOKEN_LITELLM=sk-litellm-3fbe4c3f\nmodel_list[].litellm_params.api_key: sk-litellm-3fbe4c3f\nmodel_list[].litellm_params.api_base: https://subumbra-proxy.polysemic.workers.dev/t/openai_prod"}],"docsPath":"docs/apps/litellm/"},
+        {"id":"openwebui","name":"Open WebUI","logo":"OW","token":"sk-openwebui-19d1262d","tokenMasked":"sk-ope…1262d","tokenAge":"47d ago","status":"active","statusLabel":"active","caps":["llm-chat","list-keys"],"keys":["openai_prod","anthropic_prod"],"lastSeen":"4m ago","expiresAt":"2026-07-01T00:00:00Z","proxy_urls":[{"key_id":"openai_prod","url":"https://subumbra-proxy.polysemic.workers.dev/t/openai_prod/v1"}],"config_blocks":[{"label":"openai_prod","target":".env","copy":"SUBUMBRA_TOKEN_OPENWEBUI=sk-openwebui-19d1262d\nOPENAI_API_KEY=sk-openwebui-19d1262d\nOPENAI_API_BASE_URL=https://subumbra-proxy.polysemic.workers.dev/t/openai_prod/v1"}],"docsPath":"docs/apps/openwebui/"},
+        {"id":"sshtest","name":"SSH bridge","logo":"SH","token":"sk-sshtest-fa20a7b1","tokenMasked":"sk-ssh…a7b1","tokenAge":"2d ago","status":"active","statusLabel":"active","caps":["ssh-sign","write-audit"],"keys":["github_vps_test","verify_vps_key"],"lastSeen":"12m ago","expiresAt":"2026-07-01T00:00:00Z","proxy_urls":[{"key_id":"github_vps_test","url":"https://subumbra-proxy.polysemic.workers.dev/t/github_vps_test"}],"config_blocks":[],"docsPath":"docs/operator-guide.md"},
     ],
 
     "policies": [
-        {"id":"anthropic-prod","name":"anthropic — production","source":"signed","version":"v3","signedBy":"release-key","usedBy":2,"hash":"d4b9…21cc"},
-        {"id":"openai-prod",   "name":"openai — production",   "source":"signed","version":"v3","signedBy":"release-key","usedBy":1,"hash":"a3f2…b801"},
-        {"id":"openai-dev",    "name":"openai — development",  "source":"local", "version":"v3","signedBy":"eric",       "usedBy":1,"hash":"7e1c…4f29"},
-        {"id":"groq-prod",     "name":"groq — production",     "source":"signed","version":"v3","signedBy":"release-key","usedBy":1,"hash":"2b88…ee14"},
-        {"id":"deepseek-prod", "name":"deepseek — production", "source":"signed","version":"v3","signedBy":"release-key","usedBy":1,"hash":"60d1…aa9f"},
-        {"id":"github-deploy", "name":"github — ssh deploy",   "source":"signed","version":"v3","signedBy":"release-key","usedBy":1,"hash":"fa20…7b1d"},
-        {"id":"vps-deploy",    "name":"vps — ssh ops",         "source":"local", "version":"v3","signedBy":"eric",       "usedBy":1,"hash":"11c4…3e00"},
+        {"id":"anthropic-prod","name":"anthropic policy","hash":"d4b9…21cc","usedBy":2,"provider":"anthropic","target_host":"api.anthropic.com","base_path":"/v1","capability_class":"llm-chat","auth_scheme":"header","auth_header":"x-api-key","auth_prefix":"—","allow_methods":["POST"],"allow_path_prefixes":["/messages","/messages/count_tokens"],"allow_adapters":["litellm","openwebui"],"key_ids":["anthropic_prod","anthropic_canary"]},
+        {"id":"openai-prod","name":"openai policy","hash":"a3f2…b801","usedBy":1,"provider":"openai","target_host":"api.openai.com","base_path":"/v1","capability_class":"llm-chat","auth_scheme":"header","auth_header":"authorization","auth_prefix":"Bearer","allow_methods":["POST"],"allow_path_prefixes":["/chat/completions","/embeddings"],"allow_adapters":["litellm","openwebui"],"key_ids":["openai_prod"]},
     ],
 
     "audit": [
@@ -186,26 +178,20 @@ CONSOLE_DATA = {
 
     "observability": {
         "services": [
-            {"name":"subumbra-keys", "sub":"9090 · internal",                       "uptime":"99.99", "note":"WAL clean · 0 nonce errors"},
-            {"name":"subumbra-proxy","sub":"8090 · external",                       "uptime":"99.94", "note":"2 worker-auth blips · 14:18 UTC"},
-            {"name":"cf worker",     "sub":"subumbra-proxy.workers.dev",            "uptime":"100.0", "note":"sha a34c3d5 · pinned"},
-            {"name":"subumbra-agent","sub":"XDG_RUNTIME ssh socket",                "uptime":"99.81", "note":"idle while session is locked"},
+            {"name":"subumbra-keys","status":"ok","sub":"read API","note":"demo health response"},
+            {"name":"subumbra-proxy","status":"ok","sub":"transparent proxy","note":"worker_auth=ok"},
+            {"name":"cf worker","status":"ok","sub":"https://subumbra-proxy.polysemic.workers.dev","note":"gate read ok"},
         ],
         "velocity": [
-            {"keyId":"openai_prod",      "provider":"openai",    "used":62,  "cap":240, "breaker":"closed"},
-            {"keyId":"openai_dev",       "provider":"openai",    "used":18,  "cap":60,  "breaker":"closed"},
-            {"keyId":"anthropic_prod",   "provider":"anthropic", "used":98,  "cap":180, "breaker":"closed"},
-            {"keyId":"anthropic_canary", "provider":"anthropic", "used":0,   "cap":60,  "breaker":"closed"},
-            {"keyId":"groq_prod",        "provider":"groq",      "used":42,  "cap":120, "breaker":"closed"},
-            {"keyId":"deepseek_prod",    "provider":"deepseek",  "used":12,  "cap":60,  "breaker":"closed"},
+            {"key_id":"openai_prod","provider":"openai","request_count":62},
+            {"key_id":"anthropic_prod","provider":"anthropic","request_count":41},
+            {"key_id":"github_vps_test","provider":"github","request_count":3},
         ],
         "decrypt_errors": [
-            {"reason":"policy_hash_mismatch", "klass":"aad",      "worker":"a34c3d5", "count":3},
-            {"reason":"key_paused",           "klass":"policy",   "worker":"a34c3d5", "count":14},
-            {"reason":"adapter_not_allowed",  "klass":"policy",   "worker":"a34c3d5", "count":11},
-            {"reason":"path_not_allowed",     "klass":"policy",   "worker":"a34c3d5", "count":4},
-            {"reason":"rate_limit_exceeded",  "klass":"velocity", "worker":"a34c3d5", "count":2},
-            {"reason":"nonce_replay",         "klass":"auth",     "worker":"a34c3d5", "count":0},
+            {"reason_code":"key_paused","count":14},
+            {"reason_code":"adapter_not_allowed","count":11},
+            {"reason_code":"path_not_allowed","count":4},
+            {"reason_code":"rate_limit_exceeded","count":2},
         ],
     },
 }

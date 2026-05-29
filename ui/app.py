@@ -41,14 +41,17 @@ Routes:
 
 from __future__ import annotations
 
+from copy import deepcopy
 from collections import defaultdict, deque
 import base64
 import logging
 import os
+from pathlib import Path
+import re
 import secrets
 import sys
 import time
-from functools import wraps
+from functools import lru_cache, wraps
 from datetime import datetime, timezone
 
 import httpx
@@ -80,6 +83,7 @@ CF_ACCESS_PROTECTED   = os.environ.get("CF_ACCESS_PROTECTED", "").strip().lower(
 # When SUBUMBRA_UI_DEMO=1, render the mock dataset so the console is usable
 # standalone (during install, dev, demos).
 DEMO_MODE             = os.environ.get("SUBUMBRA_UI_DEMO", "").lower() in {"1", "true", "yes"}
+ADAPTER_TEMPLATE_DIR  = Path(__file__).resolve().parent.parent / "bootstrap" / "templates" / "adapters"
 
 AUTH_WINDOW_SECONDS    = 60
 AUTH_FAILURE_THRESHOLD = 5
@@ -295,37 +299,438 @@ def _map_session(s: dict) -> dict:
     }
 
 
+def _fmt_abs(iso: str | None) -> tuple[str, str]:
+    if not iso:
+        return "—", "—"
+    try:
+        dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+    except Exception:
+        return iso, iso
+    return dt.strftime("%H:%M:%S"), dt.strftime("%b %d")
+
+
+def _map_audit_events(events: list[dict], keys: list[dict]) -> list[dict]:
+    key_lookup = {entry.get("key_id"): entry for entry in keys}
+    mapped: list[dict] = []
+    for event in events:
+        ts, date = _fmt_abs(event.get("timestamp"))
+        key_id = event.get("key_id")
+        key_meta = key_lookup.get(key_id, {})
+        mapped.append({
+            "ts": ts,
+            "date": date,
+            "adapter": event.get("adapter_id") or "—",
+            "method": "POST" if event.get("endpoint") == "ssh_sign" else "—",
+            "endpoint": event.get("endpoint") or "—",
+            "keyId": key_id or "—",
+            "provider": key_meta.get("provider", "unknown"),
+            "remote": event.get("remote") or "—",
+            "verdict": event.get("verdict") or "unknown",
+            "reason": event.get("reason_code") or "—",
+        })
+    return mapped
+
+
+def _clean_template_scalar(raw_value: str) -> str:
+    value = raw_value.split("#", 1)[0].strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        return value[1:-1]
+    return value
+
+
+@lru_cache(maxsize=None)
+def _load_adapter_template(adapter_id: str) -> dict | None:
+    template_path = ADAPTER_TEMPLATE_DIR / f"{adapter_id}.yaml"
+    if not template_path.exists():
+        return None
+
+    template = {
+        "adapter_id": adapter_id,
+        "display_name": adapter_id.replace("-", " ").title(),
+        "docs_path": "",
+        "default_token_env_var": "",
+        "config_type": "",
+        "target": "",
+        "fields": [],
+        "config_notes": "",
+    }
+    fields: list[dict] = []
+    current_field: dict | None = None
+    in_fields = False
+    in_config_notes = False
+    config_note_lines: list[str] = []
+
+    for raw_line in template_path.read_text(encoding="utf-8").splitlines():
+        if in_config_notes:
+            if raw_line.startswith("  "):
+                config_note_lines.append(raw_line.strip())
+                continue
+            in_config_notes = False
+
+        if raw_line.startswith("display_name:"):
+            template["display_name"] = _clean_template_scalar(raw_line.split(":", 1)[1])
+            continue
+        if raw_line.startswith("docs_path:"):
+            template["docs_path"] = _clean_template_scalar(raw_line.split(":", 1)[1])
+            continue
+        if raw_line.startswith("default_token_env_var:"):
+            template["default_token_env_var"] = _clean_template_scalar(raw_line.split(":", 1)[1])
+            continue
+        if raw_line.startswith("config_notes: >"):
+            in_config_notes = True
+            continue
+        if raw_line.startswith("  type:"):
+            template["config_type"] = _clean_template_scalar(raw_line.split(":", 1)[1])
+            continue
+        if raw_line.startswith("  target:"):
+            template["target"] = _clean_template_scalar(raw_line.split(":", 1)[1])
+            continue
+        if raw_line.startswith("  fields:"):
+            in_fields = True
+            continue
+        if in_fields and raw_line.startswith("    - "):
+            if current_field:
+                fields.append(current_field)
+            current_field = {}
+            field_body = raw_line[6:]
+            if field_body.startswith("name:"):
+                current_field["name"] = _clean_template_scalar(field_body.split(":", 1)[1])
+            continue
+        if in_fields and current_field is not None and raw_line.startswith("      "):
+            field_body = raw_line.strip()
+            if ":" not in field_body:
+                continue
+            key, value = field_body.split(":", 1)
+            current_field[key] = _clean_template_scalar(value)
+            continue
+        if in_fields and current_field and raw_line and not raw_line.startswith("    "):
+            fields.append(current_field)
+            current_field = None
+            in_fields = False
+
+    if current_field:
+        fields.append(current_field)
+    template["fields"] = fields
+    template["config_notes"] = " ".join(config_note_lines).strip()
+    return template
+
+
+def _mask_token(token: str) -> str:
+    if len(token) <= 10:
+        return "•" * len(token)
+    return f"{token[:6]}…{token[-4:]}"
+
+
+def _render_template_value(raw_value: str, adapter_token: str, key_id: str | None) -> str:
+    rendered = re.sub(r"\$\{[^}]+\}", adapter_token, raw_value)
+    rendered = rendered.replace("{adapter_token}", adapter_token)
+    if key_id is not None:
+        rendered = rendered.replace("{key_id}", key_id)
+    if CF_WORKER_URL:
+        rendered = rendered.replace("http://subumbra-proxy:8090", CF_WORKER_URL.rstrip("/"))
+    return rendered
+
+
+def _adapter_logo(label: str) -> str:
+    chars = [ch for ch in label if ch.isalnum()]
+    if not chars:
+        return "AD"
+    return "".join(chars[:2]).upper()
+
+
+def _build_adapter_caps(adapter: dict, raw_keys: list[dict]) -> list[str]:
+    caps: list[str] = []
+    for field, label in (
+        ("can_list_all_keys", "list-all-keys"),
+        ("can_list_keys", "list-keys"),
+        ("can_read_stats", "read-stats"),
+        ("can_write_audit", "write-audit"),
+    ):
+        if adapter.get(field):
+            caps.append(label)
+    key_lookup = {entry.get("key_id"): entry for entry in raw_keys}
+    for key_id in adapter.get("allowed_keys", []):
+        key_meta = key_lookup.get(key_id, {})
+        if key_meta.get("type") == "ssh_key":
+            caps.append("ssh-sign")
+        elif key_meta.get("capability_class"):
+            caps.append(str(key_meta["capability_class"]))
+    return sorted(set(caps))
+
+
+def _build_proxy_urls(template: dict | None, allowed_keys: list[str]) -> list[dict]:
+    if not CF_WORKER_URL:
+        return []
+
+    template_values: list[str] = []
+    if template:
+        template_values = [str(field.get("value", "")) for field in template.get("fields", [])]
+
+    proxy_urls: list[dict] = []
+    for key_id in allowed_keys:
+        url = f"{CF_WORKER_URL.rstrip('/')}/t/{key_id}"
+        for raw_value in template_values:
+            if "/t/{key_id}" in raw_value:
+                url = _render_template_value(raw_value, "", key_id)
+                break
+        proxy_urls.append({"key_id": key_id, "url": url})
+    return proxy_urls
+
+
+def _build_config_blocks(template: dict | None, adapter_token: str, allowed_keys: list[str]) -> list[dict]:
+    if not template:
+        return []
+
+    fields = template.get("fields", [])
+    if not fields:
+        return []
+
+    keyed = any("{key_id}" in str(field.get("value", "")) for field in fields)
+    key_targets = allowed_keys if keyed and allowed_keys else [None]
+    blocks: list[dict] = []
+
+    for key_id in key_targets:
+        lines: list[str] = []
+        env_var = template.get("default_token_env_var")
+        if env_var:
+            lines.append(f"{env_var}={adapter_token}")
+        for field in fields:
+            name = str(field.get("name", "")).strip()
+            raw_value = str(field.get("value", ""))
+            rendered = _render_template_value(raw_value, adapter_token, key_id)
+            if template.get("config_type") == "env_file":
+                lines.append(f"{name}={rendered}")
+            else:
+                lines.append(f"{name}: {rendered}")
+        blocks.append({
+            "label": key_id or template.get("target") or "config",
+            "target": template.get("target") or "",
+            "copy": "\n".join(lines),
+        })
+    return blocks
+
+
+def _build_adapter_rows(adapters_payload: dict | None, raw_keys: list[dict], audit_events: list[dict]) -> list[dict]:
+    rows: list[dict] = []
+    audit_last_seen: dict[str, str] = {}
+    for event in audit_events:
+        adapter_id = event.get("adapter_id")
+        timestamp = event.get("timestamp")
+        if adapter_id and adapter_id not in audit_last_seen:
+            audit_last_seen[adapter_id] = _fmt_rel(timestamp)
+
+    for adapter in (adapters_payload or {}).get("adapters", []):
+        adapter_id = str(adapter.get("adapter_id", "")).strip()
+        if not adapter_id:
+            continue
+        template = _load_adapter_template(adapter_id)
+        allowed_keys = [str(key_id) for key_id in adapter.get("allowed_keys", []) if key_id]
+        issued_at = adapter.get("issued_at")
+        expires_at = adapter.get("expires_at")
+        expired = False
+        if isinstance(expires_at, str):
+            try:
+                expired = datetime.fromisoformat(expires_at.replace("Z", "+00:00")) <= datetime.now(timezone.utc)
+            except Exception:
+                expired = False
+        display_name = (template or {}).get("display_name") or adapter_id.replace("-", " ").title()
+        rows.append({
+            "id": adapter_id,
+            "name": display_name,
+            "logo": _adapter_logo(display_name),
+            "status": "paused" if expired else "active",
+            "statusLabel": "expired" if expired else "active",
+            "token": str(adapter.get("token", "")),
+            "tokenMasked": _mask_token(str(adapter.get("token", ""))),
+            "tokenAge": _fmt_rel(issued_at),
+            "lastSeen": audit_last_seen.get(adapter_id, "never"),
+            "keys": allowed_keys,
+            "caps": _build_adapter_caps(adapter, raw_keys),
+            "issuedAt": issued_at or "—",
+            "expiresAt": expires_at or "—",
+            "proxy_urls": _build_proxy_urls(template, allowed_keys),
+            "config_blocks": _build_config_blocks(template, str(adapter.get("token", "")), allowed_keys),
+            "docsPath": (template or {}).get("docs_path") or "",
+        })
+    return rows
+
+
+def _build_policy_rows(raw_keys: list[dict]) -> list[dict]:
+    grouped: dict[str, list[dict]] = defaultdict(list)
+    for key_meta in raw_keys:
+        policy_id = key_meta.get("policy_id") or key_meta.get("key_id") or "unknown"
+        grouped[str(policy_id)].append(key_meta)
+
+    policies: list[dict] = []
+    for policy_id, entries in sorted(grouped.items()):
+        sample = entries[0]
+        provider = sample.get("provider") or "unknown"
+        target_host = sample.get("target_host") or "—"
+        policies.append({
+            "id": policy_id,
+            "name": f"{provider} policy",
+            "hash": sample.get("policy_hash") or "—",
+            "usedBy": len(entries),
+            "provider": provider,
+            "target_host": target_host,
+            "base_path": sample.get("base_path") or "—",
+            "capability_class": sample.get("capability_class") or "—",
+            "auth_scheme": sample.get("auth_scheme") or "—",
+            "auth_header": sample.get("auth_header") or "—",
+            "auth_prefix": sample.get("auth_prefix") or "—",
+            "allow_methods": sample.get("allow_methods") or [],
+            "allow_path_prefixes": sample.get("allow_path_prefixes") or [],
+            "allow_adapters": sample.get("allow_adapters") or [],
+            "key_ids": sorted(str(entry.get("key_id")) for entry in entries if entry.get("key_id")),
+        })
+    return policies
+
+
+def _build_attention_rows(raw_keys: list[dict], session_data: dict | None) -> list[dict]:
+    items: list[dict] = []
+    paused = [entry.get("key_id") for entry in raw_keys if entry.get("paused")]
+    revoked = [entry.get("key_id") for entry in raw_keys if entry.get("revoked")]
+    sessions = (session_data or {}).get("active_sessions", []) if session_data else []
+    lockdown_enabled = bool((session_data or {}).get("lockdown_enabled", True))
+
+    if paused:
+        items.append({
+            "sev": "warn",
+            "title": f"{len(paused)} key{'s' if len(paused) != 1 else ''} paused",
+            "body": ", ".join(str(key_id) for key_id in paused[:4]),
+            "cta": "Review keys",
+            "href": "/vault",
+        })
+    if revoked:
+        items.append({
+            "sev": "warn",
+            "title": f"{len(revoked)} key{'s' if len(revoked) != 1 else ''} revoked",
+            "body": ", ".join(str(key_id) for key_id in revoked[:4]),
+            "cta": "Review keys",
+            "href": "/vault",
+        })
+    if lockdown_enabled and not sessions:
+        items.append({
+            "sev": "warn",
+            "title": "System lockdown active",
+            "body": "No active session currently unlocks key access.",
+            "cta": "Open sessions",
+            "href": "/sessions",
+        })
+    elif sessions:
+        items.append({
+            "sev": "info",
+            "title": f"{len(sessions)} active session{'s' if len(sessions) != 1 else ''}",
+            "body": "Session state is live from the operator session store.",
+            "cta": "View sessions",
+            "href": "/sessions",
+        })
+    if not items:
+        items.append({
+            "sev": "info",
+            "title": "No active attention items",
+            "body": "Live key and session state did not surface any current alerts.",
+            "cta": "Review overview",
+            "href": "/overview",
+        })
+    return items
+
+
+def _build_observability_data(
+    health_payload: dict | None,
+    proxy_payload: dict | None,
+    gate_payload: dict | None,
+    observability_payload: dict | None,
+    merged_keys: list[dict],
+) -> dict:
+    key_lookup = {entry.get("id"): entry for entry in merged_keys}
+    worker_ok = bool(proxy_payload) and (proxy_payload or {}).get("worker_auth") == "ok"
+    services = [
+        {
+            "name": "subumbra-keys",
+            "status": "ok" if (health_payload or {}).get("status") == "ok" else "warn",
+            "sub": "read API",
+            "note": (health_payload or {}).get("timestamp", "unavailable"),
+        },
+        {
+            "name": "subumbra-proxy",
+            "status": "ok" if proxy_payload is not None else "warn",
+            "sub": "transparent proxy",
+            "note": f"worker_auth={(proxy_payload or {}).get('worker_auth', 'unknown')}",
+        },
+        {
+            "name": "cf worker",
+            "status": "ok" if worker_ok or gate_payload is not None else "warn",
+            "sub": CF_WORKER_URL or "not configured",
+            "note": "gate read ok" if gate_payload is not None else "gate read unavailable",
+        },
+    ]
+    velocity = []
+    for entry in (observability_payload or {}).get("velocity", []):
+        key_id = entry.get("key_id")
+        key_meta = key_lookup.get(key_id, {})
+        velocity.append({
+            "key_id": key_id or "—",
+            "provider": key_meta.get("provider", "unknown"),
+            "request_count": entry.get("request_count", 0),
+        })
+    decrypt_errors = [
+        {
+            "reason_code": entry.get("reason_code") or "unknown",
+            "count": entry.get("count", 0),
+        }
+        for entry in (observability_payload or {}).get("decrypt_errors", [])
+    ]
+    return {
+        "services": services,
+        "velocity": velocity,
+        "decrypt_errors": decrypt_errors,
+    }
+
+
 def build_console_data() -> dict:
     """
     Merge live data from subumbra-keys + proxy + CF Worker with the mock skeleton.
     Demo mode (or unreachable backends) returns the mock as-is so the
     console is usable for first-time install, dev, and demos.
     """
-    data = CONSOLE_DATA.copy()
+    data = deepcopy(CONSOLE_DATA)
 
     if DEMO_MODE:
         data["health"] = {**data["health"], "demo": True}
         return data
 
-    health, h_err       = _subumbra_get("/health")
-    proxy_h, p_err      = _proxy_get("/health")
-    keys_data, k_err    = _subumbra_get("/keys")
-    stats_data, _       = _subumbra_get("/stats")
-    audit_data, a_err   = _subumbra_get("/audit")
-    sess_data, s_err    = _subumbra_get("/sessions")
-    gate_data, gate_err = _worker_request("GET", "/gate/pending")
+    health, h_err             = _subumbra_get("/health")
+    proxy_h, p_err            = _proxy_get("/health")
+    keys_data, k_err          = _subumbra_get("/keys")
+    stats_data, _             = _subumbra_get("/stats")
+    audit_data, a_err         = _subumbra_get("/audit")
+    sess_data, s_err          = _subumbra_get("/sessions")
+    adapters_data, adapters_err = _subumbra_get("/adapters")
+    obs_data, obs_err         = _subumbra_get("/observability")
+    gate_data, gate_err       = _worker_request("GET", "/gate/pending")
 
+    raw_keys = list((keys_data or {}).get("keys", []))
+    merged_keys: list[dict] = []
     if keys_data:
-        all_keys = _merge_keys(keys_data.get("keys", []), stats_data or {})
-        data["keys"]     = [k for k in all_keys if k.get("type") != "ssh"]
-        data["ssh_keys"] = [k for k in all_keys if k.get("type") == "ssh"]
+        merged_keys = _merge_keys(raw_keys, stats_data or {})
+        data["keys"] = [k for k in merged_keys if k.get("type") != "ssh"]
+        data["ssh_keys"] = [k for k in merged_keys if k.get("type") == "ssh"]
     if audit_data:
-        data["audit"] = audit_data.get("events", [])[:50]
+        data["audit"] = _map_audit_events(audit_data.get("events", [])[:50], raw_keys)
     if sess_data:
         data["sessions"] = {
             "lockdown_enabled": sess_data.get("lockdown_enabled", True),
             "active": [_map_session(s) for s in sess_data.get("active_sessions", [])],
         }
+    if adapters_data is not None:
+        data["adapters"] = _build_adapter_rows(adapters_data, raw_keys, (audit_data or {}).get("events", []))
+    if raw_keys:
+        data["policies"] = _build_policy_rows(raw_keys)
+    if obs_data is not None:
+        data["observability"] = _build_observability_data(health, proxy_h, gate_data, obs_data, merged_keys)
+    if raw_keys or sess_data:
+        data["attention"] = _build_attention_rows(raw_keys, sess_data)
 
     data["gate"] = gate_data if gate_err is None else None
 
@@ -345,6 +750,8 @@ def build_console_data() -> dict:
         "workerAuth":   (proxy_h or {}).get("worker_auth", "unknown"),
         "keysError":    h_err,
         "proxyError":   p_err,
+        "adaptersError": adapters_err,
+        "observabilityError": obs_err,
         "demo":         False,
     }
     return data
