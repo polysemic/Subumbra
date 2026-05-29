@@ -7,73 +7,65 @@
 <div class="page-head">
   <div>
     <h1 class="page-title">Observability</h1>
-    <p class="page-sub">Per-service health, velocity & breaker state, decrypt-error reasons. Last 24h, 30-minute buckets.</p>
+    <p class="page-sub">Live service reachability, recent per-key request volume, and deny-reason summaries.</p>
   </div>
   <div class="page-actions">
-    <button class="btn">Stream tail</button>
-    <button class="btn btn--primary">Run verify-deploy</button>
+    <button class="btn">Read-only view</button>
   </div>
 </div>
 
-<div class="grid-4" style="margin-bottom:18px">
-  {% for s in obs.services %}
+<div class="grid-3" style="margin-bottom:18px">
+  {% for service in obs.services %}
     <div class="obs-card">
       <div style="display:flex;align-items:center;gap:10px">
-        <div style="width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 8px var(--ok)"></div>
+        <div style="width:8px;height:8px;border-radius:50%;background:{{ 'var(--ok)' if service.status == 'ok' else 'var(--warn)' }}"></div>
         <div>
-          <div class="obs-name">{{ s.name }}</div>
-          <div class="obs-sub">{{ s.sub }}</div>
+          <div class="obs-name">{{ service.name }}</div>
+          <div class="obs-sub">{{ service.sub }}</div>
         </div>
       </div>
-      <div class="obs-uptime">{{ s.uptime }}<span class="unit">% · 24h</span></div>
-      <sub-meter cells="48" data-mode="{{ s.name }}"></sub-meter>
-      <div style="font-size:11px;color:var(--text-muted)">{{ s.note }}</div>
+      <div class="mono" style="margin:12px 0 8px;font-size:12px">{{ service.status }}</div>
+      <div style="font-size:11px;color:var(--text-muted)">{{ service.note }}</div>
     </div>
   {% endfor %}
 </div>
 
 <div class="grid-2">
-
   <div class="card">
     <div class="card__head">
-      <div class="card__title">Velocity & breaker · per key</div>
-      <div class="card__meta">live</div>
-    </div>
-    <div>
-      {% for v in obs.velocity %}
-        {% set pct = (v.used * 100 // v.cap) if v.cap else 0 %}
-        {% set fill = 'fill-err' if pct > 85 else ('fill-warn' if pct > 60 else 'fill-ok') %}
-        <div class="velocity-row">
-          <span class="mono" style="font-size:12px">{{ v.keyId }}</span>
-          <span class="badge badge--{{ v.provider }}">{{ v.provider }}</span>
-          <div class="velocity-bar"><div class="{{ fill }}" style="width:{{ pct }}%"></div></div>
-          <span class="mono" style="text-align:right;color:var(--text-muted)">{{ v.used }} / {{ v.cap }} rpm</span>
-          <span class="breaker-tag breaker-{{ v.breaker }}">{{ v.breaker }}</span>
-        </div>
-      {% endfor %}
-    </div>
-  </div>
-
-  <div class="card">
-    <div class="card__head">
-      <div class="card__title">Decrypt errors · 24h</div>
-      <div class="card__meta">by reason class</div>
+      <div class="card__title">Velocity · last 60 seconds</div>
+      <div class="card__meta">{{ obs.velocity|length }} keys</div>
     </div>
     <table class="tbl">
-      <thead><tr><th>Reason</th><th>Class</th><th>Worker</th><th style="text-align:right">Count</th></tr></thead>
+      <thead><tr><th>Key</th><th>Provider</th><th style="text-align:right">Requests</th></tr></thead>
       <tbody>
-        {% for e in obs.decrypt_errors %}
-          {% set cls_style = 'color:var(--err);border-color:rgba(229,124,124,0.3)' if e.klass in ['aad','auth'] else ('color:var(--warn);border-color:rgba(224,168,104,0.3)' if e.klass == 'policy' else '') %}
+        {% for row in obs.velocity %}
           <tr>
-            <td class="mono">{{ e.reason }}</td>
-            <td><span class="tag" style="{{ cls_style }}">{{ e.klass }}</span></td>
-            <td class="mono ts">{{ e.worker }}</td>
-            <td style="text-align:right" class="mono">{{ e.count }}</td>
+            <td class="mono">{{ row.key_id }}</td>
+            <td><span class="badge badge--{{ row.provider }}">{{ row.provider }}</span></td>
+            <td style="text-align:right" class="mono">{{ row.request_count }}</td>
           </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 
+  <div class="card">
+    <div class="card__head">
+      <div class="card__title">Decrypt errors · last 24 hours</div>
+      <div class="card__meta">{{ obs.decrypt_errors|length }} reasons</div>
+    </div>
+    <table class="tbl">
+      <thead><tr><th>Reason</th><th style="text-align:right">Count</th></tr></thead>
+      <tbody>
+        {% for row in obs.decrypt_errors %}
+          <tr>
+            <td class="mono">{{ row.reason_code }}</td>
+            <td style="text-align:right" class="mono">{{ row.count }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 {% endblock %}

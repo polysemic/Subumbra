@@ -1,5 +1,5 @@
 # PROJECT_STATUS
-*Current state — updated 2026-05-28 (r88-secure-ui verified and fully closed)*
+*Current state — updated 2026-05-28 (r89-ui-read-integration implementation complete; verification pending)*
 
 
 
@@ -24,6 +24,7 @@ V3 Asymmetric Envelope Encryption (deployed, all three council verifiers PASS).
 - **Gate approval flow (r87, verified and closed):** selected HTTP and SSH requests route through a dedicated `SubumbraGate` Durable Object that stores pending approval state, browser-push subscriptions, and expiry alarms; `subumbra-proxy` polls Worker gate status and re-submits only approved requests; the dashboard exposes push subscription and pending gate visibility. The entire flow has been verified under a 16-thread high-concurrency stress test with zero failures.
 - **Bootstrap services and UI auth (r88, verified and closed):** bootstrap now resolves top-level manifest `services.ui.deploy`, `services.ui.auth.mode`, and `services.ssh_agent.deploy`; runtime `.env` now persists `DEPLOY_UI`, `DEPLOY_SSH`, `UI_USERNAME`, `UI_PASSWORD_HASH`, and `CF_ACCESS_PROTECTED`; `bootstrap.sh --upgrade` re-applies the corresponding Compose profiles; `./bootstrap.sh --update-ui-auth` rotates UI auth without a full re-bootstrap; and `ui/app.py` now fails closed unless either hashed Basic Auth or `CF_ACCESS_PROTECTED=true` is configured.
 - **Secure UI console (r88-secure-ui, verified and closed):** the single-page UI is replaced by a multi-page console (Overview, Sessions, Vault, Adapters, Policies, Audit, Cloudflare, Observability, Settings). Auth integrates PBKDF2 hashing via `_hash_utils.verify_ui_password()`. Gate Approvals panel preserved on Overview. Live data wiring partitions API and SSH keys, populates Cloudflare env from runtime variables, and degrades gracefully when the Worker is unreachable. Security hardening: `Cross-Origin-Opener-Policy`, `Permissions-Policy`, `_require_json` 415 guard on all write routes, and per-IP key-session rate limiting.
+- **UI read integration (r89, implementation pending verification):** `subumbra-keys` now exposes read-only `/adapters` and `/observability` endpoints for the Secure UI; the Adapters, Policies, Observability, and Overview attention surfaces now derive from live reads instead of the remaining mock console sections; adapter snippets are built from the existing adapter template metadata and externalized with `CF_WORKER_URL`; and the Adapters page now ships hidden-by-default token reveal/copy blocks plus copyable proxy URLs and config snippets.
 
 
 
