@@ -22,7 +22,7 @@
 
 {% if selected %}
 <div class="split-drawer">
-  <div class="card" style="padding:0; overflow:hidden">
+  <div class="card card--flush">
     <div>
       {% for p in policies %}
         <div class="policy-row {{ 'is-active' if p.id == selected.id else '' }}" data-policy="{{ p.id }}">
@@ -51,7 +51,7 @@
     </div>
   </div>
 
-  <div class="card" style="padding:0;overflow:hidden">
+  <div class="card card--flush">
     <div style="padding:18px 20px;border-bottom:1px solid var(--border)">
       <div style="display:flex;align-items:center;gap:8px">
         <span class="mono" style="font-weight:600;font-size:14px">{{ selected.id }}</span>

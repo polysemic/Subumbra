@@ -16,7 +16,7 @@
   </div>
 </div>
 
-<div class="card" style="padding:14px 16px;margin-bottom:14px">
+<div class="card card--audit-filters" style="padding:14px 16px;margin-bottom:14px">
   <div class="chips">
     <button class="chip"><span style="color:var(--text-dim)">Time</span> · last 1h ▾</button>
     <button class="chip"><span style="color:var(--text-dim)">Adapter</span> · any ▾</button>
@@ -29,8 +29,8 @@
   </div>
 </div>
 
-<div class="card" style="padding:0;overflow:hidden">
-  <table class="tbl">
+<div class="card card--flush card--audit-table">
+  <div class="tbl-wrap"><table class="tbl">
     <thead>
       <tr>
         <th>Timestamp</th><th>Adapter</th><th>Method</th><th>Endpoint</th>
@@ -52,10 +52,10 @@
         </tr>
       {% endfor %}
     </tbody>
-  </table>
+  </table></div>
 </div>
 
-<div style="display:flex;align-items:center;gap:12px;margin-top:12px;font-size:11px;color:var(--text-dim)">
+<div class="audit-pager" style="display:flex;align-items:center;gap:12px;margin-top:12px;font-size:11px;color:var(--text-dim)">
   <span>Showing {{ log|length }} events · last 1h</span>
   <span style="margin-left:auto"></span>
   <button class="btn btn--ghost">← Older</button>

@@ -37,8 +37,8 @@
 
 <div class="split-drawer">
 
-  <div class="card" style="padding:0; overflow:hidden">
-    <table class="tbl">
+  <div class="card card--flush">
+    <div class="tbl-wrap"><table class="tbl">
       <thead>
         <tr>
           <th></th><th>Key</th><th>Algorithm</th><th>Hosts</th>
@@ -65,7 +65,7 @@
           </tr>
         {% endfor %}
       </tbody>
-    </table>
+    </table></div>
   </div>
 
   {% include "_vault_ssh_drawer.html" %}

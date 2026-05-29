@@ -626,3 +626,101 @@
   .page-head { flex-direction: column; align-items: stretch; }
   .page-actions { flex-wrap: wrap; }
 }
+
+/* ── Fixed-height layout: split-drawer pages ────────────────── */
+/* Applied at ≥1081px where the two-column split-drawer is active */
+@media (min-width: 1081px) {
+  body[data-page="vault"] .main,
+  body[data-page="vault-ssh"] .main,
+  body[data-page="sessions"] .main,
+  body[data-page="policies"] .main {
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  body[data-page="vault"] .content,
+  body[data-page="vault-ssh"] .content,
+  body[data-page="sessions"] .content,
+  body[data-page="policies"] .content {
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  body[data-page="vault"] .page-head,
+  body[data-page="vault-ssh"] .page-head,
+  body[data-page="sessions"] .page-head,
+  body[data-page="policies"] .page-head,
+  body[data-page="vault"] .tabs,
+  body[data-page="vault-ssh"] .tabs,
+  body[data-page="policies"] .tabs,
+  body[data-page="vault"] .chips,
+  body[data-page="vault-ssh"] .chips { flex-shrink: 0; }
+
+  body[data-page="vault"] .split-drawer,
+  body[data-page="vault-ssh"] .split-drawer,
+  body[data-page="sessions"] .split-drawer,
+  body[data-page="policies"] .split-drawer {
+    flex: 1;
+    min-height: 0;
+    align-items: stretch;
+  }
+
+  /* Each grid column scrolls independently */
+  body[data-page="vault"] .split-drawer > *,
+  body[data-page="vault-ssh"] .split-drawer > *,
+  body[data-page="sessions"] .split-drawer > *,
+  body[data-page="policies"] .split-drawer > * {
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  /* Drawer already scrolls via .drawer__body — don't double-stack */
+  body[data-page="vault"] .split-drawer .drawer,
+  body[data-page="vault-ssh"] .split-drawer .drawer { overflow-y: hidden; }
+
+  /* Sticky thead in scrollable table columns */
+  body[data-page="vault"] .split-drawer .tbl thead th,
+  body[data-page="vault-ssh"] .split-drawer .tbl thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+}
+
+/* ── Fixed-height layout: audit ──────────────────────────────── */
+@media (min-width: 881px) {
+  body[data-page="audit"] .main {
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  body[data-page="audit"] .content {
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  body[data-page="audit"] .page-head,
+  body[data-page="audit"] .card--audit-filters { flex-shrink: 0; }
+
+  body[data-page="audit"] .card--audit-table {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  body[data-page="audit"] .audit-pager {
+    flex-shrink: 0;
+    padding-bottom: var(--space-4);
+  }
+
+  body[data-page="audit"] .card--audit-table .tbl thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+}

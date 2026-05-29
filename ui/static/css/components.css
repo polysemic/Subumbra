@@ -748,3 +748,9 @@
 @media (max-width: 640px) {
   .grid-4, .grid-3, .grid-2 { grid-template-columns: 1fr; }
 }
+
+/* ── Card variants ───────────────────────────────────────────── */
+.card--flush { padding: 0; overflow: hidden; }
+
+/* Horizontal-scroll wrapper for wide tables */
+.tbl-wrap { overflow-x: auto; }
