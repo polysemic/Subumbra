@@ -24,6 +24,7 @@
   <span class="tabs__tab">Certificates <span class="soon">soon</span></span>
 </nav>
 
+{# provider filter chips deferred — not yet wired to live filter logic
 <div class="chips" style="margin-bottom:14px">
   <button class="chip is-active">All providers <span class="chip__count">{{ keys|length }}</span></button>
   <button class="chip">Anthropic <span class="chip__count">{{ keys|selectattr('provider','equalto','anthropic')|list|length }}</span></button>
@@ -37,6 +38,7 @@
   <span style="margin-left:auto"></span>
   <button class="chip" style="color:var(--text-dim)">↧ Sort: Last used</button>
 </div>
+#}
 
 <div class="split-drawer">
 

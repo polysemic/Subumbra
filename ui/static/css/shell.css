@@ -681,13 +681,6 @@
   body[data-page="vault"] .split-drawer .drawer,
   body[data-page="vault-ssh"] .split-drawer .drawer { overflow-y: hidden; }
 
-  /* Sticky thead in scrollable table columns */
-  body[data-page="vault"] .split-drawer .tbl thead th,
-  body[data-page="vault-ssh"] .split-drawer .tbl thead th {
-    position: sticky;
-    top: 0;
-    z-index: 1;
-  }
 }
 
 /* ── Fixed-height layout: audit ──────────────────────────────── */
@@ -716,11 +709,5 @@
   body[data-page="audit"] .audit-pager {
     flex-shrink: 0;
     padding-bottom: var(--space-4);
-  }
-
-  body[data-page="audit"] .card--audit-table .tbl thead th {
-    position: sticky;
-    top: 0;
-    z-index: 1;
   }
 }

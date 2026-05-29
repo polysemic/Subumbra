@@ -11,6 +11,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initChips();
   initTabs();
   initSelectRows();
+  initTableSort();
   initCopy();
   initSwitches();
   initActions();
@@ -614,6 +615,41 @@ function fillLockAllModal(modal, sess) {
       <div class="mono" style="font-size:10px;color:var(--text-muted);margin-top:2px">queries</div>
     </div>
   `;
+}
+
+/* ── Table sort (vanilla, no library) ───────────────────────────
+   Click any non-empty <th> to sort that column asc/desc.
+   Numeric values (comma-stripped) sort numerically; everything else
+   falls back to locale-aware string comparison.
+   ───────────────────────────────────────────────────────────── */
+function initTableSort() {
+  document.querySelectorAll(".tbl").forEach((table) => {
+    const thead = table.querySelector("thead");
+    if (!thead) return;
+    const ths = [...thead.querySelectorAll("th")];
+    ths.forEach((th, colIdx) => {
+      if (!th.textContent.trim()) return; // skip icon/action columns with no label
+      th.classList.add("sortable");
+      th.dataset.sortDir = "";
+      th.addEventListener("click", () => {
+        const tbody = table.querySelector("tbody");
+        if (!tbody) return;
+        const dir = th.dataset.sortDir === "asc" ? "desc" : "asc";
+        ths.forEach((h) => { h.dataset.sortDir = ""; });
+        th.dataset.sortDir = dir;
+        const rows = [...tbody.querySelectorAll("tr")];
+        rows.sort((a, b) => {
+          const aText = (a.cells[colIdx]?.textContent ?? "").trim().replace(/,/g, "");
+          const bText = (b.cells[colIdx]?.textContent ?? "").trim().replace(/,/g, "");
+          const aNum = parseFloat(aText);
+          const bNum = parseFloat(bText);
+          if (!isNaN(aNum) && !isNaN(bNum)) return dir === "asc" ? aNum - bNum : bNum - aNum;
+          return dir === "asc" ? aText.localeCompare(bText) : bText.localeCompare(aText);
+        });
+        rows.forEach((r) => tbody.appendChild(r));
+      });
+    });
+  });
 }
 
 /* ── Live data: SSE + periodic refresh ───────────────────────── */

@@ -276,7 +276,14 @@
   border-bottom: 1px solid var(--border);
   background: var(--bg);
   white-space: nowrap;
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
+.tbl thead th.sortable { cursor: pointer; user-select: none; }
+.tbl thead th.sortable::after { content: ' ⇅'; opacity: 0.25; font-size: 9px; }
+.tbl thead th[data-sort-dir="asc"]::after  { content: ' ▲'; opacity: 1; color: var(--accent); }
+.tbl thead th[data-sort-dir="desc"]::after { content: ' ▼'; opacity: 1; color: var(--accent); }
 .tbl tbody td {
   padding: 12px 12px;
   border-bottom: 1px solid var(--border);
@@ -753,4 +760,12 @@
 .card--flush { padding: 0; overflow: hidden; }
 
 /* Horizontal-scroll wrapper for wide tables */
-.tbl-wrap { overflow-x: auto; }
+.tbl-wrap {
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) var(--sunken);
+}
+.tbl-wrap::-webkit-scrollbar { height: 5px; }
+.tbl-wrap::-webkit-scrollbar-track { background: var(--sunken); }
+.tbl-wrap::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
+.tbl-wrap::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }

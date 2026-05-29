@@ -24,6 +24,7 @@
   <span class="tabs__tab">Certificates <span class="soon">soon</span></span>
 </nav>
 
+{# ssh filter chips deferred — not yet wired to live filter logic
 <div class="chips" style="margin-bottom:14px">
   <button class="chip is-active">All <span class="chip__count">{{ ssh|length }}</span></button>
   <button class="chip">github.com <span class="chip__count">{{ ssh|selectattr('provider','equalto','github')|list|length }}</span></button>
@@ -34,6 +35,7 @@
   <span style="margin-left:auto"></span>
   <button class="chip" style="color:var(--text-dim)">↧ Sort: Last used</button>
 </div>
+#}
 
 <div class="split-drawer">
 
