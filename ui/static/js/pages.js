@@ -33,13 +33,15 @@ function initSidebar() {
 
   function openMobile() {
     sidebar.classList.add("is-open");
-    backdrop.classList.add("is-visible");
+    if (backdrop) backdrop.classList.add("is-visible");
     if (menuBtn) { menuBtn.setAttribute("aria-expanded", "true"); menuBtn.textContent = "✕"; }
+    if (colBtn)  colBtn.textContent = "✕";
   }
   function closeMobile() {
     sidebar.classList.remove("is-open");
-    backdrop.classList.remove("is-visible");
+    if (backdrop) backdrop.classList.remove("is-visible");
     if (menuBtn) { menuBtn.setAttribute("aria-expanded", "false"); menuBtn.textContent = "☰"; }
+    if (colBtn)  colBtn.textContent = "‹";
   }
 
   function setDesktopCollapsed(collapsed) {
@@ -52,10 +54,10 @@ function initSidebar() {
     shell.classList.add("is-side-collapsed");
   }
 
-  // Desktop collapse button
+  // Collapse/close button — desktop collapses rail, mobile closes overlay
   if (colBtn) {
     colBtn.addEventListener("click", () => {
-      if (isMobile()) return;
+      if (isMobile()) { closeMobile(); return; }
       setDesktopCollapsed(!shell.classList.contains("is-side-collapsed"));
     });
   }

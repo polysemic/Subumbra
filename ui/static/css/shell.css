@@ -23,6 +23,7 @@
   position: sticky;
   top: 0;
   height: 100dvh;
+  overflow: hidden;
 }
 
 .side__brand {
@@ -159,14 +160,20 @@
 }
 
 /* ── Collapsed sidebar (desktop icons-only) ──────────────────── */
-.shell.is-side-collapsed .side {
-  overflow: hidden;
+.shell.is-side-collapsed .side__brand {
+  justify-content: center;
+  padding: 14px 0 20px;
+  gap: 0;
 }
+.shell.is-side-collapsed .side__logo,
 .shell.is-side-collapsed .side__brand-text,
 .shell.is-side-collapsed .side__org,
 .shell.is-side-collapsed .side__section,
 .shell.is-side-collapsed .side__foot {
   display: none;
+}
+.shell.is-side-collapsed .side__collapse-btn {
+  margin-left: 0;
 }
 .shell.is-side-collapsed .side__nav {
   padding: var(--space-2) 6px;
@@ -325,6 +332,9 @@
   font-size: 10px;
   color: var(--text-dim);
   margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ── Main + topbar ───────────────────────────────────────────── */
@@ -527,9 +537,15 @@
     box-shadow: 6px 0 24px rgba(0,0,0,0.4);
   }
   .side.is-open { transform: none; }
-  /* Hide desktop collapse button and brand text toggle on mobile */
-  .side__collapse-btn { display: none; }
-  /* Ensure content is full-width on mobile even when collapsed */
+  /* On mobile the collapse btn becomes a ✕ close button — keep it visible */
+  .side__collapse-btn {
+    display: grid;
+    margin-left: auto;
+  }
+  /* Undo desktop collapsed overrides inside mobile sidebar */
+  .shell.is-side-collapsed .side__brand { justify-content: flex-start; padding: var(--space-4) var(--space-3) var(--space-5) var(--space-5); gap: var(--space-3); }
+  .shell.is-side-collapsed .side__collapse-btn { margin-left: auto; }
+  .shell.is-side-collapsed .side__logo { display: block; }
   .shell.is-side-collapsed .side__brand-text { display: block; }
   .shell.is-side-collapsed .side__org { display: flex; }
   .shell.is-side-collapsed .side__section { display: block; }
