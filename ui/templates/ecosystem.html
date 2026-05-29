@@ -1,0 +1,369 @@
+{% extends "base.html" %}
+{% block title %}Ecosystem & Competitor Comparison — Subumbra Console{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1 class="page-title">Ecosystem & Value Position</h1>
+    <p class="page-sub">Objective, architectural comparison of how Subumbra's split-trust framework differs from traditional key vaults and traffic brokers.</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="https://github.com/polysemic/Subumbra/blob/main/docs/security-overview.md" target="_blank" rel="noreferrer">Security Docs ↗</a>
+  </div>
+</div>
+
+<style>
+  .eco-intro {
+    background: linear-gradient(135deg, var(--surface) 0%, var(--raised) 100%);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r);
+    padding: 24px;
+    margin-bottom: 24px;
+  }
+  .eco-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 24px;
+  }
+  @media (max-width: 880px) {
+    .eco-grid { grid-template-columns: 1fr; }
+  }
+  .eco-feature-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .eco-table-wrapper {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    margin-bottom: 28px;
+    overflow: hidden;
+  }
+  .eco-table-title {
+    font-size: var(--fs-md);
+    font-weight: var(--fw-semibold);
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-strong);
+    background: var(--raised);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .eco-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--fs-sm);
+    text-align: left;
+  }
+  .eco-table th, .eco-table td {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  .eco-table th {
+    background: rgba(255, 255, 255, 0.02);
+    font-weight: var(--fw-semibold);
+    color: var(--text);
+  }
+  .eco-table tr:last-child td {
+    border-bottom: none;
+  }
+  .eco-table td.subumbra-col {
+    background: rgba(var(--accent-rgb, 96, 165, 250), 0.03);
+    border-left: 1px solid rgba(var(--accent-rgb, 96, 165, 250), 0.15);
+    border-right: 1px solid rgba(var(--accent-rgb, 96, 165, 250), 0.15);
+  }
+  .eco-table tr:hover td {
+    background: rgba(255, 255, 255, 0.01);
+  }
+  .eco-table tr:hover td.subumbra-col {
+    background: rgba(var(--accent-rgb, 96, 165, 250), 0.05);
+  }
+  .pro-list {
+    margin: 4px 0 0 0;
+    padding-left: 16px;
+    color: var(--text-muted);
+  }
+  .pro-list li {
+    margin-bottom: 4px;
+  }
+  .pro-list li strong {
+    color: var(--text);
+  }
+</style>
+
+<div class="eco-intro">
+  <div style="font-size: var(--fs-lg); font-weight: var(--fw-semibold); margin-bottom: 8px; display:flex; align-items:center; gap:8px">
+    <span>⚖</span> The Dual-Job Architecture
+  </div>
+  <p style="color: var(--text-muted); line-height: 1.6; margin-bottom: 16px">
+    Modern API keys and service credentials carry immense risk. Most enterprise security tooling addresses this challenge in silos—either as a <strong>Secret Vault</strong> (which secures credentials at rest but exposes them upon request) or as an <strong>API Traffic Broker</strong> (which routes calls but requires you to hand over plaintext keys).
+  </p>
+  <div style="font-size: var(--fs-md); font-weight: var(--fw-medium); color: var(--text); margin-bottom: 10px">
+    Subumbra is architected to perform both functions seamlessly, maintaining cryptographic isolation throughout the entire lifecycle.
+  </div>
+</div>
+
+<div class="eco-grid">
+  <div class="eco-feature-card" style="border-top: 3px solid var(--accent)">
+    <div style="font-size: var(--fs-md); font-weight: var(--fw-semibold); display:flex; align-items:center; gap:8px">
+      <span style="color:var(--accent)">▣</span> Job 1: Split-Trust Custody (Vault)
+    </div>
+    <p style="font-size: var(--fs-sm); color: var(--text-muted); line-height: 1.5; flex: 1">
+      Traditional key storage requires storing raw master secrets in a central database. If the database or cluster is breached, every credential is lost. Subumbra implements <strong>Multi-Party Cryptography (Split-Keys)</strong> across a local Docker environment and an isolated Cloudflare Worker, meaning neither system ever possesses or records the full secret in plaintext at rest.
+    </p>
+    <div style="font-size: var(--fs-xs); color: var(--text-dim)">
+      → Eliminates the central "honeypot" vulnerability of traditional key vaults.
+    </div>
+  </div>
+
+  <div class="eco-feature-card" style="border-top: 3px solid var(--ok)">
+    <div style="font-size: var(--fs-md); font-weight: var(--fw-semibold); display:flex; align-items:center; gap:8px">
+      <span style="color:var(--ok)">⌖</span> Job 2: Local Security Mediation (Broker)
+    </div>
+    <p style="font-size: var(--fs-sm); color: var(--text-muted); line-height: 1.5; flex: 1">
+      Standard API proxies and routers require you to upload your master secrets directly to their platforms so they can load balance or rate limit requests. Subumbra mediates API traffic **locally at the edge**, proxying requests and dynamically signing/decrypting them via isolated blind handshakes—without the proxy ever holding your master keys.
+    </p>
+    <div style="font-size: var(--fs-xs); color: var(--text-dim)">
+      → Secures your keys in transit, enforcing session quarantine and forensic audit logs.
+    </div>
+  </div>
+</div>
+
+<!-- SECTION 1: STORAGE & CUSTODY COMPARISON -->
+<div class="eco-table-wrapper">
+  <div class="eco-table-title">
+    <span>Vault Comparison: Cryptographic Key Custody & Secrets Storage</span>
+    <span class="pill pill--active" style="font-size: 11px">Focus: Security At Rest</span>
+  </div>
+  <table class="eco-table">
+    <thead>
+      <tr>
+        <th style="width: 20%">Feature / Dimension</th>
+        <th style="width: 26%" class="subumbra-col">Subumbra</th>
+        <th style="width: 27%">HashiCorp Vault</th>
+        <th style="width: 27%">Doppler / Infisical</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Trust Model</strong></td>
+        <td class="subumbra-col">
+          <strong>Split-Trust (Multi-Party)</strong>
+          <div style="font-size:11px;color:var(--text-dim);margin-top:4px">Neither Docker nor Cloudflare alone holds the master key.</div>
+        </td>
+        <td>
+          <strong>Centralized (Single-Trust)</strong>
+          <div style="font-size:11px;color:var(--text-dim);margin-top:4px">Trust is fully centered inside the vault instance/cluster.</div>
+        </td>
+        <td>
+          <strong>Cloud-Centralized</strong>
+          <div style="font-size:11px;color:var(--text-dim);margin-top:4px">Trust rests entirely in their cloud key management service (KMS).</div>
+        </td>
+      </tr>
+      <tr>
+        <td><strong>Key Storage State</strong></td>
+        <td class="subumbra-col">
+          <span style="color: var(--ok)">✓</span> <strong>Cryptographically Split</strong>
+          <div style="font-size:11px;color:var(--text-dim);margin-top:4px">Keys are split into NaCl-encrypted compartments. No plaintext database exists.</div>
+        </td>
+        <td>
+          <span style="color: var(--warn)">!</span> <strong>Plaintext at Rest (Encrypted)</strong>
+          <div style="font-size:11px;color:var(--text-dim);margin-top:4px">Stored encrypted in a single DB, decrypted in memory upon startup/unseal.</div>
+        </td>
+        <td>
+          <span style="color: var(--warn)">!</span> <strong>Plaintext at Rest (Encrypted)</strong>
+          <div style="font-size:11px;color:var(--text-dim);margin-top:4px">Stored centrally in cloud databases, decrypted dynamically per fetch request.</div>
+        </td>
+      </tr>
+      <tr>
+        <td><strong>Extradition Risk</strong></td>
+        <td class="subumbra-col">
+          <span style="color: var(--ok)">✓</span> <strong>Near-Zero</strong>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">An attacker compromising the local Docker engine gets nothing but unusable key shares.</div>
+        </td>
+        <td>
+          <span style="color: var(--err)">✗</span> <strong>High</strong>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">An attacker breaching the unsealed Vault server/memory dumps all active secrets.</div>
+        </td>
+        <td>
+          <span style="color: var(--err)">✗</span> <strong>High</strong>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Compromising the central dashboard or client account leaks all keys immediately.</div>
+        </td>
+      </tr>
+      <tr>
+        <td><strong>What We Miss<br><small style="color:var(--text-dim)">(Their Strengths)</small></strong></td>
+        <td class="subumbra-col">
+          <span style="color:var(--text-dim)">—</span>
+        </td>
+        <td>
+          <ul class="pro-list">
+            <li><strong>SaaS Integration:</strong> Dynamic database key generation and hundreds of pre-built platform plugins.</li>
+            <li><strong>Enterprise RBAC:</strong> Fine-grained policies and native LDAP/OIDC integration.</li>
+          </ul>
+        </td>
+        <td>
+          <ul class="pro-list">
+            <li><strong>Developer UX:</strong> Beautiful web interface for editing environmental configs.</li>
+            <li><strong>Cloud Syncing:</strong> Auto-pushes keys into Vercel, Netlify, and AWS Lambda.</li>
+          </ul>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- SECTION 2: PROXY & MEDIATION COMPARISON -->
+<div class="eco-table-wrapper">
+  <div class="eco-table-title">
+    <span>Broker Comparison: API Traffic Mediation & Security Gateways</span>
+    <span class="pill pill--paused" style="font-size: 11px">Focus: Security In Transit</span>
+  </div>
+  <table class="eco-table">
+    <thead>
+      <tr>
+        <th style="width: 20%">Feature / Dimension</th>
+        <th style="width: 26%" class="subumbra-col">Subumbra</th>
+        <th style="width: 27%">LiteLLM (Proxy)</th>
+        <th style="width: 27%">Cloudflare AI Gateway / Portkey</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Key Custody in Proxy</strong></td>
+        <td class="subumbra-col">
+          <span style="color: var(--ok)">✓</span> <strong>Blind Proxy</strong>
+          <div style="font-size:11px;color:var(--text-dim);margin-top:4px">The proxy server routes calls but never holds the master API secrets in its memory.</div>
+        </td>
+        <td>
+          <span style="color: var(--err)">✗</span> <strong>Plaintext Holding</strong>
+          <div style="font-size:11px;color:var(--text-dim);margin-top:4px">The proxy must hold the raw API keys in memory or local environment to attach them.</div>
+        </td>
+        <td>
+          <span style="color: var(--err)">✗</span> <strong>Central Cloud Vault</strong>
+          <div style="font-size:11px;color:var(--text-dim);margin-top:4px">Keys must be uploaded to their cloud databases to perform request forwarding.</div>
+        </td>
+      </tr>
+      <tr>
+        <td><strong>Session Attestation</strong></td>
+        <td class="subumbra-col">
+          <span style="color: var(--ok)">✓</span> <strong>Enforced Gating</strong>
+          <div style="font-size:11px;color:var(--text-dim);margin-top:4px">Temporary, signed session tokens validate client calls. Credential theft is isolated.</div>
+        </td>
+        <td>
+          <span style="color: var(--err)">✗</span> <strong>Static Access</strong>
+          <div style="font-size:11px;color:var(--text-dim);margin-top:4px">Relies strictly on static bearer tokens. If a token is stolen, access is open-ended.</div>
+        </td>
+        <td>
+          <span style="color: var(--err)">✗</span> <strong>Static API Keys</strong>
+          <div style="font-size:11px;color:var(--text-dim);margin-top:4px">Requests are validated via standard client-side API keys. No session lifecycle limits.</div>
+        </td>
+      </tr>
+      <tr>
+        <td><strong>Forensic Integrity</strong></td>
+        <td class="subumbra-col">
+          <span style="color: var(--ok)">✓</span> <strong>Immutable Split-Audit</strong>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Audit logs are partitioned cryptographically. An attacker cannot alter history.</div>
+        </td>
+        <td>
+          <span style="color: var(--warn)">!</span> <strong>Standard DB Logging</strong>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Logs are written directly to standard databases (PostgreSQL) which are mutable.</div>
+        </td>
+        <td>
+          <span style="color: var(--warn)">!</span> <strong>Centralized Analytics</strong>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Logs reside inside their central cloud platforms with no client-side immutability.</div>
+        </td>
+      </tr>
+      <tr>
+        <td><strong>What We Miss<br><small style="color:var(--text-dim)">(Their Strengths)</small></strong></td>
+        <td class="subumbra-col">
+          <span style="color:var(--text-dim)">—</span>
+        </td>
+        <td>
+          <ul class="pro-list">
+            <li><strong>Dynamic Routing:</strong> Rich load-balancing, failover routing, and model translation across 100+ platforms.</li>
+            <li><strong>Analytics UI:</strong> Built-in web charts for costs, tokens, and active request volume.</li>
+          </ul>
+        </td>
+        <td>
+          <ul class="pro-list">
+            <li><strong>Semantic Caching:</strong> Pre-built Redis-based embedding matches for sub-millisecond query responses.</li>
+            <li><strong>Management Portal:</strong> Fully hosted, zero-infrastructure deployment.</li>
+          </ul>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- SECTION 3: DEPLOYMENT & PLATFORM -->
+<div class="eco-table-wrapper">
+  <div class="eco-table-title">
+    <span>Operational Comparison: Deployment Footprint & sovereignty</span>
+    <span class="pill" style="background:var(--sunken);color:var(--text-dim);border:1px dashed var(--border);font-size: 11px">Focus: Platform Architecture</span>
+  </div>
+  <table class="eco-table">
+    <thead>
+      <tr>
+        <th style="width: 20%">Feature / Dimension</th>
+        <th style="width: 26%" class="subumbra-col">Subumbra</th>
+        <th style="width: 27%">Central Vaults (e.g. HashiCorp)</th>
+        <th style="width: 27%">Hosted Proxies (e.g. Portkey)</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Deployment Topology</strong></td>
+        <td class="subumbra-col">
+          <strong>Self-Sovereign Edge</strong>
+          <div style="font-size:11px;color:var(--text-dim);margin-top:4px">Lightweight local Docker containers coupled with a serverless edge worker.</div>
+        </td>
+        <td>
+          <strong>Heavy Enterprise Infrastructure</strong>
+          <div style="font-size:11px;color:var(--text-dim);margin-top:4px">Requires maintaining complex cluster replication (Consul/Raft), unsealing keys, and active HSMs.</div>
+        </td>
+        <td>
+          <strong>SaaS Lock-In</strong>
+          <div style="font-size:11px;color:var(--text-dim);margin-top:4px">Completely dependent on their central cloud hosting and availability.</div>
+        </td>
+      </tr>
+      <tr>
+        <td><strong>Scale & Speed</strong></td>
+        <td class="subumbra-col">
+          <span style="color: var(--ok)">✓</span> <strong>Ultra-fast Edge</strong>
+          <div style="font-size:11px;color:var(--text-dim);margin-top:4px">Handshakes route globally via serverless networks close to the clients.</div>
+        </td>
+        <td>
+          <span style="color: var(--warn)">!</span> <strong>Regional Latency</strong>
+          <div style="font-size:11px;color:var(--text-dim);margin-top:4px">Requests must route to the central unsealed vault instance, adding regional hop latency.</div>
+        </td>
+        <td>
+          <span style="color: var(--ok)">✓</span> <strong>Global Network</strong>
+          <div style="font-size:11px;color:var(--text-dim);margin-top:4px">Highly optimized global edge routing networks.</div>
+        </td>
+      </tr>
+      <tr>
+        <td><strong>Platform Sovereignty</strong></td>
+        <td class="subumbra-col">
+          <span style="color: var(--ok)">✓</span> <strong>100% Private</strong>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">You own and control the code, the keys, and the infrastructure. No vendor has access.</div>
+        </td>
+        <td>
+          <span style="color: var(--ok)">✓</span> <strong>100% Private (Self-Hosted)</strong>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">You own the infrastructure, though maintenance overhead is high.</div>
+        </td>
+        <td>
+          <span style="color: var(--err)">✗</span> <strong>Zero Sovereignty</strong>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">They have full visibility into your query rates, billing limits, and traffic data.</div>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+{% endblock %}
