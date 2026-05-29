@@ -31,17 +31,69 @@ function initSelectRows() {
   ];
   map.forEach(({ sel, param }) => {
     document.querySelectorAll(sel).forEach((el) => {
+      if (el.dataset.jsBound === "1") return;
+      el.dataset.jsBound = "1";
       el.style.cursor = "pointer";
-      el.addEventListener("click", (e) => {
+      el.addEventListener("click", async (e) => {
         if (e.target.closest("a,button,input,select,textarea")) return;
         const id = param(el);
         if (!id) return;
+        if (sel === "[data-key-id]" && (location.pathname === "/vault" || location.pathname === "/vault/ssh")) {
+          e.preventDefault();
+          await updateVaultDrawer(id, el);
+          return;
+        }
         const url = new URL(location.href);
         url.searchParams.set("select", id);
         location.href = url.toString();
       });
     });
   });
+}
+
+async function updateVaultDrawer(id, row) {
+  const container = document.querySelector(".split-drawer");
+  const drawer = container?.querySelector(".drawer");
+  if (!container || !drawer) {
+    const url = new URL(location.href);
+    url.searchParams.set("select", id);
+    location.href = url.toString();
+    return;
+  }
+
+  const url = new URL(location.href);
+  url.searchParams.set("select", id);
+  url.searchParams.set("partial", "drawer");
+
+  document.body.style.cursor = "progress";
+  row?.classList.add("is-loading");
+  try {
+    const resp = await fetch(url.toString(), {
+      credentials: "same-origin",
+      headers: { "X-Requested-With": "XMLHttpRequest" },
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+    const html = await resp.text();
+    drawer.outerHTML = html;
+    document.querySelectorAll("[data-key-id].is-selected").forEach((el) => el.classList.remove("is-selected"));
+    if (row) row.classList.add("is-selected");
+
+    const nextUrl = new URL(location.href);
+    nextUrl.searchParams.set("select", id);
+    nextUrl.searchParams.delete("partial");
+    history.replaceState({}, "", nextUrl.toString());
+
+    initTabs();
+  } catch (err) {
+    console.error("vault drawer update failed", err);
+    const nextUrl = new URL(location.href);
+    nextUrl.searchParams.set("select", id);
+    location.href = nextUrl.toString();
+  } finally {
+    row?.classList.remove("is-loading");
+    document.body.style.cursor = "";
+  }
 }
 
 /* ── Chip groups ─────────────────────────────────────────────────
@@ -77,6 +129,8 @@ function initChips() {
 function initTabs() {
   ["[role='tablist'],.drawer__tabs,.tabs"].forEach(sel => {
     document.querySelectorAll(sel).forEach((bar) => {
+      if (bar.dataset.jsBound === "1") return;
+      bar.dataset.jsBound = "1";
       bar.addEventListener("click", (e) => {
         const tab = e.target.closest(".drawer__tab,.tabs__tab");
         if (!tab || !bar.contains(tab) || tab.tagName === "A") return;
@@ -429,7 +483,7 @@ function fillLockAllModal(modal, sess) {
 
 /* ── Live data: SSE + periodic refresh ───────────────────────── */
 function initLiveData() {
-  if (window.initEventStream) window.initEventStream();
+  if (document.body.dataset.page === "audit" && window.initEventStream) window.initEventStream();
   // Refresh the audit page on SSE tick (a future round can be more granular)
   if (document.body.dataset.page === "audit") {
     window.addEventListener("subumbra:status", async () => {

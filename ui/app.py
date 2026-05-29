@@ -845,7 +845,10 @@ def add_security_headers(response):
     response.headers.setdefault("Content-Security-Policy",
         "default-src 'self'; "
         "script-src 'self' https://static.cloudflareinsights.com "
-        "'sha256-e4fd6zTyWMEIusJCbxl56KGhXrQZxaE8OyuY6PqBjQI='; "
+        "'unsafe-inline' "
+        "'sha256-e4fd6zTyWMEIusJCbxl56KGhXrQZxaE8OyuY6PqBjQI=' "
+        "'sha256-CtZ5OpVZxc24Sg2W7Ppz9D25/OYzGQT/XWFsG0YgiBs=' "
+        "'sha256-tlrPY8qn6o8RYzcIbE5YJqyUSsc3mVCfgFe0SIhOJ8g='; "
         "style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data:; font-src 'self' data:; connect-src 'self'")
     response.headers.setdefault("Cache-Control", "no-store")
@@ -909,6 +912,13 @@ def overview():
 @_require_auth
 def vault_api():
     selected_id = request.args.get("select", "")
+    if request.args.get("partial") == "drawer":
+        data = build_console_data()
+        keys = data["keys"]
+        selected = next((entry for entry in keys if entry.get("id") == selected_id), None)
+        if selected is None and keys:
+            selected = keys[0]
+        return render_template("_vault_api_drawer.html", data=data, selected=selected)
     return page("vault_api.html", active="vault", crumbs=["Vault", "API keys"],
                 selected_id=selected_id)
 
@@ -917,6 +927,13 @@ def vault_api():
 @_require_auth
 def vault_ssh():
     selected_id = request.args.get("select", "")
+    if request.args.get("partial") == "drawer":
+        data = build_console_data()
+        ssh_keys = data["ssh_keys"]
+        selected = next((entry for entry in ssh_keys if entry.get("id") == selected_id), None)
+        if selected is None and ssh_keys:
+            selected = ssh_keys[0]
+        return render_template("_vault_ssh_drawer.html", data=data, selected=selected)
     return page("vault_ssh.html", active="vault", crumbs=["Vault", "SSH keys"],
                 selected_id=selected_id)
 
