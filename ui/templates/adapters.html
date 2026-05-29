@@ -24,18 +24,18 @@
   {% for a in adapters %}
     <article class="adapter-card">
       <div class="adapter-card__head">
-        <div class="adapter-logo">{{ a.logo }}</div>
+        <div class="adapter-logo">{{ a["logo"] }}</div>
         <div>
-          <div class="adapter-card__name">{{ a.name }}</div>
-          <div class="adapter-card__id">{{ a.id }} · last seen {{ a.lastSeen }}</div>
+          <div class="adapter-card__name">{{ a["name"] }}</div>
+          <div class="adapter-card__id">{{ a["id"] }} · last seen {{ a["lastSeen"] }}</div>
         </div>
-        <span class="pill pill--{{ a.status }}" style="margin-left:auto">{{ a.statusLabel }}</span>
+        <span class="pill pill--{{ a["status"] }}" style="margin-left:auto">{{ a["statusLabel"] }}</span>
       </div>
 
       <div class="adapter-card__row">
         <div class="lbl">Capabilities</div>
         <div style="display:flex;gap:4px;flex-wrap:wrap;flex:1">
-          {% for cap in a.caps %}
+          {% for cap in a["caps"] %}
             <span class="tag mono">{{ cap }}</span>
           {% endfor %}
         </div>
@@ -44,7 +44,7 @@
       <div class="adapter-card__row">
         <div class="lbl">Allowed keys</div>
         <div style="display:flex;gap:4px;flex-wrap:wrap;flex:1">
-          {% for key_id in a.keys %}
+          {% for key_id in a["keys"] %}
             <span class="tag mono">{{ key_id }}</span>
           {% endfor %}
         </div>
@@ -54,27 +54,27 @@
         <div class="lbl">Token</div>
         <div style="display:flex;flex-direction:column;gap:8px;flex:1">
           <div class="adapter-token" style="justify-content:space-between;gap:8px">
-            <code class="mono">{{ a.tokenMasked }}</code>
-            <button class="copy" data-copy="{{ a.token }}">⎘</button>
+            <code class="mono">{{ a["tokenMasked"] }}</code>
+            <button class="copy" data-copy="{{ a["token"] }}">⎘</button>
           </div>
           <details>
             <summary class="btn btn--ghost" style="display:inline-flex">Reveal token</summary>
             <div style="margin-top:8px;display:flex;gap:8px;align-items:flex-start">
-              <code class="mono" style="word-break:break-all;flex:1">{{ a.token }}</code>
-              <button class="copy" data-copy="{{ a.token }}">Copy</button>
+              <code class="mono" style="word-break:break-all;flex:1">{{ a["token"] }}</code>
+              <button class="copy" data-copy="{{ a["token"] }}">Copy</button>
             </div>
           </details>
           <div style="font-size:11px;color:var(--text-dim)">
-            issued {{ a.tokenAge }} · expires {{ a.expiresAt }}
+            issued {{ a["tokenAge"] }} · expires {{ a["expiresAt"] }}
           </div>
         </div>
       </div>
 
-      {% if a.proxy_urls %}
+      {% if a["proxy_urls"] %}
       <div class="adapter-card__row" style="align-items:flex-start">
         <div class="lbl">Proxy URLs</div>
         <div style="display:flex;flex-direction:column;gap:8px;flex:1">
-          {% for proxy in a.proxy_urls %}
+          {% for proxy in a["proxy_urls"] %}
             <div style="display:flex;flex-direction:column;gap:4px">
               <div class="mono" style="font-size:11px;color:var(--text-dim)">{{ proxy.key_id }}</div>
               <div class="adapter-token" style="justify-content:space-between;gap:8px">
@@ -87,11 +87,11 @@
       </div>
       {% endif %}
 
-      {% if a.config_blocks %}
+      {% if a["config_blocks"] %}
       <div class="adapter-card__row" style="align-items:flex-start">
         <div class="lbl">Config snippets</div>
         <div style="display:flex;flex-direction:column;gap:10px;flex:1">
-          {% for block in a.config_blocks %}
+          {% for block in a["config_blocks"] %}
             <div>
               <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px">
                 {{ block.label }}{% if block.target %} · {{ block.target }}{% endif %}
@@ -106,9 +106,9 @@
       </div>
       {% endif %}
 
-      {% if a.docsPath %}
+      {% if a["docsPath"] %}
       <div class="adapter-card__foot">
-        <span style="font-size:11px;color:var(--text-dim)">Docs: {{ a.docsPath }}</span>
+        <span style="font-size:11px;color:var(--text-dim)">Docs: {{ a["docsPath"] }}</span>
       </div>
       {% endif %}
     </article>
