@@ -53,6 +53,7 @@ services:
       DATA_DIR: /app/data
       AUDIT_DIR: /app/audit
       AUDIT_MAX_ROWS: ${AUDIT_MAX_ROWS:-10000}
+      SUBUMBRA_RATE_LIMIT_RPM: ${SUBUMBRA_RATE_LIMIT_RPM:-600}
     logging:
       driver: json-file
       options:
