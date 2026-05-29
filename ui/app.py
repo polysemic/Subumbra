@@ -596,7 +596,8 @@ def _build_attention_rows(raw_keys: list[dict], session_data: dict | None) -> li
             "title": f"{len(paused)} key{'s' if len(paused) != 1 else ''} paused",
             "body": ", ".join(str(key_id) for key_id in paused[:4]),
             "cta": "Review keys",
-            "href": "/vault",
+            "href": f"/vault?select={paused[0]}" if len(paused) == 1 else "/vault",
+            "keyId": paused[0] if len(paused) == 1 else None,
         })
     if revoked:
         items.append({
@@ -604,7 +605,8 @@ def _build_attention_rows(raw_keys: list[dict], session_data: dict | None) -> li
             "title": f"{len(revoked)} key{'s' if len(revoked) != 1 else ''} revoked",
             "body": ", ".join(str(key_id) for key_id in revoked[:4]),
             "cta": "Review keys",
-            "href": "/vault",
+            "href": f"/vault?select={revoked[0]}" if len(revoked) == 1 else "/vault",
+            "keyId": revoked[0] if len(revoked) == 1 else None,
         })
     if lockdown_enabled and not sessions:
         items.append({

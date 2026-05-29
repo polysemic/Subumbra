@@ -77,7 +77,7 @@
         <div class="attn">
           <div class="attn__icon attn__icon--{{ a.sev }}">{{ '!' if a.sev == 'warn' else 'i' }}</div>
           <div class="attn__body">
-            <div class="attn__title">{{ a.title }}</div>
+            <div class="attn__title">{{ a.title }}{% if a.keyId %} — <a href="/vault?select={{ a.keyId }}" style="font-family:var(--font-mono);font-size:12px">{{ a.keyId }}</a>{% endif %}</div>
             <div class="attn__sub">{{ a.body }}</div>
           </div>
           <a class="attn__cta" href="{{ a.href }}">{{ a.cta }}</a>

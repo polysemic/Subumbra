@@ -129,7 +129,7 @@
       <!-- Pane 1: Policy -->
       <div class="drawer__pane is-hidden">
         <div class="section-title">Policy</div>
-        <div class="field"><div class="field__label">Policy ID</div><div class="field__value mono">{{ selected.policyId }}</div></div>
+        <div class="field"><div class="field__label">Policy ID</div><div class="field__value mono"><a href="/policies?select={{ selected.policyId }}">{{ selected.policyId }}</a></div></div>
         <div class="field"><div class="field__label">Policy hash</div><div class="field__value mono">{{ selected.policyHash }}</div></div>
         <div class="field"><div class="field__label">Capability class</div><div class="field__value">{{ selected.capability }}</div></div>
         <div class="field"><div class="field__label">Auth scheme</div><div class="field__value mono">{{ selected.authScheme }}</div></div>
