@@ -107,6 +107,12 @@
 {% endif %}
 
 {# ── Stat tiles ───────────────────────────────────────────────── #}
+{% set req_allows  = data.audit_stats.allows  if data.audit_stats is defined else 0 %}
+{% set req_denies  = data.audit_stats.denies  if data.audit_stats is defined else 0 %}
+{% set req_total   = data.audit_stats.total   if data.audit_stats is defined else 0 %}
+{% set req_monthly = data.audit_stats.monthly if data.audit_stats is defined else [] %}
+{% set gs          = data.gate_stats if data.gate_stats is defined else {} %}
+
 <div class="grid-4" style="margin-bottom:18px">
 
   {# Vault inventory — donut shows active/paused split #}
@@ -116,24 +122,48 @@
     <div class="stat__sub">{{ data['keys']|selectattr('type','equalto','api')|list|length }} api · {{ data.ssh_keys|length }} ssh</div>
     <div data-chart="donut"
          data-values="{{ n_active }},{{ n_paused }}"
-         data-colors="var(--ok,#4c9),var(--warn,#f90)"
+         data-colors="var(--ok),var(--warn)"
          data-labels="active,paused"
          style="margin-top:10px"></div>
   </div>
 
-  <sub-stat-card label="Requests · all time" value="{{ '{:,}'.format(total_req) }}"
-                 sub="lifetime total across all keys"></sub-stat-card>
+  {# API requests — split header + stacked monthly bars #}
+  <div class="stat stat--wide">
+    <div class="stat__label">API requests · all time</div>
+    <div class="stat__trihead">
+      <span class="stat__trihead-total">{{ '{:,}'.format(req_total) }}</span>
+      <span class="stat__trihead-ok">{{ '{:,}'.format(req_allows) }} allow</span>
+      <span class="stat__trihead-err">{{ '{:,}'.format(req_denies) }} deny</span>
+    </div>
+    {% if req_monthly %}
+    <div data-chart="stacked-bars"
+         data-allow="{{ req_monthly | map(attribute='allow') | join(',') }}"
+         data-deny="{{ req_monthly | map(attribute='deny')  | join(',') }}"
+         style="margin-top:10px"></div>
+    {% endif %}
+  </div>
 
   <sub-stat-card label="SSH signs · all time" value="{{ data.ssh_keys|sum(attribute='signs') }}"
                  sub="{{ data.ssh_keys|length }} keys · multi-host"></sub-stat-card>
 
-  {# Denies — fill bar shows deny rate at a glance #}
+  {# Janus approvals — same format as requests #}
   <div class="stat">
-    <div class="stat__label">Denies</div>
-    <div class="stat__value">{{ deny_count if deny_total > 0 else '—' }}</div>
-    <div class="stat__sub">of {{ deny_total }} logged events</div>
-    {% if deny_total > 0 %}
-    <div data-chart="fill" data-value="{{ '%.4f'|format(deny_frac) }}" style="margin-top:6px"></div>
+    <div class="stat__label">Janus approvals · all time</div>
+    {% if gs %}
+    <div class="stat__trihead">
+      <span class="stat__trihead-total">{{ gs.total | default(0) }}</span>
+      <span class="stat__trihead-ok">{{ gs.approved | default(0) }} approved</span>
+      <span class="stat__trihead-err">{{ gs.denied | default(0) }} denied</span>
+    </div>
+    {% if gs.monthly %}
+    <div data-chart="stacked-bars"
+         data-allow="{{ gs.monthly | map(attribute='allow') | join(',') }}"
+         data-deny="{{ gs.monthly | map(attribute='deny')  | join(',') }}"
+         style="margin-top:10px"></div>
+    {% endif %}
+    {% else %}
+    <div class="stat__value">—</div>
+    <div class="stat__sub" style="color:var(--text-dim)">worker unreachable</div>
     {% endif %}
   </div>
 

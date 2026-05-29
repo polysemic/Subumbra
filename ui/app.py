@@ -725,6 +725,23 @@ def build_console_data() -> dict:
             "total":  len(all_events),
             "denies": sum(1 for e in all_events if e.get("verdict") == "deny"),
             "allows": sum(1 for e in all_events if e.get("verdict") == "allow"),
+            "monthly": audit_data.get("monthly", data.get("monthly_requests", [])),
+        }
+    if "monthly_requests" in data and "audit_stats" not in data:
+        data["audit_stats"] = {
+            "total":   sum(m.get("allow", 0) + m.get("deny", 0) for m in data["monthly_requests"]),
+            "allows":  sum(m.get("allow", 0) for m in data["monthly_requests"]),
+            "denies":  sum(m.get("deny", 0)  for m in data["monthly_requests"]),
+            "monthly": data["monthly_requests"],
+        }
+    if "gate_stats" not in data and gate_data is not None:
+        approved = gate_data.get("approved_count", 0)
+        denied   = gate_data.get("denied_count",   0)
+        data["gate_stats"] = {
+            "total":    approved + denied,
+            "approved": approved,
+            "denied":   denied,
+            "monthly":  gate_data.get("monthly", data.get("gate_stats", {}).get("monthly", [])),
         }
         # Activity feed: only events that resolved to a real adapter or key —
         # filters out pre-auth noise (rate_limit_exceeded, audit_unavailable)

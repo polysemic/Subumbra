@@ -689,9 +689,10 @@ function initLiveData() {
 function renderCharts() {
   document.querySelectorAll("[data-chart]").forEach(el => {
     const type = el.dataset.chart;
-    if (type === "donut")  el.innerHTML = _chartDonut(el);
-    if (type === "fill")   el.innerHTML = _chartFill(el);
-    if (type === "bars")   el.innerHTML = _chartBars(el);
+    if (type === "donut")         el.innerHTML = _chartDonut(el);
+    if (type === "fill")          el.innerHTML = _chartFill(el);
+    if (type === "bars")          el.innerHTML = _chartBars(el);
+    if (type === "stacked-bars")  el.innerHTML = _chartStackedBars(el);
   });
 }
 
@@ -739,6 +740,29 @@ function _chartFill(el) {
     </svg>
     <div style="font-size:10px;color:var(--text-dim);margin-top:3px">${pct}% deny rate</div>
   </div>`;
+}
+
+function _chartStackedBars(el) {
+  const allow = (el.dataset.allow || "").split(",").map(Number).filter(v => !isNaN(v));
+  const deny  = (el.dataset.deny  || "").split(",").map(Number).filter(v => !isNaN(v));
+  const len   = Math.max(allow.length, deny.length);
+  if (!len) return "";
+  const w = 200, h = 44, gap = 3;
+  const bw  = (w - gap * (len - 1)) / len;
+  const max = Math.max(...allow.map((a, i) => a + (deny[i] || 0)), 1);
+  const bars = Array.from({length: len}, (_, i) => {
+    const a  = allow[i] || 0;
+    const d  = deny[i]  || 0;
+    const x  = i * (bw + gap);
+    const ah = (a / max) * h;
+    const dh = (d / max) * h;
+    const ay = h - ah - dh;
+    const dy = h - dh;
+    return `
+      <rect x="${x.toFixed(1)}" y="${ay.toFixed(1)}" width="${bw.toFixed(1)}" height="${ah.toFixed(1)}" fill="var(--ok)" opacity="0.75" rx="1"/>
+      <rect x="${x.toFixed(1)}" y="${dy.toFixed(1)}" width="${bw.toFixed(1)}" height="${dh.toFixed(1)}" fill="var(--err)" opacity="0.8" rx="1"/>`;
+  }).join("");
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="display:block;width:100%;height:${h}px">${bars}</svg>`;
 }
 
 function _chartBars(el) {

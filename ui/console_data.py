@@ -151,6 +151,42 @@ CONSOLE_DATA = {
         {"ts":"12:31:44","date":"May 25","adapter":"litellm",  "endpoint":"/v1/chat/completions","keyId":"groq_prod",       "provider":"groq",     "remote":"10.0.1.41","verdict":"allow","reason":"ok",                  "method":"POST"},
     ],
 
+    # Monthly allow/deny breakdown — Jun 2025 → May 2026 (oldest → newest, 12 entries)
+    "monthly_requests": [
+        {"allow": 142, "deny":  8},
+        {"allow": 198, "deny": 14},
+        {"allow": 231, "deny": 11},
+        {"allow": 187, "deny": 19},
+        {"allow": 274, "deny": 22},
+        {"allow": 312, "deny": 18},
+        {"allow": 389, "deny": 31},
+        {"allow": 445, "deny": 27},
+        {"allow": 502, "deny": 35},
+        {"allow": 478, "deny": 29},
+        {"allow": 541, "deny": 41},
+        {"allow": 421, "deny": 31},
+    ],
+
+    "gate_stats": {
+        "total":    31,
+        "approved": 24,
+        "denied":    7,
+        "monthly": [
+            {"allow": 0, "deny": 0},
+            {"allow": 1, "deny": 0},
+            {"allow": 2, "deny": 1},
+            {"allow": 1, "deny": 0},
+            {"allow": 3, "deny": 1},
+            {"allow": 2, "deny": 0},
+            {"allow": 4, "deny": 1},
+            {"allow": 3, "deny": 2},
+            {"allow": 2, "deny": 1},
+            {"allow": 3, "deny": 0},
+            {"allow": 2, "deny": 1},
+            {"allow": 1, "deny": 0},
+        ],
+    },
+
     "attention": [
         {"sev":"warn", "title":"Cloudflare Tunnel token rotated 89 days ago", "body":"Rotation recommended every 90 days. One day until soft warn.", "cta":"Rotate token", "href":"/cloudflare"},
         {"sev":"info", "title":"1 key paused (anthropic_canary)",             "body":"Paused 14 hours ago by eric. Will not serve requests until resumed.", "cta":"Resume", "href":"/vault"},

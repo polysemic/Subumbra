@@ -142,6 +142,25 @@
   min-height: 2px;
 }
 
+/* Spans two grid columns on desktop */
+.stat--wide { grid-column: span 2; }
+
+/* Three-value header: total · allow (green) · deny (red) */
+.stat__trihead {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+.stat__trihead-total {
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-semibold);
+  letter-spacing: -0.01em;
+}
+.stat__trihead-ok  { font-size: var(--fs-sm); color: var(--ok);  font-weight: var(--fw-semibold); font-family: var(--font-mono); }
+.stat__trihead-err { font-size: var(--fs-sm); color: var(--err); font-weight: var(--fw-semibold); font-family: var(--font-mono); }
+
 /* ── Provider badges ─────────────────────────────────────────── */
 
 .badge {
@@ -754,6 +773,7 @@
 }
 @media (max-width: 640px) {
   .grid-4, .grid-3, .grid-2 { grid-template-columns: 1fr; }
+  .stat--wide { grid-column: span 1; }
 }
 
 /* ── Card variants ───────────────────────────────────────────── */
