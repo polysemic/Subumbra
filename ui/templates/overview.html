@@ -108,11 +108,11 @@
 
 </div>
 
-{# ── Gate Approvals ───────────────────────────────────────────── #}
+{# ── Janus Approvals ───────────────────────────────────────────── #}
 {% if data.gate is not none %}
 <div class="card" style="margin-top:18px">
   <div class="card__head">
-    <div class="card__title">Gate Approvals</div>
+    <div class="card__title">Janus Approvals</div>
     <div class="card__meta">
       {{ data.gate.subscription_count|default(0) }} subscriber{{ 's' if (data.gate.subscription_count|default(0)) != 1 else '' }}
       · {{ data.gate.pending_count|default(0) }} pending
@@ -151,11 +151,11 @@
 {% else %}
 <div class="card" style="margin-top:18px">
   <div class="card__head">
-    <div class="card__title">Gate Approvals</div>
+    <div class="card__title">Janus Approvals</div>
     <div class="card__meta" style="color:var(--text-dim)">worker unreachable</div>
   </div>
   <div class="card__body" style="padding:12px">
-    <div style="color:var(--text-dim);font-size:13px">Gate data unavailable — CF Worker is not reachable.</div>
+    <div style="color:var(--text-dim);font-size:13px">Janus data unavailable — CF Worker is not reachable.</div>
   </div>
 </div>
 {% endif %}

@@ -423,10 +423,41 @@
   height: 7px;
   border-radius: 50%;
   background: var(--border-strong);
+  flex-shrink: 0;
 }
 .gate-indicator.has-pending .gate-dot {
   background: var(--warn);
   box-shadow: 0 0 6px var(--warn);
+}
+/* This device has a push subscription */
+.gate-indicator.is-subscribed .gate-dot {
+  background: var(--ok);
+  box-shadow: 0 0 6px var(--ok);
+}
+.gate-indicator.is-subscribed.has-pending .gate-dot {
+  background: var(--warn);
+  box-shadow: 0 0 6px var(--warn);
+}
+
+/* Janus sub-elements */
+.janus-label { font-weight: var(--fw-medium); }
+.janus-pending {
+  background: var(--warn);
+  color: #000;
+  font-size: 10px;
+  font-weight: var(--fw-semibold);
+  font-family: var(--font-mono);
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  line-height: 1.4;
+}
+.janus-subs {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  border-left: 1px solid var(--border);
+  padding-left: var(--space-2);
+  margin-left: 2px;
 }
 
 .top__icon {

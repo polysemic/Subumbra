@@ -7,6 +7,7 @@
 
 document.addEventListener("DOMContentLoaded", () => {
   initSidebar();
+  initJanus();
   initChips();
   initTabs();
   initSelectRows();
@@ -15,6 +16,22 @@ document.addEventListener("DOMContentLoaded", () => {
   initActions();
   initLiveData();
 });
+
+/* ── Janus indicator ─────────────────────────────────────────────
+   Checks whether this browser has an active push subscription and
+   adds .is-subscribed to the indicator so the dot turns green.
+   Runs async after load; no-ops silently if Push API is unavailable.
+   ───────────────────────────────────────────────────────────── */
+function initJanus() {
+  const el = document.getElementById("janusIndicator");
+  if (!el || !("serviceWorker" in navigator)) return;
+  navigator.serviceWorker.getRegistration("/").then((reg) => {
+    if (!reg) return;
+    return reg.pushManager.getSubscription();
+  }).then((sub) => {
+    if (sub) el.classList.add("is-subscribed");
+  }).catch(() => {});
+}
 
 /* ── Sidebar toggle ──────────────────────────────────────────────
    Desktop: .shell.is-side-collapsed → icons-only 52px rail.

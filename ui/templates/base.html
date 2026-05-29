@@ -108,9 +108,14 @@
         </a>
         {% if data.gate is not none %}
           {% set gate_pending = data.gate.pending_count|default(0) %}
-          <a href="/audit" class="gate-indicator {{ 'has-pending' if gate_pending > 0 else '' }}" title="Gate approvals — {{ gate_pending }} pending">
+          {% set gate_subs = data.gate.subscription_count|default(0) %}
+          <a href="/audit" id="janusIndicator"
+             class="gate-indicator {{ 'has-pending' if gate_pending > 0 else '' }}"
+             title="Janus — {{ gate_pending }} pending · {{ gate_subs }} subscriber{{ 's' if gate_subs != 1 else '' }}">
             <span class="gate-dot"></span>
-            <span>{% if gate_pending > 0 %}{{ gate_pending }} pending{% else %}Gate{% endif %}</span>
+            <span class="janus-label">Janus</span>
+            {% if gate_pending > 0 %}<span class="janus-pending">{{ gate_pending }}</span>{% endif %}
+            <span class="janus-subs" title="{{ gate_subs }} subscriber{{ 's' if gate_subs != 1 else '' }}">{{ gate_subs }}</span>
           </a>
         {% endif %}
         <button class="top__icon" title="Command palette (⌘K)">⌘K</button>
