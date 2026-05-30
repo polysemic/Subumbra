@@ -89,6 +89,14 @@
   /* Motion */
   --t-fast:        0.12s ease;
   --t-base:        0.18s ease;
+
+  /* Micro-elevation / gloss — keep opacities low */
+  --gloss-highlight:        inset 0 1px 0 rgba(255,255,255,0.06);
+  --gloss-highlight-strong: inset 0 1px 0 rgba(255,255,255,0.10);
+  --shadow-elev-1:          0 1px 2px rgba(0,0,0,0.28);
+  --shadow-pressed:         inset 0 1px 3px rgba(0,0,0,0.35);
+  --surface-gloss:          linear-gradient(180deg, rgba(255,255,255,0.04) 0%, transparent 45%);
+  --glass-border-top:       rgba(255,255,255,0.08);
 }
 
 /* Reset (Eric Meyer-lite) */

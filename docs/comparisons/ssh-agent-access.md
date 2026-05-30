@@ -10,9 +10,9 @@ This page is not a ranking. Teleport, Boundary, Vault SSH, Akeyless, 1Password, 
 | Sign-only workflow | ✓ Yes | ◑ Partial | ◑ Partial | ✗ No | ◑ Partial | ✓ Yes | ✗ No |
 | SSH certificates | ✗ No | ✓ Yes | ✓ Yes | ✗ No | ✓ Yes | ✗ No | ✗ No |
 | Remote access/session platform | ✗ No | ✓ Yes | ✗ No | ✓ Yes | ✓ Yes | ✗ No | ✗ No |
-| Private key exportability in normal workflow | ✗ No | ◑ Partial | ◑ Partial | — N/A | ? Needs verification | ✗ No | ✓ Yes |
+| Private key exportability in normal workflow | ✗ No | ◑ Partial | ◑ Partial | — N/A | ✗ No | ✗ No | ✓ Yes |
 | Host binding / host fingerprint restriction | ✓ Yes | ◑ Partial | ◑ Partial | ◑ Partial | ◑ Partial | ◑ Partial | ◑ Partial |
-| Per-sign approval | ✓ Yes | ◑ Partial | ? Needs verification | ◑ Partial | ? Needs verification | ✓ Yes | ✗ No |
+| Per-sign approval | ✓ Yes | ◑ Partial | ? Needs verification | ◑ Partial | ◑ Partial | ✓ Yes | ✗ No |
 | Per-session quota / max sign operations | ✓ Yes | ◑ Partial | ? Needs verification | ◑ Partial | ? Needs verification | ✗ No | ✗ No |
 | Git push/deploy workflow fit | ✓ Yes | ✓ Yes | ◑ Partial | ◑ Partial | ✓ Yes | ✓ Yes | ✓ Yes |
 | Same policy/session/audit model as API keys | ✓ Yes | ✗ No | ✗ No | ✗ No | ✗ No | ✗ No | ✗ No |

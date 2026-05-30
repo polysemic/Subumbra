@@ -10,14 +10,14 @@ This page is not a ranking. Vaults and secret managers are mature infrastructure
 | Authorized plaintext retrieval path | ◑ Partial | ✓ Yes | ✓ Yes | ✓ Yes | ✓ Yes | ✓ Yes | ✓ Yes | ✓ Yes | ✓ Yes |
 | App/server receives plaintext secret in normal workflow | ✗ No | ◑ Partial | ◑ Partial | ◑ Partial | ◑ Partial | ◑ Partial | ✓ Yes | ✓ Yes | ✓ Yes |
 | App-facing config holds adapter token, not provider key | ✓ Yes | ✗ No | ✗ No | ✗ No | ✗ No | ✗ No | ✗ No | ✗ No | ✗ No |
-| Split custody / multi-party trust | ✓ Yes | ◑ Partial | ◑ Partial | ? Needs verification | ? Needs verification | ? Needs verification | ◑ Partial | ◑ Partial | ◑ Partial |
-| Policy-hash AAD binding | ✓ Yes | ? Needs verification | ? Needs verification | ? Needs verification | ? Needs verification | ? Needs verification | ? Needs verification | ? Needs verification | ? Needs verification |
-| Per-key isolated vault option | ✓ Yes | ◑ Partial | ? Needs verification | ? Needs verification | ? Needs verification | ◑ Partial | ◑ Partial | ◑ Partial | ✓ Yes |
-| Offline provider-secret rotation without changing app adapter tokens | ✓ Yes | ◑ Partial | ◑ Partial | ◑ Partial | ◑ Partial | ? Needs verification | ◑ Partial | ◑ Partial | ◑ Partial |
-| Dynamic short-lived secrets | ✗ No | ✓ Yes | ✓ Yes | ✓ Yes | ✓ Yes | ? Needs verification | ◑ Partial | ✗ No | ✗ No |
+| Split custody / multi-party trust | ✓ Yes | ◑ Partial | ◑ Partial | ◑ Partial | ✗ No | ? Needs verification | ◑ Partial | ◑ Partial | ◑ Partial |
+| Policy-hash AAD binding | ✓ Yes | ✗ No | ✗ No | ✗ No | ✗ No | ✗ No | ✗ No | ✗ No | ✗ No |
+| Per-key isolated vault option | ✓ Yes | ◑ Partial | ✓ Yes | ✓ Yes | ✓ Yes | ◑ Partial | ◑ Partial | ◑ Partial | ✓ Yes |
+| Offline provider-secret rotation without changing app adapter tokens | ✓ Yes | ◑ Partial | ◑ Partial | ◑ Partial | ◑ Partial | ◑ Partial | ◑ Partial | ◑ Partial | ◑ Partial |
+| Dynamic short-lived secrets | ✗ No | ✓ Yes | ✓ Yes | ✓ Yes | ✓ Yes | ◑ Partial | ◑ Partial | ◑ Partial | ✗ No |
 | Enterprise RBAC/SSO/team controls | ◑ Partial | ✓ Yes | ✓ Yes | ✓ Yes | ✓ Yes | ✓ Yes | ✓ Yes | ✓ Yes | ✓ Yes |
 | Hosted SaaS convenience | ✗ No | ✓ Yes | ✓ Yes | ✓ Yes | ✓ Yes | ✓ Yes | ✓ Yes | ✓ Yes | ✓ Yes |
-| Secret scanning | ✗ No | ◑ Partial | ? Needs verification | ✓ Yes | ? Needs verification | ? Needs verification | ◑ Partial | ◑ Partial | ◑ Partial |
+| Secret scanning | ✗ No | ◑ Partial | ◑ Partial | ✓ Yes | ✗ No | ? Needs verification | ◑ Partial | ◑ Partial | ◑ Partial |
 | Audit logging | ◑ Partial | ✓ Yes | ✓ Yes | ✓ Yes | ✓ Yes | ✓ Yes | ✓ Yes | ✓ Yes | ✓ Yes |
 | Cloud dependency / self-hosting model | ◑ Partial | ◑ Partial | ◑ Partial | ◑ Partial | ✓ Yes | ✓ Yes | ✓ Yes | ✓ Yes | ✓ Yes |
 

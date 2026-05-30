@@ -15,6 +15,7 @@
   position: relative;
   overflow: hidden;
   margin-bottom: var(--space-4);
+  box-shadow: var(--gloss-highlight-strong), var(--shadow-elev-1);
 }
 .hero::before {
   content: "";
@@ -263,7 +264,7 @@
   position: relative;
 }
 .policy-row:hover { background: var(--raised); }
-.policy-row.is-active { background: var(--accent-soft); }
+.policy-row.is-active { background: var(--accent-soft); box-shadow: var(--gloss-highlight), var(--shadow-elev-1); }
 .policy-row.is-active::before {
   content: "";
   position: absolute;
@@ -469,7 +470,7 @@
   text-decoration: none;
 }
 .settings-nav__item:hover { background: var(--raised); color: var(--text); }
-.settings-nav__item.is-active { background: var(--accent-soft); color: var(--accent-strong); }
+.settings-nav__item.is-active { background: var(--accent-soft); color: var(--accent-strong); box-shadow: var(--gloss-highlight), var(--shadow-elev-1); }
 .settings-card {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -478,6 +479,7 @@
   display: flex;
   flex-direction: column;
   gap: 18px;
+  box-shadow: var(--gloss-highlight), var(--shadow-elev-1);
 }
 .settings-card__title { font-size: var(--fs-md); font-weight: var(--fw-semibold); }
 .settings-card__sub { font-size: var(--fs-sm); color: var(--text-muted); margin-top: 2px; }
