@@ -101,6 +101,7 @@ _The live Flask app is **read-only** today (`GET` health, dashboard, status); wr
 ## Documentation and information architecture
 
 - **`docs/README.md`** — audience map (operator / integrator / developer) and canonical "start here" links.
+- **Comparison atlas (`docs/comparisons/`)** — seeded in `r91-doc-updaes`; refresh primary-source notes and matrix cells before public launch or release promotion.
 - **`ui/templates/README.md`** — refresh or archive; align with read-only UI + management-token story.
 - **Redirects** — thin `docs/standalone-*.md` stubs: keep, merge, or remove after link grep.
 - **`README.md` nuance** — clarify shared Worker deployment vs per-app adapter identity where readers confuse them.
@@ -166,7 +167,7 @@ _Items completed after the 1.1.1-alpha release. Add entries here as work ships._
 
 ---
 
-*Last updated: 2026-05-20 — `1.1.1-alpha` patch release keeps core hardening and product simplification as the active direction.*
+*Last updated: 2026-05-30 — comparison atlas seeded; core hardening and product simplification remain the active direction.*
 
 ---
 
