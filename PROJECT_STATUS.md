@@ -1,5 +1,5 @@
 # PROJECT_STATUS
-*Current state — updated 2026-05-30 (r91-doc-updaes comparison atlas implemented; verification pending)*
+*Current state — updated 2026-05-31 (r91-doc-updaes comparison atlas verified and closed)*
 
 
 
@@ -173,7 +173,7 @@ CF Access header strip is enforced at Worker edge only. Accepted as architectura
 | r88-secure-ui | 2026-05-28 (CLOSED) | Secure UI multi-page console: design-source multi-page console (11 routes) replaces the single-page `index.html` UI; auth fully integrated with `UI_PASSWORD_HASH` / `verify_ui_password()` and fail-closed startup; Gate Approvals panel and VAPID key injection preserved; live SSH/API key partition, CF env wiring, and graceful Gate degradation wired in `build_console_data()`; security hardening (COOP, Permissions-Policy, `_require_json` 415 guard, per-IP key-session rate limit, `autocomplete="off"` on settings inputs). All 11 verify-round.sh scenarios PASS: `codex-vps-20260528T221017Z`, `gemini-vps-20260528T214818Z` (SHA `8df3c3a`). |
 | r89-ui-read-integration | 2026-05-29 (CLOSED) | UI read integration: `subumbra-keys` read-only `/adapters` and `/observability` endpoints; console UI derives registry, policies, attention, and observability telemetry from live backend reads rather than mock arrays; tokens are masked with reveal/copy controls; configuration blocks use template placeholders and worker domains. VPS proofs PASS: `gemini-vps-20260529T013815Z` (verified SHA `bde064d`). |
 | r90-ui-read-polish | 2026-05-29 (CLOSED) | UI read polish: vault API/SSH drawers now render real sub-tabs with focused `?select=` navigation, policy/audit/overview links deep-link into selected records, adapter snippets now show host-local plus Docker-internal proxy topology, and SSH detail views now use live `public_key` / `algorithm` data for real fingerprints. PASS evidence on file: `gemini-vps-20260529T032450Z`, `codex-vps-20260529T045055Z`, with remediation PASS in `claude-vps-20260529T035340Z` and `codex-remed-20260529T044700Z`. |
-| r91-doc-updaes | — | Documentation comparison atlas implemented under `docs/comparisons/`: secret vaults, API brokers/AI gateways, SSH agent access, agent/MCP security, threat-model failure modes, alpha limitations, and source notes. Static round hook PASS locally (`council/r91-doc-updaes/runs/local-doc-check/summary.txt`); council verification pending. |
+| r91-doc-updaes | 2026-05-31 (CLOSED) | Documentation comparison atlas implemented and verified under `docs/comparisons/`: secret vaults, API brokers/AI gateways, SSH agent access, agent/MCP security, threat-model failure modes, alpha limitations, and source notes. Full factual audit performed against codebase; one inaccuracy corrected (deny_path_prefixes ✓ Yes → ⊙ Planned); all matrices updated for accuracy, planned items, and Subumbra differentiators; threat-model doc reviewed to remove attack-roadmap content. |
 
 
 

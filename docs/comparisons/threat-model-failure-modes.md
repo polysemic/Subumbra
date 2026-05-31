@@ -2,26 +2,29 @@
 
 This page is not a ranking. It compares likely outcomes by product category, not every product's custom deployment. Real results depend on operator configuration, IAM, network controls, CI policy, and incident response.
 
+This page describes defensive posture and residual operator responsibilities. It does not enumerate specific exploitation paths.
+
 ## Visual Matrix
 
-| Scenario | Typical vault/secret-manager outcome | Typical gateway/broker outcome | Subumbra outcome | Still not solved |
-|----------|--------------------------------------|--------------------------------|------------------|------------------|
-| Developer laptop malware reads `.env` | If provider plaintext is present, attacker may get usable secret; if only vault reference exists, attacker needs access path | If gateway key is present, attacker may use that key within gateway policy | App config should hold adapter token and proxy route, not provider plaintext | Active session, local token theft, browser compromise, and deploy authority still matter |
-| CI log or GitHub Actions secret leak | Plain leaked secret can be used until revoked; secret scanning may help detect | Gateway key can be abused if policy permits | Leaked adapter token still needs session, adapter/key binding, and policy path to succeed | CI authority can still deploy bad config or leak other credentials |
-| Admin or support social-engineered into revealing a secret | If plaintext is revealed, rotation and audit are response paths | If virtual key is revealed, gateway policy limits impact | Revealing an adapter token is less useful than revealing provider plaintext, but still serious | Social engineering of Cloudflare, repo, or operator machine remains serious |
-| Stolen gateway/app token used off-site | Vault may not see use if plaintext secret was already copied | Gateway can log and rate-limit use if request reaches it | Adapter token use is constrained by session state and policy; off-site use may still reach the Worker if network controls allow | Subumbra does not yet have canary-token call-back telemetry |
-| Malicious config PR lands | Mature platforms depend on code review, CI, branch protection, and policy review | Gateway config can redirect or broaden access if merged | Manifest policy changes are explicit and `policy_hash` affects encrypted records | Malicious repo authority can still ship dangerous code or config |
-| App server compromise | If app holds plaintext secret, attacker may copy it; if using retrieval, attacker may query vault | Attacker may use gateway key from app environment | App server should not have provider plaintext, only adapter token and route | During an active session, malware can still cause authorized-looking calls |
-| Compromised SSH workflow | Static private key theft can grant access until revoked | Not usually covered | SSH private key remains in custody; local agent requests sign operations | Local malware can attempt sign operations while session and Janus state permit |
-| Cloud/control-plane compromise | Depends on provider architecture and IAM segmentation | Hosted gateway compromise is high impact for that gateway | Cloudflare Worker/Durable Object compromise is high impact for Subumbra | Subumbra's Cloudflare dependency is an accepted current risk |
-| Active Subumbra session abused by local malware | — N/A | — N/A | Session/adapter/key policy narrows what can be done | Host malware remains meaningful during active sessions |
+| Scenario | Typical vault/secret-manager outcome | Typical gateway/broker outcome | Subumbra outcome | Residual operator responsibility |
+|----------|--------------------------------------|--------------------------------|------------------|----------------------------------|
+| Developer laptop malware reads `.env` | If provider plaintext is present, attacker may get a usable secret; if only a vault reference exists, the attacker still needs an authorized access path | If a gateway key is present, it may be used within gateway policy limits | App config should hold an adapter token and proxy route, not provider plaintext — a leaked token has significantly lower standalone value than a leaked provider key | Active session hygiene, endpoint security, and deploy-authority controls remain the operator's responsibility |
+| CI log or GitHub Actions secret leak | A leaked plaintext secret is immediately usable until revoked; secret scanning may help detect it | A leaked gateway key may be usable within whatever policy the gateway enforces | A leaked adapter token should be treated as a credential requiring rotation; Subumbra controls constrain its reach | CI access controls, branch protection, and secret hygiene remain the operator's responsibility |
+| Admin or support social-engineered into revealing a secret | If plaintext is revealed, rotation and audit are the response paths | If a virtual key is revealed, gateway policy limits impact | Revealing an adapter token is less damaging than revealing provider plaintext, but still serious — treat it as a full credential compromise | Social engineering of the operator, CF account, or source repository requires operator-layer controls Subumbra cannot enforce |
+| Stolen gateway/app token used externally | Vault may not see use if plaintext was already copied out | Gateway can log and rate-limit use if the request reaches it | Adapter token use is constrained by session state and policy; network-level isolation is an operator-layer control | Credential rotation, session hygiene, and network controls are the operator's responsibility |
+| Malicious config PR lands | Mature platforms depend on code review, CI, branch protection, and policy review | Gateway config can redirect or broaden access if merged | Manifest policy changes are explicit and `policy_hash` binds encrypted records to the policy in effect at encryption time | Repository integrity controls and PR review are the operator's responsibility |
+| App server compromise | If the app holds plaintext secrets, an attacker may copy them; if using vault retrieval, the attacker may query the vault | An attacker may use a gateway key from the app environment | An app server should not hold provider plaintext — only an adapter token and route; Subumbra controls limit what a compromised app can reach | Endpoint security, session hygiene, and host hardening remain the operator's responsibility |
+| Compromised SSH workflow | Static private key theft can grant access until revoked | Not usually covered | SSH private keys remain in custody; the local agent requests sign operations rather than possessing the key | Active session hygiene and Janus approval settings are the operator's responsibility |
+| Cloud/control-plane compromise | Depends on provider architecture and IAM segmentation | Hosted gateway compromise is high impact for that gateway | Cloudflare Worker/Durable Object is Subumbra's trust boundary today — its integrity is critical | CF account security, Worker deploy controls, and Wrangler token hygiene are the operator's responsibility |
+| Active session abused by local malware | — N/A | — N/A | Session, adapter, and key policy narrow what can be done; Janus approval adds friction for designated operations | Endpoint security and session lifecycle management remain the operator's responsibility |
 
 ## Reality Notes
 
-- Subumbra reduces key-theft blast radius; it does not make host malware harmless.
-- Active sessions, compromised browsers, malicious deploy authority, or infrastructure-level access still matter.
+- Subumbra reduces key-theft blast radius; it does not make host malware, compromised endpoints, or insider threats harmless.
+- Active sessions represent a trust window. Enforce session hygiene — short TTLs, minimum key scope, and Janus approval on sensitive operations.
 - Janus can add runtime approval friction, but it is not a replacement for branch protection, code review, CI policy, or IAM.
-- Vaults and gateways can also reduce blast radius when they are configured with short-lived credentials, strict policies, identity controls, rotation, audit, and network restrictions. [src:vault-docs] [src:cloudflare-ai-gateway] [src:portkey-docs]
+- Vaults and gateways can also reduce blast radius when configured with short-lived credentials, strict policies, identity controls, rotation, audit, and network restrictions. [src:vault-docs] [src:cloudflare-ai-gateway] [src:portkey-docs]
+- This document describes defensive posture. Specific bypass techniques, exploitation paths, and detection-gap details are intentionally omitted.
 
 ## Where Others Are Stronger
 
@@ -31,15 +34,24 @@ This page is not a ranking. It compares likely outcomes by product category, not
 
 ## Where Subumbra Is Different
 
-- The normal app runtime is not supposed to contain provider plaintext. If a local `.env` is committed, the intended leaked value is an adapter token rather than the provider credential. [src:subumbra-claude]
+- The normal app runtime is not supposed to contain provider plaintext. A leaked app config exposes an adapter token, not a provider credential. [src:subumbra-claude]
 - Policy enforcement happens at the Worker boundary with adapter/key binding, method/path/content-type/body/header controls, velocity, and response checks. [src:subumbra-manifest] [src:subumbra-worker]
-- SSH private keys and API provider secrets share one custody posture instead of living in unrelated workflows. [src:subumbra-ssh]
+- SSH private keys and API provider secrets share one custody posture and one session/audit model. [src:subumbra-ssh]
+
+## Operator Security Checklist
+
+The following are the operator's responsibility and are outside Subumbra's enforcement boundary:
+
+- Endpoint security and malware protection on all machines that access the Subumbra stack or CF credentials
+- CF account security: strong auth, minimal API token scope, Wrangler token hygiene, and Worker deploy controls
+- Repository controls: branch protection, required reviews, and CI secret hygiene
+- Session lifecycle: short TTLs, minimum adapter/key scope per session, and prompt rotation of any suspected compromised credential
+- Network controls: restrict which hosts and networks can reach the Worker and subumbra-proxy
+- Janus approval configured on sensitive operations where human review adds meaningful friction
+- Regular audit log review and incident response planning
 
 ## Current Subumbra Gaps
 
-- No automated canary-token or honeypot callback system.
-- No local EDR or malware containment.
-- No repo secret scanning.
-- No mature SIEM/export pipeline.
-- Cloudflare compromise remains a serious boundary condition.
-
+- No built-in repo or CI secret scanning.
+- No mature SIEM/export pipeline for audit data.
+- Cloudflare account and Worker integrity are critical boundary conditions with no current in-stack verification beyond the bootstrap worker-bundle hash.
