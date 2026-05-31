@@ -361,7 +361,17 @@ function decodeNpmPublishPackageName(parsedTarget) {
     return null;
   }
   try {
-    return decodeURIComponent(segments[segments.length - 1]);
+    const last = decodeURIComponent(segments[segments.length - 1]);
+    if (last.includes("/")) {
+      return last;
+    }
+    if (segments.length >= 2) {
+      const secondLast = decodeURIComponent(segments[segments.length - 2]);
+      if (secondLast.startsWith("@")) {
+        return `${secondLast}/${last}`;
+      }
+    }
+    return last;
   } catch {
     return null;
   }
