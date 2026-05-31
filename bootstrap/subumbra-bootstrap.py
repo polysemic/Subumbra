@@ -34,6 +34,7 @@ from subumbra_keys import (
     run_rotate_wizard,
     run_status,
 )
+from subumbra_npm import run_rotate_npm_token
 from subumbra_session import (
     _session_args,
     run_session_end,
@@ -71,6 +72,7 @@ if __name__ == "__main__":
         "--deploy-worker",
         "--session",
         "--rotate",
+        "--rotate-npm-token",
         "--add-ssh-key",
         "--rotate-ssh-key",
         "--revoke-ssh-key",
@@ -116,6 +118,12 @@ if __name__ == "__main__":
         except IndexError:
             die("--revoke-key requires <key_id>")
         run_revoke_key(target_key_id)
+    elif "--rotate-npm-token" in sys.argv:
+        try:
+            target_key_id = sys.argv[sys.argv.index("--rotate-npm-token") + 1]
+        except IndexError:
+            die("--rotate-npm-token requires <key_id>")
+        run_rotate_npm_token(target_key_id)
     elif "--add-ssh-key" in sys.argv:
         try:
             idx = sys.argv.index("--add-ssh-key")

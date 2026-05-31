@@ -78,6 +78,13 @@ If a provider API key is compromised or just due for rotation, re-encrypt it wit
 
 The wizard will ask which key to rotate and prompt for the new secret value.
 
+For `type: npm_token` records, use the dedicated targeted command instead of
+the generic picker:
+
+```bash
+./bootstrap.sh --rotate-npm-token <key_id>
+```
+
 ### Revoking a key
 
 Remove a key from active use:
@@ -170,6 +177,7 @@ GitHub deploy-key usage, use the dedicated guide:
 
 - [docs/ssh-guide.md](ssh-guide.md)
 - [docs/apps/github/install.md](apps/github/install.md)
+- [docs/apps/npm/install.md](apps/npm/install.md)
 
 ### Checking drift
 

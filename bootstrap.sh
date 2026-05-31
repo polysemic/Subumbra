@@ -61,7 +61,9 @@ compose_profile_args() {
     if [[ "$has_deploy_ssh" -eq 0 ]] && [[ -n "$(env_key_value SUBUMBRA_TOKEN_SSHTEST)" ]]; then
         profiles+=("--profile" "ssh")
     fi
-    printf '%s\n' "${profiles[@]}"
+    if [[ ${#profiles[@]} -gt 0 ]]; then
+        printf '%s\n' "${profiles[@]}"
+    fi
 }
 
 # Discover manifest: prefer subumbra.yaml, fall back to subumbra.json.

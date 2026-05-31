@@ -156,6 +156,13 @@ set `target.host`, `auth.scheme`, `allow.path_prefixes`, and
 `capability_class` to match the API you are brokering. See
 [subumbra.example.yaml](../subumbra.example.yaml) for the full field reference.
 
+## npm note
+
+npm publish brokering does not use a built-in signed provider template in this
+catalog. The npm path relies on an operator-authored `type: npm_token` policy
+that declares package scope and publish deny fields, while the operator-facing
+CLI snippet comes from adapter metadata in `bootstrap/templates/adapters/npm.yaml`.
+
 ---
 
 ## Updating policy after bootstrap

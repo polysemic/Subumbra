@@ -6,6 +6,7 @@ from __future__ import annotations
 from _hash_utils import hash_ui_password
 from subumbra_core import *
 from subumbra_cf import *
+from subumbra_npm import build_npm_token_record
 from subumbra_core import (
     _WIZARD_SECRETS,
     _automation_fail,
@@ -105,6 +106,7 @@ def _load_ui_auth_from_env(service_config: dict[str, Any]) -> tuple[str, str, bo
 def _load_manifest_bootstrap() -> tuple[
     dict[str, tuple[str, str, str, str, str]],
     dict[str, str],
+    dict[str, str],
     dict[str, list[str]],
     dict[str, list[str]],
     int,
@@ -148,6 +150,7 @@ def _load_manifest_bootstrap() -> tuple[
     declared_adapter_ids: list[str] = []
     seen_declared: set[str] = set()
     api_keys: dict[str, tuple[str, str, str, str, str]] = {}
+    record_types_by_key_id: dict[str, str] = {}
     key_adapters_by_key_id: dict[str, list[str]] = {}
     policy_by_key_id: dict[str, dict[str, Any]] = {}
     unique_key_flags: dict[str, bool] = {}
@@ -167,6 +170,7 @@ def _load_manifest_bootstrap() -> tuple[
 
     for record in records:
         key_id = record["key_id"]
+        record_types_by_key_id[key_id] = str(record.get("type", "api_key"))
         policy_by_key_id[key_id] = record["policy"]
         unique_key_flags[key_id] = record["unique_vault"]
         _bind_key_to_adapters(
@@ -189,6 +193,7 @@ def _load_manifest_bootstrap() -> tuple[
     token_ttl_days = _parse_token_ttl_days(os.environ.get("TOKEN_TTL_DAYS", ""))
     return (
         api_keys,
+        record_types_by_key_id,
         cf_creds,
         allowed_keys_by_adapter,
         key_adapters_by_key_id,
@@ -238,6 +243,7 @@ def run_interactive_wizard(
     existing_keys: dict,
 ) -> tuple[
     dict[str, tuple[str, str, str, str, str]],
+    dict[str, str],
     dict[str, str],
     dict[str, list[str]],
     dict[str, list[str]],
@@ -501,6 +507,7 @@ def run_interactive_wizard(
 
     seen_declared: set[str] = set()
     api_keys: dict[str, tuple[str, str, str, str, str]] = {}
+    record_types_by_key_id: dict[str, str] = {}
     key_adapters_by_key_id: dict[str, list[str]] = {}
     policy_by_key_id: dict[str, dict[str, Any]] = {}
     unique_key_flags: dict[str, bool] = {}
@@ -519,6 +526,7 @@ def run_interactive_wizard(
 
     for rec in accepted:
         kid = rec["key_id"]
+        record_types_by_key_id[kid] = str(rec.get("type", "api_key"))
         policy_by_key_id[kid] = rec["policy"]
         unique_key_flags[kid] = rec["unique_vault"]
         _bind_key_to_adapters(
@@ -542,6 +550,7 @@ def run_interactive_wizard(
     shred_paths: list[str] = []
     return (
         api_keys,
+        record_types_by_key_id,
         cf_creds,
         allowed_keys_by_adapter,
         key_adapters_by_key_id,
@@ -633,6 +642,7 @@ def _rewrite_v3_record_from_plaintext(
         vault_instance=vault_instance,
         created_at=now_iso,
         label=str(existing_record.get("label", key_id)),
+        record_type="npm_token" if existing_record.get("type") == "npm_token" else None,
         revoked=False,
     )
 
@@ -1002,7 +1012,13 @@ def run_rotate_wizard() -> None:
     if not existing_keys:
         die("keys.json is empty — run a full bootstrap first.")
 
-    key_ids = list(existing_keys.keys())
+    key_ids = [
+        kid
+        for kid, meta in existing_keys.items()
+        if isinstance(meta, dict) and meta.get("type") not in {"ssh_key", "npm_token"}
+    ]
+    if not key_ids:
+        die("keys.json has no API-key records eligible for --rotate. Use --rotate-npm-token for npm_token records.")
     print("\n  Existing keys:")
     for i, kid in enumerate(key_ids, 1):
         meta = existing_keys[kid]
@@ -1155,6 +1171,7 @@ def run_provision_key(target_key_id: str) -> None:
         )
 
     authority = _load_manifest_repair_authority(target_key_id)
+    record_type = authority.get("type", "api_key")
     provider = authority["provider"]
     target_host = authority["target_host"]
     raw = authority["raw_secret"]
@@ -1183,20 +1200,35 @@ def run_provision_key(target_key_id: str) -> None:
     wrapped_dek = wrap_dek(pub_key, dek)
     del dek
 
-    existing_keys[target_key_id] = _build_fat_record(
-        key_id=target_key_id,
-        provider=provider,
-        target_host=target_host,
-        pub_key_fp=pub_key_fp,
-        wrapped_dek=wrapped_dek,
-        ciphertext=ciphertext,
-        policy=policy,
-        policy_hash=policy_hash,
-        adapters=adapters,
-        vault_instance=vault_instance,
-        created_at=now_iso,
-        label=target_key_id,
-    )
+    if record_type == "npm_token":
+        existing_keys[target_key_id] = build_npm_token_record(
+            key_id=target_key_id,
+            provider=provider,
+            target_host=target_host,
+            raw_secret=raw,
+            policy=policy,
+            adapters=adapters,
+            vault_instance=vault_instance,
+            pub_key=pub_key,
+            pub_key_fp=pub_key_fp,
+            label=target_key_id,
+            created_at=now_iso,
+        )
+    else:
+        existing_keys[target_key_id] = _build_fat_record(
+            key_id=target_key_id,
+            provider=provider,
+            target_host=target_host,
+            pub_key_fp=pub_key_fp,
+            wrapped_dek=wrapped_dek,
+            ciphertext=ciphertext,
+            policy=policy,
+            policy_hash=policy_hash,
+            adapters=adapters,
+            vault_instance=vault_instance,
+            created_at=now_iso,
+            label=target_key_id,
+        )
 
     step(f"Updating {target_key_id} in keys.json")
     _write_keys_payload(existing_keys)
@@ -1256,6 +1288,7 @@ def run_bootstrap() -> None:
         if manifest_mode:
             (
                 api_keys,
+                record_types_by_key_id,
                 cf_creds,
                 allowed_keys_by_adapter,
                 key_adapters_by_key_id,
@@ -1282,6 +1315,7 @@ def run_bootstrap() -> None:
             except AutomationInputError as exc:
                 use_wizard = _prompt_after_automation_error(str(exc))
             else:
+                record_types_by_key_id = {key_id: "api_key" for key_id in api_keys}
                 ok(f"Found {len(api_keys)} API key(s): {', '.join(api_keys.keys())}")
                 ok("Cloudflare credentials present")
     else:
@@ -1294,6 +1328,7 @@ def run_bootstrap() -> None:
         try:
             (
                 api_keys,
+                record_types_by_key_id,
                 cf_creds,
                 allowed_keys_by_adapter,
                 key_adapters_by_key_id,
@@ -1318,6 +1353,7 @@ def run_bootstrap() -> None:
             cf_runtime_creds = {}
             cf_autoprovision = {}
             policy_index = _load_policy_index()
+            record_types_by_key_id = {key_id: "api_key" for key_id in api_keys}
             policy_by_key_id = {}
             ssh_records = []
             service_config = {
@@ -1384,7 +1420,8 @@ def run_bootstrap() -> None:
 
         print("  Keys to provision:")
         for kid, (provider, _target_host, _auth_header, _auth_prefix, _secret_ref) in api_keys.items():
-            print(f"    {kid:30s} → {provider:12s} → {_binding_label(key_adapters_by_key_id[kid])}")
+            record_label = "npm_token" if record_types_by_key_id.get(kid) == "npm_token" else provider
+            print(f"    {kid:30s} → {record_label:12s} → {_binding_label(key_adapters_by_key_id[kid])}")
         for rec in ssh_records:
             print(
                 f"    {rec['key_id']:30s} → {'ssh':12s} → "
@@ -1661,7 +1698,12 @@ def run_bootstrap() -> None:
             "public_key_pem": public_key_pem,
             "pub_key_fp": pub_key_fp,
         }
-        record_type = "ssh" if any(rec["key_id"] == key_id for rec in ssh_records) else api_keys[key_id][0]
+        if any(rec["key_id"] == key_id for rec in ssh_records):
+            record_type = "ssh"
+        elif record_types_by_key_id.get(key_id) == "npm_token":
+            record_type = "npm_token"
+        else:
+            record_type = api_keys[key_id][0]
         ok(f"Provisioned {record_type:12s} → {key_id}  →  {vault_instance}")
 
     # ── Step 6: Phase 3 — encrypt successful keys ────────────────────────
@@ -1683,25 +1725,41 @@ def run_bootstrap() -> None:
         dek = os.urandom(32)
         ciphertext = encrypt_api_key_v3(dek, raw, key_id, policy_hash)
         wrapped_dek = wrap_dek(pub_key, dek)
-        keys_payload[key_id] = _build_fat_record(
-            key_id=key_id,
-            provider=provider,
-            target_host=target_host,
-            pub_key_fp=pub_key_fp,
-            wrapped_dek=wrapped_dek,
-            ciphertext=ciphertext,
-            policy=policy,
-            policy_hash=policy_hash,
-            adapters=key_adapters_by_key_id[key_id],
-            vault_instance=vault_instance,
-            created_at=now_iso,
-            label=key_id,
-        )
+        if record_types_by_key_id.get(key_id) == "npm_token":
+            keys_payload[key_id] = build_npm_token_record(
+                key_id=key_id,
+                provider=provider,
+                target_host=target_host,
+                raw_secret=raw,
+                policy=policy,
+                adapters=key_adapters_by_key_id[key_id],
+                vault_instance=vault_instance,
+                pub_key=pub_key,
+                pub_key_fp=pub_key_fp,
+                label=key_id,
+                created_at=now_iso,
+            )
+        else:
+            keys_payload[key_id] = _build_fat_record(
+                key_id=key_id,
+                provider=provider,
+                target_host=target_host,
+                pub_key_fp=pub_key_fp,
+                wrapped_dek=wrapped_dek,
+                ciphertext=ciphertext,
+                policy=policy,
+                policy_hash=policy_hash,
+                adapters=key_adapters_by_key_id[key_id],
+                vault_instance=vault_instance,
+                created_at=now_iso,
+                label=key_id,
+            )
         del dek
         raw = "\x00" * raw_lengths[key_id]
         del raw
+        record_label = "npm_token" if record_types_by_key_id.get(key_id) == "npm_token" else provider
         ok(
-            f"Encrypted {provider:12s} → {key_id}  →  "
+            f"Encrypted {record_label:12s} → {key_id}  →  "
             f"{_binding_label(key_adapters_by_key_id[key_id])}  →  {vault_instance}"
         )
 
