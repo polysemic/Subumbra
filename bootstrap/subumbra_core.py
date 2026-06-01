@@ -115,6 +115,7 @@ POLICY_CAPABILITY_CLASSES = {
 POLICY_SOURCES = {"env", "import_path"}
 POLICY_AUTH_SCHEMES = {"bearer", "basic", "header", "query"}
 POLICY_ALLOWED_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE"}
+POLICY_ALLOWED_NPM_OPERATIONS = {"publish", "query", "dist-tag", "owner", "access", "unpublish"}
 UI_AUTH_MODES = {"basic", "cf_access", "both"}
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -616,6 +617,22 @@ def _normalize_policy_doc(doc: dict[str, Any], source: str) -> dict[str, Any]:
     max_body_bytes = allow.get("max_body_bytes")
     if not isinstance(max_body_bytes, int) or isinstance(max_body_bytes, bool) or max_body_bytes <= 0:
         _policy_die(source, "allow.max_body_bytes must be a positive integer")
+    npm_operations = allow.get("npm_operations")
+    if npm_operations is not None:
+        if not isinstance(npm_operations, list):
+            _policy_die(source, "allow.npm_operations must be an array")
+        for idx, operation in enumerate(npm_operations):
+            operation = _policy_require_string(operation, source, f"allow.npm_operations[{idx}]")
+            if operation not in POLICY_ALLOWED_NPM_OPERATIONS:
+                _policy_die(source, f"allow.npm_operations[{idx}] {operation!r} is invalid")
+    scopes = allow.get("scopes")
+    if scopes is not None:
+        if not isinstance(scopes, list):
+            _policy_die(source, "allow.scopes must be an array")
+        for idx, scope in enumerate(scopes):
+            scope = _policy_require_string(scope, source, f"allow.scopes[{idx}]")
+            if not scope.startswith("@"):
+                _policy_die(source, f"allow.scopes[{idx}] {scope!r} must start with '@'")
 
     deny = doc.get("deny")
     if deny is not None:
@@ -641,6 +658,10 @@ def _normalize_policy_doc(doc: dict[str, Any], source: str) -> dict[str, Any]:
                 _policy_die(source, "deny.publish_content_patterns must be an array")
             for idx, pattern in enumerate(publish_content_patterns):
                 _validate_safe_pattern(pattern, source, f"deny.publish_content_patterns[{idx}]")
+        max_tarball_bytes = deny.get("max_tarball_bytes")
+        if max_tarball_bytes is not None:
+            if not isinstance(max_tarball_bytes, int) or isinstance(max_tarball_bytes, bool) or max_tarball_bytes <= 0:
+                _policy_die(source, "deny.max_tarball_bytes must be a positive integer")
 
     intent = doc.get("intent")
     if intent is not None:

@@ -1094,7 +1094,7 @@ def print_show_adapter(adapter_id: str) -> None:
         for f in fields:
             val  = f["value"] if f.get("static") else sub(f["value"])
             note = f"  # {f['note']}" if f.get("note") else ""
-            print(f"  {f['name']}={val}{note}")
+            print(f"  {sub(f['name'])}={val}{note}")
     elif fmt_type == "yaml_file":
         print(f"  Paste{target_hint}:\n")
         if key_ids and len(key_ids) > 1:

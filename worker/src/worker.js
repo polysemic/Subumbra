@@ -173,6 +173,7 @@ async function getRegistryEntry(env, keyId) {
       typeof policyAuth.query_param === "string" ? policyAuth.query_param : null,
     allow_adapters: Array.isArray(allow.adapters) ? allow.adapters : [],
     allow_methods: Array.isArray(allow.methods) ? allow.methods : [],
+    allow_npm_operations: Array.isArray(allow.npm_operations) ? allow.npm_operations : [],
     allow_path_prefixes: Array.isArray(allow.path_prefixes) ? allow.path_prefixes : [],
     allow_scopes: Array.isArray(allow.scopes) ? allow.scopes : [],
     allow_content_types: Array.isArray(allow.content_types) ? allow.content_types : [],
@@ -186,6 +187,8 @@ async function getRegistryEntry(env, keyId) {
     deny_publish_content_patterns: Array.isArray(policy.deny?.publish_content_patterns)
       ? policy.deny.publish_content_patterns
       : [],
+    deny_max_tarball_bytes:
+      typeof policy.deny?.max_tarball_bytes === "number" ? policy.deny.max_tarball_bytes : null,
     response_allow_headers: Array.isArray(policy.response?.allow_headers)
       ? policy.response.allow_headers
       : [],
@@ -396,7 +399,37 @@ async function gunzipBytes(gzipBytes) {
   return streamToBytes(decompressed);
 }
 
-async function readNpmTarEntriesFromPackument(reqBody) {
+function createNpmPolicyError(code, message, details = {}) {
+  const err = new Error(message);
+  err.code = code;
+  Object.assign(err, details);
+  return err;
+}
+
+function classifyNpmOperation(reqMethod, parsedTarget) {
+  if (reqMethod === "GET" || reqMethod === "HEAD") {
+    return "query";
+  }
+  if (reqMethod === "POST") {
+    return "access";
+  }
+  if (reqMethod === "DELETE") {
+    return "unpublish";
+  }
+  if (reqMethod !== "PUT") {
+    return null;
+  }
+  const path = typeof parsedTarget?.pathname === "string" ? parsedTarget.pathname : "";
+  if (path.includes("/-/package/") && path.includes("/dist-tags/")) {
+    return "dist-tag";
+  }
+  if (path.includes("/-rev/")) {
+    return "owner";
+  }
+  return "publish";
+}
+
+async function readNpmTarEntriesFromPackument(reqBody, maxTarballBytes = null) {
   if (!reqBody || typeof reqBody !== "object" || Array.isArray(reqBody)) {
     throw new Error("packument must be an object");
   }
@@ -411,10 +444,30 @@ async function readNpmTarEntriesFromPackument(reqBody) {
     if (!attachmentMeta || typeof attachmentMeta !== "object" || Array.isArray(attachmentMeta)) {
       throw new Error(`attachment ${attachmentName} invalid`);
     }
+    if (
+      maxTarballBytes != null &&
+      typeof attachmentMeta.length === "number" &&
+      Number.isFinite(attachmentMeta.length) &&
+      attachmentMeta.length > maxTarballBytes
+    ) {
+      throw createNpmPolicyError(
+        "publish_tarball_too_large",
+        `attachment ${attachmentName} declared length exceeds limit`,
+        { bytes: attachmentMeta.length, limit: maxTarballBytes },
+      );
+    }
     if (typeof attachmentMeta.data !== "string" || !attachmentMeta.data) {
       throw new Error(`attachment ${attachmentName} missing data`);
     }
-    const tarBytes = await gunzipBytes(base64ToBytes(attachmentMeta.data));
+    const gzipBytes = base64ToBytes(attachmentMeta.data);
+    if (maxTarballBytes != null && gzipBytes.length > maxTarballBytes) {
+      throw createNpmPolicyError(
+        "publish_tarball_too_large",
+        `attachment ${attachmentName} gzip length exceeds limit`,
+        { bytes: gzipBytes.length, limit: maxTarballBytes },
+      );
+    }
+    const tarBytes = await gunzipBytes(gzipBytes);
     let offset = 0;
     while (offset + 512 <= tarBytes.length) {
       const header = tarBytes.subarray(offset, offset + 512);
@@ -505,8 +558,18 @@ async function inspectNpmPublish({ registryEntry, parsedTarget, reqBody, keyId, 
 
   let entries;
   try {
-    entries = await readNpmTarEntriesFromPackument(reqBody);
-  } catch {
+    entries = await readNpmTarEntriesFromPackument(reqBody, registryEntry.deny_max_tarball_bytes);
+  } catch (err) {
+    if (err && err.code === "publish_tarball_too_large") {
+      console.warn(
+        "subumbra: policy deny reason=publish_tarball_too_large bytes=%s limit=%s adapter=%s key_id=%s",
+        err.bytes,
+        err.limit,
+        adapterId,
+        keyId,
+      );
+      return jsonError("publish_tarball_too_large", 403);
+    }
     console.warn(
       "subumbra: policy deny reason=publish_invalid_packument adapter=%s key_id=%s",
       adapterId,
@@ -3717,6 +3780,27 @@ async function handleProxy(request, env) {
         key_id,
       );
       return jsonError("request body too large", 413);
+    }
+  }
+
+  if (registryEntry.key_type === "npm_token") {
+    const npmOperation = classifyNpmOperation(reqMethod, parsedTarget);
+    if (npmOperation) {
+      // `[]` here means "field absent or empty; use the publish/query default",
+      // not "deny every npm operation".
+      const allowedNpmOperations =
+        registryEntry.allow_npm_operations.length > 0
+          ? registryEntry.allow_npm_operations
+          : ["publish", "query"];
+      if (!allowedNpmOperations.includes(npmOperation)) {
+        console.warn(
+          "subumbra: policy deny reason=npm_operation_not_allowed operation=%s adapter=%s key_id=%s",
+          npmOperation,
+          auth.adapterId,
+          key_id,
+        );
+        return jsonError("npm_operation_not_allowed", 403);
+      }
     }
   }
 
