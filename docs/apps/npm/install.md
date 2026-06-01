@@ -1,68 +1,57 @@
-# npm — Install
+# npm — Install & Daily-Driver Workflows
 
-## Scope
+This guide covers how to set up, operate, and maintain Subumbra as the **sole broker** for your npm package publishing workflows. By routing all publishes through Subumbra, your high-value npm registry tokens never exist in plaintext on your laptop, servers, or CI/CD pipelines—they reside securely in your encrypted Cloudflare Durable Object vault.
 
-This guide covers the proven npm publish path for Subumbra:
+---
 
-- `type: npm_token` manifest records
-- path-scoped `.npmrc` auth to `subumbra-proxy`
-- GitHub Actions publish with `actions/setup-node@v4` path-scoped auth
-- package publish with Worker-side identity and tarball deny checks
-- day-2 npm token rotation with `./bootstrap.sh --rotate-npm-token <key_id>`
+## 🧭 Layered Guide Structure
+- [Prerequisites & Core Readiness](#-prerequisites--core_readiness)
+- [Step 1: Get a Granular Access Token from npm](#step-1-get-a-granular-access-token-from-npm)
+- [Step 2: Add the NPM Declaration to your Manifest](#step-2-add-the-npm-declaration-to-your-manifest)
+- [Step 3: Provision / Update the Token Securely (RAM-Only)](#step-3-provision--update-the-token-securely-ram-only)
+- [Step 4: Setup Workflow A — Local Laptop / Terminal Publishing](#step-4-setup-workflow-a--local-laptop--terminal-publishing)
+- [Step 5: Setup Workflow B — Remote VPS & CI/CD Pipelines (GitHub Actions)](#step-5-setup-workflow-b--remote-vps--cicd-pipelines-github-actions)
+- [🔧 Day-2 Token Rotation & Maintenance](#-day-2-token-rotation--maintenance)
+- [💡 Deep-Dive: Operator Notes & Custom Tuning](#-deep-dive-operator-notes--custom-tuning)
 
-Deferred from this guide:
+---
 
-- `npm deprecate`, `dist-tag` mutation commands, and 2FA/account flows
-- other registries such as GitHub Packages or PyPI
-- regex-grade publish content matching
+## 🚦 Prerequisites & Core Readiness
 
-## Prerequisites
-
-Run the standard readiness checks on the host that already has Subumbra deployed:
+Ensure Subumbra is successfully running on your host (e.g., your local development environment or VPS):
 
 ```bash
-cd /opt/subumbra
+cd /opt/subumbra  # Or your Subumbra workspace directory
 docker compose ps
 curl -sS http://127.0.0.1:10199/health
-grep '^SUBUMBRA_TOKEN_' .env | cut -d= -f1
 ```
 
-Expected proxy health:
-
+**Expected Healthy Response:**
 ```json
 {"status":"ok","worker_auth":"ok"}
 ```
 
-You also need:
+---
 
-- a manifest key with `type: npm_token`
-- an adapter token for the adapter name in that key's `adapters:` list
-- an npm package name that matches the key's allowed scope policy
+## Step 1: Get a Granular Access Token from npm
 
-## Supported Env Shape
+Subumbra relies on npm **Granular Access Tokens (GAT)** to interact with the registry. GATs are highly secure because they are scoped to specific organizations/packages and naturally bypass interactive 2FA prompt challenges for headless automation.
 
-Use `./bootstrap.sh --show npm` to print a paste-ready `.npmrc` snippet for the
-first key authorized for the `npm` adapter.
+1. Log into your account on [npmjs.com](https://www.npmjs.com/).
+2. Click your profile avatar in the top-right corner and select **Access Tokens**.
+3. Click **Generate New Token** and choose **Granular Access Token**.
+4. Configure the token:
+   - **Token Name**: e.g., `Subumbra Broker`
+   - **Expiration**: Select your preferred TTL (e.g., 90 days, 365 days).
+   - **Permissions**: Select **Read and Write** (required to publish packages).
+   - **Packages and Scopes**: Select your organization or individual user scope (e.g., `@your-scope`).
+5. Click **Generate Token** and copy the resulting string (looks like `npm_GAT...`). *Keep this copied in your clipboard.*
 
-The approved `.npmrc` shape is path-scoped:
+---
 
-```ini
-registry=http://subumbra-proxy:8090/t/<key_id>/
-//subumbra-proxy:8090/t/<key_id>/:_authToken=<SUBUMBRA_ADAPTER_TOKEN>
-```
+## Step 2: Add the NPM Declaration to your Manifest
 
-The real npm registry token does not belong in `.npmrc` on the publishing host.
-Subumbra decrypts it inside the Worker and forwards it upstream.
-
-For GitHub Actions, `actions/setup-node@v4` preserves the full path in
-`registry-url`, so a path-scoped Subumbra route works without an extra `.npmrc`
-append step.
-
-## Cut-Over Steps
-
-1. Add an npm token record to `subumbra.yaml`.
-
-Example:
+Open `subumbra.yaml` (either in `/opt/subumbra/subumbra.yaml` on your VPS or in your local daily-driver `Subumbra-Local` workspace) and paste the following key declaration into your `keys:` section.
 
 ```yaml
 keys:
@@ -80,123 +69,222 @@ keys:
       source: env
       target:
         host: registry.npmjs.org
-      auth:
-        scheme: bearer
       allow:
         adapters: [npm]
-        methods: [GET, PUT]
-        npm_operations: [publish, query]
-        path_prefixes: [/@your-scope]
-        scopes: ["@your-scope"]
+        methods: [GET, PUT, DELETE]  # DELETE is required if you want to unpublish packages
+        npm_operations: [publish, query, unpublish]
+        path_prefixes: [/@your-scope]   # REPLACE with your exact npm username/scope
+        scopes: ["@your-scope"]        # REPLACE with your exact npm username/scope
         content_types: [application/json]
-        max_body_bytes: 10485760
+        max_body_bytes: 10485760       # Max request body size allowed (10MB)
       deny:
-        max_tarball_bytes: 5242880
+        max_tarball_bytes: 5242880     # Protects memory by limiting uploads to 5MB
+        # Guardrails: Block accidental publishing of secrets
         publish_path_patterns: [.env, .pem, .key, .npmrc, credentials.json]
         publish_content_patterns: [AKIA, npm_, PRIVATE KEY]
 ```
 
-2. Bootstrap or republish according to your state:
+> [!TIP]
+> **Advanced Tuning:** High-level developers can customize the `deny.max_tarball_bytes` limit or expand `publish_path_patterns` to block custom internal credential paths from ever being published upstream.
+
+---
+
+## Step 3: Provision / Update the Token Securely (RAM-Only)
+
+To prevent writing secrets to plaintext files on disk, we pass the token inline as a transient environment variable. 
+
+Run the following command to provision **only this key** without starting a full bootstrap (which would regenerate key pairs and wipe other keys):
 
 ```bash
-./bootstrap.sh
+NPM_TOKEN=npm_YOUR_ACCESS_TOKEN_HERE ./bootstrap.sh --provision npm_publish
 ```
+*(Replace `npm_YOUR_ACCESS_TOKEN_HERE` with your actual Granular Access Token generated in Step 1).*
 
-3. Print the adapter snippet and copy the values into the publishing user's
-   `.npmrc`:
+**What this did:**
+- Loaded your `subumbra.yaml` definition for `npm_publish`.
+- Read the token purely in RAM, encrypted it, appended it to `keys.json`, pushed it to Cloudflare KV, and cleared the process memory.
+- **None of your other active keys or credentials were touched or altered!**
 
+---
+
+## Step 4: Setup Workflow A — Local Laptop / Terminal Publishing
+
+If you publish packages directly from your terminal (`npm publish`) on your local development machine:
+
+### 1. Print your secure `.npmrc` configuration block
+Run this command inside your local Subumbra directory:
 ```bash
 ./bootstrap.sh --show npm
 ```
 
-4. Publish through the transparent route:
-
-```bash
-npm publish
+You will get a paste-ready, path-scoped output block like this:
+```ini
+registry=http://127.0.0.1:10199/t/npm_publish/
+//127.0.0.1:10199/t/npm_publish/:_authToken=sub_tok_npm_d93f8e72c842b101c...
 ```
 
-### GitHub Actions
+### 2. Configure your development machine
+1. Open your global user config file `~/.npmrc` in your favorite editor.
+2. Paste the snippet printed by `--show npm` directly into it and save.
 
-Use `registry-url` with the full transparent path and pass the Subumbra adapter
-token as `NODE_AUTH_TOKEN`:
+### 3. Publish packages seamlessly
+Go to your local package folder (where `package.json` matches your allowed scope, e.g., `@your-scope/my-library`) and run:
+```bash
+npm publish --access public
+```
+
+**How it works transparently:**
+- The npm CLI reads your `~/.npmrc` and routes the request to your local Subumbra loopback endpoint.
+- Subumbra inspects the package, verifies that no `.env` or credential files are in the tarball, checks the size, fetches the encrypted GAT, decrypts it in the Cloudflare Worker, and securely forwards the publish command upstream.
+
+---
+
+## Step 5: Setup Workflow B — Remote VPS & CI/CD Pipelines (GitHub Actions)
+
+To enable secure automated package publishing from your repository workflows (like GitHub Actions) using the Subumbra deployment on your VPS:
+
+### 1. Export the production adapter token
+Run the show command on your VPS:
+```bash
+./bootstrap.sh --show npm
+```
+
+Copy the printed **Adapter Token** (the string starting with `sub_tok_npm_...`).
+
+### 2. Save the Adapter Token in your GitHub Secrets
+1. Go to your repository on GitHub.
+2. Navigate to **Settings** -> **Secrets and variables** -> **Actions**.
+3. Click **New repository secret**.
+4. Name the secret **`SUBUMBRA_NPM_ADAPTER_TOKEN`** and paste your copied Subumbra Adapter Token as the value.
+
+### 3. Add the GitHub Action workflow
+Add this step block directly in your `.github/workflows/publish.yml` file:
 
 ```yaml
-- uses: actions/setup-node@v4
-  with:
-    node-version: 20
-    registry-url: http://subumbra-proxy:8090/t/<key_id>/
-- run: npm publish
-  env:
-    NODE_AUTH_TOKEN: ${{ secrets.SUBUMBRA_NPM_ADAPTER_TOKEN }}
+name: Publish to npm
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          # Tell npm to route requests to your VPS Subumbra endpoint
+          registry-url: http://your-vps-ip:8090/t/npm_publish/
+      - run: npm publish --access public
+        env:
+          # Pass the Subumbra Adapter Token as the auth credential
+          NODE_AUTH_TOKEN: ${{ secrets.SUBUMBRA_NPM_ADAPTER_TOKEN }}
 ```
 
-For a scoped package, the package name in `package.json`, the npm request path,
-and the configured `allow.scopes` prefix must all agree.
+---
 
-## Operator Notes
+## 🔧 Day-2 Token Rotation & Maintenance
 
-- npm issues metadata `GET` requests before the publish `PUT`. Both go through
-  the same `/t/<key_id>/...` path-scoped auth rule.
-- `allow.npm_operations` is optional. If you omit it, Subumbra defaults npm
-  adapter tokens to `publish` and `query`.
-- Accepted `allow.npm_operations` values are:
-  - `publish`
-  - `query`
-  - `dist-tag`
-  - `owner`
-  - `access`
-  - `unpublish`
-- Subumbra inspects the `_attachments[*].data` tarball embedded in the npm
-  publish JSON body before forwarding the request upstream.
-- `deny.max_tarball_bytes` is optional and operator-set. Subumbra does not apply
-  a hidden default if you omit it.
-- Publish deny checks are safe-literal substring matches, not regexes.
-- A denied publish returns `403` with one of:
-  - `npm_operation_not_allowed`
-  - `publish_tarball_too_large`
-  - `publish_identity_mismatch`
-  - `publish_scope_not_allowed`
-  - `publish_deny_pattern_match`
-  - `publish_invalid_packument`
-
-## Persistence and Purge
-
-`.npmrc` changes on the publishing machine take effect immediately for the next
-CLI invocation. No local npm state purge is required just to rotate the
-Subumbra adapter token or change the registry URL.
-
-If you change persisted npm auth in another config layer, remove or correct the
-conflicting entry before re-testing so npm resolves the path-scoped token you
-intend.
-
-## Fail-Closed Check
-
-These are the expected fail-closed behaviors for the approved publish path:
-
-- wrong or missing path-scoped adapter token: npm fails auth before publish
-- package name mismatch between path and packument body: `403 publish_identity_mismatch`
-- package outside `allow.scopes`: `403 publish_scope_not_allowed`
-- forbidden file path or content in the tarball: `403 publish_deny_pattern_match`
-
-## Rotation
-
-Rotate the upstream npm token without a full bootstrap:
+When your npm Granular Access Token expires or needs to be rotated, you can update it instantly in one command:
 
 ```bash
-./bootstrap.sh --rotate-npm-token <key_id>
+./bootstrap.sh --rotate-npm-token npm_publish
 ```
 
-This rewrites only the selected `npm_token` record in `keys.json` using the
-existing public key and does not rotate adapter tokens.
+**Workflow:**
+- You will be prompted in the terminal to enter and confirm your new `npm_GAT...` token (which is held in RAM only).
+- Subumbra encrypts it under your existing vault key pair, writes the update back to `keys.json`, and completes the rotation.
+- **Your active adapter tokens and `.npmrc` configurations on local laptops and CI pipelines remain exactly the same!** No config files need to be touched.
 
-## Operator Checklist
+---
 
-- manifest record uses `type: npm_token`
-- policy allows `GET` and `PUT`
-- policy `allow.npm_operations` is either omitted or includes the npm actions you need
-- policy `allow.scopes` matches the package scope you publish
-- policy `deny.max_tarball_bytes` is set if you want tarball-size enforcement
-- `.npmrc` uses `registry=http://subumbra-proxy:8090/t/<key_id>/`
-- `.npmrc` uses `//subumbra-proxy:8090/t/<key_id>/:_authToken=...`
-- `./bootstrap.sh --show npm` matches the live `.env` token
-- `curl http://127.0.0.1:10199/health` returns `{"status":"ok","worker_auth":"ok"}`
+## 🛠️ Mandatory vs. Optional Manifest Fields
+
+To give you maximum architectural control, Subumbra separates core routing constraints (which are **mandatory** to keep the zero-trust contract valid) from supplementary checks (which are entirely **optional** and can be omitted).
+
+### 1. Top-Level Key Settings
+- `key_id`, `provider`, `secret_ref`, `adapters`, `unique_vault`: **Mandatory**.
+
+### 2. Under the `policy:` block
+| Field Name | Status | Purpose / Behavior if Omitted |
+|---|---|---|
+| `policy_id`, `protocol`, `capability_class`, `source`, `target` | **Mandatory** | Required to identify, classify, and route calls at the Worker boundary. |
+| `auth.scheme` | **Mandatory** | Declares how to inject the decrypted credential (e.g., `bearer`). |
+| `allow.adapters` | **Mandatory** | Only adapter names in this list can utilize the key. |
+| `allow.methods` | **Mandatory** | List of accepted HTTP verbs (must include `GET` and `PUT` for npm). |
+| `allow.path_prefixes` | **Mandatory** | The URL path prefix allowed to route through (must start with `/`). |
+| `allow.content_types` | **Mandatory** | Must include `application/json` for package uploads. |
+| `allow.max_body_bytes` | **Mandatory** | Max allowed incoming request size. |
+| `allow.npm_operations` | *Optional* | List of permitted npm commands (defaults to `publish` and `query` if omitted). |
+| `allow.scopes` | *Optional* | Restricts uploads to specific scopes (e.g. `@my-org`). Omit if your package is unscoped/public. |
+| `deny` (entire section) | *Optional* | **Completely Optional**. If omitted, no tarball-size or file-pattern checks will be run. |
+| `deny.max_tarball_bytes`| *Optional* | Enforces max tarball upload size. |
+| `deny.publish_path_patterns` | *Optional* | Safe-substring paths to reject (e.g. `.env`, `.pem`). |
+| `deny.publish_content_patterns` | *Optional* | Safe-substring content matches to reject in text files. |
+
+---
+
+## 🛡️ Human-in-the-Loop: Adding Janus (Approval Gate) to the Workflow
+
+**Janus** is Subumbra's per-call approval gate Durable Object (`SubumbraGate`). When active, high-risk requests (such as package publishes) are **held in a pending state** at the Worker boundary until you review and approve them via your secure Subumbra dashboard.
+
+For everyday development, you only want to gate **actual package releases** (HTTP `PUT` requests) while allowing metadata queries (`GET`) to run instantly without human intervention.
+
+### How to add Janus to your manifest:
+Simply append a `gate` block to your npm key policy:
+
+```yaml
+keys:
+  - key_id: npm_publish
+    type: npm_token
+    provider: npmjs
+    secret_ref: NPM_TOKEN
+    adapters: [npm]
+    unique_vault: false
+    policy:
+      key_id: npm_publish
+      policy_id: npm-publish-policy
+      # ... [keep your existing policy configuration here] ...
+      
+      # ADD THIS GATE BLOCK:
+      gate:
+        require_approval:
+          - timeout_seconds: 120    # How long the approval window stays open (2 minutes)
+            when:
+              method: PUT           # GATES PUBLISHING ONLY (GET requests pass through instantly)
+```
+
+### The Janus Operational Workflow:
+1. Run `./bootstrap.sh --provision npm_publish` to apply the updated policy to Cloudflare.
+2. In your terminal or CI pipeline, trigger your release:
+   ```bash
+   npm publish --access public
+   ```
+3. Your terminal or CI job will appear to **pause/hang**. Under the hood, the Cloudflare Worker is holding your request in the secure Durable Object gate!
+4. Open your **Subumbra Dashboard** (e.g., `https://subumbra.yourdomain.com`).
+5. A vibrant **Pending Approvals** card will blink on your Overview screen, showing:
+   - **Key ID**: `npm_publish`
+   - **Method**: `PUT`
+   - **Timeout**: Live countdown timer (2 minutes)
+6. Click **Approve**.
+7. Instantly, the Durable Object releases the request, decrypts your high-value npm token, publishes your package upstream, and your terminal/CI runner prints a successful release message and exits!
+
+---
+
+## 💡 Deep-Dive: Operator Notes & Custom Tuning
+
+
+### How npm publishing works under the hood
+1. Before publishing, the npm CLI sends a `GET` metadata request to query existing versions.
+2. Next, the CLI packages the entire directory, encodes it as a base64 tarball, wraps it inside a JSON "packument," and sends a `PUT` request to upload the package.
+3. Subumbra intercepts both calls under the same `/t/npm_publish/...` path-scoped policy.
+
+### Expected Fail-Closed Behaviors
+If someone attempts an unauthorized action, the broker will block the request and return specific `403` error codes:
+- **`npm_operation_not_allowed`**: Attempted an operation not in `allow.npm_operations` (e.g. `owner` modification).
+- **`publish_tarball_too_large`**: The base64 tarball size exceeded the configured `deny.max_tarball_bytes`.
+- **`publish_identity_mismatch`**: The package name inside `package.json` does not match the URL path.
+- **`publish_scope_not_allowed`**: The package scope is outside the declared `allow.scopes` array.
+- **`publish_deny_pattern_match`**: The tarball contains forbidden files (e.g., `.npmrc`, `.env`) or matches blacklisted text strings in the codebase.
+- **`publish_invalid_packument`**: The incoming HTTP body is not a valid npm publish format.
