@@ -129,7 +129,9 @@ _The live Flask app is **read-only** today (`GET` health, dashboard, status); wr
 - **Decouple LiteLLM file edits** — prefer sidecar `/t` contract over repo-patching LiteLLM where possible.
 - **Non-LLM providers** — Slack, Stripe, GitHub, SendGrid-style patterns as recipes or first-class examples when ready.
 - **OAuth and rotation keys** — broker OAuth client secrets and rotation material with the same split-trust model (research).
-- **Token storage** — npm/GitHub-style PAT handling patterns.
+- **npm publish brokering (r92, closed)** — `type: npm_token` V3 envelope, Worker tarball inspection, package identity enforcement, scope allowlist, `--rotate-npm-token`.
+- **npm professional workflow (r93, active)** — CI/CD path (`NODE_AUTH_TOKEN` / GitHub Actions), `allow.npm_operations` to block deprecate/unpublish/dist-tag, `deny.max_tarball_bytes` size gate, GitHub Packages documentation.
+- **Token storage** — npm/GitHub-style PAT handling patterns beyond r92/r93 scope (multi-hop registries, read-path install brokering, regex credential patterns).
 - **Import from existing `.env` / `config.yaml`** — guided migration that encrypts, updates app configs, shreds source file; far future optional file-watcher sync (high complexity, multi-tenant caution).
 - **App validation queue** (examples, not commitments): AnythingLLM, LibreChat, Dify, Chatwoot, Langfuse, Documenso, Plausible CE, Swetrix, Directus, Bolt.diy, Trigger.dev, Homepage, DronaHQ, Retool self-hosted, EmailEngine — each needs its own proof doc when prioritized.
 
