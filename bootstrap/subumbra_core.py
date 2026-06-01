@@ -629,6 +629,18 @@ def _normalize_policy_doc(doc: dict[str, Any], source: str) -> dict[str, Any]:
                 path_prefix = _policy_require_string(path_prefix, source, f"deny.path_prefixes[{idx}]")
                 if not path_prefix.startswith("/"):
                     _policy_die(source, f"deny.path_prefixes[{idx}] must start with '/'")
+        publish_path_patterns = deny.get("publish_path_patterns")
+        if publish_path_patterns is not None:
+            if not isinstance(publish_path_patterns, list):
+                _policy_die(source, "deny.publish_path_patterns must be an array")
+            for idx, pattern in enumerate(publish_path_patterns):
+                _validate_safe_pattern(pattern, source, f"deny.publish_path_patterns[{idx}]")
+        publish_content_patterns = deny.get("publish_content_patterns")
+        if publish_content_patterns is not None:
+            if not isinstance(publish_content_patterns, list):
+                _policy_die(source, "deny.publish_content_patterns must be an array")
+            for idx, pattern in enumerate(publish_content_patterns):
+                _validate_safe_pattern(pattern, source, f"deny.publish_content_patterns[{idx}]")
 
     intent = doc.get("intent")
     if intent is not None:
@@ -1102,8 +1114,8 @@ def _normalize_manifest_record(record: Any, idx: int) -> dict[str, Any]:
         _manifest_die(f"{source}.key_id is invalid")
 
     record_type = record.get("type", "api_key")
-    if not isinstance(record_type, str) or record_type not in {"api_key", "ssh_key"}:
-        _manifest_die(f"{source}.type must be 'api_key' or 'ssh_key'")
+    if not isinstance(record_type, str) or record_type not in {"api_key", "ssh_key", "npm_token"}:
+        _manifest_die(f"{source}.type must be 'api_key', 'ssh_key', or 'npm_token'")
 
     adapters = record.get("adapters")
     if not isinstance(adapters, list):
@@ -1313,7 +1325,7 @@ def _normalize_manifest_record(record: Any, idx: int) -> dict[str, Any]:
 
     return {
         "key_id": key_id,
-        "type": "api_key",
+        "type": "npm_token" if record_type == "npm_token" else "api_key",
         "provider": provider,
         "secret_ref": secret_ref,
         "adapters": normalized_adapters,
@@ -1559,6 +1571,7 @@ def _load_manifest_repair_authority(target_key_id: str) -> dict[str, Any]:
         if record["key_id"] == target_key_id:
             if record.get("type") == "ssh_key":
                 return {
+                    "type": "ssh_key",
                     "provider": record["provider"],
                     "policy": record["policy"],
                     "adapters": list(record["effective_adapters"]),
@@ -1566,6 +1579,7 @@ def _load_manifest_repair_authority(target_key_id: str) -> dict[str, Any]:
                     "secret_ref": record.get("secret_ref"),
                 }
             return {
+                "type": record.get("type", "api_key"),
                 "provider": record["provider"],
                 "target_host": record["target_host"],
                 "raw_secret": _resolve_manifest_secret(record["secret_ref"]),
@@ -1647,6 +1661,8 @@ def _build_structured_kv_entries(
             "created_at": record["created_at"],
             "label": record["label"],
         }
+        if record.get("type") == "npm_token":
+            key_entry["type"] = "npm_token"
         existing_live_entry = (existing_live_key_entries or {}).get(key_id)
         if isinstance(existing_live_entry, dict) and existing_live_entry.get("paused") is True:
             key_entry["paused"] = True
@@ -2304,9 +2320,10 @@ def _build_fat_record(
     vault_instance: str,
     created_at: str,
     label: str,
+    record_type: str | None = None,
     revoked: bool = False,
 ) -> dict[str, Any]:
-    return {
+    record = {
         "key_id": key_id,
         "enc_version": 3,
         "pub_key_fp": pub_key_fp,
@@ -2323,6 +2340,9 @@ def _build_fat_record(
         "label": label,
         "revoked": revoked,
     }
+    if record_type:
+        record["type"] = record_type
+    return record
 
 
 # ─────────────────────────────────────────────────────────────────────────────

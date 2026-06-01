@@ -911,6 +911,7 @@ Options:
   --nuke                      Destructive run: destroys existing Cloudflare Vault keypairs
                               and regenerates everything from scratch
   --rotate                    Rotate upstream keys for existing records
+  --rotate-npm-token <key_id> Rotate an existing npm_token record in place
   --add-ssh-key <key_id>      Generate and publish a new SSH key for day-2 use
     --adapters <csv>            Required adapter IDs allowed to sign with the key
     --allow-hosts <csv>         Optional hostnames/IPs to resolve into allowed SSH host keys

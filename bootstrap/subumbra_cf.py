@@ -1001,6 +1001,8 @@ def _build_structured_kv_entries(
             "created_at": record["created_at"],
             "label": record["label"],
         }
+        if record.get("type") == "npm_token":
+            key_entry["type"] = "npm_token"
         existing_live_entry = (existing_live_key_entries or {}).get(key_id)
         if isinstance(existing_live_entry, dict) and existing_live_entry.get("paused") is True:
             key_entry["paused"] = True

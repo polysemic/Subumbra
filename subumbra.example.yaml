@@ -55,12 +55,15 @@
 #                              use --revoke-adapter <key_id> <adapter> for targeted removal.
 #       methods:               (required) HTTP methods the Worker will forward
 #       path_prefixes:         (required) upstream paths allowed — no wildcards, must start with /
+#       scopes:                (optional) npm package scope prefixes allowed for `type: npm_token`
 #       content_types:         (required) accepted request Content-Type values
 #       max_body_bytes:        (required) maximum request body size in bytes
 #       request_headers:       (optional) exact request headers forwarded after invariant stripping;
 #                              if omitted/empty, current pass-through behavior is preserved
 #     deny:                    (optional)
 #       path_prefixes:         (optional) paths always blocked regardless of allow list
+#       publish_path_patterns: (optional) npm publish tar entry path substrings blocked before upstream forward
+#       publish_content_patterns: (optional) npm publish tar entry content substrings blocked before upstream forward
 #     intent:                  (optional)
 #       policy_match:          (optional) intent verification profile name
 #       trust:                 (optional)
@@ -112,6 +115,37 @@ keys:
   #   secret_ref: DEPLOY_SSH_KEY
   #   adapters: [sshtest]
   #   unique_vault: false
+
+  # ── npm Publish ────────────────────────────────────────────────────────────
+  # npm publish through the transparent proxy using a brokered upstream npm
+  # token held in the Worker vault.
+  #
+  # - key_id: npm_publish
+  #   type: npm_token
+  #   provider: npmjs
+  #   secret_ref: NPM_TOKEN
+  #   adapters: [npm]
+  #   unique_vault: false
+  #   policy:
+  #     key_id: npm_publish
+  #     policy_id: npm-publish-policy
+  #     protocol: http_rest
+  #     capability_class: custom_rest
+  #     source: env
+  #     target:
+  #       host: registry.npmjs.org
+  #     auth:
+  #       scheme: bearer
+  #     allow:
+  #       adapters: [npm]
+  #       methods: [GET, PUT]
+  #       path_prefixes: [/@your-scope]
+  #       scopes: ["@your-scope"]
+  #       content_types: [application/json]
+  #       max_body_bytes: 10485760
+  #     deny:
+  #       publish_path_patterns: [.env, .pem, .key, .npmrc, credentials.json]
+  #       publish_content_patterns: [AKIA, npm_, PRIVATE KEY]
 
   # ── Anthropic ──────────────────────────────────────────────────────────────
   # Anthropic Messages API — Claude 3, 3.5, 3.7, and future models.

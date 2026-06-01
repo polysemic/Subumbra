@@ -160,6 +160,7 @@ async function getRegistryEntry(env, keyId) {
   const policyAuth = policy.auth ?? {};
   return {
     key_id: keyEntry.key_id,
+    key_type: typeof keyEntry.type === "string" ? keyEntry.type : "api_key",
     policy_id: policyId,
     policy_hash: keyEntry.policy_hash,
     target_host: keyEntry.target_host,
@@ -173,11 +174,18 @@ async function getRegistryEntry(env, keyId) {
     allow_adapters: Array.isArray(allow.adapters) ? allow.adapters : [],
     allow_methods: Array.isArray(allow.methods) ? allow.methods : [],
     allow_path_prefixes: Array.isArray(allow.path_prefixes) ? allow.path_prefixes : [],
+    allow_scopes: Array.isArray(allow.scopes) ? allow.scopes : [],
     allow_content_types: Array.isArray(allow.content_types) ? allow.content_types : [],
     allow_max_body_bytes: typeof allow.max_body_bytes === "number" ? allow.max_body_bytes : null,
     allow_request_headers: Array.isArray(allow.request_headers) ? allow.request_headers : [],
     intent: policy.intent && typeof policy.intent === "object" ? policy.intent : null,
     deny_patterns: Array.isArray(policy.response?.deny_patterns) ? policy.response.deny_patterns : [],
+    deny_publish_path_patterns: Array.isArray(policy.deny?.publish_path_patterns)
+      ? policy.deny.publish_path_patterns
+      : [],
+    deny_publish_content_patterns: Array.isArray(policy.deny?.publish_content_patterns)
+      ? policy.deny.publish_content_patterns
+      : [],
     response_allow_headers: Array.isArray(policy.response?.allow_headers)
       ? policy.response.allow_headers
       : [],
@@ -339,6 +347,213 @@ function base64ToBytes(b64) {
     bytes[i] = binary.charCodeAt(i);
   }
   return bytes;
+}
+
+async function streamToBytes(stream) {
+  const ab = await new Response(stream).arrayBuffer();
+  return new Uint8Array(ab);
+}
+
+function decodeNpmPublishPackageName(parsedTarget) {
+  const rawPath = typeof parsedTarget?.pathname === "string" ? parsedTarget.pathname : "";
+  const segments = rawPath.split("/").filter((segment) => segment.length > 0);
+  if (segments.length === 0) {
+    return null;
+  }
+  try {
+    const last = decodeURIComponent(segments[segments.length - 1]);
+    if (last.includes("/")) {
+      return last;
+    }
+    if (segments.length >= 2) {
+      const secondLast = decodeURIComponent(segments[segments.length - 2]);
+      if (secondLast.startsWith("@")) {
+        return `${secondLast}/${last}`;
+      }
+    }
+    return last;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeTarEntryPath(entryName) {
+  if (typeof entryName !== "string") {
+    return "";
+  }
+  if (entryName.startsWith("package/")) {
+    return entryName.slice("package/".length);
+  }
+  return entryName;
+}
+
+async function gunzipBytes(gzipBytes) {
+  const stream = new Response(gzipBytes).body;
+  if (!stream) {
+    throw new Error("gzip stream unavailable");
+  }
+  const decompressed = stream.pipeThrough(new DecompressionStream("gzip"));
+  return streamToBytes(decompressed);
+}
+
+async function readNpmTarEntriesFromPackument(reqBody) {
+  if (!reqBody || typeof reqBody !== "object" || Array.isArray(reqBody)) {
+    throw new Error("packument must be an object");
+  }
+  const attachments = reqBody._attachments;
+  if (!attachments || typeof attachments !== "object" || Array.isArray(attachments)) {
+    throw new Error("packument _attachments missing");
+  }
+
+  const textDecoder = new TextDecoder();
+  const entries = [];
+  for (const [attachmentName, attachmentMeta] of Object.entries(attachments)) {
+    if (!attachmentMeta || typeof attachmentMeta !== "object" || Array.isArray(attachmentMeta)) {
+      throw new Error(`attachment ${attachmentName} invalid`);
+    }
+    if (typeof attachmentMeta.data !== "string" || !attachmentMeta.data) {
+      throw new Error(`attachment ${attachmentName} missing data`);
+    }
+    const tarBytes = await gunzipBytes(base64ToBytes(attachmentMeta.data));
+    let offset = 0;
+    while (offset + 512 <= tarBytes.length) {
+      const header = tarBytes.subarray(offset, offset + 512);
+      let allZero = true;
+      for (let i = 0; i < header.length; i++) {
+        if (header[i] !== 0) {
+          allZero = false;
+          break;
+        }
+      }
+      if (allZero) {
+        break;
+      }
+
+      const nameRaw = textDecoder.decode(header.subarray(0, 100));
+      const prefixRaw = textDecoder.decode(header.subarray(345, 500));
+      const name = nameRaw.split("\0", 1)[0];
+      const prefix = prefixRaw.split("\0", 1)[0];
+      const fullName = prefix ? `${prefix}/${name}` : name;
+      const sizeRaw = textDecoder.decode(header.subarray(124, 136)).replace(/\0/g, "").trim();
+      const fileSize = sizeRaw ? Number.parseInt(sizeRaw, 8) : 0;
+      if (!Number.isFinite(fileSize) || fileSize < 0) {
+        throw new Error(`attachment ${attachmentName} has invalid tar size`);
+      }
+
+      const dataStart = offset + 512;
+      const dataEnd = dataStart + fileSize;
+      if (dataEnd > tarBytes.length) {
+        throw new Error(`attachment ${attachmentName} truncated tar entry`);
+      }
+
+      const fileBytes = tarBytes.slice(dataStart, dataEnd);
+      entries.push({
+        attachmentName,
+        originalPath: fullName,
+        normalizedPath: normalizeTarEntryPath(fullName),
+        contentBytes: fileBytes,
+        contentText: textDecoder.decode(fileBytes),
+      });
+
+      offset = dataStart + Math.ceil(fileSize / 512) * 512;
+    }
+  }
+  if (entries.length === 0) {
+    throw new Error("packument has no tar entries");
+  }
+  return entries;
+}
+
+function packageScopeAllowed(packageName, allowScopes) {
+  if (!Array.isArray(allowScopes) || allowScopes.length === 0) {
+    return true;
+  }
+  if (typeof packageName !== "string" || !packageName.startsWith("@")) {
+    return false;
+  }
+  return allowScopes.some((scope) => typeof scope === "string" && packageName.startsWith(`${scope}/`));
+}
+
+async function inspectNpmPublish({ registryEntry, parsedTarget, reqBody, keyId, adapterId }) {
+  const pathPackageName = decodeNpmPublishPackageName(parsedTarget);
+  const bodyId = reqBody && typeof reqBody._id === "string" ? reqBody._id : null;
+  const bodyName = reqBody && typeof reqBody.name === "string" ? reqBody.name : null;
+  if (!pathPackageName || !bodyId || !bodyName) {
+    console.warn(
+      "subumbra: policy deny reason=publish_invalid_packument adapter=%s key_id=%s",
+      adapterId,
+      keyId,
+    );
+    return jsonError("publish_invalid_packument", 403);
+  }
+  if (pathPackageName !== bodyId || pathPackageName !== bodyName) {
+    console.warn(
+      "subumbra: policy deny reason=publish_identity_mismatch adapter=%s key_id=%s",
+      adapterId,
+      keyId,
+    );
+    return jsonError("publish_identity_mismatch", 403);
+  }
+  if (!packageScopeAllowed(pathPackageName, registryEntry.allow_scopes)) {
+    console.warn(
+      "subumbra: policy deny reason=publish_scope_not_allowed adapter=%s key_id=%s",
+      adapterId,
+      keyId,
+    );
+    return jsonError("publish_scope_not_allowed", 403);
+  }
+
+  let entries;
+  try {
+    entries = await readNpmTarEntriesFromPackument(reqBody);
+  } catch {
+    console.warn(
+      "subumbra: policy deny reason=publish_invalid_packument adapter=%s key_id=%s",
+      adapterId,
+      keyId,
+    );
+    return jsonError("publish_invalid_packument", 403);
+  }
+
+  for (let i = 0; i < registryEntry.deny_publish_path_patterns.length; i++) {
+    const pattern = String(registryEntry.deny_publish_path_patterns[i] || "").toLowerCase();
+    if (pattern === "") {
+      continue;
+    }
+    for (const entry of entries) {
+      if (entry.normalizedPath.toLowerCase().includes(pattern)) {
+        console.warn(
+          "subumbra: policy deny reason=publish_deny_pattern_match adapter=%s key_id=%s kind=%s pattern_index=%d",
+          adapterId,
+          keyId,
+          "path",
+          i,
+        );
+        return jsonError("publish_deny_pattern_match", 403);
+      }
+    }
+  }
+
+  for (let i = 0; i < registryEntry.deny_publish_content_patterns.length; i++) {
+    const pattern = String(registryEntry.deny_publish_content_patterns[i] || "").toLowerCase();
+    if (pattern === "") {
+      continue;
+    }
+    for (const entry of entries) {
+      if (entry.contentText.toLowerCase().includes(pattern)) {
+        console.warn(
+          "subumbra: policy deny reason=publish_deny_pattern_match adapter=%s key_id=%s kind=%s pattern_index=%d",
+          adapterId,
+          keyId,
+          "content",
+          i,
+        );
+        return jsonError("publish_deny_pattern_match", 403);
+      }
+    }
+  }
+
+  return null;
 }
 
 async function decryptV3(privateKey, expectedPubKeyFp, ciphertextB64, wrappedDekB64, pubKeyFp, keyId, policyHash) {
@@ -3502,6 +3717,19 @@ async function handleProxy(request, env) {
         key_id,
       );
       return jsonError("request body too large", 413);
+    }
+  }
+
+  if (registryEntry.key_type === "npm_token" && reqMethod === "PUT") {
+    const npmBlockResponse = await inspectNpmPublish({
+      registryEntry,
+      parsedTarget,
+      reqBody,
+      keyId: key_id,
+      adapterId: auth.adapterId,
+    });
+    if (npmBlockResponse) {
+      return npmBlockResponse;
     }
   }
 
