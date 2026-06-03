@@ -23,7 +23,7 @@ tag = "v3"
 
 [[migrations]]
 tag = "v4"
-new_sqlite_classes = ["SubumbraJanus"]
+new_sqlite_classes = ["SubumbraGate"]
 
 [[migrations]]
 tag = "v5"

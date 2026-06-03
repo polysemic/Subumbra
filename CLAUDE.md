@@ -1,7 +1,7 @@
-# Subumbra — Universal Zero-Trust Secret Broker
+# Subumbra — Universal Split-Trust Secret Broker
 
 ## Project Purpose
-A docker-compose-based zero-trust key-broker core for applications that need to
+A docker-compose-based split-trust secret-broker core for applications that need to
 use API keys without storing those keys in plaintext on the app server. Keys
 are split across two systems — neither side can decrypt alone.
 

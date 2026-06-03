@@ -10,7 +10,7 @@ Subumbra supports two pipeline architectures depending on your team size and sec
 
 | Model | Setup Complexity | Security Profile | Ideal For |
 |---|---|---|---|
-| **1. Operator-Gate Flow (Recommended)** | 🟢 Trivial (2 mins) | 🛡️ **Maximum** (Zero static secrets on GitHub, fully locked down by default) | Single developers, small teams, personal repos, highly sensitive environments |
+| **1. Operator-Gate Flow (Recommended)** | 🟢 Trivial (2 mins) | 🛡️ **Strong** (No static secrets on GitHub; real key stays in the split-trust vault) | Single developers, small teams, personal repos, highly sensitive environments |
 | **2. Autonomous Flow** | 🟡 Moderate (10 mins) | 🔒 **High** (Time-gated sessions, but requires Cloudflare credentials in GitHub Secrets) | Larger teams, standard corporate unattended pipelines |
 
 ---
