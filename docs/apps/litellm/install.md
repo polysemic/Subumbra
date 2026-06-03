@@ -25,7 +25,7 @@ Do not point LiteLLM at `127.0.0.1:10199` from inside the LiteLLM container.
 
 LiteLLM now uses the secure transparent contract:
 
-- `api_key` is the LiteLLM adapter token, for example
+- `api_key` is the LiteLLM consumer token, for example
   `SUBUMBRA_TOKEN_LITELLM`
 - `key_id` moves into the `api_base` path
 - LiteLLM no longer sends plain Subumbra key IDs as credentials
@@ -34,7 +34,7 @@ LiteLLM now uses the secure transparent contract:
 
 ## Required LiteLLM Model Shape
 
-Each model entry uses the same LiteLLM adapter token and its own path-carried
+Each model entry uses the same LiteLLM consumer token and its own path-carried
 `key_id`.
 
 ```yaml
@@ -72,7 +72,7 @@ model_list:
 
 Rules:
 
-- `api_key` is always the LiteLLM adapter token
+- `api_key` is always the LiteLLM consumer token
 - the first path segment after `/t/` is the requested Subumbra `key_id`
 - provider-specific upstream suffixes still remain after the `key_id` segment:
   - **OpenAI, Cerebras, X.ai (Grok-compatible), DeepSeek, Mistral**:
@@ -120,10 +120,10 @@ curl http://127.0.0.1:4000/v1/chat/completions \
 ## Operator Checklist
 
 1. Confirm `subumbra-proxy` health returns `worker_auth":"ok"`.
-2. Confirm the LiteLLM adapter token is available to the LiteLLM container.
+2. Confirm the LiteLLM consumer token is available to the LiteLLM container.
 3. Configure LiteLLM models with `api_base` pointing to
    `http://subumbra-proxy:8090/t/<key_id>/...`.
-4. Use the LiteLLM adapter token as `api_key` for every model entry.
+4. Use the LiteLLM consumer token as `api_key` for every model entry.
 5. Do not use plain key IDs as LiteLLM credentials.
 
 Round 41.7’s callback-era standalone LiteLLM flow is superseded by this

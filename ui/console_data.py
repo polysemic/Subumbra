@@ -11,7 +11,7 @@ NAV = [
     {"id": "overview",      "label": "Overview",      "icon": "◐", "href": "/overview"},
     {"id": "vault",         "label": "Vault",         "icon": "▣", "href": "/vault"},
     {"id": "sessions",      "label": "Sessions",      "icon": "◷", "href": "/sessions"},
-    {"id": "adapters",      "label": "Adapters",      "icon": "⌖", "href": "/adapters"},
+    {"id": "adapters",      "label": "Consumers",      "icon": "⌖", "href": "/consumers"},
     {"id": "policies",      "label": "Policies",      "icon": "≡", "href": "/policies"},
     {"id": "audit",         "label": "Audit",         "icon": "▤", "href": "/audit"},
     {"id": "observability", "label": "Observability", "icon": "◉", "href": "/observability"},
@@ -132,8 +132,8 @@ CONSOLE_DATA = {
     ],
 
     "policies": [
-        {"id":"anthropic-prod","name":"anthropic policy","hash":"d4b9…21cc","usedBy":2,"provider":"anthropic","target_host":"api.anthropic.com","base_path":"/v1","capability_class":"llm-chat","auth_scheme":"header","auth_header":"x-api-key","auth_prefix":"—","allow_methods":["POST"],"allow_path_prefixes":["/messages","/messages/count_tokens"],"allow_adapters":["litellm","openwebui"],"key_ids":["anthropic_prod","anthropic_canary"]},
-        {"id":"openai-prod","name":"openai policy","hash":"a3f2…b801","usedBy":1,"provider":"openai","target_host":"api.openai.com","base_path":"/v1","capability_class":"llm-chat","auth_scheme":"header","auth_header":"authorization","auth_prefix":"Bearer","allow_methods":["POST"],"allow_path_prefixes":["/chat/completions","/embeddings"],"allow_adapters":["litellm","openwebui"],"key_ids":["openai_prod"]},
+        {"id":"anthropic-prod","name":"anthropic policy","hash":"d4b9…21cc","usedBy":2,"provider":"anthropic","target_host":"api.anthropic.com","base_path":"/v1","capability_class":"llm-chat","auth_scheme":"header","auth_header":"x-api-key","auth_prefix":"—","allow_methods":["POST"],"allow_path_prefixes":["/messages","/messages/count_tokens"],"allow_consumers":["litellm","openwebui"],"key_ids":["anthropic_prod","anthropic_canary"]},
+        {"id":"openai-prod","name":"openai policy","hash":"a3f2…b801","usedBy":1,"provider":"openai","target_host":"api.openai.com","base_path":"/v1","capability_class":"llm-chat","auth_scheme":"header","auth_header":"authorization","auth_prefix":"Bearer","allow_methods":["POST"],"allow_path_prefixes":["/chat/completions","/embeddings"],"allow_consumers":["litellm","openwebui"],"key_ids":["openai_prod"]},
     ],
 
     "audit": [
@@ -143,7 +143,7 @@ CONSOLE_DATA = {
         {"ts":"12:38:44","date":"May 25","adapter":"sshtest",  "endpoint":"/ssh/sign",           "keyId":"github_vps_test", "provider":"github",   "remote":"127.0.0.1","verdict":"allow","reason":"ok",                  "method":"POST"},
         {"ts":"12:37:09","date":"May 25","adapter":"librechat","endpoint":"/v1/messages",        "keyId":"anthropic_canary","provider":"anthropic","remote":"10.0.1.50","verdict":"deny", "reason":"key_paused",          "method":"POST"},
         {"ts":"12:36:42","date":"May 25","adapter":"litellm",  "endpoint":"/v1/chat/completions","keyId":"groq_prod",       "provider":"groq",     "remote":"10.0.1.41","verdict":"allow","reason":"ok",                  "method":"POST"},
-        {"ts":"12:36:01","date":"May 25","adapter":"n8n-unknown","endpoint":"/v1/chat/completions","keyId":"openai_prod",   "provider":"openai",   "remote":"10.0.2.17","verdict":"deny", "reason":"adapter_not_allowed", "method":"POST"},
+        {"ts":"12:36:01","date":"May 25","adapter":"n8n-unknown","endpoint":"/v1/chat/completions","keyId":"openai_prod",   "provider":"openai",   "remote":"10.0.2.17","verdict":"deny", "reason":"consumer_not_allowed", "method":"POST"},
         {"ts":"12:34:55","date":"May 25","adapter":"litellm",  "endpoint":"/v1/chat/completions","keyId":"openai_prod",     "provider":"openai",   "remote":"10.0.1.41","verdict":"allow","reason":"ok",                  "method":"POST"},
         {"ts":"12:34:02","date":"May 25","adapter":"sshtest",  "endpoint":"/ssh/sign",           "keyId":"github_vps_test", "provider":"github",   "remote":"127.0.0.1","verdict":"allow","reason":"ok",                  "method":"POST"},
         {"ts":"12:33:18","date":"May 25","adapter":"openwebui","endpoint":"/v1/messages",        "keyId":"anthropic_prod",  "provider":"anthropic","remote":"10.0.1.42","verdict":"allow","reason":"ok",                  "method":"POST"},
@@ -167,7 +167,7 @@ CONSOLE_DATA = {
         {"allow": 421, "deny": 31},
     ],
 
-    "gate_stats": {
+    "janus_stats": {
         "total":    31,
         "approved": 24,
         "denied":    7,
@@ -216,7 +216,7 @@ CONSOLE_DATA = {
         "services": [
             {"name":"subumbra-keys","status":"ok","sub":"read API","note":"demo health response"},
             {"name":"subumbra-proxy","status":"ok","sub":"transparent proxy","note":"worker_auth=ok"},
-            {"name":"cf worker","status":"ok","sub":"https://subumbra-proxy.polysemic.workers.dev","note":"gate read ok"},
+            {"name":"cf worker","status":"ok","sub":"https://subumbra-proxy.polysemic.workers.dev","note":"janus read ok"},
         ],
         "velocity": [
             {"key_id":"openai_prod","provider":"openai","request_count":62,
@@ -228,7 +228,7 @@ CONSOLE_DATA = {
         ],
         "decrypt_errors": [
             {"reason_code":"key_paused","count":14},
-            {"reason_code":"adapter_not_allowed","count":11},
+            {"reason_code":"consumer_not_allowed","count":11},
             {"reason_code":"path_not_allowed","count":4},
             {"reason_code":"rate_limit_exceeded","count":2},
         ],

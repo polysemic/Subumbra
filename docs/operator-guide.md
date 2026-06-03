@@ -25,17 +25,17 @@ After setup, Subumbra is **locked by default** — no keys are handed out even t
 ### Opening a session
 
 ```bash
-./bootstrap.sh --session start --ttl 8h --adapters all
+./bootstrap.sh --session start --ttl 8h --consumers all
 ```
 
-If you run this on a terminal without `--ttl` and `--adapters`, an interactive wizard guides you through the choices.
+If you run this on a terminal without `--ttl` and `--consumers`, an interactive wizard guides you through the choices.
 
 **All available options:**
 
 | Option | Required | What it does |
 |--------|----------|-------------|
 | `--ttl <duration>` | Yes | How long to stay open. Format: `30m`, `2h`, `8h`, `1d` etc. |
-| `--adapters <csv\|all>` | Yes | Which apps to allow — `all`, or a comma-separated list like `litellm,openwebui` |
+| `--consumers <csv\|all>` | Yes | Which apps to allow — `all`, or a comma-separated list like `litellm,openwebui` |
 | `--keys <csv\|all>` | No | Which key IDs to allow. Defaults to `all` if omitted. |
 | `--name <label>` | No | A human-readable label shown in session history. |
 | `--max-queries <n>` | No | Auto-close the session after this many requests. |
@@ -95,7 +95,7 @@ Remove a key from active use:
 
 This marks the key as revoked, removes the live `key:<id>` entry from Cloudflare KV, and prevents future `--push-registry` runs from resurrecting it.
 
-If you don't have Cloudflare credentials available right now, use `--offline` to update `keys.json` locally first, then sync to Cloudflare later:
+If you don't have Cloudflare credentials available right now, use `--offline` to update `endpoint.json` locally first, then sync to Cloudflare later:
 
 ```bash
 ./bootstrap.sh --revoke-key <key_id> --offline     # local update only
@@ -107,7 +107,7 @@ If you don't have Cloudflare credentials available right now, use `--offline` to
 Pause temporarily blocks a key from being used without revoking it. Unlike session management, pause/unpause goes directly through the Worker's management API:
 
 ```bash
-# Pause — use the management token, not an adapter token
+# Pause — use the management token, not a consumer token
 curl -sS -X POST https://<worker-url>/manage/key/pause \
   -H "Authorization: Bearer $SUBUMBRA_MANAGEMENT_TOKEN" \
   -H "Content-Type: application/json" \
@@ -122,22 +122,22 @@ curl -sS -X POST https://<worker-url>/manage/key/unpause \
 
 Allow up to 90 seconds for Cloudflare KV propagation after pause/unpause before treating a stale result as a failure.
 
-`SUBUMBRA_MANAGEMENT_TOKEN` is in your `.env` after bootstrap. It is separate from adapter tokens — treat it as a privileged operator secret. If you ever lose both the live Worker copy and your local `.env` copy, run a full bootstrap to reissue it.
+`SUBUMBRA_MANAGEMENT_TOKEN` is in your `.env` after bootstrap. It is separate from consumer tokens — treat it as a privileged operator secret. If you ever lose both the live Worker copy and your local `.env` copy, run a full bootstrap to reissue it.
 
 ### Adding or removing an app from a key
 
 To grant a new app access to a key, or remove an app's access:
 
 ```bash
-./bootstrap.sh --add-adapter <key_id> <adapter_id>
-./bootstrap.sh --revoke-adapter <key_id> <adapter_id>
+./bootstrap.sh --add-consumer <key_id> <consumer_id>
+./bootstrap.sh --revoke-consumer <key_id> <consumer_id>
 ```
 
-Both commands re-encrypt the key with the updated policy and push the new binding to Cloudflare KV. They also attempt to update the `adapters` line in your `subumbra.yaml` automatically — this works for the standard single-line format. If your manifest uses a multiline adapters block, bootstrap warns and leaves the file alone; update it manually.
+Both commands re-encrypt the key with the updated policy and push the new binding to Cloudflare KV. They also attempt to update the `adapters` line in your `manifest.yaml` automatically — this works for the standard single-line format. If your manifest uses a multiline adapters block, bootstrap warns and leaves the file alone; update it manually.
 
 ### Republishing a key's policy
 
-If you change policy fields in `subumbra.yaml` (rate limits, response patterns, intent settings) without changing the underlying secret, push the updated policy to Cloudflare:
+If you change policy fields in `manifest.yaml` (rate limits, response patterns, intent settings) without changing the underlying secret, push the updated policy to Cloudflare:
 
 ```bash
 ./bootstrap.sh --publish-policy <key_id>
@@ -147,7 +147,7 @@ How it works under the hood: if you only changed `velocity`, `intent`, or `respo
 
 ### Syncing everything to Cloudflare KV
 
-If local `keys.json` state and Cloudflare KV get out of sync (e.g. after a failed bootstrap or a recovery step), push everything from local state:
+If local `endpoint.json` state and Cloudflare KV get out of sync (e.g. after a failed bootstrap or a recovery step), push everything from local state:
 
 ```bash
 ./bootstrap.sh --push-registry
@@ -157,7 +157,7 @@ This preserves any `paused: true` flags already set on live keys — it won't re
 
 ### SSH key custody and signing
 
-Subumbra can also hold `type: ssh_key` records in `keys.json`. In this round:
+Subumbra can also hold `type: ssh_key` records in `endpoint.json`. In this round:
 
 - `key_source: generated` creates an ed25519 keypair inside the Cloudflare vault
 - `key_source: provided` accepts an **unencrypted** OpenSSH ed25519 private key
@@ -221,7 +221,7 @@ The proxy health endpoint returns a `worker_auth` field in addition to `status`:
 |-------|---------|
 | `ok` | The proxy recently verified the Worker successfully. Everything is working. |
 | `stale` | The auth ping cache expired but no new ping has run yet. Often transient after restarts — wait a moment and check again. |
-| `token_mismatch` | The Worker rejected the proxy's auth token with a 401. The adapter token in the proxy's environment doesn't match what Cloudflare holds. This is permanent until tokens are re-synchronized (re-run `./bootstrap.sh --nuke` or push new tokens via wrangler). **Not the same as `stale`.** |
+| `token_mismatch` | The Worker rejected the proxy's auth token with a 401. The consumer token in the proxy's environment doesn't match what Cloudflare holds. This is permanent until tokens are re-synchronized (re-run `./bootstrap.sh --nuke` or push new tokens via wrangler). **Not the same as `stale`.** |
 | `unreachable` | The proxy can't reach the Worker at all. Check Cloudflare status and your network. |
 
 > **Cloudflare Access note:** CF Access header enforcement happens at the Cloudflare edge. If you use CF Access and misconfigure it, errors can look like `worker_auth` failures even when your VPS stack is healthy. If proxy health looks wrong but your services are up, check your Tunnel and Access settings first.
@@ -237,8 +237,8 @@ Compares your manifest against deployed records and prints the status of each ke
 ### Checking which apps are configured
 
 ```bash
-./bootstrap.sh --list-adapters     # lists all integrations, token status, and authorized key IDs
-./bootstrap.sh --show <adapter_id> # paste-ready config for a specific app (e.g. --show litellm)
+./bootstrap.sh --list-consumers     # lists all integrations, token status, and authorized key IDs
+./bootstrap.sh --show <consumer_id> # paste-ready config for a specific app (e.g. --show litellm)
 ./bootstrap.sh --list-key-ids      # lists all key IDs in your manifest
 ```
 
@@ -266,7 +266,7 @@ Brute-force rate limiting applies in Basic Auth mode (5 failures per 60-second w
 | Protected | How |
 |-----------|-----|
 | API keys at rest on your server | Encrypted immediately; only ciphertext is stored locally |
-| API keys in app configs | Apps only ever see an adapter token, never your real key |
+| API keys in app configs | Apps only ever see a consumer token, never your real key |
 | Per-app access | Each app has its own token — revoke one without affecting others |
 | Policy enforcement | Which paths, methods, and providers each key can serve is policy-bound |
 | Cloudflare KV tampering | Policy and encryption are cryptographically bound — editing KV directly doesn't help an attacker |
@@ -283,21 +283,21 @@ When you bootstrap a key, the rules you define — which apps can use it, which 
 
 What this means practically: if someone gained access to your Cloudflare KV and tried to swap in a permissive policy, the Worker would detect that the policy no longer matches the encryption seal and refuse to decrypt the key. No silent downgrade is possible.
 
-The trade-off: whenever you change a foundational policy field (`allow.*`, `target.host`, `auth.*`), Subumbra must re-encrypt the key with the new policy hash. Commands like `--add-adapter`, `--revoke-adapter`, and `--publish-policy` handle this automatically.
+The trade-off: whenever you change a foundational policy field (`allow.*`, `target.host`, `auth.*`), Subumbra must re-encrypt the key with the new policy hash. Commands like `--add-consumer`, `--revoke-consumer`, and `--publish-policy` handle this automatically.
 
 ### Adapter granularity and revocation boundaries
 
 By default, Subumbra starter templates configure a `universal` adapter (`adapters: [universal]`). While a single shared token is simple for initial setup, it creates a **single point of revocation**: revoking the token or ending a session for `universal` will lock out all applications simultaneously.
 
 For production security, we strongly recommend:
-- **Granular adapter tokens**: Assign each client application a distinct adapter name (e.g. `litellm`, `openwebui`, `bifrost`).
-- **Targeted session scopes**: When opening a session via `./bootstrap.sh --session start`, specify only the required adapters (e.g. `--adapters openwebui` rather than `--adapters all`) to minimize exposure.
-- **Granular revocation**: Use `./bootstrap.sh --revoke-adapter <key_id> <adapter_id>` to revoke access for a single compromised app without impacting other running services.
+- **Granular consumer tokens**: Assign each client application a distinct adapter name (e.g. `litellm`, `openwebui`, `bifrost`).
+- **Targeted session scopes**: When opening a session via `./bootstrap.sh --session start`, specify only the required adapters (e.g. `--consumers openwebui` rather than `--consumers all`) to minimize exposure.
+- **Granular revocation**: Use `./bootstrap.sh --revoke-consumer <key_id> <consumer_id>` to revoke access for a single compromised app without impacting other running services.
 
 ### Container environment and secrets
 
 
-Subumbra runtime secrets (`SUBUMBRA_ADAPTER_REGISTRY`, `SUBUMBRA_HMAC_KEY`, `SUBUMBRA_TOKEN_*`) are injected from your host `.env` into container environment variables. Any process inside a container can read them.
+Subumbra runtime secrets (`SUBUMBRA_CONSUMER_REGISTRY`, `SUBUMBRA_HMAC_KEY`, `SUBUMBRA_TOKEN_*`) are injected from your host `.env` into container environment variables. Any process inside a container can read them.
 
 **Practical mitigations:**
 - Set your `.env` file to `600` permissions (`chmod 600 .env`)
@@ -323,8 +323,8 @@ If values are missing, the bootstrap may have exited before writing them. Check 
 
 | Situation | What to do |
 |-----------|------------|
-| `keys.json` not updated (bootstrap failed before writing) | Data volume may be out of sync with Cloudflare. Run `./bootstrap.sh --nuke` and re-bootstrap from scratch. |
-| `keys.json` updated but Cloudflare KV is missing or partial | Re-publish from local state: `./bootstrap.sh --push-registry` |
+| `endpoint.json` not updated (bootstrap failed before writing) | Data volume may be out of sync with Cloudflare. Run `./bootstrap.sh --nuke` and re-bootstrap from scratch. |
+| `endpoint.json` updated but Cloudflare KV is missing or partial | Re-publish from local state: `./bootstrap.sh --push-registry` |
 
 There is no checkpoint file to clean up — Subumbra doesn't write intermediate state to disk during bootstrap.
 
@@ -334,7 +334,7 @@ If Cloudflare Durable Object vault state is lost and you initialize a fresh vaul
 
 The supported recovery path is a full re-bootstrap with your original inputs:
 
-1. Keep your `subumbra.yaml` and any provider secrets accessible
+1. Keep your `manifest.yaml` and any provider secrets accessible
 2. Run `./bootstrap.sh --nuke` to reset Cloudflare state
 3. Re-bootstrap and restart the stack
 
@@ -428,7 +428,7 @@ Instead of writing a full inline policy, you can use a named template for any su
 
 Templates are signed with the project's Ed25519 release key and verified before use. Bootstrap ships them inside the container — no network fetch occurs.
 
-Basic template usage in `subumbra.yaml`:
+Basic template usage in `manifest.yaml`:
 
 ```yaml
 keys:
@@ -442,7 +442,7 @@ keys:
 
 ### Overriding a template field
 
-Add an inline `policy` block alongside `template` to override specific fields. The `allow.adapters` list is always taken from the manifest's `adapters` field — you can't override it through the policy block:
+Add an inline `policy` block alongside `template` to override specific fields. The `allow.consumers` list is always taken from the manifest's `adapters` field — you can't override it through the policy block:
 
 ```yaml
 keys:
@@ -469,7 +469,7 @@ Not all policy changes require re-encrypting the key. Understanding which ones d
 |-------------|---------------|
 | `velocity`, `intent`, `response.deny_patterns` | `--publish-policy <key_id>` (no re-encryption) |
 | `allow.*`, `target.host`, `auth.*` | `--publish-policy <key_id>` (triggers re-encryption automatically) |
-| Adding or removing an adapter | `--add-adapter` / `--revoke-adapter` (re-encrypts) |
+| Adding or removing an adapter | `--add-consumer` / `--revoke-consumer` (re-encrypts) |
 | New provider secret value | `--rotate` |
 
 ### Request and response headers
@@ -526,15 +526,15 @@ These values are fixed in the current release (not env-tunable). Useful if you'r
 
 When a key policy includes `gate.require_approval`, selected Worker `/proxy`
 and `/ssh/sign` requests no longer dispatch immediately. The Worker returns
-`202`, `subumbra-proxy` polls `GET /gate/status/<request_id>`, and only an
+`202`, `subumbra-proxy` polls `GET /janus/status/<request_id>`, and only an
 approved request is re-submitted into the normal Vault path.
 
 - Browser subscription and pending visibility live in the dashboard Gate card.
-- Approval links are one-time capability URLs and expire to `gate_timeout`.
+- Approval links are one-time capability URLs and expire to `janus_timeout`.
 - The bounded day-2 update path is:
 
 ```bash
 ./bootstrap.sh --deploy-worker
-./bootstrap.sh --update-gate
+./bootstrap.sh --update-janus
 docker compose up -d --force-recreate
 ```

@@ -1,19 +1,19 @@
 # Subumbra manifest — all supported providers as full inline policies.
-# Copy to subumbra.yaml, uncomment the providers you need, fill in values, then bootstrap.
+# Copy to manifest.yaml, uncomment the providers you need, fill in values, then bootstrap.
 #
 # Usage:
-#   cp subumbra.example.yaml subumbra.yaml
-#   # Edit subumbra.yaml: uncomment providers, set adapters and secret_ref values, then:
+#   cp manifest.example.yaml manifest.yaml
+#   # Edit manifest.yaml: uncomment providers, set adapters and secret_ref values, then:
 #   ./bootstrap.sh
 #
 # Adding a provider after initial bootstrap:
-#   1. Uncomment and configure the provider block in subumbra.yaml
+#   1. Uncomment and configure the provider block in manifest.yaml
 #   2. Re-run ./bootstrap.sh — the new key is provisioned; existing keys are preserved
 #
 # Day-2 changes (no full re-bootstrap needed):
 #   ./bootstrap.sh --publish-policy <key_id>           re-publish policy/adapter changes to KV
-#   ./bootstrap.sh --add-adapter <key_id> <adapter>    add an adapter to an existing key
-#   ./bootstrap.sh --revoke-adapter <key_id> <adapter> remove an adapter from a key
+#   ./bootstrap.sh --add-consumer <key_id> <adapter>    add an adapter to an existing key
+#   ./bootstrap.sh --revoke-consumer <key_id> <adapter> remove an adapter from a key
 #   ./bootstrap.sh --rotate                            rotate provider secrets (offline, no CF interaction)
 #
 # ⚠️  Uncomment provider blocks carefully — each active key is provisioned in Cloudflare
@@ -52,7 +52,7 @@
 #                              Revocation granularity: all keys sharing the same adapter name share
 #                              one token. To revoke one app without affecting others, assign each
 #                              app a distinct adapter name (e.g. litellm, openwebui, bifrost) and
-#                              use --revoke-adapter <key_id> <adapter> for targeted removal.
+#                              use --revoke-consumer <key_id> <adapter> for targeted removal.
 #       methods:               (required) HTTP methods the Worker will forward
 #       path_prefixes:         (required) upstream paths allowed — no wildcards, must start with /
 #       scopes:                (optional) npm package scope prefixes allowed for `type: npm_token`
@@ -77,7 +77,7 @@
 #                              Built-in signed templates ship active default velocity values.
 #                              Inline policy velocity remains the override path when you use a
 #                              full inline policy or a template plus inline policy override.
-#       adapter_rpm:           (optional) per-adapter rate limit (requests/minute)
+#       consumer_rpm:           (optional) per-adapter rate limit (requests/minute)
 #       key_rpm:               (optional) per-key aggregate rate limit (requests/minute)
 #       breaker_failures:      (optional) consecutive failures before circuit breaker opens
 #       breaker_cooldown_seconds: (optional) seconds before circuit breaker resets
@@ -210,7 +210,7 @@ keys:
   #         - anthropic-ratelimit-tokens-reset
   #       # deny_patterns: [api_key]
   #     # velocity:
-  #     #   adapter_rpm: 120
+  #     #   consumer_rpm: 120
   #     #   key_rpm: 600
   #     #   breaker_failures: 3
   #     #   breaker_cooldown_seconds: 30
@@ -253,7 +253,7 @@ keys:
   #     # response:
   #     #   deny_patterns: [sk-]
   #     # velocity:
-  #     #   adapter_rpm: 120
+  #     #   consumer_rpm: 120
   #     #   key_rpm: 600
   #     #   breaker_failures: 3
   #     #   breaker_cooldown_seconds: 30
@@ -296,7 +296,7 @@ keys:
   #     # response:
   #     #   deny_patterns: []
   #     # velocity:
-  #     #   adapter_rpm: 120
+  #     #   consumer_rpm: 120
   #     #   key_rpm: 600
   #     #   breaker_failures: 3
   #     #   breaker_cooldown_seconds: 30
@@ -339,7 +339,7 @@ keys:
   #     # response:
   #     #   deny_patterns: []
   #     # velocity:
-  #     #   adapter_rpm: 120
+  #     #   consumer_rpm: 120
   #     #   key_rpm: 600
   #     #   breaker_failures: 3
   #     #   breaker_cooldown_seconds: 30
@@ -393,7 +393,7 @@ keys:
   #         - x-ratelimit-reset-tokens
   #       # deny_patterns: [gsk_]
   #     # velocity:
-  #     #   adapter_rpm: 120
+  #     #   consumer_rpm: 120
   #     #   key_rpm: 600
   #     #   breaker_failures: 3
   #     #   breaker_cooldown_seconds: 30
@@ -436,7 +436,7 @@ keys:
   #     # response:
   #     #   deny_patterns: []
   #     # velocity:
-  #     #   adapter_rpm: 120
+  #     #   consumer_rpm: 120
   #     #   key_rpm: 600
   #     #   breaker_failures: 3
   #     #   breaker_cooldown_seconds: 30
@@ -490,7 +490,7 @@ keys:
   #         - x-ratelimit-reset-tokens
   #       # deny_patterns: [sk-]
   #     # velocity:
-  #     #   adapter_rpm: 120
+  #     #   consumer_rpm: 120
   #     #   key_rpm: 600
   #     #   breaker_failures: 3
   #     #   breaker_cooldown_seconds: 30
@@ -533,7 +533,7 @@ keys:
   #     # response:
   #     #   deny_patterns: []
   #     # velocity:
-  #     #   adapter_rpm: 120
+  #     #   consumer_rpm: 120
   #     #   key_rpm: 600
   #     #   breaker_failures: 3
   #     #   breaker_cooldown_seconds: 30
@@ -576,7 +576,7 @@ keys:
   #     # response:
   #     #   deny_patterns: []
   #     # velocity:
-  #     #   adapter_rpm: 60
+  #     #   consumer_rpm: 60
   #     #   key_rpm: 300
   #     #   breaker_failures: 3
   #     #   breaker_cooldown_seconds: 30
@@ -619,7 +619,7 @@ keys:
   #     # response:
   #     #   deny_patterns: []
   #     # velocity:
-  #     #   adapter_rpm: 60
+  #     #   consumer_rpm: 60
   #     #   key_rpm: 300
   #     #   breaker_failures: 3
   #     #   breaker_cooldown_seconds: 30
@@ -662,7 +662,7 @@ keys:
   #     # response:
   #     #   deny_patterns: []
   #     # velocity:
-  #     #   adapter_rpm: 120
+  #     #   consumer_rpm: 120
   #     #   key_rpm: 600
   #     #   breaker_failures: 3
   #     #   breaker_cooldown_seconds: 30
@@ -705,7 +705,7 @@ keys:
   #     # response:
   #     #   deny_patterns: []
   #     # velocity:
-  #     #   adapter_rpm: 120
+  #     #   consumer_rpm: 120
   #     #   key_rpm: 600
   #     #   breaker_failures: 3
   #     #   breaker_cooldown_seconds: 30

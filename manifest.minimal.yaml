@@ -1,4 +1,4 @@
-# Subumbra manifest — copy to subumbra.yaml before running bootstrap.
+# Subumbra manifest — copy to manifest.yaml before running bootstrap.
 # Edit the values below to match your providers.
 # Add, delete, or comment out keys you don't need.
 #

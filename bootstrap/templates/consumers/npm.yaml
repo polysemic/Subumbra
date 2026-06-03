@@ -1,4 +1,4 @@
-adapter_id: npm
+consumer_id: npm
 display_name: npm CLI
 category: automation
 docs_path: docs/apps/npm/install.md
@@ -14,7 +14,7 @@ config_format:
       value: "http://subumbra-proxy:8090/t/{key_id}/"
       note: "Set the registry for the package or scope you publish through Subumbra"
     - name: //subumbra-proxy:8090/t/{key_id}/:_authToken
-      value: "{adapter_token}"
+      value: "{consumer_token}"
       note: "Path-scoped Subumbra adapter token; npm must send this on both GET and PUT"
 config_notes: >
   Use a path-scoped .npmrc entry for the Subumbra transparent route. The real

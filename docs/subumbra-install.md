@@ -95,23 +95,23 @@ If you cannot or prefer not to modify the app's network config, use the host
 port `http://127.0.0.1:10199/t/<key_id>/...` instead — no network changes
 needed.
 
-## 3b. Create `subumbra.yaml` (gitignored)
+## 3b. Create `manifest.yaml` (gitignored)
 
-`subumbra.yaml` is **not committed** (see `.gitignore`). You **must** create it
+`manifest.yaml` is **not committed** (see `.gitignore`). You **must** create it
 locally before bootstrap or the compose mount will point at a missing file and
 bootstrap will fail.
 
 To use pre-built templates, use:
 ```bash
-cp subumbra.minimal.yaml subumbra.yaml
+cp manifest.minimal.yaml manifest.yaml
 ```
 
 To use custom providers or inline policies, use:
 ```bash
-cp subumbra.example.yaml subumbra.yaml
+cp manifest.example.yaml manifest.yaml
 ```
 
-Edit `subumbra.yaml` to match your providers, apps and policies. The **minimal**
+Edit `manifest.yaml` to match your providers, apps and policies. The **minimal**
 file shows the simplest form: one or more LLM providers using signed built-in
 templates. The **example** file lists every built-in template plus one inline
 policy row showing all required and optional fields. Use minimal to get running
@@ -159,7 +159,7 @@ Tunnel / Access runtime secrets and skip Cloudflare lifecycle creation.
 For automation (non-interactive) use, add these as optional lines in
 `.env.bootstrap` (see `.env.bootstrap.example` for the template).
 
-> Do not `source .env` after bootstrap — `SUBUMBRA_ADAPTER_REGISTRY` is a JSON blob that Bash mangles.
+> Do not `source .env` after bootstrap — `SUBUMBRA_CONSUMER_REGISTRY` is a JSON blob that Bash mangles.
 
 ## 5. Run Bootstrap
 
@@ -273,7 +273,7 @@ Cloudflare Worker name [default: subumbra-proxy] — press Enter to use default,
 
 **Step 3 — Per-key provider secrets**
 
-For each key defined in `subumbra.yaml`, the wizard shows the `key_id`,
+For each key defined in `manifest.yaml`, the wizard shows the `key_id`,
 `provider`, and `secret_ref` label, then asks whether to provision it in this
 session. Entering `n` skips the key without aborting.
 
@@ -300,13 +300,13 @@ At least one key must be accepted or bootstrap aborts.
 Once credentials and secrets are collected the wizard runs without further
 input:
 
-1. Deploys the Cloudflare Worker and pushes adapter tokens and HMAC key as CF secrets
+1. Deploys the Cloudflare Worker and pushes consumer tokens and HMAC key as CF secrets
 2. Calls the one-shot `/setup/keygen` Worker endpoint — Cloudflare generates the RSA-4096 key pair inside the Durable Object and returns only the public key; the private key never leaves Cloudflare
-3. Encrypts each provider API key locally using the returned public key (AES-256-GCM with a per-key DEK wrapped by RSA-OAEP) and writes the V3 envelope records to `keys.json`
+3. Encrypts each provider API key locally using the returned public key (AES-256-GCM with a per-key DEK wrapped by RSA-OAEP) and writes the V3 envelope records to `endpoint.json`
 4. Publishes policy and key metadata to Cloudflare KV
 5. Writes all generated runtime values (`SUBUMBRA_TOKEN_*`, `CF_WORKER_URL`, `CF_WORKER_NAME`, etc.) into `.env`
 6. Deletes the transient `SUBUMBRA_SETUP_TOKEN` from Cloudflare secrets
-7. Starts the core stack with `docker compose up -d --force-recreate` and prints an adapter token summary
+7. Starts the core stack with `docker compose up -d --force-recreate` and prints a consumer token summary
 
 If a previous bootstrap left Cloudflare vault or KV state behind, the wizard
 stops and asks for explicit confirmation before wiping it. Pass `--nuke` to
@@ -344,19 +344,19 @@ CF_WORKER_NAME=subumbra-proxy # the Cloudflare Worker script name to deploy
 # CF_ACCESS_CLIENT_SECRET=REPLACE_ME
 
 # ── Bootstrap tuning (optional) ───────────────────────────────────────────────
-TOKEN_TTL_DAYS=365            # how long adapter tokens are valid before expiry (see note below)
+TOKEN_TTL_DAYS=365            # how long consumer tokens are valid before expiry (see note below)
 
 # ── Provider secrets ──────────────────────────────────────────────────────────
-# One line per secret_ref declared in subumbra.yaml.
+# One line per secret_ref declared in manifest.yaml.
 # The name must match secret_ref exactly.
 OPENAI_KEY=REPLACE_ME
 ANTHROPIC_KEY=REPLACE_ME
-# add more as needed to match your subumbra.yaml
+# add more as needed to match your manifest.yaml
 ```
 
-**`TOKEN_TTL_DAYS` — adapter token lifetime**
+**`TOKEN_TTL_DAYS` — consumer token lifetime**
 
-Adapter tokens (the credentials apps use to call `subumbra-keys`) are stamped
+Consumer tokens (the credentials apps use to call `subumbra-keys`) are stamped
 with an `issued_at` and `expires_at` at bootstrap time. `subumbra-keys` checks
 expiry on every request — once a token expires it returns a 403 and the app can
 no longer fetch encrypted records. The default is 365 days.
@@ -368,7 +368,7 @@ generates fresh tokens with a new TTL window and restarts the stack.
 > end-to-end with an actual expiry event. The simplest way to test it is to set
 > `TOKEN_TTL_DAYS=1`, wait for expiry, and confirm requests are rejected with
 > `adapter_expired`. Alternatively, manually set `expires_at` to a past
-> timestamp inside `SUBUMBRA_ADAPTER_REGISTRY` in `.env` and restart
+> timestamp inside `SUBUMBRA_CONSUMER_REGISTRY` in `.env` and restart
 > `subumbra-keys`.
 
 > **TTL and the interactive wizard:** The wizard does not prompt for
@@ -398,7 +398,7 @@ grep -E '^(SUBUMBRA_TOKEN_|CF_WORKER_URL|CF_WORKER_NAME|PROBE_ALLOWED_KEYS|UI_AL
 
 `bootstrap.sh` writes the generated Subumbra runtime values directly into `.env`:
 
-- `SUBUMBRA_ADAPTER_REGISTRY`
+- `SUBUMBRA_CONSUMER_REGISTRY`
 - per-app tokens such as `SUBUMBRA_TOKEN_LITELLM` and `SUBUMBRA_TOKEN_OPENWEBUI`
 - `SUBUMBRA_TOKEN_PROXY` for proxy transport and explicit compatibility/simple mode
 - `SUBUMBRA_TOKEN_UI`
@@ -421,7 +421,7 @@ single-key rotation. The Cloudflare-side private key never lands on the VPS.
 ## 7. Start The Core Stack
 
 After a successful `./bootstrap.sh` or `./bootstrap.sh --nuke`, the host wrapper
-already runs `docker compose up -d --force-recreate` and prints an adapter token
+already runs `docker compose up -d --force-recreate` and prints a consumer token
 / `key_id` summary from `.env`. If you skipped the wrapper or need to restart
 services only:
 
@@ -468,7 +468,7 @@ For deploy-integrity verification after install, export `CF_API_TOKEN`,
 day-2 command and recovery notes.
 
 If you lose Cloudflare-side vault custody, the supported recovery path is a
-full re-bootstrap with the original `subumbra.yaml` and `.env.bootstrap`
+full re-bootstrap with the original `manifest.yaml` and `.env.bootstrap`
 inputs. See the recovery section in the
 [operator guide](operator-guide.md).
 
@@ -476,12 +476,12 @@ inputs. See the recovery section in the
 
 Once the stack is up and verified, you are ready to use it — but there is one more thing to know: **Subumbra is locked by default.**
 
-Your apps are configured and can reach the proxy, but no API keys will be handed out until you open a session. If you try to make a request right now, it will fail with `system_locked`. This is intentional — it means a stolen adapter token or a compromised app cannot do anything when a session isn't active.
+Your apps are configured and can reach the proxy, but no API keys will be handed out until you open a session. If you try to make a request right now, it will fail with `system_locked`. This is intentional — it means a stolen consumer token or a compromised app cannot do anything when a session isn't active.
 
 ### Opening a session
 
 ```bash
-./bootstrap.sh --session start --ttl 8h --adapters all
+./bootstrap.sh --session start --ttl 8h --consumers all
 ```
 
 This opens an 8-hour window. All your configured apps can now fetch keys and make requests through Subumbra. When the time runs out, the session closes automatically and the system goes back into lockdown.
@@ -491,12 +491,12 @@ Breaking down the options:
 | Option | What it does |
 |--------|-------------|
 | `--ttl 8h` | How long to keep the session open. Use `s` (seconds), `m` (minutes), `h` (hours), or `d` (days). For example: `30m`, `2h`, `1d`. |
-| `--adapters all` | Which apps to open. Use `all` to open everything, or a comma-separated list like `litellm,openwebui` to restrict to specific apps. |
+| `--consumers all` | Which apps to open. Use `all` to open everything, or a comma-separated list like `litellm,openwebui` to restrict to specific apps. |
 | `--keys all` | (Optional) Which key IDs to allow. Defaults to `all` if you leave it out. |
 | `--name work-session` | (Optional) A human-readable label to identify the session in logs. |
 | `--max-queries 100` | (Optional) Auto-close the session after this many requests. |
 
-If you run `--session start` on a terminal without `--ttl` and `--adapters`, an interactive wizard will guide you through the choices.
+If you run `--session start` on a terminal without `--ttl` and `--consumers`, an interactive wizard will guide you through the choices.
 
 ### Checking and closing sessions
 
@@ -544,17 +544,17 @@ enable later. Subumbra does **not** retain `CF_API_TOKEN` or `CF_ACCOUNT_ID` in
 - `./bootstrap.sh` — full bootstrap; deploys Worker, pushes KV and secrets
 - `./bootstrap.sh --nuke` — destructive re-bootstrap; resets Cloudflare vault state first
 - `./bootstrap.sh --provision <key_id>` — targeted key repair; pushes KV entry for one key
-- `./bootstrap.sh --push-registry` — syncs local `keys.json` state to Cloudflare KV
+- `./bootstrap.sh --push-registry` — syncs local `endpoint.json` state to Cloudflare KV
 - `./bootstrap.sh --revoke-key <key_id>` — removes key from live KV (omit `--offline` flag)
-- `./bootstrap.sh --add-adapter <key_id> <adapter_id>` — re-encrypts and pushes updated policy
-- `./bootstrap.sh --revoke-adapter <key_id> <adapter_id>` — re-encrypts and pushes updated policy
+- `./bootstrap.sh --add-consumer <key_id> <consumer_id>` — re-encrypts and pushes updated policy
+- `./bootstrap.sh --revoke-consumer <key_id> <consumer_id>` — re-encrypts and pushes updated policy
 - `./bootstrap.sh --publish-policy <key_id>` — republishes a key's policy and adapters to KV
 
 **Session commands** (CF credentials required — writes gates to Cloudflare KV):
 
-- `./bootstrap.sh --session start` — open a session; interactive wizard if `--ttl` or `--adapters` are omitted on a TTY
+- `./bootstrap.sh --session start` — open a session; interactive wizard if `--ttl` or `--consumers` are omitted on a TTY
   - `--ttl <duration>` — required; how long to stay open (`30m`, `2h`, `8h`, `1d`, etc.)
-  - `--adapters <csv|all>` — required; which apps to allow (`all`, or `litellm,openwebui`, etc.)
+  - `--consumers <csv|all>` — required; which apps to allow (`all`, or `litellm,openwebui`, etc.)
   - `--keys <csv|all>` — optional; which key IDs to allow (defaults to `all`)
   - `--name <label>` — optional; human-readable label shown in session logs
   - `--max-queries <n>` — optional; auto-close after this many requests
@@ -568,14 +568,14 @@ enable later. Subumbra does **not** retain `CF_API_TOKEN` or `CF_ACCOUNT_ID` in
 
 - `./bootstrap.sh --rotate` — re-encrypts using the on-disk RSA public key
 - `./bootstrap.sh --upgrade` — rebuilds Docker images and recreates containers
-- `./bootstrap.sh --revoke-key <key_id> --offline` — marks key revoked in `keys.json` only; run without `--offline` afterward to sync KV
+- `./bootstrap.sh --revoke-key <key_id> --offline` — marks key revoked in `endpoint.json` only; run without `--offline` afterward to sync KV
 
 **CF credentials not required — read-only inspection:**
 
-- `./bootstrap.sh --status` — compare your manifest (`subumbra.yaml`) against deployed records; prints `UP_TO_DATE`, `POLICY_DRIFT`, `NOT_DEPLOYED`, or `REVOKED` per key
-- `./bootstrap.sh --list-key-ids` — list all key IDs defined in `subumbra.yaml`
-- `./bootstrap.sh --list-adapters` — list all supported app integrations, which ones have active tokens, and which key IDs each adapter is authorized for
-- `./bootstrap.sh --show <adapter_id>` — print a paste-ready config block for a specific app integration (e.g. `--show litellm`, `--show openwebui`)
+- `./bootstrap.sh --status` — compare your manifest (`manifest.yaml`) against deployed records; prints `UP_TO_DATE`, `POLICY_DRIFT`, `NOT_DEPLOYED`, or `REVOKED` per key
+- `./bootstrap.sh --list-key-ids` — list all key IDs defined in `manifest.yaml`
+- `./bootstrap.sh --list-consumers` — list all supported app integrations, which ones have active tokens, and which key IDs each adapter is authorized for
+- `./bootstrap.sh --show <consumer_id>` — print a paste-ready config block for a specific app integration (e.g. `--show litellm`, `--show openwebui`)
 
 **CF credentials not required — runtime credential rotation only:**
 
@@ -597,20 +597,20 @@ This does **not** run Cloudflare bootstrap, rotate keys, or change `.env`
 `subumbra-probe` / `cloudflared` use Compose profiles — rebuild or restart those
 separately if you use them (see comments in `docker-compose.yml`).
 
-## Gate DO day-2 update
+## Janus DO day-2 update
 
-If the pulled round adds or changes Gate DO behavior, do the Worker/edge update
+If the pulled round adds or changes Janus DO behavior, do the Worker/edge update
 before recreating the app stack:
 
 ```bash
 ./bootstrap.sh --deploy-worker
-./bootstrap.sh --update-gate
+./bootstrap.sh --update-janus
 docker compose up -d --force-recreate
 ```
 
-`--update-gate` is the bounded existing-stack path that ensures the Gate HMAC
-secret, VAPID keypair, repo-local `SUBUMBRA_GATE_VAPID_PUBLIC_KEY`, and the
-narrow Cloudflare Access bypass apps for `/gate/approve/*` and `/gate/deny/*`.
+`--update-janus` is the bounded existing-stack path that ensures the Janus HMAC
+secret, VAPID keypair, repo-local `SUBUMBRA_JANUS_VAPID_PUBLIC_KEY`, and the
+narrow Cloudflare Access bypass apps for `/janus/approve/*` and `/janus/deny/*`.
 
 ## Next
 

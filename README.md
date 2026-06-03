@@ -32,7 +32,7 @@ Subumbra scales from "I just want my API key out of a `.env` file" to "broker ev
 - **🟢 Just getting started** — follow the [Quickstart](#quickstart) below. ~15 minutes, one provider key, copy-paste commands. No security background needed.
 - **🟡 Adding SSH or npm** — do the Quickstart first, then jump to the [SSH guide](docs/ssh-guide.md) or [npm guide](docs/apps/npm/install.md).
 - **🔴 CI/CD & automation** — [SSH in pipelines](docs/ssh-ci-cd.md) and the npm guide's [GitHub Actions section](docs/apps/npm/install.md) cover unattended flows.
-- **🟣 Power user / security review** — go straight to the [Architecture deep-dive](docs/architecture.md), [Security overview](docs/security-overview.md), and [full manifest reference](subumbra.example.yaml).
+- **🟣 Power user / security review** — go straight to the [Architecture deep-dive](docs/architecture.md), [Security overview](docs/security-overview.md), and [full manifest reference](manifest.example.yaml).
 
 ---
 
@@ -72,15 +72,15 @@ docker network create subumbra-net
 
 ### Step 3 — Tell Subumbra what to hold
 
-Subumbra reads a file called `subumbra.yaml` (your **manifest**) to know which secrets you want it to broker. This file is **never committed to git** — it lives only on your server.
+Subumbra reads a file called `manifest.yaml` (your **manifest**) to know which secrets you want it to broker. This file is **never committed to git** — it lives only on your server.
 
 Start from the minimal template, which lists all supported providers (comment out the ones you don't use):
 
 ```bash
-cp subumbra.minimal.yaml subumbra.yaml
+cp manifest.minimal.yaml manifest.yaml
 ```
 
-Open `subumbra.yaml` and:
+Open `manifest.yaml` and:
 
 1. **Delete or comment out** providers you don't have keys for (a leading `#` disables a line)
 2. **Set `adapters`** to the names of the apps allowed to use each key — e.g. `[litellm, openwebui]`, or `[universal]` to share one token across every app. (This is how Subumbra limits *which* caller may use *which* key.)
@@ -91,7 +91,7 @@ The built-in signed templates ship with sensible default `velocity` and circuit-
 
 > **Want SSH keys or npm tokens too?** They're declared in this same manifest. Get the Quickstart working first, then see the [SSH guide](docs/ssh-guide.md) and [npm guide](docs/apps/npm/install.md) — each shows the exact manifest block to add.
 
-> **Want full control over policies or custom HTTP APIs?** Use `cp subumbra.example.yaml subumbra.yaml` instead — that file documents every available option. See [docs/provider-templates.md](docs/provider-templates.md).
+> **Want full control over policies or custom HTTP APIs?** Use `cp manifest.example.yaml manifest.yaml` instead — that file documents every available option. See [docs/provider-templates.md](docs/provider-templates.md).
 
 ### Step 4 — Run the setup wizard
 
@@ -115,9 +115,9 @@ It will ask for:
 2. **Cloudflare Account ID** — not stored; same as above
 3. **Worker name** — press Enter for the default (`subumbra-proxy`)
 4. **Optional Cloudflare Tunnel / Access credentials** — provide if you use them, otherwise leave blank
-5. **Your secrets** — for each entry in `subumbra.yaml`, it prompts for the value
+5. **Your secrets** — for each entry in `manifest.yaml`, it prompts for the value
 
-> **Prefer automation?** Copy `.env.bootstrap.example` to `.env.bootstrap`, fill in your secrets and Cloudflare credentials, and run `./bootstrap.sh` — all prompts are skipped and the file is shredded after a successful run. The `secret_ref` names in `subumbra.yaml` must match the variable names in `.env.bootstrap`.
+> **Prefer automation?** Copy `.env.bootstrap.example` to `.env.bootstrap`, fill in your secrets and Cloudflare credentials, and run `./bootstrap.sh` — all prompts are skipped and the file is shredded after a successful run. The `secret_ref` names in `manifest.yaml` must match the variable names in `.env.bootstrap`.
 
 That's it. The wizard automatically:
 
@@ -163,9 +163,9 @@ Each app gets its **own token** (revoke one without affecting others) and points
 |---------|-------|
 | base URL (inside Docker) | `http://subumbra-proxy:8090/t/<key_id>/...` |
 | base URL (host / outside Docker) | `http://127.0.0.1:10199/t/<key_id>/...` |
-| `api_key` | the app's adapter token (e.g. `SUBUMBRA_TOKEN_LITELLM`) |
+| `api_key` | the app's consumer token (e.g. `SUBUMBRA_TOKEN_LITELLM`) |
 
-`<key_id>` is the identifier from your `subumbra.yaml` — e.g. `openai_prod`.
+`<key_id>` is the identifier from your `manifest.yaml` — e.g. `openai_prod`.
 
 App-specific guides:
 
@@ -198,7 +198,7 @@ Broker `npm publish` (and install) so your registry token never lands in `.npmrc
 
 For services without a built-in template, declare a generic `http_rest` policy with `bearer`, `basic`, `header`, or `query` auth and route requests through the same `/t/<key_id>/` path.
 
-→ [docs/integration-recipes.md](docs/integration-recipes.md) · full reference in [subumbra.example.yaml](subumbra.example.yaml)
+→ [docs/integration-recipes.md](docs/integration-recipes.md) · full reference in [manifest.example.yaml](manifest.example.yaml)
 
 ---
 
@@ -207,13 +207,13 @@ For services without a built-in template, declare a generic `http_rest` policy w
 After setup, Subumbra starts **locked**. Apps are configured and connected, but **no secret is released until you open a session.** Think of a time-lock safe: open it for as long as you need, and it closes itself.
 
 ```bash
-./bootstrap.sh --session start --ttl 8h --adapters all
+./bootstrap.sh --session start --ttl 8h --consumers all
 ```
 
 Be more specific — only certain apps, only certain keys:
 
 ```bash
-./bootstrap.sh --session start --ttl 2h --adapters litellm,openwebui --keys openai_prod
+./bootstrap.sh --session start --ttl 2h --consumers litellm,openwebui --keys openai_prod
 ```
 
 Check or close:
@@ -237,7 +237,7 @@ Subumbra's core property is **split-trust**: your secret is split so the local h
 | What it protects | How |
 |------------------|-----|
 | **Secrets at rest on your server** | Only encrypted ciphertext + a wrapped key are stored locally — useless without the Cloudflare-held private key |
-| **A compromised app, agent, or plugin** | The caller only ever holds a short-lived adapter token, never the real secret — so a prompt injection, plugin, or app CVE has nothing to leak |
+| **A compromised app, agent, or plugin** | The caller only ever holds a short-lived consumer token, never the real secret — so a prompt injection, plugin, or app CVE has nothing to leak |
 | **Secrets in app/CI configs** | Apps and pipelines see a revocable proxy token, not your key |
 | **Per-caller access control** | Each caller has its own token; policy limits which keys, paths, methods, and (for npm) operations it may use |
 | **Stolen tokens while locked** | No active session ⇒ no secret released, even with a valid token |
@@ -245,7 +245,7 @@ Subumbra's core property is **split-trust**: your secret is split so the local h
 | What it does **not** fully protect | Be aware |
 |------------------------------------|----------|
 | **The Cloudflare boundary itself** | The private key lives in Cloudflare — it is inside the trust boundary by design |
-| **A fully compromised server *during an open session*** | An attacker with root can't extract the stored secret, but while a session is open they can *use* an adapter token to make in-policy requests. Short TTLs and Janus approvals limit this. |
+| **A fully compromised server *during an open session*** | An attacker with root can't extract the stored secret, but while a session is open they can *use* a consumer token to make in-policy requests. Short TTLs and Janus approvals limit this. |
 | **Billing / rate limits** | Subumbra doesn't cap spend — set limits at the provider |
 
 For the full threat model, the trust-domain reasoning, and where the plaintext briefly exists, see [docs/security-overview.md](docs/security-overview.md) and [docs/architecture.md](docs/architecture.md).
@@ -270,8 +270,8 @@ subumbra/
 ├── docker-compose.yml          ← starts the local services
 ├── .env.example                ← template for optional config
 ├── .env.bootstrap.example      ← template for automation bootstrap
-├── subumbra.minimal.yaml       ← copy to subumbra.yaml to get started
-├── subumbra.example.yaml       ← full reference with every option documented
+├── manifest.minimal.yaml       ← copy to manifest.yaml to get started
+├── manifest.example.yaml       ← full reference with every option documented
 ├── bootstrap/                  ← setup wizard + encryption logic
 ├── subumbra-keys/              ← stores encrypted secret records locally
 ├── subumbra-proxy/             ← the transparent proxy your callers talk to

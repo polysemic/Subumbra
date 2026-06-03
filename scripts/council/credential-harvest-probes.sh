@@ -224,8 +224,8 @@ for base in scan_paths:
         except (PermissionError, OSError):
             pass
 
-# Step 3: check keys.json specifically (primary target)
-keys_path = pathlib.Path('/app/data/keys.json')
+# Step 3: check endpoint.json specifically (primary target)
+keys_path = pathlib.Path('/app/data/endpoint.json')
 keys_plaintext = False
 if keys_path.exists():
     try:
@@ -280,7 +280,7 @@ else
     "0 matches" "${P06_HITS} matches found" "p06-host-env-scan.txt"
 fi
 
-# P-07 ── keys.json contains only ciphertext/wrapped-DEK blobs — no raw keys
+# P-07 ── endpoint.json contains only ciphertext/wrapped-DEK blobs — no raw keys
 P07_OUT="${ARTIFACT_DIR}/p07-keys-json-analysis.txt"
 dc_exec subumbra-keys python3 - <<'PY' > "${P07_OUT}" 2>&1 || true
 import json, re, pathlib
@@ -290,7 +290,7 @@ provider_re = re.compile(
     r'|gsk_[a-zA-Z0-9]{20,}|xai-[a-zA-Z0-9]{20,}'
 )
 
-keys = json.loads(pathlib.Path('/app/data/keys.json').read_text())
+keys = json.loads(pathlib.Path('/app/data/endpoint.json').read_text())
 results = {}
 for kid, record in keys.items():
     if not isinstance(record, dict):
@@ -317,11 +317,11 @@ P07_LEAK=$(python3 -c "import json; d=json.load(open('${P07_OUT}')); print(d.get
 P07_V3=$(python3 -c "import json; d=json.load(open('${P07_OUT}')); print(d.get('all_v3', False))" 2>/dev/null || echo "False")
 if [[ "${P07_LEAK}" == "False" && "${P07_V3}" == "True" ]]; then
   log_probe P-07 T1005 PASS \
-    "keys.json contains only V3 ciphertext+wrapped-DEK blobs, no raw provider keys" \
+    "endpoint.json contains only V3 ciphertext+wrapped-DEK blobs, no raw provider keys" \
     "no_plaintext_leak, all_v3" "no_plaintext_leak=${P07_LEAK}, all_v3=${P07_V3}" "p07-keys-json-analysis.txt"
 else
   log_probe P-07 T1005 FAIL \
-    "keys.json contains only V3 ciphertext+wrapped-DEK blobs, no raw provider keys" \
+    "endpoint.json contains only V3 ciphertext+wrapped-DEK blobs, no raw provider keys" \
     "no_plaintext_leak, all_v3" "no_plaintext_leak=${P07_LEAK}, all_v3=${P07_V3}" "p07-keys-json-analysis.txt"
 fi
 
@@ -367,16 +367,16 @@ fi
 
 # P-09 ── Captured /keys/ response is inert without RSA private key
 #         Shows that the V3 envelope (ciphertext + wrapped_dek) cannot be
-#         decrypted offline — attacker who exfiltrates keys.json still gets nothing.
+#         decrypted offline — attacker who exfiltrates endpoint.json still gets nothing.
 P09_OUT="${ARTIFACT_DIR}/p09-envelope-inert.txt"
 dc_exec subumbra-keys python3 - <<'PY' > "${P09_OUT}" 2>&1 || true
 import base64, json, os, pathlib
 
-keys = json.loads(pathlib.Path('/app/data/keys.json').read_text())
+keys = json.loads(pathlib.Path('/app/data/endpoint.json').read_text())
 sample_id = next(iter(keys))
 record = keys[sample_id]
 
-# Show what an attacker exfiltrating keys.json actually gets
+# Show what an attacker exfiltrating endpoint.json actually gets
 analysis = {
     "key_id":          sample_id,
     "enc_version":     record.get("enc_version"),
@@ -409,13 +409,13 @@ P09_RSA=$(python3 -c "import json; d=json.load(open('${P09_OUT}')); print(d.get(
 P09_DECRYPTABLE=$(python3 -c "import json; d=json.load(open('${P09_OUT}')); print(d.get('decryptable_without_rsa_key', True))" 2>/dev/null || echo "True")
 if [[ "${P09_RSA}" == "True" && "${P09_DECRYPTABLE}" == "False" ]]; then
   log_probe P-09 "T1552+T1588" PASS \
-    "Exfiltrated keys.json envelope is inert without RSA private key (CF DO custody)" \
+    "Exfiltrated endpoint.json envelope is inert without RSA private key (CF DO custody)" \
     "RSA-4096 wrapped DEK, not decryptable offline" \
     "rsa_wrapped=${P09_RSA}, decryptable_offline=${P09_DECRYPTABLE}" \
     "p09-envelope-inert.txt"
 else
   log_probe P-09 "T1552+T1588" INVESTIGATE_NOW \
-    "Exfiltrated keys.json envelope is inert without RSA private key" \
+    "Exfiltrated endpoint.json envelope is inert without RSA private key" \
     "RSA-4096 wrapped DEK, not decryptable offline" \
     "rsa_wrapped=${P09_RSA}, decryptable_offline=${P09_DECRYPTABLE}" \
     "p09-envelope-inert.txt"
@@ -570,8 +570,8 @@ else
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CLASS 4 — Adapter token scope enforcement (T1078 / stolen-token abuse)
-# Mimics: stolen adapter token used to enumerate keys it shouldn't reach,
+# CLASS 4 — Consumer token scope enforcement (T1078 / stolen-token abuse)
+# Mimics: stolen consumer token used to enumerate keys it shouldn't reach,
 #         cross-adapter request with a valid-but-wrong token.
 # ─────────────────────────────────────────────────────────────────────────────
 printf "\n${C_CYAN}── Class 4: Stolen token / scope enforcement ──${C_RESET}\n"
@@ -597,17 +597,17 @@ except Exception:
   echo "http_status=${STATUS_15}" > "${P15_OUT}"
   if [[ "${STATUS_15}" == "401" || "${STATUS_15}" == "403" ]]; then
     log_probe P-15 T1078 PASS \
-      "UI adapter token cannot fetch a key from subumbra-keys (wrong scope)" \
+      "UI consumer token cannot fetch a key from subumbra-keys (wrong scope)" \
       "401 or 403" "${STATUS_15}" "p15-ui-token-key-fetch.txt"
   else
     log_probe P-15 T1078 FAIL \
-      "UI adapter token cannot fetch a key from subumbra-keys (wrong scope)" \
+      "UI consumer token cannot fetch a key from subumbra-keys (wrong scope)" \
       "401 or 403" "${STATUS_15}" "p15-ui-token-key-fetch.txt"
   fi
 else
   echo "UI_TOKEN not found" > "${P15_OUT}"
   log_probe P-15 T1078 ENVIRONMENTAL \
-    "UI adapter token cannot fetch a key from subumbra-keys" \
+    "UI consumer token cannot fetch a key from subumbra-keys" \
     "401 or 403" "UI_TOKEN unavailable from container" "p15-ui-token-key-fetch.txt"
 fi
 
@@ -644,7 +644,7 @@ provider_key_in_kv = any(provider_re.search(n) for n in key_names)
 print(json.dumps({
     "kv_key_count": len(key_names),
     "session_token_keys": [k for k in key_names if k.startswith("session_token:")],
-    "active_adapter_keys": [k for k in key_names if k.startswith("active_adapter:")],
+    "active_consumer_keys": [k for k in key_names if k.startswith("active_consumer:")],
     "provider_key_pattern_in_kv_key_names": provider_key_in_kv,
     "verdict": "kv_contains_only_session_metadata" if not provider_key_in_kv else "INVESTIGATE",
 }, indent=2, sort_keys=True))
@@ -681,7 +681,7 @@ P17_OUT="${ARTIFACT_DIR}/p17-aad-binding.txt"
 dc_exec subumbra-keys python3 - <<'PY' > "${P17_OUT}" 2>&1 || true
 import json, pathlib, collections
 
-keys = json.loads(pathlib.Path('/app/data/keys.json').read_text())
+keys = json.loads(pathlib.Path('/app/data/endpoint.json').read_text())
 hashes = []
 results = {}
 for kid, record in keys.items():

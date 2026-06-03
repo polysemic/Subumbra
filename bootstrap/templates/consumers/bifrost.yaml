@@ -1,4 +1,4 @@
-adapter_id: bifrost
+consumer_id: bifrost
 display_name: Bifrost
 category: llm_gateway
 docs_path: docs/apps/bifrost/
@@ -11,7 +11,7 @@ config_format:
   target: .env   # Bifrost deployment directory
   fields:
     - name: BIFROST_SUBUMBRA_TOKEN
-      value: "{adapter_token}"
+      value: "{consumer_token}"
       note: "Bifrost credential for its Subumbra provider"
 config_notes: >
   Bifrost also requires a JSON provider config with base_url set per provider.

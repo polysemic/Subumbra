@@ -1,4 +1,4 @@
-adapter_id: n8n
+consumer_id: n8n
 display_name: n8n
 category: automation
 docs_path: docs/apps/n8n/
@@ -11,13 +11,13 @@ config_format:
   target: "n8n Settings → Credentials"
   fields:
     - name: "API Key / Secret"
-      value: "{adapter_token}"
+      value: "{consumer_token}"
       note: "Paste into the credential secret for any AI provider node"
     - name: "Base URL"
       value: "http://subumbra-proxy:8090/t/{key_id}"
       note: "Anthropic: bare path; OpenAI-compatible: append /v1; Groq: /openai/v1"
 config_notes: >
-  For HTTP Request nodes, add a header Authorization: Bearer {adapter_token}
+  For HTTP Request nodes, add a header Authorization: Bearer {consumer_token}
   and set the URL to http://subumbra-proxy:8090/t/{key_id}/... with the
   appropriate provider path suffix. Pre-built workflow JSON files for common
   providers are in docs/apps/n8n/workflows/ — import them directly into n8n.

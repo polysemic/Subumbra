@@ -29,7 +29,7 @@
             <div class="sess__ttl">{{ s.ttl_label }} left</div>
           </div>
           <div class="sess__row">
-            <div class="lbl">Adapters</div>
+            <div class="lbl">Consumers</div>
             <div style="display:flex;gap:4px;flex-wrap:wrap">
               {% for a in s.adapters %}<span class="tag">{{ a }}</span>{% endfor %}
             </div>
@@ -88,7 +88,7 @@
       </div>
 
       <div class="form-row">
-        <label class="form-label">Adapters allowed</label>
+        <label class="form-label">Consumers allowed</label>
         <div class="multi">
           <span class="multi__tag">litellm <span class="x">×</span></span>
           <span class="multi__tag">openwebui <span class="x">×</span></span>

@@ -16,7 +16,7 @@ export SSH_AUTH_SOCK="${XDG_RUNTIME_DIR}/subumbra/ssh-agent.sock"
 ## 1. Open a scoped session
 
 ```bash
-./bootstrap.sh --session start --ttl 8h --adapters sshtest --keys github_vps_test
+./bootstrap.sh --session start --ttl 8h --consumers sshtest --keys github_vps_test
 ```
 
 ## 2. Confirm the key is visible through the agent
@@ -37,7 +37,7 @@ For a repo-scoped fixture, add the Subumbra public key as a deploy key on the ta
 4. Add the public key
 5. Enable write access only if you want to test pushes
 
-Use the public key printed during bootstrap, or extract it from `keys.json`.
+Use the public key printed during bootstrap, or extract it from `endpoint.json`.
 
 ## 4. Use a host-scoped SSH config block
 

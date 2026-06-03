@@ -32,7 +32,7 @@ The supported durable production authority is:
 
 OpenWebUI now uses:
 
-- `OPENAI_API_KEY` = the OpenWebUI adapter token
+- `OPENAI_API_KEY` = the OpenWebUI consumer token
 - `OPENAI_API_BASE_URL` = `http://subumbra-proxy:8090/t/<key_id>/v1`
 
 Example:
@@ -47,7 +47,7 @@ WEBUI_SECRET_KEY=<random-long-value>
 
 Rules:
 
-- the app credential is the adapter token, not a plain key ID
+- the app credential is the consumer token, not a plain key ID
 - the Subumbra `key_id` lives in the URL path
 - `ENABLE_PERSISTENT_CONFIG=False` is required
 
@@ -57,7 +57,7 @@ Before pointing OpenWebUI at Subumbra, confirm:
 
 1. the Subumbra core stack is already running in `/opt/subumbra`
 2. `subumbra-proxy` reports healthy Worker auth
-3. the OpenWebUI adapter token is available to the OpenWebUI container
+3. the OpenWebUI consumer token is available to the OpenWebUI container
 
 ```bash
 cd /opt/subumbra
@@ -91,7 +91,7 @@ For Anthropic through the Local connector, use:
 
 This keeps the secure split intact:
 
-- adapter token in credential
+- consumer token in credential
 - `anthropic_prod` in the path
 
 ## Via LiteLLM
@@ -125,7 +125,7 @@ key_id=openai_prod method=POST target_url=https://api.openai.com/v1/chat/complet
 
 ### Fail-closed check
 
-An invalid adapter token must fail closed:
+An invalid consumer token must fail closed:
 
 ```bash
 curl -sS -i \
@@ -139,7 +139,7 @@ Expected result: `401`.
 
 1. Confirm `subumbra-proxy` health is `worker_auth":"ok"`.
 2. Set `OPENAI_API_BASE_URL=http://subumbra-proxy:8090/t/<key_id>/v1`.
-3. Set `OPENAI_API_KEY` to the OpenWebUI adapter token.
+3. Set `OPENAI_API_KEY` to the OpenWebUI consumer token.
 4. Set `ENABLE_PERSISTENT_CONFIG=False`.
 5. Clean legacy direct-provider DB state once.
 6. Restart OpenWebUI.

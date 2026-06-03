@@ -50,7 +50,7 @@ variables.
 
 **Prerequisites:**
 - Bifrost container is running
-- `BIFROST_SUBUMBRA_TOKEN` is set to the Bifrost adapter token in the container environment
+- `BIFROST_SUBUMBRA_TOKEN` is set to the Bifrost consumer token in the container environment
 
 **Step 1: Send the migration API call**
 
@@ -122,7 +122,7 @@ rm -f config.db config.db-shm config.db-wal
 **Step 3: Update config.json for Subumbra routing**
 
 Replace your `config.json` with the Subumbra configuration. Ensure
-`BIFROST_SUBUMBRA_TOKEN` is set to the Bifrost adapter token in the container
+`BIFROST_SUBUMBRA_TOKEN` is set to the Bifrost consumer token in the container
 environment before starting.
 
 ```json

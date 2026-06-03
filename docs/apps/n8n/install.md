@@ -26,9 +26,9 @@ Do not point n8n containers at `127.0.0.1:10199`.
 
 ## Secure Contract
 
-n8n uses app-owned adapter tokens:
+n8n uses app-owned consumer tokens:
 
-- the credential secret is the n8n adapter token, for example
+- the credential secret is the n8n consumer token, for example
   `SUBUMBRA_TOKEN_N8N`
 - the Subumbra `key_id` lives in the base URL path
 - `SUBUMBRA_TOKEN_PROXY` is compatibility/simple mode only, not the normal n8n
@@ -40,7 +40,7 @@ Before pointing n8n at Subumbra, confirm:
 
 1. the Subumbra core stack is already running in `/opt/subumbra`
 2. `subumbra-proxy` reports healthy Worker auth
-3. the n8n adapter token is available to the n8n container
+3. the n8n consumer token is available to the n8n container
 4. n8n is attached to `subumbra-net`
 
 ```bash
@@ -69,7 +69,7 @@ token and use the Subumbra base URL for the chosen key:
 
 The key rule is always the same:
 
-1. credential secret = adapter token
+1. credential secret = consumer token
 2. target `key_id` = first path segment after `/t/`
 
 ## HTTP Request Node Configuration
@@ -89,13 +89,13 @@ Content-Type: application/json
 A successful n8n request should produce proxy logs like:
 
 ```text
-request adapter=n8n key_id=openai_n8n_1 method=POST
-complete adapter=n8n key_id=openai_n8n_1 status=200
+request consumer=n8n key_id=openai_n8n_1 method=POST
+complete consumer=n8n key_id=openai_n8n_1 status=200
 ```
 
 ### Fail-closed check
 
-An invalid adapter token must fail closed:
+An invalid consumer token must fail closed:
 
 ```bash
 curl -sS -i \

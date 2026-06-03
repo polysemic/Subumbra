@@ -1,4 +1,4 @@
-adapter_id: openwebui
+consumer_id: openwebui
 display_name: Open WebUI
 category: llm_frontend
 docs_path: docs/apps/openwebui/
@@ -11,7 +11,7 @@ config_format:
   target: .env   # Open WebUI deployment directory
   fields:
     - name: OPENAI_API_KEY
-      value: "{adapter_token}"
+      value: "{consumer_token}"
       note: "Adapter token — Open WebUI treats this as its OpenAI credential"
     - name: OPENAI_API_BASE_URL
       value: "http://subumbra-proxy:8090/t/{key_id}/v1"

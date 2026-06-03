@@ -23,7 +23,7 @@ For current **example `curl`** paths and REST notes, see [integration-recipes.md
 | gemini | N/A ◇ | N/A ◇ | N/A ◇ | N/A ◇ | N/A ◇ |
 
 **† AnythingLLM openai:** Generic OpenAI path only; no model chooser; single model at a time.
-Use the app adapter token as the API key and carry `openai_prod` in the base path.
+Use the app consumer token as the API key and carry `openai_prod` in the base path.
 `GENERIC_OPEN_AI_BASE_PATH=http://subumbra-proxy:8090/t/openai_prod/v1`
 
 **‡ AnythingLLM named providers:** All named providers (Anthropic, Groq, etc.) hardcode their

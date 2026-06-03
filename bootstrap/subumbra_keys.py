@@ -12,7 +12,7 @@ from subumbra_core import (
     _automation_fail,
     _bind_key_to_adapters,
     _binding_label,
-    _build_adapter_registry,
+    _build_consumer_registry,
     _build_fat_record,
     _build_host_env_updates,
     _build_runtime_env_lines,
@@ -28,7 +28,7 @@ from subumbra_core import (
     _load_policy_index,
     _load_public_key_from_pem,
     _load_unique_key_flags,
-    _normalize_adapter_id,
+    _normalize_consumer_id,
     _parse_token_ttl_days,
     _prompt_after_automation_error,
     _prompt_hidden_line,
@@ -147,7 +147,7 @@ def _load_manifest_bootstrap() -> tuple[
     )
     ui_username, ui_password_hash, cf_access_protected = _load_ui_auth_from_env(service_config)
 
-    declared_adapter_ids: list[str] = []
+    declared_consumer_ids: list[str] = []
     seen_declared: set[str] = set()
     api_keys: dict[str, tuple[str, str, str, str, str]] = {}
     record_types_by_key_id: dict[str, str] = {}
@@ -155,18 +155,18 @@ def _load_manifest_bootstrap() -> tuple[
     policy_by_key_id: dict[str, dict[str, Any]] = {}
     unique_key_flags: dict[str, bool] = {}
     ssh_records: list[dict[str, Any]] = []
-    allowed_keys_by_adapter: dict[str, list[str]] = {
+    allowed_keys_by_consumer: dict[str, list[str]] = {
         "subumbra-proxy": [],
         "subumbra-ui": [],
     }
 
     for record in records:
-        for adapter_id in record["adapters"]:
-            if adapter_id in seen_declared:
+        for consumer_id in record["adapters"]:
+            if consumer_id in seen_declared:
                 continue
-            seen_declared.add(adapter_id)
-            declared_adapter_ids.append(adapter_id)
-            allowed_keys_by_adapter[adapter_id] = []
+            seen_declared.add(consumer_id)
+            declared_consumer_ids.append(consumer_id)
+            allowed_keys_by_consumer[consumer_id] = []
 
     for record in records:
         key_id = record["key_id"]
@@ -177,7 +177,7 @@ def _load_manifest_bootstrap() -> tuple[
             key_id,
             record["adapters"],
             key_adapters_by_key_id=key_adapters_by_key_id,
-            allowed_keys_by_adapter=allowed_keys_by_adapter,
+            allowed_keys_by_consumer=allowed_keys_by_consumer,
         )
         if record.get("type") == "ssh_key":
             ssh_records.append(record)
@@ -195,7 +195,7 @@ def _load_manifest_bootstrap() -> tuple[
         api_keys,
         record_types_by_key_id,
         cf_creds,
-        allowed_keys_by_adapter,
+        allowed_keys_by_consumer,
         key_adapters_by_key_id,
         token_ttl_days,
         cf_runtime_creds,
@@ -229,7 +229,7 @@ def _load_env_fallback(
     # retained for reference — not called in current flow (always _automation_fail).
     _automation_fail(
         "Legacy env-only bootstrap is no longer supported after provider catalog removal.\n"
-        "  Author subumbra.yaml (or subumbra.json) with explicit policy.target.host and policy.auth settings,\n"
+        "  Author manifest.yaml with explicit policy.target.host and policy.auth settings,\n"
         "  then provide only the referenced secrets in .env.bootstrap."
     )
 
@@ -426,7 +426,7 @@ def run_interactive_wizard(
                 print("  UI auth method:")
                 print("    (1) Username / password")
                 print("    (2) Cloudflare Access")
-                print("    (3) Both (CF Access outer gate + username/password inner gate)")
+                print("    (3) Both (CF Access outer janus + username/password inner gate)")
                 choice = input("  Choice [1]: ").strip() or "1"
                 mode_map = {"1": "basic", "2": "cf_access", "3": "both"}
                 if choice not in mode_map:
@@ -512,17 +512,17 @@ def run_interactive_wizard(
     policy_by_key_id: dict[str, dict[str, Any]] = {}
     unique_key_flags: dict[str, bool] = {}
     ssh_records: list[dict[str, Any]] = []
-    allowed_keys_by_adapter: dict[str, list[str]] = {
+    allowed_keys_by_consumer: dict[str, list[str]] = {
         "subumbra-proxy": [],
         "subumbra-ui": [],
     }
 
     for rec in accepted:
-        for adapter_id in rec["adapters"]:
-            if adapter_id in seen_declared:
+        for consumer_id in rec["adapters"]:
+            if consumer_id in seen_declared:
                 continue
-            seen_declared.add(adapter_id)
-            allowed_keys_by_adapter[adapter_id] = []
+            seen_declared.add(consumer_id)
+            allowed_keys_by_consumer[consumer_id] = []
 
     for rec in accepted:
         kid = rec["key_id"]
@@ -533,7 +533,7 @@ def run_interactive_wizard(
             kid,
             rec["adapters"],
             key_adapters_by_key_id=key_adapters_by_key_id,
-            allowed_keys_by_adapter=allowed_keys_by_adapter,
+            allowed_keys_by_consumer=allowed_keys_by_consumer,
         )
         if rec.get("type") == "ssh_key":
             ssh_records.append(rec)
@@ -552,7 +552,7 @@ def run_interactive_wizard(
         api_keys,
         record_types_by_key_id,
         cf_creds,
-        allowed_keys_by_adapter,
+        allowed_keys_by_consumer,
         key_adapters_by_key_id,
         token_ttl_days,
         cf_runtime_creds,
@@ -571,10 +571,10 @@ def run_interactive_wizard(
 
 def _require_existing_active_record(keys_payload: dict[str, dict[str, Any]], key_id: str) -> dict[str, Any]:
     if key_id not in keys_payload:
-        die(f"key_id {key_id!r} not found in keys.json")
+        die(f"key_id {key_id!r} not found in endpoint.json")
     record = keys_payload[key_id]
     if not isinstance(record, dict):
-        die(f"keys.json record {key_id!r} is malformed")
+        die(f"endpoint.json record {key_id!r} is malformed")
     if _is_revoked_record(record):
         die(f"key_id {key_id!r} is already revoked")
     if record.get("enc_version") != 3:
@@ -587,7 +587,7 @@ def _require_existing_active_record(keys_payload: dict[str, dict[str, Any]], key
 def _load_existing_public_key_for_record(key_id: str, record: dict[str, Any]) -> tuple[str, Any, str]:
     vault_instance = str(record.get("vault_instance", "")).strip()
     if not vault_instance:
-        die(f"keys.json record {key_id!r} missing vault_instance")
+        die(f"endpoint.json record {key_id!r} missing vault_instance")
     public_key_file = _public_key_file_for_key(key_id, vault_instance)
     if not public_key_file.exists():
         die(
@@ -618,7 +618,7 @@ def _rewrite_v3_record_from_plaintext(
 ) -> dict[str, Any]:
     provider = str(existing_record.get("provider", "")).strip()
     if not provider:
-        die(f"keys.json record {key_id!r} missing provider")
+        die(f"endpoint.json record {key_id!r} missing provider")
     target_host = str(policy.get("target", {}).get("host", "")).strip()
     if not target_host:
         die(f"policy for {key_id!r} is missing target.host")
@@ -724,7 +724,7 @@ def run_status() -> None:
             continue
         record = keys_payload[key_id]
         if not isinstance(record, dict):
-            die(f"keys.json record {key_id!r} is malformed")
+            die(f"endpoint.json record {key_id!r} is malformed")
         print(f"{key_id} REVOKED")
         found_problem = True
 
@@ -736,15 +736,15 @@ def run_revoke_key(target_key_id: str) -> None:
     offline = "--offline" in sys.argv
     keys_payload = _load_keys_payload_or_die()
     if target_key_id not in keys_payload:
-        die(f"key_id {target_key_id!r} not found in keys.json")
+        die(f"key_id {target_key_id!r} not found in endpoint.json")
     stored = keys_payload[target_key_id]
     if not isinstance(stored, dict):
-        die(f"keys.json record {target_key_id!r} is malformed")
+        die(f"endpoint.json record {target_key_id!r} is malformed")
 
     if _is_revoked_record(stored):
         if offline:
             die(
-                f"key_id {target_key_id!r} is already revoked in keys.json.\n"
+                f"key_id {target_key_id!r} is already revoked in endpoint.json.\n"
                 "  Omit --offline and re-run with Cloudflare credentials to delete live KV entries only."
             )
         cf_creds = _get_push_registry_cf_creds()
@@ -758,13 +758,13 @@ def run_revoke_key(target_key_id: str) -> None:
     revoked_record["revoked"] = True
     keys_payload[target_key_id] = revoked_record
 
-    step(f"Marking {target_key_id} as revoked in keys.json")
+    step(f"Marking {target_key_id} as revoked in endpoint.json")
     _write_keys_payload(keys_payload)
     ok(f"Revocation marker persisted for {target_key_id}")
 
     if offline:
         warn(
-            "Offline revoke: keys.json only. Worker KV may still list this key until you run the same "
+            "Offline revoke: endpoint.json only. Worker KV may still list this key until you run the same "
             "command without --offline (Cloudflare credentials) to delete key:* / policy:* entries."
         )
         info("subumbra-keys will refuse fetches for this key_id while revoked=true is set.")
@@ -777,20 +777,20 @@ def run_revoke_key(target_key_id: str) -> None:
 def _parse_ssh_adapters_csv(raw: str) -> list[str]:
     value = raw.strip()
     if not value:
-        die("--adapters requires a comma-separated list of adapter IDs")
+        die("--consumers requires a comma-separated list of consumer IDs")
     parsed: list[str] = []
     seen: set[str] = set()
-    for adapter_id in [part.strip() for part in value.split(",") if part.strip()]:
-        if not ADAPTER_ID_RE.fullmatch(adapter_id):
-            die(f"Invalid adapter_id {adapter_id!r} for --adapters")
-        if adapter_id in BUILTIN_ADAPTER_IDS:
-            die(f"adapter_id {adapter_id!r} is reserved and cannot be used for SSH daily-use commands")
-        if adapter_id in seen:
+    for consumer_id in [part.strip() for part in value.split(",") if part.strip()]:
+        if not CONSUMER_ID_RE.fullmatch(consumer_id):
+            die(f"Invalid consumer_id {consumer_id!r} for --consumers")
+        if consumer_id in BUILTIN_CONSUMER_IDS:
+            die(f"consumer_id {consumer_id!r} is reserved and cannot be used for SSH daily-use commands")
+        if consumer_id in seen:
             continue
-        seen.add(adapter_id)
-        parsed.append(adapter_id)
+        seen.add(consumer_id)
+        parsed.append(consumer_id)
     if not parsed:
-        die("--adapters requires at least one adapter ID")
+        die("--consumers requires at least one adapter ID")
     return parsed
 
 
@@ -850,10 +850,10 @@ def _require_existing_active_ssh_record(
     key_id: str,
 ) -> dict[str, Any]:
     if key_id not in keys_payload:
-        die(f"key_id {key_id!r} not found in keys.json")
+        die(f"key_id {key_id!r} not found in endpoint.json")
     record = keys_payload[key_id]
     if not isinstance(record, dict):
-        die(f"keys.json record {key_id!r} is malformed")
+        die(f"endpoint.json record {key_id!r} is malformed")
     if _is_revoked_record(record):
         die(f"key_id {key_id!r} is already revoked")
     if record.get("type") != "ssh_key":
@@ -873,7 +873,7 @@ def run_add_ssh_key(target_key_id: str, adapters_csv: str, allow_hosts_csv: str 
     keys_payload = _load_keys_payload_or_die()
     existing = keys_payload.get(target_key_id)
     if isinstance(existing, dict) and not _is_revoked_record(existing):
-        die(f"key_id {target_key_id!r} already exists in keys.json")
+        die(f"key_id {target_key_id!r} already exists in endpoint.json")
 
     cf_creds = _get_push_registry_cf_creds()
 
@@ -894,7 +894,7 @@ def run_add_ssh_key(target_key_id: str, adapters_csv: str, allow_hosts_csv: str 
     keys_payload[target_key_id] = _run_with_temporary_setup_token(cf_creds, _provision)
 
     _write_keys_payload(keys_payload)
-    ok(f"Added SSH key {target_key_id} to keys.json")
+    ok(f"Added SSH key {target_key_id} to endpoint.json")
     _publish_after_local_record_update(cf_creds, keys_payload)
 
 
@@ -928,7 +928,7 @@ def run_rotate_ssh_key(target_key_id: str, allow_hosts_csv: str | None = None) -
                 worker_url=worker_url,
                 headers=_worker_control_headers(setup_token),
                 key_id=target_key_id,
-                adapters=[str(adapter_id) for adapter_id in adapters],
+                adapters=[str(consumer_id) for consumer_id in adapters],
                 allowed_host_fingerprints=allowed_host_fingerprints,
                 vault_instance=vault_instance,
             )
@@ -938,7 +938,7 @@ def run_rotate_ssh_key(target_key_id: str, allow_hosts_csv: str | None = None) -
     keys_payload[target_key_id] = _run_with_temporary_setup_token(cf_creds, _rotate)
 
     _write_keys_payload(keys_payload)
-    ok(f"Rotated SSH key {target_key_id} in keys.json")
+    ok(f"Rotated SSH key {target_key_id} in endpoint.json")
     _publish_after_local_record_update(cf_creds, keys_payload)
 
 
@@ -950,7 +950,7 @@ def run_revoke_ssh_key(target_key_id: str) -> None:
     revoked_record["status"] = "revoked"
     keys_payload[target_key_id] = revoked_record
 
-    step(f"Marking SSH key {target_key_id} as revoked in keys.json")
+    step(f"Marking SSH key {target_key_id} as revoked in endpoint.json")
     _write_keys_payload(keys_payload)
     ok(f"Revocation marker persisted for SSH key {target_key_id}")
 
@@ -1002,15 +1002,15 @@ def run_rotate_wizard() -> None:
 
     # ── 2. Load existing keys ────────────────────────────────────────────
     if not KEYS_FILE.exists():
-        die("keys.json not found — run a full bootstrap first.")
+        die("endpoint.json not found — run a full bootstrap first.")
 
     try:
         existing_keys = json.loads(KEYS_FILE.read_text())
     except (json.JSONDecodeError, OSError) as exc:
-        die(f"Cannot read keys.json: {exc}")
+        die(f"Cannot read endpoint.json: {exc}")
 
     if not existing_keys:
-        die("keys.json is empty — run a full bootstrap first.")
+        die("endpoint.json is empty — run a full bootstrap first.")
 
     key_ids = [
         kid
@@ -1018,7 +1018,7 @@ def run_rotate_wizard() -> None:
         if isinstance(meta, dict) and meta.get("type") not in {"ssh_key", "npm_token"}
     ]
     if not key_ids:
-        die("keys.json has no API-key records eligible for --rotate. Use --rotate-npm-token for npm_token records.")
+        die("endpoint.json has no API-key records eligible for --rotate. Use --rotate-npm-token for npm_token records.")
     print("\n  Existing keys:")
     for i, kid in enumerate(key_ids, 1):
         meta = existing_keys[kid]
@@ -1136,8 +1136,8 @@ def run_rotate_wizard() -> None:
     del confirm_key
     gc.collect()
 
-    # ── 7. Atomically update keys.json ───────────────────────────────────
-    step(f"Updating {key_id} in keys.json")
+    # ── 7. Atomically update endpoint.json ───────────────────────────────────
+    step(f"Updating {key_id} in endpoint.json")
     existing_keys[key_id] = record
     _write_keys_payload(existing_keys)
 
@@ -1156,9 +1156,9 @@ def run_provision_key(target_key_id: str) -> None:
     try:
         existing_keys = json.loads(KEYS_FILE.read_text()) if KEYS_FILE.exists() else {}
     except (json.JSONDecodeError, OSError) as exc:
-        die(f"Cannot read keys.json: {exc}")
+        die(f"Cannot read endpoint.json: {exc}")
     if target_key_id in existing_keys:
-        die(f"{target_key_id!r} already exists in keys.json — no targeted repair needed")
+        die(f"{target_key_id!r} already exists in endpoint.json — no targeted repair needed")
 
     cf_creds = _get_push_registry_cf_creds()
     worker_url = _read_env_file_value(HOST_ENV_FILE, "CF_WORKER_URL").strip()
@@ -1230,7 +1230,7 @@ def run_provision_key(target_key_id: str) -> None:
             label=target_key_id,
         )
 
-    step(f"Updating {target_key_id} in keys.json")
+    step(f"Updating {target_key_id} in endpoint.json")
     _write_keys_payload(existing_keys)
     ok(f"Added repaired record for {target_key_id}")
 
@@ -1250,11 +1250,11 @@ def run_provision_key(target_key_id: str) -> None:
         step("Deleting transient SUBUMBRA_SETUP_TOKEN from CF Secrets")
         _delete_worker_secret(cf_creds, "SUBUMBRA_SETUP_TOKEN")
         _sync_host_env_file({"SUBUMBRA_SETUP_TOKEN": ""})
-        ok("All manifest keys are present in keys.json — setup token cleared from CF and host env")
+        ok("All manifest keys are present in endpoint.json — setup token cleared from CF and host env")
     else:
         missing = expected_key_ids - set(existing_keys.keys())
         warn(
-            "Other manifest keys are still missing from keys.json; "
+            "Other manifest keys are still missing from endpoint.json; "
             f"SUBUMBRA_SETUP_TOKEN retained (missing: {', '.join(sorted(missing))})."
         )
 
@@ -1277,7 +1277,7 @@ def run_bootstrap() -> None:
             existing_keys = json.loads(KEYS_FILE.read_text())
         except (json.JSONDecodeError, OSError):
             existing_keys = {}
-            warn("Could not parse existing keys.json — treating as fresh bootstrap")
+            warn("Could not parse existing endpoint.json — treating as fresh bootstrap")
 
     # ── Step 1: collect credentials ───────────────────────────────────────────
     use_wizard = _choose_bootstrap_mode()
@@ -1290,7 +1290,7 @@ def run_bootstrap() -> None:
                 api_keys,
                 record_types_by_key_id,
                 cf_creds,
-                allowed_keys_by_adapter,
+                allowed_keys_by_consumer,
                 key_adapters_by_key_id,
                 token_ttl_days,
                 cf_runtime_creds,
@@ -1311,7 +1311,7 @@ def run_bootstrap() -> None:
         else:
             # Automation without a manifest: `_load_env_fallback` is tombstoned (immediate `_automation_fail`).
             try:
-                api_keys, cf_creds, allowed_keys_by_adapter, key_adapters_by_key_id, token_ttl_days = _load_env_fallback(existing_keys)
+                api_keys, cf_creds, allowed_keys_by_consumer, key_adapters_by_key_id, token_ttl_days = _load_env_fallback(existing_keys)
             except AutomationInputError as exc:
                 use_wizard = _prompt_after_automation_error(str(exc))
             else:
@@ -1330,7 +1330,7 @@ def run_bootstrap() -> None:
                 api_keys,
                 record_types_by_key_id,
                 cf_creds,
-                allowed_keys_by_adapter,
+                allowed_keys_by_consumer,
                 key_adapters_by_key_id,
                 token_ttl_days,
                 cf_runtime_creds,
@@ -1377,7 +1377,7 @@ def run_bootstrap() -> None:
             unique_key_flags = _load_unique_key_flags(list(api_keys.keys()))
 
     all_manifest_keys: dict[str, Any] = {key_id: True for key_id in key_adapters_by_key_id}
-    _validate_allowed_keys(all_manifest_keys, allowed_keys_by_adapter)
+    _validate_allowed_keys(all_manifest_keys, allowed_keys_by_consumer)
 
     # ── Step 2: rotation safety check ────────────────────────────────────
     # Every bootstrap run generates a NEW RSA key pair.  Any key omitted from
@@ -1387,12 +1387,12 @@ def run_bootstrap() -> None:
     keys_to_remove   = existing_key_ids - incoming_key_ids
 
     if is_rotation:
-        step("Existing keys.json found — ROTATION MODE")
+        step("Existing endpoint.json found — ROTATION MODE")
         if any(record.get("enc_version", 1) == 2 for record in existing_keys.values()):
-            warn("V2 records detected in keys.json — full bootstrap is required for V2 migration.")
+            warn("V2 records detected in endpoint.json — full bootstrap is required for V2 migration.")
         if keys_to_remove:
             warn("=" * 62)
-            warn("WARNING: The following keys are in keys.json but NOT")
+            warn("WARNING: The following keys are in endpoint.json but NOT")
             warn("entered in this session.  They will be PERMANENTLY REMOVED")
             warn("because they cannot be re-encrypted under the new key pair:")
             for kid in sorted(keys_to_remove):
@@ -1448,7 +1448,7 @@ def run_bootstrap() -> None:
 
     had_prior_kv_state = KV_CONFIG_FILE.exists()
     # ── Pre-mutation gate: existing CF state check ────────────────────────
-    # CRITICAL ORDER: This gate must run BEFORE token generation and deploy_worker().
+    # CRITICAL ORDER: This janus must run BEFORE token generation and deploy_worker().
     # If the operator aborts, no Cloudflare secrets or host .env have been modified.
     requested_nuke = "--nuke" in sys.argv
     candidate_vault_instances = sorted(
@@ -1487,62 +1487,62 @@ def run_bootstrap() -> None:
 
     # ── Step 3: generate runtime auth tokens ─────────────────────────────
     # SECURITY: These are privileged bearer/HMAC secrets. Anyone who obtains
-    # an adapter token can drive the Worker as a scoped decryption oracle.
+    # A consumer token can drive the Worker as a scoped decryption oracle.
     # Treat them with the same care as the API keys they protect.
     step("Generating runtime auth tokens")
-    adapter_tokens = {
+    consumer_tokens = {
         "subumbra-proxy": secrets.token_hex(32),
         "subumbra-ui": secrets.token_hex(32),
     }
-    if "subumbra-probe" in allowed_keys_by_adapter:
-        adapter_tokens["subumbra-probe"] = secrets.token_hex(32)
-    for adapter_id in allowed_keys_by_adapter:
-        if adapter_id not in adapter_tokens:
-            adapter_tokens[adapter_id] = secrets.token_hex(32)
+    if "subumbra-probe" in allowed_keys_by_consumer:
+        consumer_tokens["subumbra-probe"] = secrets.token_hex(32)
+    for consumer_id in allowed_keys_by_consumer:
+        if consumer_id not in consumer_tokens:
+            consumer_tokens[consumer_id] = secrets.token_hex(32)
     subumbra_hmac_key = secrets.token_hex(32)   # 64-char hex
     management_token = secrets.token_urlsafe(48)
     ok("SUBUMBRA_TOKEN_PROXY generated (proxy transport / compatibility mode)")
     ok("SUBUMBRA_TOKEN_UI generated")
-    if "subumbra-probe" in adapter_tokens:
+    if "subumbra-probe" in consumer_tokens:
         ok("SUBUMBRA_TOKEN_PROBE generated")
     else:
         info("Probe provisioning skipped — optional diagnostic container not provisioned.")
-    for adapter_id in allowed_keys_by_adapter:
-        if adapter_id not in BUILTIN_ADAPTER_IDS:
-            ok(f"SUBUMBRA_TOKEN_{_normalize_adapter_id(adapter_id)} generated")
+    for consumer_id in allowed_keys_by_consumer:
+        if consumer_id not in BUILTIN_CONSUMER_IDS:
+            ok(f"SUBUMBRA_TOKEN_{_normalize_consumer_id(consumer_id)} generated")
     ok("SUBUMBRA_HMAC_KEY generated")
     ok("SUBUMBRA_MANAGEMENT_TOKEN generated")
     setup_token = secrets.token_urlsafe(48)
     ok("SUBUMBRA_SETUP_TOKEN generated")
-    adapter_registry = _build_adapter_registry(
-        adapter_tokens,
-        allowed_keys_by_adapter,
+    consumer_registry = _build_consumer_registry(
+        consumer_tokens,
+        allowed_keys_by_consumer,
         token_ttl_days=token_ttl_days,
     )
     # ── Step 4: Phase 1 — deploy worker + push secrets ───────────────────
-    # CRITICAL ORDER: remote secrets are pushed BEFORE keys.json is written.
-    # If the deploy fails here, keys.json still holds the old blobs that match
+    # CRITICAL ORDER: remote secrets are pushed BEFORE endpoint.json is written.
+    # If the deploy fails here, endpoint.json still holds the old blobs that match
     # the old key pair — the system remains consistent.
     bootstrapped_providers = {v[0] for v in api_keys.values()}
     worker_url = deploy_worker(
         cf_creds,
-        adapter_tokens, subumbra_hmac_key,
+        consumer_tokens, subumbra_hmac_key,
         management_token,
         setup_token,
         provider_id_filter=bootstrapped_providers,
     )
     ok(f"Worker URL: {worker_url}")
     host_env_updates = _build_host_env_updates(
-        adapter_registry=adapter_registry,
-        allowed_keys_by_adapter=allowed_keys_by_adapter,
-        adapter_tokens=adapter_tokens,
+        consumer_registry=consumer_registry,
+        allowed_keys_by_consumer=allowed_keys_by_consumer,
+        consumer_tokens=consumer_tokens,
         subumbra_hmac_key=subumbra_hmac_key,
         management_token=management_token,
         worker_url=worker_url,
         worker_name=cf_creds["CF_WORKER_NAME"],
         setup_token=setup_token,
         cf_runtime_creds=cf_runtime_creds,
-        gate_vapid_public_key=_read_env_file_value(HOST_ENV_FILE, "SUBUMBRA_GATE_VAPID_PUBLIC_KEY").strip(),
+        janus_vapid_public_key=_read_env_file_value(HOST_ENV_FILE, "SUBUMBRA_JANUS_VAPID_PUBLIC_KEY").strip(),
         ui_username=ui_username,
         ui_password_hash=ui_password_hash,
         cf_access_protected=cf_access_protected,
@@ -1566,7 +1566,7 @@ def run_bootstrap() -> None:
         step("Re-deploying Worker after KV namespace reset")
         worker_url = deploy_worker(
             cf_creds,
-            adapter_tokens, subumbra_hmac_key,
+            consumer_tokens, subumbra_hmac_key,
             management_token,
             setup_token,
             provider_id_filter=bootstrapped_providers,
@@ -1587,16 +1587,16 @@ def run_bootstrap() -> None:
         except BootstrapFlowError as exc:
             die(str(exc))
         host_env_updates = _build_host_env_updates(
-            adapter_registry=adapter_registry,
-            allowed_keys_by_adapter=allowed_keys_by_adapter,
-            adapter_tokens=adapter_tokens,
+            consumer_registry=consumer_registry,
+            allowed_keys_by_consumer=allowed_keys_by_consumer,
+            consumer_tokens=consumer_tokens,
             subumbra_hmac_key=subumbra_hmac_key,
             management_token=management_token,
             worker_url=worker_url,
             worker_name=cf_creds["CF_WORKER_NAME"],
             setup_token=setup_token,
             cf_runtime_creds=cf_runtime_creds,
-            gate_vapid_public_key=_read_env_file_value(HOST_ENV_FILE, "SUBUMBRA_GATE_VAPID_PUBLIC_KEY").strip(),
+            janus_vapid_public_key=_read_env_file_value(HOST_ENV_FILE, "SUBUMBRA_JANUS_VAPID_PUBLIC_KEY").strip(),
             ui_username=ui_username,
             ui_password_hash=ui_password_hash,
             cf_access_protected=cf_access_protected,
@@ -1829,14 +1829,14 @@ def run_bootstrap() -> None:
     step(f"Writing runtime env → {RUNTIME_ENV_OUT}")
     runtime_env_lines = _build_runtime_env_lines(
         now_iso=now_iso,
-        adapter_registry=adapter_registry,
-        allowed_keys_by_adapter=allowed_keys_by_adapter,
-        adapter_tokens=adapter_tokens,
+        consumer_registry=consumer_registry,
+        allowed_keys_by_consumer=allowed_keys_by_consumer,
+        consumer_tokens=consumer_tokens,
         subumbra_hmac_key=subumbra_hmac_key,
         management_token=management_token,
         worker_url=worker_url,
         primary_pub_key_fp=primary_pub_key_fp,
-        gate_vapid_public_key=_read_env_file_value(HOST_ENV_FILE, "SUBUMBRA_GATE_VAPID_PUBLIC_KEY").strip(),
+        janus_vapid_public_key=_read_env_file_value(HOST_ENV_FILE, "SUBUMBRA_JANUS_VAPID_PUBLIC_KEY").strip(),
         ui_username=ui_username,
         ui_password_hash=ui_password_hash,
         cf_access_protected=cf_access_protected,
@@ -1855,9 +1855,9 @@ def run_bootstrap() -> None:
 
     # ── Step 10: zero sensitive memory ───────────────────────────────────
     step("Clearing sensitive values from memory")
-    for adapter_id in list(adapter_tokens):
-        adapter_tokens[adapter_id] = "\x00" * len(adapter_tokens[adapter_id])
-    del adapter_tokens
+    for consumer_id in list(consumer_tokens):
+        consumer_tokens[consumer_id] = "\x00" * len(consumer_tokens[consumer_id])
+    del consumer_tokens
     management_token = "\x00" * len(management_token)
     del management_token
     setup_token = "\x00" * len(setup_token)
@@ -1872,7 +1872,7 @@ def run_bootstrap() -> None:
         _wv = _WIZARD_SECRETS[_wk]
         _WIZARD_SECRETS[_wk] = "\x00" * len(_wv)
     _WIZARD_SECRETS.clear()
-    del allowed_keys_by_adapter
+    del allowed_keys_by_consumer
     del cf_creds
     gc.collect()
     ok("Sensitive memory cleared (best-effort)")
@@ -1934,7 +1934,7 @@ def run_bootstrap() -> None:
     3. Check worker health:           curl {worker_url}/health
     4. For any app-owned integration, set:
          api_base: http://subumbra-proxy:8090/t/<key_id>/...
-         api_key:  <SUBUMBRA_TOKEN_YOUR_APP>   (adapter token from .env, NOT the key_id)
+         api_key:  <SUBUMBRA_TOKEN_YOUR_APP>   (consumer token from .env, NOT the key_id)
        See docs/adapter-contract.md for the canonical integration reference.
 
   V3 envelope encryption active:
@@ -1944,12 +1944,12 @@ def run_bootstrap() -> None:
     SSH agent socket (host): {operator_ssh_auth_sock()}
     Pause/unpause: Worker management API via SUBUMBRA_MANAGEMENT_TOKEN
     Revoke key:    ./bootstrap.sh --revoke-key <key_id> [--offline]
-                   (--offline: keys.json only; then re-run without --offline for KV delete)
-    SSH day-2:     ./bootstrap.sh --add-ssh-key <key_id> --adapters <csv> [--allow-hosts <csv>]
+                   (--offline: endpoint.json only; then re-run without --offline for KV delete)
+    SSH day-2:     ./bootstrap.sh --add-ssh-key <key_id> --consumers <csv> [--allow-hosts <csv>]
                    ./bootstrap.sh --rotate-ssh-key <key_id> [--allow-hosts <csv>]
                    ./bootstrap.sh --revoke-ssh-key <key_id>
-    Adapter edit:  ./bootstrap.sh --add-adapter <key_id> <adapter_id>
-                   ./bootstrap.sh --revoke-adapter <key_id> <adapter_id>
+    Adapter edit:  ./bootstrap.sh --add-consumer <key_id> <consumer_id>
+                   ./bootstrap.sh --revoke-consumer <key_id> <consumer_id>
     Policy publish: ./bootstrap.sh --publish-policy <key_id>
     Targeted repair: ./bootstrap.sh --provision <key_id>
 """))

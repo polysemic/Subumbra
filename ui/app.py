@@ -12,7 +12,7 @@ Routes:
     GET /vault             → vault › api keys
     GET /vault/ssh         → vault › ssh keys
     GET /sessions          → active sessions + open-session form
-    GET /adapters          → connected apps
+    GET /consumers          → connected consumers
     GET /policies          → signed catalog + local overrides
     GET /audit             → audit log
     GET /observability     → service health + velocity
@@ -25,11 +25,11 @@ Routes:
     GET /api/status        → aggregated status (existing contract preserved)
     GET /api/events        → SSE heartbeat (existing contract preserved)
     GET /api/console       → full dataset used by every page
-    GET /api/gate/pending  → Gate pending approvals (proxied to CF Worker)
+    GET /api/janus/pending  → Janus pending approvals (proxied to CF Worker)
     GET /sw.js             → service worker for browser push
 
   Write API (stubbed — pending management API)
-    POST   /api/gate/subscribe     → browser push subscription registration
+    POST   /api/janus/subscribe     → browser push subscription registration
     GET    /api/key-session        → mint ephemeral RSA-OAEP keypair (UI-side only, safe)
     DELETE /api/key-session/<sid>  → drop session (UI-side only, safe)
     POST   /api/add-key            → 501 (forward to mgmt API)
@@ -73,7 +73,7 @@ CF_WORKER_URL         = os.environ.get("CF_WORKER_URL", "").rstrip("/")
 CF_WORKER_NAME        = os.environ.get("CF_WORKER_NAME", "")
 CF_ACCESS_CLIENT_ID   = os.environ.get("CF_ACCESS_CLIENT_ID", "")
 CF_ACCESS_CLIENT_SECRET = os.environ.get("CF_ACCESS_CLIENT_SECRET", "")
-SUBUMBRA_GATE_VAPID_PUBLIC_KEY = os.environ.get("SUBUMBRA_GATE_VAPID_PUBLIC_KEY", "")
+SUBUMBRA_JANUS_VAPID_PUBLIC_KEY = os.environ.get("SUBUMBRA_JANUS_VAPID_PUBLIC_KEY", "")
 UI_USERNAME           = os.environ.get("UI_USERNAME", "")
 UI_PASSWORD_HASH      = os.environ.get("UI_PASSWORD_HASH", "")
 LEGACY_UI_PASSWORD    = os.environ.get("UI_PASSWORD", "")
@@ -86,7 +86,7 @@ CF_TUNNEL_HOSTNAME    = os.environ.get("CF_TUNNEL_HOSTNAME", "")
 # When SUBUMBRA_UI_DEMO=1, render the mock dataset so the console is usable
 # standalone (during install, dev, demos).
 DEMO_MODE             = os.environ.get("SUBUMBRA_UI_DEMO", "").lower() in {"1", "true", "yes"}
-ADAPTER_TEMPLATE_DIR  = Path(__file__).resolve().parent.parent / "bootstrap" / "templates" / "adapters"
+CONSUMER_TEMPLATE_DIR  = Path(__file__).resolve().parent.parent / "bootstrap" / "templates" / "consumers"
 
 AUTH_WINDOW_SECONDS    = 60
 AUTH_FAILURE_THRESHOLD = 5
@@ -122,7 +122,7 @@ if not UI_PASSWORD_HASH and not CF_ACCESS_PROTECTED:
     log.error("ui: missing auth configuration; set UI_PASSWORD_HASH or CF_ACCESS_PROTECTED=true")
     sys.exit(1)
 if UI_PASSWORD_HASH and CF_ACCESS_PROTECTED:
-    log.info("ui: CF Access outer gate enabled with in-process Basic Auth")
+    log.info("ui: CF Access outer janus enabled with in-process Basic Auth")
 elif UI_PASSWORD_HASH:
     log.info("ui: in-process Basic Auth enabled")
 else:
@@ -290,7 +290,7 @@ def _map_session(s: dict) -> dict:
     return {
         "id":           s.get("session_id"),
         "name":         s.get("name") or ("unnamed" if s.get("session_type") != "operator" else "operator"),
-        "adapters":     s.get("allowed_adapters") or ["universal"],
+        "adapters":     s.get("allowed_consumers") or ["universal"],
         "keys":         s.get("allowed_keys") or ["universal"],
         "ttl_seconds":  ttl_seconds,
         "ttl_label":    ttl_label,
@@ -320,7 +320,7 @@ def _map_audit_events(events: list[dict], keys: list[dict]) -> list[dict]:
         mapped.append({
             "ts": ts,
             "date": date,
-            "adapter": event.get("adapter_id") or "—",
+            "adapter": event.get("consumer_id") or "—",
             "method": "POST" if event.get("endpoint") == "ssh_sign" else "—",
             "endpoint": event.get("endpoint") or "—",
             "keyId": key_id or "—",
@@ -340,14 +340,14 @@ def _clean_template_scalar(raw_value: str) -> str:
 
 
 @lru_cache(maxsize=None)
-def _load_adapter_template(adapter_id: str) -> dict | None:
-    template_path = ADAPTER_TEMPLATE_DIR / f"{adapter_id}.yaml"
+def _load_adapter_template(consumer_id: str) -> dict | None:
+    template_path = CONSUMER_TEMPLATE_DIR / f"{consumer_id}.yaml"
     if not template_path.exists():
         return None
 
     template = {
-        "adapter_id": adapter_id,
-        "display_name": adapter_id.replace("-", " ").title(),
+        "consumer_id": consumer_id,
+        "display_name": consumer_id.replace("-", " ").title(),
         "docs_path": "",
         "default_token_env_var": "",
         "config_type": "",
@@ -422,9 +422,9 @@ def _mask_token(token: str) -> str:
     return f"{token[:6]}…{token[-4:]}"
 
 
-def _render_template_value(raw_value: str, adapter_token: str, key_id: str | None) -> str:
-    rendered = re.sub(r"\$\{[^}]+\}", adapter_token, raw_value)
-    rendered = rendered.replace("{adapter_token}", adapter_token)
+def _render_template_value(raw_value: str, consumer_token: str, key_id: str | None) -> str:
+    rendered = re.sub(r"\$\{[^}]+\}", consumer_token, raw_value)
+    rendered = rendered.replace("{consumer_token}", consumer_token)
     if key_id is not None:
         rendered = rendered.replace("{key_id}", key_id)
     return rendered
@@ -475,7 +475,7 @@ def _build_proxy_urls(allowed_keys: list[str]) -> list[dict]:
     return proxy_urls
 
 
-def _build_config_blocks(template: dict | None, adapter_token: str, allowed_keys: list[str]) -> list[dict]:
+def _build_config_blocks(template: dict | None, consumer_token: str, allowed_keys: list[str]) -> list[dict]:
     if not template:
         return []
 
@@ -491,11 +491,11 @@ def _build_config_blocks(template: dict | None, adapter_token: str, allowed_keys
         lines: list[str] = []
         env_var = template.get("default_token_env_var")
         if env_var:
-            lines.append(f"{env_var}={adapter_token}")
+            lines.append(f"{env_var}={consumer_token}")
         for field in fields:
             name = str(field.get("name", "")).strip()
             raw_value = str(field.get("value", ""))
-            rendered = _render_template_value(raw_value, adapter_token, key_id)
+            rendered = _render_template_value(raw_value, consumer_token, key_id)
             if template.get("config_type") == "env_file":
                 lines.append(f"{name}={rendered}")
             else:
@@ -512,17 +512,17 @@ def _build_adapter_rows(adapters_payload: dict | None, raw_keys: list[dict], aud
     rows: list[dict] = []
     audit_last_seen: dict[str, str] = {}
     for event in audit_events:
-        adapter_id = event.get("adapter_id")
+        consumer_id = event.get("consumer_id")
         timestamp = event.get("timestamp")
-        if adapter_id and adapter_id not in audit_last_seen:
-            audit_last_seen[adapter_id] = _fmt_rel(timestamp)
+        if consumer_id and consumer_id not in audit_last_seen:
+            audit_last_seen[consumer_id] = _fmt_rel(timestamp)
 
     _internal_ids = {"subumbra-ui", "subumbra-proxy", "subumbra-probe"}
     for adapter in (adapters_payload or {}).get("adapters", []):
-        adapter_id = str(adapter.get("adapter_id", "")).strip()
-        if not adapter_id or adapter_id in _internal_ids:
+        consumer_id = str(adapter.get("consumer_id", "")).strip()
+        if not consumer_id or consumer_id in _internal_ids:
             continue
-        template = _load_adapter_template(adapter_id)
+        template = _load_adapter_template(consumer_id)
         allowed_keys = [str(key_id) for key_id in adapter.get("allowed_keys", []) if key_id]
         issued_at = adapter.get("issued_at")
         expires_at = adapter.get("expires_at")
@@ -532,9 +532,9 @@ def _build_adapter_rows(adapters_payload: dict | None, raw_keys: list[dict], aud
                 expired = datetime.fromisoformat(expires_at.replace("Z", "+00:00")) <= datetime.now(timezone.utc)
             except Exception:
                 expired = False
-        display_name = (template or {}).get("display_name") or adapter_id.replace("-", " ").title()
+        display_name = (template or {}).get("display_name") or consumer_id.replace("-", " ").title()
         rows.append({
-            "id": adapter_id,
+            "id": consumer_id,
             "name": display_name,
             "logo": _adapter_logo(display_name),
             "status": "paused" if expired else "active",
@@ -542,7 +542,7 @@ def _build_adapter_rows(adapters_payload: dict | None, raw_keys: list[dict], aud
             "token": str(adapter.get("token", "")),
             "tokenMasked": _mask_token(str(adapter.get("token", ""))),
             "tokenAge": _fmt_rel(issued_at),
-            "lastSeen": audit_last_seen.get(adapter_id, "never"),
+            "lastSeen": audit_last_seen.get(consumer_id, "never"),
             "keys": allowed_keys,
             "caps": _build_adapter_caps(adapter, raw_keys),
             "issuedAt": issued_at or "—",
@@ -579,7 +579,7 @@ def _build_policy_rows(raw_keys: list[dict]) -> list[dict]:
             "auth_prefix": sample.get("auth_prefix") or "—",
             "allow_methods": sample.get("allow_methods") or [],
             "allow_path_prefixes": sample.get("allow_path_prefixes") or [],
-            "allow_adapters": sample.get("allow_adapters") or [],
+            "allow_consumers": sample.get("allow_consumers") or [],
             "key_ids": sorted(str(entry.get("key_id")) for entry in entries if entry.get("key_id")),
         })
     return policies
@@ -640,7 +640,7 @@ def _build_attention_rows(raw_keys: list[dict], session_data: dict | None) -> li
 def _build_observability_data(
     health_payload: dict | None,
     proxy_payload: dict | None,
-    gate_payload: dict | None,
+    janus_payload: dict | None,
     observability_payload: dict | None,
     merged_keys: list[dict],
 ) -> dict:
@@ -661,9 +661,9 @@ def _build_observability_data(
         },
         {
             "name": "cf worker",
-            "status": "ok" if worker_ok or gate_payload is not None else "warn",
+            "status": "ok" if worker_ok or janus_payload is not None else "warn",
             "sub": CF_WORKER_URL or "not configured",
-            "note": "gate read ok" if gate_payload is not None else "gate read unavailable",
+            "note": "janus read ok" if janus_payload is not None else "janus read unavailable",
         },
     ]
     velocity = []
@@ -708,9 +708,9 @@ def build_console_data() -> dict:
     stats_data, _             = _subumbra_get("/stats")
     audit_data, a_err         = _subumbra_get("/audit")
     sess_data, s_err          = _subumbra_get("/sessions")
-    adapters_data, adapters_err = _subumbra_get("/adapters")
+    adapters_data, adapters_err = _subumbra_get("/consumers")
     obs_data, obs_err         = _subumbra_get("/observability")
-    gate_data, gate_err       = _worker_request("GET", "/gate/pending")
+    janus_data, janus_err       = _worker_request("GET", "/janus/pending")
 
     raw_keys = list((keys_data or {}).get("keys", []))
     merged_keys: list[dict] = []
@@ -734,21 +734,21 @@ def build_console_data() -> dict:
             "denies":  sum(m.get("deny", 0)  for m in data["monthly_requests"]),
             "monthly": data["monthly_requests"],
         }
-    if "gate_stats" not in data and gate_data is not None:
-        approved = gate_data.get("approved_count", 0)
-        denied   = gate_data.get("denied_count",   0)
-        data["gate_stats"] = {
+    if "janus_stats" not in data and janus_data is not None:
+        approved = janus_data.get("approved_count", 0)
+        denied   = janus_data.get("denied_count",   0)
+        data["janus_stats"] = {
             "total":    approved + denied,
             "approved": approved,
             "denied":   denied,
-            "monthly":  gate_data.get("monthly", data.get("gate_stats", {}).get("monthly", [])),
+            "monthly":  janus_data.get("monthly", data.get("janus_stats", {}).get("monthly", [])),
         }
         # Activity feed: only events that resolved to a real adapter or key —
         # filters out pre-auth noise (rate_limit_exceeded, audit_unavailable)
-        # where adapter_id and key_id are both null.
+        # where consumer_id and key_id are both null.
         meaningful = [
             e for e in all_events
-            if e.get("adapter_id") or e.get("key_id")
+            if e.get("consumer_id") or e.get("key_id")
         ]
         data["audit_activity"] = _map_audit_events(meaningful[:8], raw_keys)
     if sess_data:
@@ -761,11 +761,11 @@ def build_console_data() -> dict:
     if raw_keys:
         data["policies"] = _build_policy_rows(raw_keys)
     if obs_data is not None:
-        data["observability"] = _build_observability_data(health, proxy_h, gate_data, obs_data, merged_keys)
+        data["observability"] = _build_observability_data(health, proxy_h, janus_data, obs_data, merged_keys)
     if raw_keys or sess_data:
         data["attention"] = _build_attention_rows(raw_keys, sess_data)
 
-    data["gate"] = gate_data if gate_err is None else None
+    data["gate"] = janus_data if janus_err is None else None
 
     cf_data = dict(data.get("cloudflare") or {})
     worker_cf = dict(cf_data.get("worker") or {})
@@ -832,14 +832,14 @@ def _merge_keys(keys: list, stats: dict) -> list:
             "policyHash":  (k.get("policy_hash") or "")[:8] + "…",
             "policyId":    k.get("policy_id", "—"),
             "rpm":         k.get("velocity_rpm", 60),
-            "adapters":    k.get("allow_adapters", []),
+            "adapters":    k.get("allow_consumers", []),
             "created":     k.get("created_at", "")[:10],
             # SSH specific fields
             "alg":         k.get("algorithm", "ed25519"),
             "fpr":         _get_ssh_fingerprint(k.get("public_key")),
             "hosts":       hosts,
             "pub":         k.get("public_key", "—"),
-            "adapter":     k.get("allow_adapters", ["—"])[0] if k.get("allow_adapters") else "—",
+            "adapter":     k.get("allow_consumers", ["—"])[0] if k.get("allow_consumers") else "—",
             # Policy detail fields
             "authScheme":        k.get("auth_scheme", "—"),
             "basePath":          k.get("base_path", ""),
@@ -906,7 +906,7 @@ def inject_globals():
         "ORG":                   ORG,
         "VERSION":               os.environ.get("SUBUMBRA_VERSION", "1.3.0-alpha"),
         "now":                   datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "gate_vapid_public_key": SUBUMBRA_GATE_VAPID_PUBLIC_KEY,
+        "janus_vapid_public_key": SUBUMBRA_JANUS_VAPID_PUBLIC_KEY,
         "console_url":           host_url,
         "console_host":          host_name,
         "tunnel_configured":     tunnel_configured,
@@ -979,11 +979,11 @@ def sessions():
     return page("sessions.html", active="sessions", crumbs=["Sessions"])
 
 
-@app.get("/adapters")
+@app.get("/consumers")
 @_require_auth
 def adapters():
     selected_id = request.args.get("select", "")
-    return page("adapters.html", active="adapters", crumbs=["Adapters"],
+    return page("adapters.html", active="adapters", crumbs=["Consumers"],
                 selected_id=selected_id)
 
 
@@ -1082,10 +1082,10 @@ def api_events():
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
-@app.get("/api/gate/pending")
+@app.get("/api/janus/pending")
 @_require_auth
-def api_gate_pending():
-    payload, error = _worker_request("GET", "/gate/pending")
+def api_janus_pending():
+    payload, error = _worker_request("GET", "/janus/pending")
     if error is not None:
         return jsonify({"error": error}), 502
     return jsonify(payload or {}), 200
@@ -1158,21 +1158,21 @@ def _not_implemented(action: str):
         "error":    "management_api_not_implemented",
         "action":   action,
         "fallback": "Use the bootstrap CLI on the host until the management API ships (ROADMAP R45+).",
-        "cli_hint": "./bootstrap.sh --session start --ttl 4h --adapters … --keys …",
+        "cli_hint": "./bootstrap.sh --session start --ttl 4h --consumers … --keys …",
     }), 501
 
 
-@app.post("/api/gate/subscribe")
+@app.post("/api/janus/subscribe")
 @_require_auth
 @_require_json
-def api_gate_subscribe():
+def api_janus_subscribe():
     try:
         payload = request.get_json(force=False, silent=False)
     except Exception:
         return jsonify({"error": "invalid JSON body"}), 400
     if not isinstance(payload, dict):
         return jsonify({"error": "invalid JSON body"}), 400
-    forwarded, error = _worker_request("POST", "/gate/subscribe", json_payload=payload)
+    forwarded, error = _worker_request("POST", "/janus/subscribe", json_payload=payload)
     if error is not None:
         return jsonify({"error": error}), 502
     return jsonify(forwarded or {"status": "ok"}), 200

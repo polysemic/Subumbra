@@ -27,7 +27,7 @@ Before takeover:
 2. app data persists under `/opt/anythingllm/storage`
 3. the app is not already using Subumbra for the proof path
 4. `subumbra-proxy` is healthy
-5. the AnythingLLM adapter token is available to the container
+5. the AnythingLLM consumer token is available to the container
 
 Useful checks:
 
@@ -161,7 +161,7 @@ target_url=https://api.openai.com/v1/embeddings
 
 ## Fail-Closed Verification
 
-An invalid adapter token must fail closed:
+An invalid consumer token must fail closed:
 
 ```bash
 curl -sS -i \

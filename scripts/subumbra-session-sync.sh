@@ -31,14 +31,14 @@ export CF_API_TOKEN
 
 echo "🔄 Starting local Subumbra session..."
 cd "${LOCAL_DIR}"
-./bootstrap.sh --session start --ttl 4h --adapters sshtest --keys vps_access
+./bootstrap.sh --session start --ttl 4h --consumers sshtest --keys vps_access
 
 echo "🔄 Injecting secure session to remote VPS over SSH tunnel..."
 # Enforce using local socket to talk to the VPS
 export SSH_AUTH_SOCK="/run/user/1000/subumbra/ssh-agent.sock"
 
 printf '%s\n%s\n' "${CF_API_TOKEN}" "${CF_ACCOUNT_ID}" | \
-    ssh -t "${VPS_HOST}" "bash -lc 'IFS= read -r CF_API_TOKEN && IFS= read -r CF_ACCOUNT_ID && export CF_API_TOKEN CF_ACCOUNT_ID && cd \"${VPS_DIR}\" && ./bootstrap.sh --session start --ttl 1h --adapters sshtest --keys github_vps_test'"
+    ssh -t "${VPS_HOST}" "bash -lc 'IFS= read -r CF_API_TOKEN && IFS= read -r CF_ACCOUNT_ID && export CF_API_TOKEN CF_ACCOUNT_ID && cd \"${VPS_DIR}\" && ./bootstrap.sh --session start --ttl 1h --consumers sshtest --keys github_vps_test'"
 
 echo "=========================================="
 echo "✅ Both sessions successfully activated!"

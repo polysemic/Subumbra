@@ -8,7 +8,7 @@
 
 Uses n8n's native provider credential nodes. The secure pattern is:
 
-- adapter token in the credential field
+- consumer token in the credential field
 - target Subumbra `key_id` in the base URL path
 
 ### Anthropic AI-node
@@ -62,7 +62,7 @@ Use the OpenAI credential type with base URL pointing at LiteLLM:
 
 ## App-Specific Notes
 
-- The credential is now the n8n adapter token, not a plain key ID.
+- The credential is now the n8n consumer token, not a plain key ID.
 - The target provider key selection happens in the base URL path.
 - AI-node and Workflow-node patterns remain distinct; this round only changes
   the transparent `/t` credential model.

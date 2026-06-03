@@ -4,7 +4,7 @@ VPS-only: exercise every Subumbra key_id through the real transparent proxy path
 
 Run from repo root on the VPS (e.g. cd /opt/subumbra && python3 scripts/vps-user-provider-smoke.py).
 
-- Uses `docker compose exec` to read keys.json and SUBUMBRA_ADAPTER_REGISTRY from
+- Uses `docker compose exec` to read endpoint.json and SUBUMBRA_CONSUMER_REGISTRY from
   running containers (no `source .env` — avoids JSON-in-shell issues).
 - For each key_id, picks the first non-expired adapter whose allowed_keys contains it.
 - Sends one minimal live request per provider (real upstream API key via Worker).
@@ -50,7 +50,7 @@ def proxy_base() -> str:
 
 
 def load_keys() -> dict[str, Any]:
-    raw = run_dc(["exec", "-T", "subumbra-keys", "cat", "/app/data/keys.json"])
+    raw = run_dc(["exec", "-T", "subumbra-keys", "cat", "/app/data/endpoint.json"])
     return json.loads(raw.decode())
 
 
@@ -62,7 +62,7 @@ def load_registry() -> dict[str, Any]:
             "subumbra-proxy",
             "python3",
             "-c",
-            "import json, os; print(os.environ['SUBUMBRA_ADAPTER_REGISTRY'])",
+            "import json, os; print(os.environ['SUBUMBRA_CONSUMER_REGISTRY'])",
         ]
     )
     return json.loads(raw.decode())
@@ -75,9 +75,9 @@ def parse_iso_z(s: str) -> datetime:
 
 
 def adapter_allows_key(registry: dict[str, Any], key_id: str) -> tuple[str, str] | None:
-    """Return (adapter_id, token) for first adapter that lists key_id and is not expired."""
+    """Return (consumer_id, token) for first adapter that lists key_id and is not expired."""
     now = datetime.now(timezone.utc)
-    for adapter_id, cfg in registry.items():
+    for consumer_id, cfg in registry.items():
         if not isinstance(cfg, dict):
             continue
         allowed = cfg.get("allowed_keys") or []
@@ -91,7 +91,7 @@ def adapter_allows_key(registry: dict[str, Any], key_id: str) -> tuple[str, str]
             continue
         token = cfg.get("token")
         if isinstance(token, str) and token:
-            return adapter_id, token
+            return consumer_id, token
     return None
 
 
@@ -174,7 +174,7 @@ def main() -> None:
     registry = load_registry()
 
     print(f"# proxy base: {base}")
-    print(f"# keys.json entries: {len(keys)}")
+    print(f"# endpoint.json entries: {len(keys)}")
 
     failures = 0
     skips = 0
@@ -186,17 +186,17 @@ def main() -> None:
             print(f"SKIP {key_id} reason=no_adapter_allowed_this_key")
             skips += 1
             continue
-        adapter_id, token = pair
+        consumer_id, token = pair
         label, url, code, snippet = request_for_provider(provider, base, key_id, token)
         if label == "SKIP":
-            print(f"SKIP {key_id} provider={provider} adapter={adapter_id} — {snippet}")
+            print(f"SKIP {key_id} provider={provider} consumer={consumer_id} — {snippet}")
             skips += 1
             continue
         ok = 200 <= code < 300
         status = "PASS" if ok else "FAIL"
         if not ok:
             failures += 1
-        print(f"{status} key_id={key_id} provider={provider} adapter={adapter_id} {label} http={code}")
+        print(f"{status} key_id={key_id} provider={provider} consumer={consumer_id} {label} http={code}")
         if not ok:
             print(f"       url={url}")
             print(f"       body_prefix={snippet!r}")

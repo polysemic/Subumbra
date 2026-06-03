@@ -13,10 +13,10 @@
  *   POST /proxy    → canonical Subumbra core API; see docs/adapter-contract.md
  *
  * Auth header required on /proxy:
- *   X-Subumbra-Token: <one adapter token from SUBUMBRA_ADAPTER_TOKENS>
+ *   X-Subumbra-Token: <one consumer token from SUBUMBRA_CONSUMER_TOKENS>
  *
  * CF Secrets consumed:
- *   SUBUMBRA_ADAPTER_TOKENS — JSON array of adapter tokens, set by bootstrap
+ *   SUBUMBRA_CONSUMER_TOKENS — JSON array of consumer tokens, set by bootstrap
  *   SUBUMBRA_MANAGEMENT_TOKEN — management bearer token, set by bootstrap
  *   SUBUMBRA_SETUP_TOKEN    — transient setup token, set by bootstrap
  */
@@ -81,8 +81,8 @@ function optionalGatePolicy(value) {
     if (when.any_request === true) {
       normalizedWhen.any_request = true;
     }
-    if (typeof when.adapter === "string" && when.adapter) {
-      normalizedWhen.adapter = when.adapter;
+    if (typeof when.consumer === "string" && when.consumer) {
+      normalizedWhen.consumer = when.consumer;
     }
     if (typeof when.method === "string" && when.method) {
       normalizedWhen.method = when.method;
@@ -171,7 +171,7 @@ async function getRegistryEntry(env, keyId) {
       typeof policyAuth.header_name === "string" ? policyAuth.header_name : null,
     auth_query_param:
       typeof policyAuth.query_param === "string" ? policyAuth.query_param : null,
-    allow_adapters: Array.isArray(allow.adapters) ? allow.adapters : [],
+    allow_consumers: Array.isArray(allow.consumers) ? allow.consumers : [],
     allow_methods: Array.isArray(allow.methods) ? allow.methods : [],
     allow_npm_operations: Array.isArray(allow.npm_operations) ? allow.npm_operations : [],
     allow_path_prefixes: Array.isArray(allow.path_prefixes) ? allow.path_prefixes : [],
@@ -195,7 +195,7 @@ async function getRegistryEntry(env, keyId) {
     gate: optionalGatePolicy(policy.gate),
     velocity: policy.velocity && typeof policy.velocity === "object"
       ? {
-        adapter_rpm: typeof policy.velocity.adapter_rpm === "number" ? policy.velocity.adapter_rpm : null,
+        consumer_rpm: typeof policy.velocity.consumer_rpm === "number" ? policy.velocity.consumer_rpm : null,
         key_rpm: typeof policy.velocity.key_rpm === "number" ? policy.velocity.key_rpm : null,
         breaker_failures: typeof policy.velocity.breaker_failures === "number" ? policy.velocity.breaker_failures : null,
         breaker_cooldown_seconds: typeof policy.velocity.breaker_cooldown_seconds === "number" ? policy.velocity.breaker_cooldown_seconds : null,
@@ -259,7 +259,7 @@ const GATE_SCHEMA = `
     request_id TEXT PRIMARY KEY,
     flow TEXT NOT NULL,
     key_id TEXT NOT NULL,
-    adapter_id TEXT NOT NULL,
+    consumer_id TEXT NOT NULL,
     target_summary TEXT NOT NULL,
     request_digest TEXT NOT NULL,
     created_at TEXT NOT NULL,
@@ -296,20 +296,20 @@ const VAULT_SCHEMA = `
   );
   CREATE TABLE IF NOT EXISTS ssh_session_quota (
     session_id TEXT NOT NULL,
-    adapter_id TEXT NOT NULL,
+    consumer_id TEXT NOT NULL,
     key_id TEXT NOT NULL,
     max_sign_ops INTEGER NOT NULL,
     sign_count INTEGER NOT NULL DEFAULT 0,
     last_updated TEXT NOT NULL,
-    PRIMARY KEY (session_id, adapter_id, key_id)
+    PRIMARY KEY (session_id, consumer_id, key_id)
   );
   CREATE TABLE IF NOT EXISTS velocity_counters (
     scope TEXT NOT NULL,
-    adapter_id TEXT,
+    consumer_id TEXT,
     key_id TEXT,
     window_start INTEGER NOT NULL,
     count INTEGER NOT NULL,
-    PRIMARY KEY (scope, adapter_id, key_id, window_start)
+    PRIMARY KEY (scope, consumer_id, key_id, window_start)
   );
   CREATE TABLE IF NOT EXISTS circuit_breaker_state (
     key_id TEXT PRIMARY KEY,
@@ -527,30 +527,30 @@ function packageScopeAllowed(packageName, allowScopes) {
   return allowScopes.some((scope) => typeof scope === "string" && packageName.startsWith(`${scope}/`));
 }
 
-async function inspectNpmPublish({ registryEntry, parsedTarget, reqBody, keyId, adapterId }) {
+async function inspectNpmPublish({ registryEntry, parsedTarget, reqBody, keyId, consumerId }) {
   const pathPackageName = decodeNpmPublishPackageName(parsedTarget);
   const bodyId = reqBody && typeof reqBody._id === "string" ? reqBody._id : null;
   const bodyName = reqBody && typeof reqBody.name === "string" ? reqBody.name : null;
   if (!pathPackageName || !bodyId || !bodyName) {
     console.warn(
-      "subumbra: policy deny reason=publish_invalid_packument adapter=%s key_id=%s",
-      adapterId,
+      "subumbra: policy deny reason=publish_invalid_packument consumer=%s key_id=%s",
+      consumerId,
       keyId,
     );
     return jsonError("publish_invalid_packument", 403);
   }
   if (pathPackageName !== bodyId || pathPackageName !== bodyName) {
     console.warn(
-      "subumbra: policy deny reason=publish_identity_mismatch adapter=%s key_id=%s",
-      adapterId,
+      "subumbra: policy deny reason=publish_identity_mismatch consumer=%s key_id=%s",
+      consumerId,
       keyId,
     );
     return jsonError("publish_identity_mismatch", 403);
   }
   if (!packageScopeAllowed(pathPackageName, registryEntry.allow_scopes)) {
     console.warn(
-      "subumbra: policy deny reason=publish_scope_not_allowed adapter=%s key_id=%s",
-      adapterId,
+      "subumbra: policy deny reason=publish_scope_not_allowed consumer=%s key_id=%s",
+      consumerId,
       keyId,
     );
     return jsonError("publish_scope_not_allowed", 403);
@@ -562,17 +562,17 @@ async function inspectNpmPublish({ registryEntry, parsedTarget, reqBody, keyId, 
   } catch (err) {
     if (err && err.code === "publish_tarball_too_large") {
       console.warn(
-        "subumbra: policy deny reason=publish_tarball_too_large bytes=%s limit=%s adapter=%s key_id=%s",
+        "subumbra: policy deny reason=publish_tarball_too_large bytes=%s limit=%s consumer=%s key_id=%s",
         err.bytes,
         err.limit,
-        adapterId,
+        consumerId,
         keyId,
       );
       return jsonError("publish_tarball_too_large", 403);
     }
     console.warn(
-      "subumbra: policy deny reason=publish_invalid_packument adapter=%s key_id=%s",
-      adapterId,
+      "subumbra: policy deny reason=publish_invalid_packument consumer=%s key_id=%s",
+      consumerId,
       keyId,
     );
     return jsonError("publish_invalid_packument", 403);
@@ -586,8 +586,8 @@ async function inspectNpmPublish({ registryEntry, parsedTarget, reqBody, keyId, 
     for (const entry of entries) {
       if (entry.normalizedPath.toLowerCase().includes(pattern)) {
         console.warn(
-          "subumbra: policy deny reason=publish_deny_pattern_match adapter=%s key_id=%s kind=%s pattern_index=%d",
-          adapterId,
+          "subumbra: policy deny reason=publish_deny_pattern_match consumer=%s key_id=%s kind=%s pattern_index=%d",
+          consumerId,
           keyId,
           "path",
           i,
@@ -605,8 +605,8 @@ async function inspectNpmPublish({ registryEntry, parsedTarget, reqBody, keyId, 
     for (const entry of entries) {
       if (entry.contentText.toLowerCase().includes(pattern)) {
         console.warn(
-          "subumbra: policy deny reason=publish_deny_pattern_match adapter=%s key_id=%s kind=%s pattern_index=%d",
-          adapterId,
+          "subumbra: policy deny reason=publish_deny_pattern_match consumer=%s key_id=%s kind=%s pattern_index=%d",
+          consumerId,
           keyId,
           "content",
           i,
@@ -688,11 +688,11 @@ function parseAdapterTokens(raw) {
   try {
     parsed = JSON.parse(raw);
   } catch {
-    throw new Error("SUBUMBRA_ADAPTER_TOKENS must be valid JSON");
+    throw new Error("SUBUMBRA_CONSUMER_TOKENS must be valid JSON");
   }
 
   if (!Array.isArray(parsed) || parsed.length === 0) {
-    throw new Error("SUBUMBRA_ADAPTER_TOKENS must be a non-empty JSON array");
+    throw new Error("SUBUMBRA_CONSUMER_TOKENS must be a non-empty JSON array");
   }
   for (const entry of parsed) {
     if (
@@ -704,7 +704,7 @@ function parseAdapterTokens(raw) {
       !entry.token
     ) {
       throw new Error(
-        "SUBUMBRA_ADAPTER_TOKENS entries must be {id, token} objects with non-empty string fields"
+        "SUBUMBRA_CONSUMER_TOKENS entries must be {id, token} objects with non-empty string fields"
       );
     }
   }
@@ -773,8 +773,8 @@ function parseSshSessionScopeMetadata(rawValue, expectedAdapterId, expectedKeyId
   if (typeof parsed.session_id !== "string" || !parsed.session_id) {
     throw new Error("missing ssh session_id");
   }
-  if (typeof parsed.adapter_id !== "string" || parsed.adapter_id !== expectedAdapterId) {
-    throw new Error("invalid ssh adapter_id");
+  if (typeof parsed.consumer_id !== "string" || parsed.consumer_id !== expectedAdapterId) {
+    throw new Error("invalid ssh consumer_id");
   }
   if (typeof parsed.key_id !== "string" || parsed.key_id !== expectedKeyId) {
     throw new Error("invalid ssh key_id");
@@ -796,7 +796,7 @@ function parseSshSessionScopeMetadata(rawValue, expectedAdapterId, expectedKeyId
   if (rawMaxSignOps === null) {
     return {
       sessionId: parsed.session_id,
-      adapterId: parsed.adapter_id,
+      consumerId: parsed.consumer_id,
       keyId: parsed.key_id,
       expiresAt: parsed.expires_at,
       maxSignOps: null,
@@ -807,7 +807,7 @@ function parseSshSessionScopeMetadata(rawValue, expectedAdapterId, expectedKeyId
   }
   return {
     sessionId: parsed.session_id,
-    adapterId: parsed.adapter_id,
+    consumerId: parsed.consumer_id,
     keyId: parsed.key_id,
     expiresAt: parsed.expires_at,
     maxSignOps: rawMaxSignOps,
@@ -983,8 +983,8 @@ function htmlResponse(body, status = 200) {
 }
 
 function getGateStub(env) {
-  const gateId = env.SUBUMBRA_GATE.idFromName(GATE_INSTANCE_NAME);
-  return env.SUBUMBRA_GATE.get(gateId);
+  const gateId = env.SUBUMBRA_JANUS.idFromName(GATE_INSTANCE_NAME);
+  return env.SUBUMBRA_JANUS.get(gateId);
 }
 
 function matchGateRule(gatePolicy, context) {
@@ -993,7 +993,7 @@ function matchGateRule(gatePolicy, context) {
   }
   for (const rule of gatePolicy.require_approval) {
     const when = rule.when || {};
-    if (when.adapter && when.adapter !== context.adapterId) {
+    if (when.consumer && when.consumer !== context.consumerId) {
       continue;
     }
     if (context.flow === "proxy") {
@@ -1006,7 +1006,7 @@ function matchGateRule(gatePolicy, context) {
     } else if (when.method || when.path_prefix) {
       continue;
     }
-    if (when.any_request !== true && !when.adapter && !when.method && !when.path_prefix) {
+    if (when.any_request !== true && !when.consumer && !when.method && !when.path_prefix) {
       continue;
     }
     return rule;
@@ -1015,10 +1015,10 @@ function matchGateRule(gatePolicy, context) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Durable Object — SubumbraGate
+// Durable Object — SubumbraJanus
 // ─────────────────────────────────────────────────────────────────────────────
 
-export class SubumbraGate {
+export class SubumbraJanus {
   constructor(state, env) {
     this.state = state;
     this.env = env;
@@ -1028,15 +1028,15 @@ export class SubumbraGate {
         this.state.storage.sql.exec(GATE_SCHEMA);
       } catch (err) {
         this._constructorError = err;
-        console.error("subumbra: gate DO constructor failed — instance is degraded");
+        console.error("subumbra: janus DO constructor failed — instance is degraded");
       }
     });
   }
 
   async fetch(request) {
     if (this._constructorError) {
-      console.error("subumbra: gate DO degraded — request rejected");
-      return jsonError("gate unavailable", 503);
+      console.error("subumbra: janus DO degraded — request rejected");
+      return jsonError("janus unavailable", 503);
     }
 
     const url = new URL(request.url);
@@ -1046,26 +1046,26 @@ export class SubumbraGate {
     if (request.method === "POST" && url.pathname === GATE_CONSUME_PATH) {
       return this._handleConsume(request);
     }
-    if (request.method === "POST" && url.pathname === "/gate/subscribe") {
+    if (request.method === "POST" && url.pathname === "/janus/subscribe") {
       return this._handleSubscribe(request);
     }
-    if (request.method === "GET" && url.pathname === "/gate/pending") {
+    if (request.method === "GET" && url.pathname === "/janus/pending") {
       return this._handlePending();
     }
-    if (request.method === "GET" && url.pathname.startsWith("/gate/status/")) {
-      return this._handleStatus(url.pathname.slice("/gate/status/".length));
+    if (request.method === "GET" && url.pathname.startsWith("/janus/status/")) {
+      return this._handleStatus(url.pathname.slice("/janus/status/".length));
     }
-    if (request.method === "GET" && url.pathname.startsWith("/gate/approve/")) {
-      return this._handleDecisionPage("approved", url.pathname.slice("/gate/approve/".length), url.searchParams);
+    if (request.method === "GET" && url.pathname.startsWith("/janus/approve/")) {
+      return this._handleDecisionPage("approved", url.pathname.slice("/janus/approve/".length), url.searchParams);
     }
-    if (request.method === "POST" && url.pathname.startsWith("/gate/approve/")) {
-      return this._handleDecisionAction("approved", url.pathname.slice("/gate/approve/".length), request);
+    if (request.method === "POST" && url.pathname.startsWith("/janus/approve/")) {
+      return this._handleDecisionAction("approved", url.pathname.slice("/janus/approve/".length), request);
     }
-    if (request.method === "GET" && url.pathname.startsWith("/gate/deny/")) {
-      return this._handleDecisionPage("denied", url.pathname.slice("/gate/deny/".length), url.searchParams);
+    if (request.method === "GET" && url.pathname.startsWith("/janus/deny/")) {
+      return this._handleDecisionPage("denied", url.pathname.slice("/janus/deny/".length), url.searchParams);
     }
-    if (request.method === "POST" && url.pathname.startsWith("/gate/deny/")) {
-      return this._handleDecisionAction("denied", url.pathname.slice("/gate/deny/".length), request);
+    if (request.method === "POST" && url.pathname.startsWith("/janus/deny/")) {
+      return this._handleDecisionAction("denied", url.pathname.slice("/janus/deny/".length), request);
     }
     return jsonError("not found", 404);
   }
@@ -1083,7 +1083,7 @@ export class SubumbraGate {
         nowIso,
       );
       for (const row of expiredRows) {
-        console.warn("gate_expire request_id=%s", row.request_id);
+        console.warn("janus_expire request_id=%s", row.request_id);
       }
     }
     await this._scheduleNextAlarm();
@@ -1091,7 +1091,7 @@ export class SubumbraGate {
 
   _loadPendingRow(requestId) {
     const rows = this.state.storage.sql.exec(
-      `SELECT request_id, flow, key_id, adapter_id, target_summary, request_digest,
+      `SELECT request_id, flow, key_id, consumer_id, target_summary, request_digest,
               created_at, expires_at, status, approval_token_hash, terminal_at, consumed_at
          FROM pending_requests
         WHERE request_id = ?`,
@@ -1101,9 +1101,9 @@ export class SubumbraGate {
   }
 
   async _tokenMac(requestId, nonce, expiryUnix) {
-    const rawKey = this.env.SUBUMBRA_GATE_HMAC_KEY ?? "";
+    const rawKey = this.env.SUBUMBRA_JANUS_HMAC_KEY ?? "";
     if (!rawKey) {
-      throw new Error("gate hmac secret missing");
+      throw new Error("janus hmac secret missing");
     }
     const cryptoKey = await crypto.subtle.importKey(
       "raw",
@@ -1130,39 +1130,39 @@ export class SubumbraGate {
 
   async _validateToken(requestId, token) {
     if (!token || typeof token !== "string") {
-      console.warn("gate_token_invalid request_id=%s reason=missing", requestId);
+      console.warn("janus_token_invalid request_id=%s reason=missing", requestId);
       return { ok: false, response: htmlResponse("<h1>Forbidden</h1><p>Missing token.</p>", 403) };
     }
     const parts = token.split(".");
     if (parts.length !== 3 || !parts[0] || !parts[1] || !parts[2]) {
-      console.warn("gate_token_invalid request_id=%s reason=malformed", requestId);
+      console.warn("janus_token_invalid request_id=%s reason=malformed", requestId);
       return { ok: false, response: htmlResponse("<h1>Forbidden</h1><p>Malformed token.</p>", 403) };
     }
     const [nonce, expiryRaw, mac] = parts;
     const expiryUnix = Number.parseInt(expiryRaw, 10);
     if (!Number.isFinite(expiryUnix) || expiryUnix <= 0) {
-      console.warn("gate_token_invalid request_id=%s reason=malformed", requestId);
+      console.warn("janus_token_invalid request_id=%s reason=malformed", requestId);
       return { ok: false, response: htmlResponse("<h1>Forbidden</h1><p>Malformed token.</p>", 403) };
     }
     if (Date.now() >= expiryUnix * 1000) {
-      console.warn("gate_token_invalid request_id=%s reason=expired", requestId);
+      console.warn("janus_token_invalid request_id=%s reason=expired", requestId);
       return { ok: false, response: htmlResponse("<h1>Forbidden</h1><p>Token expired.</p>", 403) };
     }
     const expectedMac = await this._tokenMac(requestId, nonce, expiryUnix);
     const macOk = await timingSafeEqual(mac, expectedMac);
     if (!macOk) {
-      console.warn("gate_token_invalid request_id=%s reason=hmac", requestId);
+      console.warn("janus_token_invalid request_id=%s reason=hmac", requestId);
       return { ok: false, response: htmlResponse("<h1>Forbidden</h1><p>Invalid token.</p>", 403) };
     }
     const row = this._loadPendingRow(requestId);
     if (!row) {
-      console.warn("gate_token_invalid request_id=%s reason=not_found", requestId);
+      console.warn("janus_token_invalid request_id=%s reason=not_found", requestId);
       return { ok: false, response: htmlResponse("<h1>Forbidden</h1><p>Request not found.</p>", 403) };
     }
     const tokenHash = await this._hashApprovalToken(token);
     const tokenHashOk = await timingSafeEqual(tokenHash, row.approval_token_hash);
     if (!tokenHashOk) {
-      console.warn("gate_token_invalid request_id=%s reason=hash", requestId);
+      console.warn("janus_token_invalid request_id=%s reason=hash", requestId);
       return { ok: false, response: htmlResponse("<h1>Forbidden</h1><p>Invalid token.</p>", 403) };
     }
     if (row.status === "consumed" || row.status === "approved" || row.status === "denied") {
@@ -1185,7 +1185,7 @@ export class SubumbraGate {
   _renderDecisionPage(action, requestId, token) {
     const verb = action === "approved" ? "Approve" : "Deny";
     return htmlResponse(
-      `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${verb} Gate Request</title></head><body><main><h1>${verb} request</h1><p>Request ID: <code>${requestId}</code></p><form method="post"><input type="hidden" name="token" value="${token.replace(/"/g, "&quot;")}"><button type="submit">${verb}</button></form></main></body></html>`,
+      `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${verb} Janus Request</title></head><body><main><h1>${verb} request</h1><p>Request ID: <code>${requestId}</code></p><form method="post"><input type="hidden" name="token" value="${token.replace(/"/g, "&quot;")}"><button type="submit">${verb}</button></form></main></body></html>`,
       200,
     );
   }
@@ -1206,15 +1206,15 @@ export class SubumbraGate {
   }
 
   async _importVapidPrivateKey() {
-    const rawJwk = this.env.SUBUMBRA_GATE_VAPID_PRIVATE_JWK ?? "";
+    const rawJwk = this.env.SUBUMBRA_JANUS_VAPID_PRIVATE_JWK ?? "";
     if (!rawJwk) {
-      throw new Error("gate vapid secret missing");
+      throw new Error("janus vapid secret missing");
     }
     let jwk;
     try {
       jwk = JSON.parse(rawJwk);
     } catch {
-      throw new Error("gate vapid secret invalid");
+      throw new Error("janus vapid secret invalid");
     }
     return crypto.subtle.importKey(
       "jwk",
@@ -1226,18 +1226,18 @@ export class SubumbraGate {
   }
 
   _vapidPublicKeyFromSecret() {
-    const rawJwk = this.env.SUBUMBRA_GATE_VAPID_PRIVATE_JWK ?? "";
+    const rawJwk = this.env.SUBUMBRA_JANUS_VAPID_PRIVATE_JWK ?? "";
     if (!rawJwk) {
-      throw new Error("gate vapid secret missing");
+      throw new Error("janus vapid secret missing");
     }
     let jwk;
     try {
       jwk = JSON.parse(rawJwk);
     } catch {
-      throw new Error("gate vapid secret invalid");
+      throw new Error("janus vapid secret invalid");
     }
     if (typeof jwk.x !== "string" || typeof jwk.y !== "string") {
-      throw new Error("gate vapid secret invalid");
+      throw new Error("janus vapid secret invalid");
     }
     const x = base64UrlToBytes(jwk.x);
     const y = base64UrlToBytes(jwk.y);
@@ -1313,17 +1313,17 @@ export class SubumbraGate {
           );
         }
         console.warn(
-          "gate_notification_dispatch_failure request_id=%s status=%s",
+          "janus_notification_dispatch_failure request_id=%s status=%s",
           message.request_id,
           response.status,
         );
       } catch {
-        console.warn("gate_notification_dispatch_failure request_id=%s status=error", message.request_id);
+        console.warn("janus_notification_dispatch_failure request_id=%s status=error", message.request_id);
         // Best-effort only. Approval still fails closed on timeout.
       }
     }
     if (successCount > 0) {
-      console.info("gate_notification_dispatch_success request_id=%s subscription_count=%s", message.request_id, successCount);
+      console.info("janus_notification_dispatch_success request_id=%s subscription_count=%s", message.request_id, successCount);
     }
   }
 
@@ -1337,7 +1337,7 @@ export class SubumbraGate {
     const {
       flow,
       key_id: keyId,
-      adapter_id: adapterId,
+      consumer_id: consumerId,
       target_summary: targetSummary,
       request_digest: requestDigest,
       timeout_seconds: timeoutSeconds,
@@ -1346,7 +1346,7 @@ export class SubumbraGate {
     if (
       (flow !== "proxy" && flow !== "ssh_sign")
       || typeof keyId !== "string" || !keyId
-      || typeof adapterId !== "string" || !adapterId
+      || typeof consumerId !== "string" || !consumerId
       || typeof targetSummary !== "string" || !targetSummary
       || typeof requestDigest !== "string" || !requestDigest
       || !Number.isInteger(timeoutSeconds) || timeoutSeconds <= 0
@@ -1361,12 +1361,12 @@ export class SubumbraGate {
     const approvalTokenHash = await this._hashApprovalToken(capabilityToken);
     this.state.storage.sql.exec(
       `INSERT INTO pending_requests
-       (request_id, flow, key_id, adapter_id, target_summary, request_digest, created_at, expires_at, status, approval_token_hash, terminal_at, consumed_at)
+       (request_id, flow, key_id, consumer_id, target_summary, request_digest, created_at, expires_at, status, approval_token_hash, terminal_at, consumed_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL, NULL)`,
       requestId,
       flow,
       keyId,
-      adapterId,
+      consumerId,
       targetSummary,
       requestDigest,
       createdAt,
@@ -1375,17 +1375,17 @@ export class SubumbraGate {
     );
     await this._scheduleNextAlarm();
 
-    const approveUrl = new URL(`/gate/approve/${requestId}`, origin);
+    const approveUrl = new URL(`/janus/approve/${requestId}`, origin);
     approveUrl.searchParams.set("token", capabilityToken);
-    const denyUrl = new URL(`/gate/deny/${requestId}`, origin);
+    const denyUrl = new URL(`/janus/deny/${requestId}`, origin);
     denyUrl.searchParams.set("token", capabilityToken);
 
     console.info(
-      "gate_submit request_id=%s flow=%s key_id=%s adapter=%s expires_at=%s",
+      "janus_submit request_id=%s flow=%s key_id=%s consumer=%s expires_at=%s",
       requestId,
       flow,
       keyId,
-      adapterId,
+      consumerId,
       expiresAt,
     );
     await this._deliverPushNotifications({
@@ -1395,7 +1395,7 @@ export class SubumbraGate {
     });
     return jsonResponse({
       request_id: requestId,
-      poll_url: `/gate/status/${requestId}`,
+      poll_url: `/janus/status/${requestId}`,
       status: "pending",
     }, 202);
   }
@@ -1412,36 +1412,36 @@ export class SubumbraGate {
       request_digest: requestDigest,
       flow,
       key_id: keyId,
-      adapter_id: adapterId,
+      consumer_id: consumerId,
     } = payload ?? {};
     if (
       typeof requestId !== "string" || !requestId
       || typeof requestDigest !== "string" || !requestDigest
       || (flow !== "proxy" && flow !== "ssh_sign")
       || typeof keyId !== "string" || !keyId
-      || typeof adapterId !== "string" || !adapterId
+      || typeof consumerId !== "string" || !consumerId
     ) {
       return jsonError("missing required fields", 400);
     }
     const row = this._loadPendingRow(requestId);
     if (!row) {
-      return jsonError("gate_not_found", 404);
+      return jsonError("janus_not_found", 404);
     }
-    if (row.adapter_id !== adapterId || row.key_id !== keyId || row.flow !== flow) {
-      return jsonError("gate_digest_mismatch", 403);
+    if (row.consumer_id !== consumerId || row.key_id !== keyId || row.flow !== flow) {
+      return jsonError("janus_digest_mismatch", 403);
     }
     if (row.status === "pending") {
-      return jsonError("gate_pending", 409);
+      return jsonError("janus_pending", 409);
     }
     if (row.status === "denied" || row.status === "expired") {
-      return jsonError(row.status === "denied" ? "gate_denied" : "gate_timeout", 403);
+      return jsonError(row.status === "denied" ? "janus_denied" : "janus_timeout", 403);
     }
     if (row.status === "consumed" || row.consumed_at) {
-      return jsonError("gate_replayed", 409);
+      return jsonError("janus_replayed", 409);
     }
     const digestOk = await timingSafeEqual(requestDigest, row.request_digest);
     if (!digestOk) {
-      return jsonError("gate_digest_mismatch", 403);
+      return jsonError("janus_digest_mismatch", 403);
     }
     const nowIso = new Date().toISOString();
     this.state.storage.sql.exec(
@@ -1449,8 +1449,8 @@ export class SubumbraGate {
       nowIso,
       requestId,
     );
-    console.info("gate_consume request_id=%s", requestId);
-    console.info("gate_vault_dispatch request_id=%s flow=%s", requestId, row.flow);
+    console.info("janus_consume request_id=%s", requestId);
+    console.info("janus_vault_dispatch request_id=%s flow=%s", requestId, row.flow);
     return new Response(null, { status: 204 });
   }
 
@@ -1493,7 +1493,7 @@ export class SubumbraGate {
 
   async _handlePending() {
     const pending = this.state.storage.sql.exec(
-      `SELECT request_id, flow, key_id, adapter_id, target_summary, created_at, expires_at, status
+      `SELECT request_id, flow, key_id, consumer_id, target_summary, created_at, expires_at, status
          FROM pending_requests
         WHERE status='pending'
         ORDER BY created_at DESC`,
@@ -1531,15 +1531,15 @@ export class SubumbraGate {
   async _handleStatus(requestId) {
     const row = this._loadPendingRow(requestId);
     if (!row) {
-      return jsonError("gate_not_found", 404);
+      return jsonError("janus_not_found", 404);
     }
     let error = null;
     if (row.status === "denied") {
-      error = "gate_denied";
+      error = "janus_denied";
     } else if (row.status === "expired") {
-      error = "gate_timeout";
+      error = "janus_timeout";
     } else if (row.status === "consumed") {
-      error = "gate_replayed";
+      error = "janus_replayed";
     }
     return jsonResponse({
       request_id: row.request_id,
@@ -1577,9 +1577,9 @@ export class SubumbraGate {
       nowIso,
       requestId,
     );
-    console.info("%s request_id=%s", action === "approved" ? "gate_approve" : "gate_deny", requestId);
+    console.info("%s request_id=%s", action === "approved" ? "janus_approve" : "janus_deny", requestId);
     return htmlResponse(
-      `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Gate decision recorded</title></head><body><main><h1>${action === "approved" ? "Approved" : "Denied"}</h1><p>Request <code>${requestId}</code> is now ${action}.</p></main></body></html>`,
+      `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Janus decision recorded</title></head><body><main><h1>${action === "approved" ? "Approved" : "Denied"}</h1><p>Request <code>${requestId}</code> is now ${action}.</p></main></body></html>`,
       200,
     );
   }
@@ -1696,11 +1696,11 @@ export class SubumbraVault {
     };
   }
 
-  _loadSshSessionQuotaRow(sessionId, adapterId, keyId) {
+  _loadSshSessionQuotaRow(sessionId, consumerId, keyId) {
     const rows = this.state.storage.sql.exec(
-      "SELECT session_id, adapter_id, key_id, max_sign_ops, sign_count, last_updated FROM ssh_session_quota WHERE session_id = ? AND adapter_id = ? AND key_id = ?",
+      "SELECT session_id, consumer_id, key_id, max_sign_ops, sign_count, last_updated FROM ssh_session_quota WHERE session_id = ? AND consumer_id = ? AND key_id = ?",
       sessionId,
-      adapterId,
+      consumerId,
       keyId,
     ).toArray();
     if (rows.length === 0) {
@@ -1709,7 +1709,7 @@ export class SubumbraVault {
     const row = rows[0];
     return {
       session_id: row.session_id,
-      adapter_id: row.adapter_id,
+      consumer_id: row.consumer_id,
       key_id: row.key_id,
       max_sign_ops: row.max_sign_ops,
       sign_count: row.sign_count,
@@ -1981,15 +1981,15 @@ export class SubumbraVault {
     }
     const hasQuotaFields =
       Object.prototype.hasOwnProperty.call(payload, "session_id") ||
-      Object.prototype.hasOwnProperty.call(payload, "adapter_id") ||
+      Object.prototype.hasOwnProperty.call(payload, "consumer_id") ||
       Object.prototype.hasOwnProperty.call(payload, "max_sign_ops");
     let quotaContext = null;
     if (hasQuotaFields) {
       if (
         typeof payload.session_id !== "string" ||
         !payload.session_id ||
-        typeof payload.adapter_id !== "string" ||
-        !payload.adapter_id ||
+        typeof payload.consumer_id !== "string" ||
+        !payload.consumer_id ||
         !Number.isInteger(payload.max_sign_ops) ||
         payload.max_sign_ops <= 0
       ) {
@@ -1998,7 +1998,7 @@ export class SubumbraVault {
       }
       quotaContext = {
         sessionId: payload.session_id,
-        adapterId: payload.adapter_id,
+        consumerId: payload.consumer_id,
         keyId: payload.key_id,
         maxSignOps: payload.max_sign_ops,
       };
@@ -2022,7 +2022,7 @@ export class SubumbraVault {
           // read-check-write sequence is single-request atomic here.
           const existing = this._loadSshSessionQuotaRow(
             quotaContext.sessionId,
-            quotaContext.adapterId,
+            quotaContext.consumerId,
             quotaContext.keyId,
           );
           const currentCount = existing ? Number(existing.sign_count) : 0;
@@ -2031,9 +2031,9 @@ export class SubumbraVault {
           }
           if (currentCount >= quotaContext.maxSignOps) {
             console.warn(
-              "subumbra: ssh sign denied key_id=%s adapter=%s session_id=%s reason=session_sign_limit_reached count=%s limit=%s",
+              "subumbra: ssh sign denied key_id=%s consumer=%s session_id=%s reason=session_sign_limit_reached count=%s limit=%s",
               payload.key_id,
-              quotaContext.adapterId,
+              quotaContext.consumerId,
               quotaContext.sessionId,
               currentCount,
               quotaContext.maxSignOps,
@@ -2056,14 +2056,14 @@ export class SubumbraVault {
           signCount = currentCount + 1;
           limitReached = signCount >= quotaContext.maxSignOps;
           this.state.storage.sql.exec(
-            `INSERT INTO ssh_session_quota (session_id, adapter_id, key_id, max_sign_ops, sign_count, last_updated)
+            `INSERT INTO ssh_session_quota (session_id, consumer_id, key_id, max_sign_ops, sign_count, last_updated)
              VALUES (?, ?, ?, ?, ?, ?)
-             ON CONFLICT(session_id, adapter_id, key_id) DO UPDATE SET
+             ON CONFLICT(session_id, consumer_id, key_id) DO UPDATE SET
                max_sign_ops = excluded.max_sign_ops,
                sign_count = excluded.sign_count,
                last_updated = excluded.last_updated`,
             quotaContext.sessionId,
-            quotaContext.adapterId,
+            quotaContext.consumerId,
             quotaContext.keyId,
             quotaContext.maxSignOps,
             signCount,
@@ -2087,10 +2087,10 @@ export class SubumbraVault {
             return err;
           }
           console.error(
-            "subumbra: vault ssh quota unavailable key_id=%s session_id=%s adapter=%s",
+            "subumbra: vault ssh quota unavailable key_id=%s session_id=%s consumer=%s",
             payload.key_id,
             quotaContext.sessionId,
-            quotaContext.adapterId,
+            quotaContext.consumerId,
           );
           return jsonError("session_quota_unavailable", 503);
         }
@@ -2155,7 +2155,7 @@ export class SubumbraVault {
       authHeaderName,
       authQueryParam,
       responseAllowHeaders: responseAllowHeadersRaw,
-      adapterId,
+      consumerId,
       velocity,
     } = payload;
 
@@ -2175,35 +2175,35 @@ export class SubumbraVault {
     const nowSeconds = Math.floor(Date.now() / 1000);
     const windowStart = Math.floor(nowSeconds / 60) * 60;
     if (velocity && typeof velocity === "object") {
-      const effectiveAdapterId = adapterId ?? "";
+      const effectiveAdapterId = consumerId ?? "";
 
       if (typeof velocity.key_rpm === "number") {
         const keyCountRows = this.state.storage.sql.exec(
-          "SELECT count FROM velocity_counters WHERE scope='key' AND adapter_id='' AND key_id=? AND window_start=?",
+          "SELECT count FROM velocity_counters WHERE scope='key' AND consumer_id='' AND key_id=? AND window_start=?",
           keyId, windowStart
         ).toArray();
         const keyCount = keyCountRows.length > 0 ? keyCountRows[0].count : 0;
         if (keyCount >= velocity.key_rpm) {
           console.warn(
-            "subumbra: policy deny reason=rate_limit_exceeded_key adapter=%s key_id=%s",
+            "subumbra: policy deny reason=rate_limit_exceeded_key consumer=%s key_id=%s",
             effectiveAdapterId, keyId
           );
           return jsonError("rate_limit_exceeded_key", 429);
         }
       }
 
-      if (typeof velocity.adapter_rpm === "number") {
-        const adapterCountRows = this.state.storage.sql.exec(
-          "SELECT count FROM velocity_counters WHERE scope='adapter' AND adapter_id=? AND key_id='' AND window_start=?",
+      if (typeof velocity.consumer_rpm === "number") {
+        const consumerCountRows = this.state.storage.sql.exec(
+          "SELECT count FROM velocity_counters WHERE scope='consumer' AND consumer_id=? AND key_id='' AND window_start=?",
           effectiveAdapterId, windowStart
         ).toArray();
-        const adapterCount = adapterCountRows.length > 0 ? adapterCountRows[0].count : 0;
-        if (adapterCount >= velocity.adapter_rpm) {
+        const consumerCount = consumerCountRows.length > 0 ? consumerCountRows[0].count : 0;
+        if (consumerCount >= velocity.consumer_rpm) {
           console.warn(
-            "subumbra: policy deny reason=rate_limit_exceeded_adapter adapter=%s key_id=%s",
+            "subumbra: policy deny reason=rate_limit_exceeded_consumer consumer=%s key_id=%s",
             effectiveAdapterId, keyId
           );
-          return jsonError("rate_limit_exceeded_adapter", 429);
+          return jsonError("rate_limit_exceeded_consumer", 429);
         }
       }
 
@@ -2217,7 +2217,7 @@ export class SubumbraVault {
           if (brk.state === "open") {
             if (nowSeconds - brk.opened_at < velocity.breaker_cooldown_seconds) {
               console.warn(
-                "subumbra: policy deny reason=circuit_breaker_open adapter=%s key_id=%s",
+                "subumbra: policy deny reason=circuit_breaker_open consumer=%s key_id=%s",
                 effectiveAdapterId, keyId
               );
               return jsonError("circuit_breaker_open", 429);
@@ -2229,7 +2229,7 @@ export class SubumbraVault {
             console.info("subumbra: circuit_breaker half_open probe admitted key_id=%s", keyId);
           } else if (brk.state === "half_open" && brk.half_open_probe_active === 1) {
             console.warn(
-              "subumbra: policy deny reason=circuit_breaker_open adapter=%s key_id=%s",
+              "subumbra: policy deny reason=circuit_breaker_open consumer=%s key_id=%s",
               effectiveAdapterId, keyId
             );
             return jsonError("circuit_breaker_open", 429);
@@ -2240,17 +2240,17 @@ export class SubumbraVault {
       // Increment counters only for requests admitted for upstream execution
       if (typeof velocity.key_rpm === "number") {
         this.state.storage.sql.exec(
-          `INSERT INTO velocity_counters (scope, adapter_id, key_id, window_start, count)
+          `INSERT INTO velocity_counters (scope, consumer_id, key_id, window_start, count)
            VALUES ('key', '', ?, ?, 1)
-           ON CONFLICT (scope, adapter_id, key_id, window_start) DO UPDATE SET count = count + 1`,
+           ON CONFLICT (scope, consumer_id, key_id, window_start) DO UPDATE SET count = count + 1`,
           keyId, windowStart
         );
       }
-      if (typeof velocity.adapter_rpm === "number") {
+      if (typeof velocity.consumer_rpm === "number") {
         this.state.storage.sql.exec(
-          `INSERT INTO velocity_counters (scope, adapter_id, key_id, window_start, count)
-           VALUES ('adapter', ?, '', ?, 1)
-           ON CONFLICT (scope, adapter_id, key_id, window_start) DO UPDATE SET count = count + 1`,
+          `INSERT INTO velocity_counters (scope, consumer_id, key_id, window_start, count)
+           VALUES ('consumer', ?, '', ?, 1)
+           ON CONFLICT (scope, consumer_id, key_id, window_start) DO UPDATE SET count = count + 1`,
           effectiveAdapterId, windowStart
         );
       }
@@ -2330,7 +2330,7 @@ export class SubumbraVault {
     if (velocity && typeof velocity === "object" &&
       typeof velocity.breaker_failures === "number" &&
       typeof velocity.breaker_cooldown_seconds === "number") {
-      const effectiveAdapterId = adapterId ?? "";
+      const effectiveAdapterId = consumerId ?? "";
       const isTrackedFailure =
         fetchFailed ||
         (upstreamResponse !== null && (upstreamResponse.status === 401 || upstreamResponse.status >= 500));
@@ -2389,7 +2389,7 @@ export class SubumbraVault {
             keyId
           );
           console.info(
-            "subumbra: circuit_breaker closed adapter=%s key_id=%s",
+            "subumbra: circuit_breaker closed consumer=%s key_id=%s",
             effectiveAdapterId, keyId
           );
         }
@@ -2661,11 +2661,11 @@ export class SubumbraVault {
 export default {
   /**
    * @param {Request}         request
-   * @param {{ SUBUMBRA_ADAPTER_TOKENS: string,
+   * @param {{ SUBUMBRA_CONSUMER_TOKENS: string,
    *           SUBUMBRA_MANAGEMENT_TOKEN?: string,
-   *           SUBUMBRA_GATE_HMAC_KEY?: string,
-   *           SUBUMBRA_GATE_VAPID_PRIVATE_JWK?: string,
-   *           SUBUMBRA_GATE: DurableObjectNamespace,
+   *           SUBUMBRA_JANUS_HMAC_KEY?: string,
+   *           SUBUMBRA_JANUS_VAPID_PRIVATE_JWK?: string,
+   *           SUBUMBRA_JANUS: DurableObjectNamespace,
    *           SUBUMBRA_VAULT: DurableObjectNamespace,
    *           PROVIDER_REGISTRY_KV: KVNamespace,
    *           SUBUMBRA_SETUP_TOKEN?: string }} env
@@ -2683,21 +2683,21 @@ export default {
       return handleAuthPing(request, env);
     }
 
-    if (request.method === "POST" && url.pathname === "/gate/subscribe") {
+    if (request.method === "POST" && url.pathname === "/janus/subscribe") {
       return handleGateSubscribe(request, env);
     }
 
-    if (request.method === "GET" && url.pathname === "/gate/pending") {
+    if (request.method === "GET" && url.pathname === "/janus/pending") {
       return handleGatePending(request, env);
     }
 
-    if (request.method === "GET" && url.pathname.startsWith("/gate/status/")) {
+    if (request.method === "GET" && url.pathname.startsWith("/janus/status/")) {
       return handleGateStatus(request, env);
     }
 
     if (
       (request.method === "GET" || request.method === "POST")
-      && (url.pathname.startsWith("/gate/approve/") || url.pathname.startsWith("/gate/deny/"))
+      && (url.pathname.startsWith("/janus/approve/") || url.pathname.startsWith("/janus/deny/"))
     ) {
       return handleGateDecision(request, env);
     }
@@ -2749,11 +2749,11 @@ export default {
 };
 
 async function forwardGateRequest(request, env) {
-  if (!env.SUBUMBRA_GATE) {
-    console.error("subumbra: gate binding missing");
-    return jsonError("gate unavailable", 503);
+  if (!env.SUBUMBRA_JANUS) {
+    console.error("subumbra: janus binding missing");
+    return jsonError("janus unavailable", 503);
   }
-  const gate = getGateStub(env);
+  const janus = getGateStub(env);
   let body = undefined;
   if (request.method !== "GET" && request.method !== "HEAD") {
     body = await request.text();
@@ -3143,9 +3143,9 @@ async function handleSshSign(request, env) {
     return jsonError("worker not configured", 503);
   }
 
-  const sessionActive = await env.PROVIDER_REGISTRY_KV.get(`active_adapter:${auth.adapterId}`);
+  const sessionActive = await env.PROVIDER_REGISTRY_KV.get(`active_consumer:${auth.consumerId}`);
   if (!sessionActive) {
-    console.warn("subumbra: system_locked adapter=%s", auth.adapterId);
+    console.warn("subumbra: system_locked consumer=%s", auth.consumerId);
     return jsonError("system_locked", 403);
   }
 
@@ -3165,8 +3165,8 @@ async function handleSshSign(request, env) {
     return jsonError("missing required fields", 400);
   }
   const gateApprovedId =
-    typeof payload.gate_approved_id === "string" && payload.gate_approved_id
-      ? payload.gate_approved_id
+    typeof payload.janus_approved_id === "string" && payload.janus_approved_id
+      ? payload.janus_approved_id
       : null;
 
   const keyRaw = await env.PROVIDER_REGISTRY_KV.get(`key:${payload.key_id}`, {
@@ -3187,8 +3187,8 @@ async function handleSshSign(request, env) {
     return jsonError("key not found", 404);
   }
   const adapters = optionalStringArray(keyEntry.adapters);
-  if (!adapters || !adapters.includes(auth.adapterId)) {
-    return jsonError("adapter not permitted", 403);
+  if (!adapters || !adapters.includes(auth.consumerId)) {
+    return jsonError("consumer not permitted", 403);
   }
   const policyAllow = keyEntry && keyEntry.policy && typeof keyEntry.policy === "object" ? keyEntry.policy.allow : undefined;
   const rawAllowedHosts = policyAllow && typeof policyAllow === "object" ? policyAllow.hosts : undefined;
@@ -3217,7 +3217,7 @@ async function handleSshSign(request, env) {
   }
 
   let sessionQuota = null;
-  const sessionScopeKey = `ssh_session_scope:${auth.adapterId}:${payload.key_id}`;
+  const sessionScopeKey = `ssh_session_scope:${auth.consumerId}:${payload.key_id}`;
   let sessionScopeRaw;
   try {
     sessionScopeRaw = await env.PROVIDER_REGISTRY_KV.get(sessionScopeKey);
@@ -3229,7 +3229,7 @@ async function handleSshSign(request, env) {
     try {
       sessionQuota = parseSshSessionScopeMetadata(
         sessionScopeRaw,
-        auth.adapterId,
+        auth.consumerId,
         payload.key_id,
       );
     } catch (err) {
@@ -3250,15 +3250,15 @@ async function handleSshSign(request, env) {
   const requestDigest = await sha256HexText(JSON.stringify(canonicalizeJson({
     flow: "ssh_sign",
     key_id: payload.key_id,
-    adapter_id: auth.adapterId,
+    consumer_id: auth.consumerId,
     challenge: payload.challenge,
     verified_host_fingerprint: verifiedHostFingerprint,
     policy_hash: keyEntry.policy_hash,
     vault_instance: vaultInstance,
   })));
-  const gateRule = matchGateRule(keyEntry.policy?.gate ?? optionalGatePolicy(keyEntry.policy?.gate), {
+  const gateRule = matchGateRule(keyEntry.policy?.janus ?? optionalGatePolicy(keyEntry.policy?.gate), {
     flow: "ssh_sign",
-    adapterId: auth.adapterId,
+    consumerId: auth.consumerId,
     method: "POST",
     path: "/ssh/sign",
   });
@@ -3268,15 +3268,15 @@ async function handleSshSign(request, env) {
         return await submitGateApproval(env, {
           flow: "ssh_sign",
           key_id: payload.key_id,
-          adapter_id: auth.adapterId,
+          consumer_id: auth.consumerId,
           target_summary: verifiedHostFingerprint ? `ssh:${verifiedHostFingerprint}` : "ssh:unverified-host",
           request_digest: requestDigest,
           timeout_seconds: gateRule.timeout_seconds,
           origin: new URL(request.url).origin,
         });
       } catch {
-        console.error("subumbra: gate submit unavailable");
-        return jsonError("gate_unavailable", 503);
+        console.error("subumbra: janus submit unavailable");
+        return jsonError("janus_unavailable", 503);
       }
     }
     try {
@@ -3285,14 +3285,14 @@ async function handleSshSign(request, env) {
         request_digest: requestDigest,
         flow: "ssh_sign",
         key_id: payload.key_id,
-        adapter_id: auth.adapterId,
+        consumer_id: auth.consumerId,
       });
       if (gateConsumeResponse.status !== 204) {
         return gateConsumeResponse;
       }
     } catch {
-      console.error("subumbra: gate consume unavailable");
-      return jsonError("gate_unavailable", 503);
+      console.error("subumbra: janus consume unavailable");
+      return jsonError("janus_unavailable", 503);
     }
   }
 
@@ -3310,7 +3310,7 @@ async function handleSshSign(request, env) {
         ...(sessionQuota && sessionQuota.maxSignOps !== null
           ? {
             session_id: sessionQuota.sessionId,
-            adapter_id: sessionQuota.adapterId,
+            consumer_id: sessionQuota.consumerId,
             max_sign_ops: sessionQuota.maxSignOps,
           }
           : {}),
@@ -3323,27 +3323,27 @@ async function handleSshSign(request, env) {
 }
 
 async function authorizeRequest(request, env) {
-  if (!env.SUBUMBRA_ADAPTER_TOKENS) {
+  if (!env.SUBUMBRA_CONSUMER_TOKENS) {
     console.error("subumbra: worker bindings not configured (run bootstrap)");
     return { ok: false, response: jsonError("worker not configured", 503) };
   }
 
   let validTokens;
   try {
-    validTokens = parseAdapterTokens(env.SUBUMBRA_ADAPTER_TOKENS);
+    validTokens = parseAdapterTokens(env.SUBUMBRA_CONSUMER_TOKENS);
   } catch (err) {
-    console.error("subumbra: SUBUMBRA_ADAPTER_TOKENS invalid:", err.message);
+    console.error("subumbra: SUBUMBRA_CONSUMER_TOKENS invalid:", err.message);
     return { ok: false, response: jsonError("worker not configured", 503) };
   }
 
   const incomingToken = request.headers.get("X-Subumbra-Token") ?? "";
-  const adapterId = await resolveAdapterToken(incomingToken, validTokens);
-  if (adapterId === null) {
+  const consumerId = await resolveAdapterToken(incomingToken, validTokens);
+  if (consumerId === null) {
     console.warn("subumbra: unauthorized request");
     return { ok: false, response: jsonError("unauthorized", 401) };
   }
 
-  return { ok: true, adapterId };
+  return { ok: true, consumerId };
 }
 
 async function authorizeManagementRequest(request, env) {
@@ -3458,10 +3458,10 @@ async function writeManagementAudit(env, payload, vaultInstance = VAULT_INSTANCE
 }
 
 async function submitGateApproval(env, payload) {
-  if (!env.SUBUMBRA_GATE) {
-    throw new Error("gate binding missing");
+  if (!env.SUBUMBRA_JANUS) {
+    throw new Error("janus binding missing");
   }
-  const gate = getGateStub(env);
+  const janus = getGateStub(env);
   return gate.fetch(`https://do-internal${GATE_SUBMIT_PATH}`, {
     method: "POST",
     headers: {
@@ -3472,10 +3472,10 @@ async function submitGateApproval(env, payload) {
 }
 
 async function consumeGateApproval(env, payload) {
-  if (!env.SUBUMBRA_GATE) {
-    throw new Error("gate binding missing");
+  if (!env.SUBUMBRA_JANUS) {
+    throw new Error("janus binding missing");
   }
-  const gate = getGateStub(env);
+  const janus = getGateStub(env);
   return gate.fetch(`https://do-internal${GATE_CONSUME_PATH}`, {
     method: "POST",
     headers: {
@@ -3491,7 +3491,7 @@ async function handleAuthPing(request, env) {
     return rateLimitResponse;
   }
 
-  // CF Access is the auth gate for this endpoint; no Subumbra token required.
+  // CF Access is the auth janus for this endpoint; no Subumbra token required.
   // Reaching here means CF Access passed the request through.
   return jsonResponse({ status: "ok", timestamp: new Date().toISOString() }, 200);
 }
@@ -3516,10 +3516,10 @@ async function handleProxy(request, env) {
   }
 
   const sessionActive = await env.PROVIDER_REGISTRY_KV.get(
-    `active_adapter:${auth.adapterId}`
+    `active_consumer:${auth.consumerId}`
   );
   if (!sessionActive) {
-    console.warn("subumbra: system_locked adapter=%s", auth.adapterId);
+    console.warn("subumbra: system_locked consumer=%s", auth.consumerId);
     return jsonError("system_locked", 403);
   }
 
@@ -3535,8 +3535,8 @@ async function handleProxy(request, env) {
     wrapped_dek, pub_key_fp, key_id, enc_version, policy_id, policy_hash } = body;
   const vaultInstance = body.vault_instance ?? VAULT_INSTANCE_NAME;
   const gateApprovedId =
-    typeof body.gate_approved_id === "string" && body.gate_approved_id
-      ? body.gate_approved_id
+    typeof body.janus_approved_id === "string" && body.janus_approved_id
+      ? body.janus_approved_id
       : null;
 
   if (!ciphertext || typeof ciphertext !== "string") {
@@ -3615,7 +3615,7 @@ async function handleProxy(request, env) {
     return jsonError("worker not configured", 503);
   }
   if (registryEntry.paused) {
-    console.warn("subumbra: policy deny reason=key_paused adapter=%s key_id=%s", auth.adapterId, key_id);
+    console.warn("subumbra: policy deny reason=key_paused consumer=%s key_id=%s", auth.consumerId, key_id);
     return jsonError("key_paused", 403);
   }
   if (provider !== registryEntry.provider_id) {
@@ -3661,8 +3661,8 @@ async function handleProxy(request, env) {
     intentField === null
   ) {
     console.warn(
-      "subumbra: policy deny reason=intent_required adapter=%s key_id=%s",
-      auth.adapterId,
+      "subumbra: policy deny reason=intent_required consumer=%s key_id=%s",
+      auth.consumerId,
       key_id,
     );
     return jsonError("intent_required", 403);
@@ -3678,8 +3678,8 @@ async function handleProxy(request, env) {
     !requestInitiators.every((value) => allowedInitiators.includes(value))
   ) {
     console.warn(
-      "subumbra: policy deny reason=intent_disallowed_initiator adapter=%s key_id=%s source=%s",
-      auth.adapterId,
+      "subumbra: policy deny reason=intent_disallowed_initiator consumer=%s key_id=%s source=%s",
+      auth.consumerId,
       key_id,
       intentSource,
     );
@@ -3696,8 +3696,8 @@ async function handleProxy(request, env) {
     !requestContentSources.every((value) => allowedContentSources.includes(value))
   ) {
     console.warn(
-      "subumbra: policy deny reason=intent_disallowed_content_source adapter=%s key_id=%s source=%s",
-      auth.adapterId,
+      "subumbra: policy deny reason=intent_disallowed_content_source consumer=%s key_id=%s source=%s",
+      auth.consumerId,
       key_id,
       intentSource,
     );
@@ -3711,8 +3711,8 @@ async function handleProxy(request, env) {
   if (policyMatch && intentSource) {
     if (!new RegExp(policyMatch).test(intentSource)) {
       console.warn(
-        "subumbra: policy deny reason=intent_disallowed_source adapter=%s key_id=%s source=%s",
-        auth.adapterId,
+        "subumbra: policy deny reason=intent_disallowed_source consumer=%s key_id=%s source=%s",
+        auth.consumerId,
         key_id,
         intentSource,
       );
@@ -3721,13 +3721,13 @@ async function handleProxy(request, env) {
   }
 
   // ── 3.5. Allow-block enforcement ─────────────────────────────────────────
-  if (!registryEntry.allow_adapters.includes(auth.adapterId)) {
+  if (!registryEntry.allow_consumers.includes(auth.consumerId)) {
     console.warn(
-      "subumbra: policy deny adapter=%s key_id=%s",
-      auth.adapterId,
+      "subumbra: policy deny consumer=%s key_id=%s",
+      auth.consumerId,
       key_id,
     );
-    return jsonError("adapter not permitted", 403);
+    return jsonError("consumer not permitted", 403);
   }
 
   const reqMethod = method ?? "";
@@ -3794,9 +3794,9 @@ async function handleProxy(request, env) {
           : ["publish", "query"];
       if (!allowedNpmOperations.includes(npmOperation)) {
         console.warn(
-          "subumbra: policy deny reason=npm_operation_not_allowed operation=%s adapter=%s key_id=%s",
+          "subumbra: policy deny reason=npm_operation_not_allowed operation=%s consumer=%s key_id=%s",
           npmOperation,
-          auth.adapterId,
+          auth.consumerId,
           key_id,
         );
         return jsonError("npm_operation_not_allowed", 403);
@@ -3810,7 +3810,7 @@ async function handleProxy(request, env) {
       parsedTarget,
       reqBody,
       keyId: key_id,
-      adapterId: auth.adapterId,
+      consumerId: auth.consumerId,
     });
     if (npmBlockResponse) {
       return npmBlockResponse;
@@ -3846,7 +3846,7 @@ async function handleProxy(request, env) {
   const requestDigest = await sha256HexText(JSON.stringify(canonicalizeJson({
     flow: "proxy",
     key_id,
-    adapter_id: auth.adapterId,
+    consumer_id: auth.consumerId,
     target_url,
     method: method ?? "POST",
     headers: normalizeHeaderMap(cleanHeaders),
@@ -3856,7 +3856,7 @@ async function handleProxy(request, env) {
   })));
   const gateRule = matchGateRule(registryEntry.gate, {
     flow: "proxy",
-    adapterId: auth.adapterId,
+    consumerId: auth.consumerId,
     method: method ?? "POST",
     path: targetPath,
   });
@@ -3866,15 +3866,15 @@ async function handleProxy(request, env) {
         return await submitGateApproval(env, {
           flow: "proxy",
           key_id,
-          adapter_id: auth.adapterId,
+          consumer_id: auth.consumerId,
           target_summary: `${parsedTarget.hostname}${targetPath}`,
           request_digest: requestDigest,
           timeout_seconds: gateRule.timeout_seconds,
           origin: new URL(request.url).origin,
         });
       } catch {
-        console.error("subumbra: gate submit unavailable");
-        return jsonError("gate_unavailable", 503);
+        console.error("subumbra: janus submit unavailable");
+        return jsonError("janus_unavailable", 503);
       }
     }
     try {
@@ -3883,14 +3883,14 @@ async function handleProxy(request, env) {
         request_digest: requestDigest,
         flow: "proxy",
         key_id,
-        adapter_id: auth.adapterId,
+        consumer_id: auth.consumerId,
       });
       if (gateConsumeResponse.status !== 204) {
         return gateConsumeResponse;
       }
     } catch {
-      console.error("subumbra: gate consume unavailable");
-      return jsonError("gate_unavailable", 503);
+      console.error("subumbra: janus consume unavailable");
+      return jsonError("janus_unavailable", 503);
     }
   }
 
@@ -3914,7 +3914,7 @@ async function handleProxy(request, env) {
     authHeaderName: registryEntry.auth_header_name ?? null,
     authQueryParam: registryEntry.auth_query_param ?? null,
     responseAllowHeaders: registryEntry.response_allow_headers,
-    adapterId: auth.adapterId,
+    consumerId: auth.consumerId,
     velocity: registryEntry.velocity,
   });
 
@@ -3947,8 +3947,8 @@ async function handleProxy(request, env) {
     for (let i = 0; i < denyPatterns.length; i++) {
       if (scanBody.includes(denyPatterns[i].toLowerCase())) {
         console.warn(
-          "subumbra: policy deny reason=response_deny_pattern_match adapter=%s key_id=%s pattern_index=%d",
-          auth.adapterId,
+          "subumbra: policy deny reason=response_deny_pattern_match consumer=%s key_id=%s pattern_index=%d",
+          auth.consumerId,
           key_id,
           i,
         );

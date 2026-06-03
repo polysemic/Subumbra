@@ -40,7 +40,7 @@ GET /keys/<key_id>
 Required headers:
 
 ```text
-X-Subumbra-Token: <app adapter token such as SUBUMBRA_TOKEN_LITELLM or SUBUMBRA_TOKEN_OPENWEBUI>
+X-Subumbra-Token: <app consumer token such as SUBUMBRA_TOKEN_LITELLM or SUBUMBRA_TOKEN_OPENWEBUI>
 X-Subumbra-Timestamp: <unix epoch seconds>
 X-Subumbra-Nonce: <single-use hex nonce>
 X-Subumbra-Signature: <hex hmac>
@@ -50,7 +50,7 @@ Signature algorithm:
 
 ```text
 HMAC-SHA256(
-  f"{len(adapter_id)}:{adapter_id}:{len(key_id)}:{key_id}:{len(timestamp)}:{timestamp}:{len(nonce)}:{nonce}",
+  f"{len(consumer_id)}:{consumer_id}:{len(key_id)}:{key_id}:{len(timestamp)}:{timestamp}:{len(nonce)}:{nonce}",
   SUBUMBRA_HMAC_KEY
 )
 ```
@@ -105,7 +105,7 @@ records.
 Authentication header (required on every request):
 
 ```
-X-Subumbra-Token: <adapter token — SUBUMBRA_TOKEN_<APP> from .env>
+X-Subumbra-Token: <consumer token — SUBUMBRA_TOKEN_<APP> from .env>
 ```
 
 Request body (JSON, all fields required unless noted):
@@ -275,7 +275,7 @@ All error responses use `Content-Type: application/json` with body
 | Response body matches a `response.deny_patterns` pattern | 403 `response_deny_pattern_match` |
 | Response body could not be read for scanning | 403 `response_read_error` |
 | Per-key request-rate limit exceeded | 429 `rate_limit_exceeded_key` |
-| Per-adapter request-rate limit exceeded | 429 `rate_limit_exceeded_adapter` |
+| Per-adapter request-rate limit exceeded | 429 `rate_limit_exceeded_consumer` |
 | Circuit breaker open (upstream failure threshold reached) | 429 `circuit_breaker_open` |
 | Decryption failure (generic) | 500 |
 | RSA fingerprint mismatch | 500 |
@@ -288,7 +288,7 @@ All error responses use `Content-Type: application/json` with body
 Authentication header:
 
 ```text
-X-Subumbra-Token: <adapter token>
+X-Subumbra-Token: <consumer token>
 ```
 
 Request body:
@@ -300,8 +300,8 @@ Request body:
 
 Worker-side guarantees for this route:
 
-1. Adapter token authentication uses the same `authorizeRequest()` path as `POST /proxy`.
-2. The Worker checks `active_adapter:<adapter_id>` in Cloudflare KV before any signing occurs.
+1. Consumer token authentication uses the same `authorizeRequest()` path as `POST /proxy`.
+2. The Worker checks `active_consumer:<consumer_id>` in Cloudflare KV before any signing occurs.
 3. The Worker loads `key:<key_id>` from the structured registry and requires `type == "ssh_key"`.
 4. The calling adapter must appear in the key entry's `adapters` list.
 5. The Durable Object imports the stored PKCS#8 ed25519 private key and returns only a base64-encoded signature.
@@ -383,12 +383,12 @@ explicitly include all headers the upstream provider requires (e.g.
 
 The current supported app-owned contract is the transparent sidecar path:
 
-- app presents an adapter token in `Authorization` or `X-API-Key`
+- app presents a consumer token in `Authorization` or `X-API-Key`
 - app points to `api_base: http://subumbra-proxy:8090/t/<key_id>/...`
 - `subumbra-proxy` uses the first path segment after `/t/` as the requested
   `key_id`
 - `subumbra-keys` enforces the adapter's `allowed_keys`
-- the proxy forwards the caller token to the Worker so `allow.adapters`
+- the proxy forwards the caller token to the Worker so `allow.consumers`
   enforcement stays app-specific on request-time proxying
 
 This is the current primary adapter path for standalone LiteLLM and similar
@@ -432,7 +432,7 @@ Two protocol values are supported:
     "scheme": "bearer | basic | header | query"
   },
   "allow": {
-    "adapters": ["<adapter_id>", ...],
+    "adapters": ["<consumer_id>", ...],
     "methods": ["GET" | "POST" | "PUT" | "PATCH" | "DELETE", ...],
     "path_prefixes": ["/<prefix>", ...],
     "content_types": ["application/json", ...],
@@ -510,7 +510,7 @@ None of these can be overridden by any per-record configuration.
 | Rule | Reason |
 |------|--------|
 | `target.host` is `"*"` or contains `*` | Wildcard host defeats SSRF protection |
-| `allow.adapters` is empty or absent | No adapter can use the record |
+| `allow.consumers` is empty or absent | No adapter can use the record |
 | `allow.methods` is empty or absent | No call can succeed |
 | `allow.path_prefixes` is empty or absent | No path can be called |
 | `allow.path_prefixes` contains `"/"` alone | Equivalent to allow all — rejected |
@@ -543,7 +543,7 @@ must parse without error if present.
   "deny_patterns": ["<bare-substring>", ...]
 },
 "velocity": {
-  "adapter_rpm": 60,
+  "consumer_rpm": 60,
   "key_rpm": 120,
   "breaker_failures": 5,
   "breaker_cooldown_seconds": 30
@@ -557,7 +557,7 @@ policy. All sub-fields are optional positive integers.
 
 | Field | Type | Meaning |
 |-------|------|---------|
-| `adapter_rpm` | integer > 0 | Max requests per 60-second window per adapter token |
+| `consumer_rpm` | integer > 0 | Max requests per 60-second window per consumer token |
 | `key_rpm` | integer > 0 | Max requests per 60-second window across all adapters for this key |
 | `breaker_failures` | integer > 0 | Consecutive tracked failures before circuit opens |
 | `breaker_cooldown_seconds` | integer > 0 | Seconds the circuit stays open before a half-open probe |

@@ -25,7 +25,7 @@ IMPORT_EXCLUSION_LIST: frozenset[str] = frozenset(
     }
 )
 
-ADAPTER_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,61}[a-z0-9]$")
+CONSUMER_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,61}[a-z0-9]$")
 RUNNER_PREFIX_RE = re.compile(r"^RUNNER_")
 SECRET_NAME_RE = re.compile(r"(?:^|_)(?:API_)?(?:KEY|TOKEN|PAT|SECRET)$")
 NON_PROVIDER_PREFIXES = ("CF_", "SUBUMBRA_", "TUNNEL_", "WRANGLER_", "CLOUDFLARE_")
@@ -35,7 +35,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Generate reviewable manifest-era bootstrap drafts from one or more app .env files. "
-            "Outputs subumbra.json.proposed plus a secret-only .env.bootstrap.proposed."
+            "Outputs manifest.yaml.proposed plus a secret-only .env.bootstrap.proposed."
         )
     )
     parser.add_argument("--source", action="append", default=[], help="Path to an app .env file")
@@ -43,7 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--output",
         required=True,
-        help="Directory path where subumbra.json.proposed and .env.bootstrap.proposed will be written",
+        help="Directory path where manifest.yaml.proposed and .env.bootstrap.proposed will be written",
     )
     parser.add_argument("--force", action="store_true", help="Overwrite existing proposed files")
     return parser
@@ -110,7 +110,7 @@ def collect_sources(source_paths: list[str], app_ids: list[str]) -> tuple[list[s
     candidates: list[dict[str, str]] = []
 
     for raw_app_id, raw_source in zip(app_ids, source_paths):
-        if not ADAPTER_ID_RE.fullmatch(raw_app_id):
+        if not CONSUMER_ID_RE.fullmatch(raw_app_id):
             raise RuntimeError(f"invalid app id '{raw_app_id}'")
         source_path = Path(raw_source)
         if not source_path.is_file():
@@ -307,7 +307,7 @@ def build_bootstrap_env(planned_records: list[dict[str, object]]) -> str:
         "CF_WORKER_NAME=subumbra-proxy",
         "TOKEN_TTL_DAYS=90",
         "",
-        "# Provider secrets referenced by subumbra.json.proposed secret_ref values",
+        "# Provider secrets referenced by manifest.yaml.proposed secret_ref values",
     ]
 
     emitted: set[str] = set()
@@ -322,7 +322,7 @@ def build_bootstrap_env(planned_records: list[dict[str, object]]) -> str:
         [
             "",
             "# No structural bootstrap variables are emitted here.",
-            "# Review and edit subumbra.json.proposed for target.host, auth, protocol, and allow rules.",
+            "# Review and edit manifest.yaml.proposed for target.host, auth, protocol, and allow rules.",
         ]
     )
     return "\n".join(lines) + "\n"
@@ -356,7 +356,7 @@ def main(argv: list[str] | None = None) -> int:
         bootstrap_env = build_bootstrap_env(planned_records)
 
         output_dir = Path(args.output)
-        manifest_path = output_dir / "subumbra.json.proposed"
+        manifest_path = output_dir / "manifest.yaml.proposed"
         env_path = output_dir / ".env.bootstrap.proposed"
 
         write_json_output(manifest_path, manifest, args.force)

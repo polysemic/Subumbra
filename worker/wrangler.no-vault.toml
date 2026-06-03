@@ -28,7 +28,7 @@ head_sampling_rate = 1
 # These are NOT defined here — they live in CF Secrets and are injected at
 # runtime as env bindings. Listing them here for documentation only:
 #
-#   SUBUMBRA_ADAPTER_TOKENS — JSON token map, set by bootstrap
+#   SUBUMBRA_CONSUMER_TOKENS — JSON token map, set by bootstrap
 #   SUBUMBRA_HMAC_KEY       — HMAC signing key, set by bootstrap
 #   SUBUMBRA_SETUP_TOKEN    — transient bootstrap-time setup token
 #

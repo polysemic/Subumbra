@@ -87,7 +87,7 @@ Lite passes (narrow scope, lower token cost):
   authz-worker-lite   Worker adapter/key/policy boundaries
   ssrf-worker-lite    Worker target_url validation and upstream routing
   ssrf-proxy-lite     Proxy transparent route target construction
-  keys-auth-lite      Keys service adapter token and HMAC validation
+  keys-auth-lite      Keys service consumer token and HMAC validation
   response-injection-lite  Worker response handling and deny_patterns
   ui-auth-lite        UI dashboard token and read-only API access
 

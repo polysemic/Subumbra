@@ -36,7 +36,7 @@
       <div class="section-title">Usage</div>
       <div class="field"><div class="field__label">Requests</div><div class="field__value">{{ '{:,}'.format(selected.requests) }} <span style="color:var(--text-dim)">· {{ selected.rpm }}/min cap</span></div></div>
       <div class="field"><div class="field__label">Last used</div><div class="field__value">{{ selected.lastUsed }}</div></div>
-      <div class="field"><div class="field__label">Adapters</div>
+      <div class="field"><div class="field__label">Consumers</div>
         <div class="field__value" style="display:flex;gap:4px;flex-wrap:wrap">
           {% for a in selected.adapters %}<span class="tag">{{ a }}</span>{% endfor %}
         </div>
@@ -81,7 +81,7 @@
       <div class="field">
         <div class="field__label">Adapter allowlist</div>
         <div class="field__value" style="display:flex;gap:4px;flex-wrap:wrap">
-          {% for a in selected.adapters %}<a class="tag" href="/adapters?select={{ a }}">{{ a }}</a>{% endfor %}
+          {% for a in selected.adapters %}<a class="tag" href="/consumers?select={{ a }}">{{ a }}</a>{% endfor %}
           {% if not selected.adapters %}<span style="color:var(--text-dim)">no adapter restriction</span>{% endif %}
         </div>
       </div>

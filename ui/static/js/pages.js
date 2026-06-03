@@ -152,19 +152,19 @@ function initSidebar() {
   });
 }
 
-/* ── Select rows (key/SSH/policy/adapter navigation) ────────────
-   Rows and cards that carry a select-target attribute navigate to
+/* ── Select rows (key/SSH/policy/consumer navigation) ───────────
+   Rows and cards that carry a select-target attribute navijanus to
    ?select=<id> on click so the server renders the drawer pre-opened.
    Attribute map:
      [data-key-id]      → /vault?select=  (API and SSH tables)
      [data-policy]      → /policies?select=
-     [data-adapter-id]  → /adapters?select=
+     [data-consumer-id] → /consumers?select=
    ───────────────────────────────────────────────────────────── */
 function initSelectRows() {
   const map = [
     { sel: "[data-key-id]",     param: (el) => el.dataset.keyId },
     { sel: "[data-policy]",     param: (el) => el.dataset.policy },
-    { sel: "[data-adapter-id]", param: (el) => el.dataset.adapterId },
+    { sel: "[data-consumer-id]", param: (el) => el.dataset.consumerId },
   ];
   map.forEach(({ sel, param }) => {
     document.querySelectorAll(sel).forEach((el) => {
@@ -328,9 +328,9 @@ function initActions() {
       case "import-env":      SubToast.show("Guided .env import lands in Q4 — see Upcoming", { sev: "info" }); return;
       case "import-ssh":      SubToast.show("Passphrase-protected import is a follow-up — use --add-ssh-key for now", { sev: "info" }); return;
       case "generate-ssh":    SubToast.show("Generate via the CLI: ./bootstrap.sh --add-ssh-key <id>", { sev: "info" }); return;
-      case "add-adapter":     SubToast.show("Add adapter via CLI: ./bootstrap.sh --add-adapter <name>", { sev: "info" }); return;
-      case "rotate-adapter":  return _stub(btn, "rotate-adapter");
-      case "revoke-adapter":  return _stub(btn, "revoke-adapter");
+      case "add-consumer":     SubToast.show("Add adapter via CLI: ./bootstrap.sh --add-consumer <name>", { sev: "info" }); return;
+      case "rotate-consumer":  return _stub(btn, "rotate-consumer");
+      case "revoke-consumer":  return _stub(btn, "revoke-consumer");
       case "pause-key":       return _stubKey(btn, "pause",  Api.pauseKey);
       case "rotate-key":      return _stub(btn, "rotate-key");
       case "revoke-key":      return _confirmRevoke(btn);
@@ -601,7 +601,7 @@ function fillLockAllModal(modal, sess) {
 
   stats.innerHTML = `
     <div style="padding:10px 12px;background:var(--sunken);border:1px solid var(--border);border-radius:var(--r)">
-      <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-dim);font-weight:600">Adapters affected</div>
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-dim);font-weight:600">Consumers affected</div>
       <div style="font-size:20px;font-weight:500;margin-top:4px">${adapters.length}</div>
       <div class="mono" style="font-size:10px;color:var(--text-muted);margin-top:2px">${_esc(adapters.join(", "))}</div>
     </div>
@@ -665,7 +665,7 @@ function initLiveData() {
       tb.innerHTML = (r.body.recent_log || []).slice(0, 50).map(e => `
         <tr>
           <td class="ts">${_esc(e.date || "")} · ${_esc(e.ts || "")}</td>
-          <td class="mono">${_esc(e.adapter_id || e.adapter || "")}</td>
+          <td class="mono">${_esc(e.consumer_id || e.adapter || "")}</td>
           <td><span class="tag" style="font-size:10px">${_esc(e.method || "POST")}</span></td>
           <td class="mono" style="color:var(--text-muted);font-size:11px">${_esc(e.endpoint || "")}</td>
           <td class="mono">${_esc(e.key_id || e.keyId || "")}</td>

@@ -1,4 +1,4 @@
-adapter_id: github
+consumer_id: github
 display_name: GitHub Actions
 category: automation
 docs_path: docs/operator-guide.md
@@ -11,7 +11,7 @@ config_format:
   target: GitHub repository or organization secrets
   fields:
     - name: SUBUMBRA_ACCESS_TOKEN
-      value: "{adapter_token}"
+      value: "{consumer_token}"
       note: "Store as a GitHub Actions secret and pass to your workflow job"
     - name: SUBUMBRA_BASE_URL
       value: "http://subumbra-proxy:8090/t/{key_id}"

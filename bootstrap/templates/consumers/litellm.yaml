@@ -1,4 +1,4 @@
-adapter_id: litellm
+consumer_id: litellm
 display_name: LiteLLM
 category: llm_gateway
 docs_path: docs/apps/litellm/

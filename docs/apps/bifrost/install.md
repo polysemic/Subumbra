@@ -21,14 +21,14 @@ Use the Docker-internal service address from app containers on `subumbra-net`.
 
 Bifrost now uses:
 
-- a shared Bifrost adapter token as the credential value presented to
+- a shared Bifrost consumer token as the credential value presented to
   `subumbra-proxy`
 - the requested Subumbra `key_id` embedded in each provider `base_url`
 
 For the single-provider OpenAI path:
 
 ```text
-BIFROST_SUBUMBRA_TOKEN=<subumbra adapter token>
+BIFROST_SUBUMBRA_TOKEN=<subumbra consumer token>
 network_config.base_url=http://subumbra-proxy:8090/t/openai_prod
 ```
 
@@ -55,7 +55,7 @@ Expected proxy health:
 The single-provider fresh install flow only requires:
 
 ```text
-BIFROST_SUBUMBRA_TOKEN=<subumbra adapter token>
+BIFROST_SUBUMBRA_TOKEN=<subumbra consumer token>
 ```
 
 The promoted JSON template carries the target `key_id` in each provider
@@ -70,7 +70,7 @@ The promoted JSON template carries the target `key_id` in each provider
 
 ## Operator Notes
 
-- The Bifrost credential is now the adapter token, not a Subumbra key ID.
+- The Bifrost credential is now the consumer token, not a Subumbra key ID.
 - The target `key_id` lives in `network_config.base_url`.
 - OpenAI uses bare `.../t/openai_prod`, not `.../t/openai_prod/v1`, because
   Bifrost appends the provider path itself.
@@ -79,12 +79,12 @@ The promoted JSON template carries the target `key_id` in each provider
 
 ## Fail-Closed Check
 
-Bifrost with an invalid adapter token should fail closed when it attempts to
+Bifrost with an invalid consumer token should fail closed when it attempts to
 route through `subumbra-proxy`.
 
 ## Operator Checklist
 
 - [ ] Subumbra proxy health returns `{"status":"ok","worker_auth":"ok"}`
-- [ ] `BIFROST_SUBUMBRA_TOKEN` is set to the Bifrost adapter token
+- [ ] `BIFROST_SUBUMBRA_TOKEN` is set to the Bifrost consumer token
 - [ ] `network_config.base_url` embeds the intended Subumbra `key_id`
 - [ ] Bifrost UI returns HTTP 200 at the configured host port

@@ -844,17 +844,17 @@ If the IDs exist but the secrets are gone, the practical choices are:
 - `data/cf-resources.json` tracks created IDs
 - `./bootstrap.sh --nuke-cloudflare` tears them down
 
-## 12. Gate approve/deny bypass
+## 12. Janus approve/deny bypass
 
-Gate approval links must stay outside the normal Worker service-token Access
+Janus approval links must stay outside the normal Worker service-token Access
 policy so a browser notification can open them directly, but the bypass must be
 as narrow as possible.
 
-Subumbra's Gate day-2 path provisions path-scoped self-hosted Access apps only
+Subumbra's Janus day-2 path provisions path-scoped self-hosted Access apps only
 for:
 
-- `/gate/approve/*`
-- `/gate/deny/*`
+- `/janus/approve/*`
+- `/janus/deny/*`
 
 Those apps receive `decision: bypass` policies. All other Worker routes stay on
 the existing service-token model.
@@ -862,7 +862,7 @@ the existing service-token model.
 Use:
 
 ```bash
-./bootstrap.sh --update-gate
+./bootstrap.sh --update-janus
 ```
 
 ---

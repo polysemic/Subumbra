@@ -20,7 +20,7 @@
   <script src="{{ url_for('static', filename='js/api.js') }}" defer></script>
   <script src="{{ url_for('static', filename='js/pages.js') }}" defer></script>
 </head>
-<body data-page="{{ active }}" data-demo="{{ '1' if data.health.demo else '0' }}" data-gate-vapid-public-key="{{ gate_vapid_public_key }}">
+<body data-page="{{ active }}" data-demo="{{ '1' if data.health.demo else '0' }}" data-gate-vapid-public-key="{{ janus_vapid_public_key }}">
 
 <div class="shell">
 
@@ -101,15 +101,15 @@
           </span>
         </a>
         {% if data.gate is not none %}
-          {% set gate_pending = data.gate.pending_count|default(0) %}
-          {% set gate_subs = data.gate.subscription_count|default(0) %}
+          {% set janus_pending = data.gate.pending_count|default(0) %}
+          {% set janus_subs = data.gate.subscription_count|default(0) %}
           <a href="/audit" id="janusIndicator"
-             class="gate-indicator {{ 'has-pending' if gate_pending > 0 else '' }}"
-             title="Janus — {{ gate_pending }} pending · {{ gate_subs }} subscriber{{ 's' if gate_subs != 1 else '' }}">
+             class="gate-indicator {{ 'has-pending' if janus_pending > 0 else '' }}"
+             title="Janus — {{ janus_pending }} pending · {{ janus_subs }} subscriber{{ 's' if janus_subs != 1 else '' }}">
             <span class="gate-dot"></span>
             <span class="janus-label">Janus</span>
-            {% if gate_pending > 0 %}<span class="janus-pending">{{ gate_pending }}</span>{% endif %}
-            <span class="janus-subs" title="{{ gate_subs }} subscriber{{ 's' if gate_subs != 1 else '' }}">{{ gate_subs }}</span>
+            {% if janus_pending > 0 %}<span class="janus-pending">{{ janus_pending }}</span>{% endif %}
+            <span class="janus-subs" title="{{ janus_subs }} subscriber{{ 's' if janus_subs != 1 else '' }}">{{ janus_subs }}</span>
           </a>
         {% endif %}
         <button class="top__icon" title="Command palette (⌘K)">⌘K</button>

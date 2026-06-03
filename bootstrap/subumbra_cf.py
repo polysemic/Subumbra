@@ -251,7 +251,7 @@ def _b64url_no_pad(value: bytes) -> str:
     return base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
 
 
-def _generate_gate_vapid_material() -> tuple[str, str]:
+def _generate_janus_vapid_material() -> tuple[str, str]:
     private_key = ec.generate_private_key(ec.SECP256R1())
     numbers = private_key.private_numbers()
     public_numbers = numbers.public_numbers
@@ -269,17 +269,17 @@ def _generate_gate_vapid_material() -> tuple[str, str]:
     return json.dumps(jwk, separators=(",", ":")), _b64url_no_pad(public_key)
 
 
-def _ensure_gate_access_bypass(cf_creds: dict[str, str], worker_host: str) -> None:
+def _ensure_janus_access_bypass(cf_creds: dict[str, str], worker_host: str) -> None:
     manifest = _load_cf_resources()
     manifest_changed = False
     action_specs = [
-        ("approve", "/gate/approve/*"),
-        ("deny", "/gate/deny/*"),
+        ("approve", "/janus/approve/*"),
+        ("deny", "/janus/deny/*"),
     ]
     for action, path in action_specs:
-        app_id_key = f"gate_{action}_access_app_id"
-        policy_id_key = f"gate_{action}_access_policy_id"
-        app_name = _default_cf_gate_access_app_name(cf_creds["CF_WORKER_NAME"], action)
+        app_id_key = f"janus_{action}_access_app_id"
+        policy_id_key = f"janus_{action}_access_policy_id"
+        app_name = _default_cf_janus_access_app_name(cf_creds["CF_WORKER_NAME"], action)
         domain = f"{worker_host}{path}"
         access_app_id = str(manifest.get(app_id_key, "")).strip()
         if not access_app_id or not _cf_object_exists(
@@ -293,11 +293,11 @@ def _ensure_gate_access_bypass(cf_creds: dict[str, str], worker_host: str) -> No
                 app_name,
                 domain,
             )
-            ok(f"Created Cloudflare Access gate app {access_app_id} for {domain}")
+            ok(f"Created Cloudflare Access janus app {access_app_id} for {domain}")
             manifest[app_id_key] = access_app_id
             manifest_changed = True
         else:
-            info(f"Reusing tracked Cloudflare Access gate app {access_app_id} for {domain}")
+            info(f"Reusing tracked Cloudflare Access janus app {access_app_id} for {domain}")
 
         access_policy_id = str(manifest.get(policy_id_key, "")).strip()
         if not access_policy_id or not _cf_object_exists(
@@ -313,11 +313,11 @@ def _ensure_gate_access_bypass(cf_creds: dict[str, str], worker_host: str) -> No
                 decision="bypass",
                 include=[{"everyone": {}}],
             )
-            ok(f"Created Cloudflare Access gate bypass policy {access_policy_id} for {domain}")
+            ok(f"Created Cloudflare Access janus bypass policy {access_policy_id} for {domain}")
             manifest[policy_id_key] = access_policy_id
             manifest_changed = True
         else:
-            info(f"Reusing tracked Cloudflare Access gate policy {access_policy_id} for {domain}")
+            info(f"Reusing tracked Cloudflare Access janus policy {access_policy_id} for {domain}")
 
     if manifest_changed:
         _write_cf_resources(manifest)
@@ -437,7 +437,7 @@ def _default_cf_service_token_name(cf_worker_name: str) -> str:
     return f"{_sanitize_cf_name_component(cf_worker_name)}-service-token"
 
 
-def _default_cf_gate_access_app_name(cf_worker_name: str, action: str) -> str:
+def _default_cf_janus_access_app_name(cf_worker_name: str, action: str) -> str:
     return f"{_sanitize_cf_name_component(cf_worker_name)}-gate-{action}"
 
 
@@ -1661,7 +1661,7 @@ def _publish_structured_kv(
         )
 
         # Newly-added entries (key_id absent from existing_live_key_entries) may not
-        # propagate immediately after wrangler bulk put. Write them directly via the
+        # propajanus immediately after wrangler bulk put. Write them directly via the
         # management API (immediately consistent) to guarantee the Worker can see them.
         new_key_ids = {
             key_id
@@ -1708,7 +1708,7 @@ def _publish_structured_kv(
 
 def deploy_worker(
     cf_creds: dict[str, str],
-    adapter_tokens: dict[str, str],
+    consumer_tokens: dict[str, str],
     subumbra_hmac_key: str,
     management_token: str,
     setup_token: str,
@@ -1723,7 +1723,7 @@ def deploy_worker(
       3. wrangler secret delete MASTER_DECRYPTION_KEY (V1 cleanup, best-effort)
       4. wrangler secret delete WORKER_PRIVATE_KEY (legacy cleanup, best-effort)
       5. wrangler secret delete WORKER_KEY_FINGERPRINT (legacy cleanup, best-effort)
-      6. wrangler secret put SUBUMBRA_ADAPTER_TOKENS
+      6. wrangler secret put SUBUMBRA_CONSUMER_TOKENS
       7. wrangler secret put SUBUMBRA_HMAC_KEY
       8. wrangler secret put SUBUMBRA_MANAGEMENT_TOKEN
       9. wrangler secret put SUBUMBRA_SETUP_TOKEN
@@ -1787,20 +1787,20 @@ def deploy_worker(
             else:
                 info(f"{secret_name} not present — already clean")
 
-        # ── push SUBUMBRA_ADAPTER_TOKENS ─────────────────────────────────────
-        step("Pushing SUBUMBRA_ADAPTER_TOKENS to CF Secrets")
-        adapter_tokens_json = json.dumps(
-            [{"id": k, "token": v} for k, v in adapter_tokens.items()],
+        # ── push SUBUMBRA_CONSUMER_TOKENS ─────────────────────────────────────
+        step("Pushing SUBUMBRA_CONSUMER_TOKENS to CF Secrets")
+        consumer_tokens_json = json.dumps(
+            [{"id": k, "token": v} for k, v in consumer_tokens.items()],
             separators=(",", ":"),
         )
         _run(
-            ["wrangler", "secret", "put", "SUBUMBRA_ADAPTER_TOKENS",
+            ["wrangler", "secret", "put", "SUBUMBRA_CONSUMER_TOKENS",
              "--name", worker_name],
             cwd=work_dir,
             env=env,
-            input_text=adapter_tokens_json + "\n",
+            input_text=consumer_tokens_json + "\n",
         )
-        ok("SUBUMBRA_ADAPTER_TOKENS pushed")
+        ok("SUBUMBRA_CONSUMER_TOKENS pushed")
 
         # ── push SUBUMBRA_HMAC_KEY ────────────────────────────────────────────
         step("Pushing SUBUMBRA_HMAC_KEY to CF Secrets")
@@ -1845,12 +1845,12 @@ def deploy_worker(
 def run_push_registry() -> None:
     cf_creds = _get_push_registry_cf_creds()
     if not KEYS_FILE.exists():
-        die("keys.json not found — cannot publish structured KV")
+        die("endpoint.json not found — cannot publish structured KV")
 
     try:
         keys_payload = json.loads(KEYS_FILE.read_text())
     except (json.JSONDecodeError, OSError) as exc:
-        die(f"Cannot read keys.json: {exc}")
+        die(f"Cannot read endpoint.json: {exc}")
     for key_id, record in keys_payload.items():
         _require_fat_record_fields(record, key_id)
         _verify_embedded_policy_hash(record, key_id)
@@ -1858,7 +1858,7 @@ def run_push_registry() -> None:
             continue
         target_host = record.get("target_host")
         if not isinstance(target_host, str) or not target_host:
-            die(f"keys.json record {key_id!r} missing target_host")
+            die(f"endpoint.json record {key_id!r} missing target_host")
 
     step("Publishing structured KV entries to Cloudflare KV")
     try:
@@ -1873,7 +1873,7 @@ def run_deploy_worker() -> None:
     """
     Redeploy the Cloudflare Worker code with the live PROVIDER_REGISTRY_KV
     binding injected from data/kv-config.json. Existing Worker secrets
-    (SUBUMBRA_ADAPTER_TOKENS, SUBUMBRA_HMAC_KEY, SUBUMBRA_MANAGEMENT_TOKEN,
+    (SUBUMBRA_CONSUMER_TOKENS, SUBUMBRA_HMAC_KEY, SUBUMBRA_MANAGEMENT_TOKEN,
     SUBUMBRA_VAULT) and SQLite DO state are preserved — only the script
     bundle and its KV binding are updated. Use this after pulling a round
     that changes worker/src/worker.js (./bootstrap.sh --upgrade rebuilds
@@ -1992,33 +1992,33 @@ def run_update_ui_auth() -> None:
 
 
 def run_update_gate() -> None:
-    """Day-2: ensure Gate DO secrets, VAPID public key, and narrow Access bypass apps."""
+    """Day-2: ensure Janus DO secrets, VAPID public key, and narrow Access bypass apps."""
     print(BANNER, flush=True)
-    step("Ensure Gate runtime secrets and Access bypass")
+    step("Ensure Janus runtime secrets and Access bypass")
     cf_creds = _get_push_registry_cf_creds()
     worker_url = _read_env_file_value(HOST_ENV_FILE, "CF_WORKER_URL").strip()
     worker_host = urllib.parse.urlparse(worker_url).hostname or ""
     if not worker_host:
         die(
-            "Cannot configure gate runtime without CF_WORKER_URL in host .env.\n"
-            "  Set CF_WORKER_URL first, then rerun ./bootstrap.sh --update-gate."
+            "Cannot configure janus runtime without CF_WORKER_URL in host .env.\n"
+            "  Set CF_WORKER_URL first, then rerun ./bootstrap.sh --update-janus."
         )
 
     manifest = _load_cf_resources()
-    gate_public_key = _read_env_file_value(HOST_ENV_FILE, "SUBUMBRA_GATE_VAPID_PUBLIC_KEY").strip()
-    if not manifest.get("gate_secrets_initialized") or not gate_public_key:
-        gate_hmac_key = secrets.token_urlsafe(32)
-        gate_private_jwk, gate_public_key = _generate_gate_vapid_material()
-        step("Pushing SUBUMBRA_GATE_HMAC_KEY to CF Secrets")
-        _put_worker_secret(cf_creds, "SUBUMBRA_GATE_HMAC_KEY", gate_hmac_key)
-        step("Pushing SUBUMBRA_GATE_VAPID_PRIVATE_JWK to CF Secrets")
-        _put_worker_secret(cf_creds, "SUBUMBRA_GATE_VAPID_PRIVATE_JWK", gate_private_jwk)
-        _sync_host_env_file({"SUBUMBRA_GATE_VAPID_PUBLIC_KEY": gate_public_key})
-        manifest["gate_secrets_initialized"] = True
+    janus_public_key = _read_env_file_value(HOST_ENV_FILE, "SUBUMBRA_JANUS_VAPID_PUBLIC_KEY").strip()
+    if not manifest.get("janus_secrets_initialized") or not janus_public_key:
+        janus_hmac_key = secrets.token_urlsafe(32)
+        janus_private_jwk, janus_public_key = _generate_janus_vapid_material()
+        step("Pushing SUBUMBRA_JANUS_HMAC_KEY to CF Secrets")
+        _put_worker_secret(cf_creds, "SUBUMBRA_JANUS_HMAC_KEY", janus_hmac_key)
+        step("Pushing SUBUMBRA_JANUS_VAPID_PRIVATE_JWK to CF Secrets")
+        _put_worker_secret(cf_creds, "SUBUMBRA_JANUS_VAPID_PRIVATE_JWK", janus_private_jwk)
+        _sync_host_env_file({"SUBUMBRA_JANUS_VAPID_PUBLIC_KEY": janus_public_key})
+        manifest["janus_secrets_initialized"] = True
         _write_cf_resources(manifest)
-        ok("Gate secrets initialized and public key written to host .env")
+        ok("Janus secrets initialized and public key written to host .env")
     else:
-        info("Gate secrets already initialized; reusing existing host .env public key")
+        info("Janus secrets already initialized; reusing existing host .env public key")
 
-    _ensure_gate_access_bypass(cf_creds, worker_host)
-    ok("Gate Access bypass paths ensured")
+    _ensure_janus_access_bypass(cf_creds, worker_host)
+    ok("Janus Access bypass paths ensured")

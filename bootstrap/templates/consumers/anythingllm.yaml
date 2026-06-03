@@ -1,4 +1,4 @@
-adapter_id: anythingllm
+consumer_id: anythingllm
 display_name: AnythingLLM
 category: llm_frontend
 docs_path: docs/apps/anythingllm/
@@ -11,10 +11,10 @@ config_format:
   target: .env   # AnythingLLM deployment directory
   fields:
     - name: GENERIC_OPEN_AI_API_KEY
-      value: "{adapter_token}"
+      value: "{consumer_token}"
       note: "Adapter token — not a real OpenAI key"
     - name: GENERIC_OPEN_AI_EMBEDDING_API_KEY
-      value: "{adapter_token}"
+      value: "{consumer_token}"
       note: "Same adapter token for embedding requests"
     - name: GENERIC_OPEN_AI_BASE_PATH
       value: "http://subumbra-proxy:8090/t/{key_id}/v1"

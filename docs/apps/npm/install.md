@@ -51,7 +51,7 @@ Subumbra relies on npm **Granular Access Tokens (GAT)** to interact with the reg
 
 ## Step 2: Add the NPM Declaration to your Manifest
 
-Open `subumbra.yaml` (either in `/opt/subumbra/subumbra.yaml` on your VPS or in your local daily-driver `Subumbra-Local` workspace) and paste the following key declaration into your `keys:` section.
+Open `manifest.yaml` (either in `/opt/subumbra/manifest.yaml` on your VPS or in your local daily-driver `Subumbra-Local` workspace) and paste the following key declaration into your `keys:` section.
 
 ```yaml
 keys:
@@ -101,8 +101,8 @@ NPM_TOKEN=npm_YOUR_ACCESS_TOKEN_HERE ./bootstrap.sh --provision npm_publish
 *(Replace `npm_YOUR_ACCESS_TOKEN_HERE` with your actual Granular Access Token generated in Step 1).*
 
 **What this did:**
-- Loaded your `subumbra.yaml` definition for `npm_publish`.
-- Read the token purely in RAM, encrypted it, appended it to `keys.json`, pushed it to Cloudflare KV, and cleared the process memory.
+- Loaded your `manifest.yaml` definition for `npm_publish`.
+- Read the token purely in RAM, encrypted it, appended it to `endpoint.json`, pushed it to Cloudflare KV, and cleared the process memory.
 - **None of your other active keys or credentials were touched or altered!**
 
 ---
@@ -143,7 +143,7 @@ npm publish --access public
 
 To enable secure automated package publishing from your repository workflows (like GitHub Actions) using the Subumbra deployment on your VPS:
 
-### 1. Export the production adapter token
+### 1. Export the production consumer token
 Run the show command on your VPS:
 ```bash
 ./bootstrap.sh --show npm
@@ -194,8 +194,8 @@ When your npm Granular Access Token expires or needs to be rotated, you can upda
 
 **Workflow:**
 - You will be prompted in the terminal to enter and confirm your new `npm_GAT...` token (which is held in RAM only).
-- Subumbra encrypts it under your existing vault key pair, writes the update back to `keys.json`, and completes the rotation.
-- **Your active adapter tokens and `.npmrc` configurations on local laptops and CI pipelines remain exactly the same!** No config files need to be touched.
+- Subumbra encrypts it under your existing vault key pair, writes the update back to `endpoint.json`, and completes the rotation.
+- **Your active consumer tokens and `.npmrc` configurations on local laptops and CI pipelines remain exactly the same!** No config files need to be touched.
 
 ---
 
@@ -211,7 +211,7 @@ To give you maximum architectural control, Subumbra separates core routing const
 |---|---|---|
 | `policy_id`, `protocol`, `capability_class`, `source`, `target` | **Mandatory** | Required to identify, classify, and route calls at the Worker boundary. |
 | `auth.scheme` | **Mandatory** | Declares how to inject the decrypted credential (e.g., `bearer`). |
-| `allow.adapters` | **Mandatory** | Only adapter names in this list can utilize the key. |
+| `allow.consumers` | **Mandatory** | Only adapter names in this list can utilize the key. |
 | `allow.methods` | **Mandatory** | List of accepted HTTP verbs (must include `GET` and `PUT` for npm). |
 | `allow.path_prefixes` | **Mandatory** | The URL path prefix allowed to route through (must start with `/`). |
 | `allow.content_types` | **Mandatory** | Must include `application/json` for package uploads. |
@@ -227,7 +227,7 @@ To give you maximum architectural control, Subumbra separates core routing const
 
 ## 🛡️ Human-in-the-Loop: Adding Janus (Approval Gate) to the Workflow
 
-**Janus** is Subumbra's per-call approval gate Durable Object (`SubumbraGate`). When active, high-risk requests (such as package publishes) are **held in a pending state** at the Worker boundary until you review and approve them via your secure Subumbra dashboard.
+**Janus** is Subumbra's per-call approval gate Durable Object (`SubumbraJanus`). When active, high-risk requests (such as package publishes) are **held in a pending state** at the Worker boundary until you review and approve them via your secure Subumbra dashboard.
 
 For everyday development, you only want to gate **actual package releases** (HTTP `PUT` requests) while allowing metadata queries (`GET`) to run instantly without human intervention.
 

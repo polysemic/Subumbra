@@ -68,6 +68,6 @@ requests.
 
 - `ENABLE_PERSISTENT_CONFIG=False` must be set in OpenWebUI's `.env` for
   env-defined config to remain authoritative.
-- The app credential is now the adapter token. Do not use plain key IDs in the
+- The app credential is now the consumer token. Do not use plain key IDs in the
   API key field.
 - The target `key_id` always lives in the proxy path.

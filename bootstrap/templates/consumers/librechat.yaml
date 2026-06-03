@@ -1,4 +1,4 @@
-adapter_id: librechat
+consumer_id: librechat
 display_name: LibreChat
 category: llm_frontend
 docs_path: docs/apps/librechat/

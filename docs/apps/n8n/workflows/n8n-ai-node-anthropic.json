@@ -74,6 +74,6 @@
       "url": "http://subumbra-proxy:8090/t/anthropic_prod"
     },
     "base_url": "http://subumbra-proxy:8090/t/anthropic_prod",
-    "note": "Set the Anthropic credential Base URL / Custom API URL to http://subumbra-proxy:8090/t/anthropic_prod and the API key to the n8n adapter token. The node appends /v1/messages after the path-carried key_id."
+    "note": "Set the Anthropic credential Base URL / Custom API URL to http://subumbra-proxy:8090/t/anthropic_prod and the API key to the n8n consumer token. The node appends /v1/messages after the path-carried key_id."
   }
 }

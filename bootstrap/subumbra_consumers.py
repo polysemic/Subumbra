@@ -10,7 +10,7 @@ from subumbra_core import (
     _WIZARD_SECRETS,
     _load_keys_payload_or_die,
     _manifest_die,
-    _policy_adapter_ids,
+    _policy_consumer_ids,
     _prompt_hidden_line,
     _read_env_file_value,
     _write_keys_payload,
@@ -123,11 +123,11 @@ def _normalize_policy_doc(doc: dict[str, Any], source: str) -> dict[str, Any]:
         _policy_die(source, "allow must be an object")
     adapters = allow.get("adapters")
     if not isinstance(adapters, list) or not adapters:
-        _policy_die(source, "allow.adapters must be a non-empty array")
+        _policy_die(source, "allow.consumers must be a non-empty array")
     for idx, adapter in enumerate(adapters):
-        adapter = _policy_require_string(adapter, source, f"allow.adapters[{idx}]")
-        if not ADAPTER_ID_RE.fullmatch(adapter):
-            _policy_die(source, f"allow.adapters[{idx}] {adapter!r} is invalid")
+        adapter = _policy_require_string(adapter, source, f"allow.consumers[{idx}]")
+        if not CONSUMER_ID_RE.fullmatch(adapter):
+            _policy_die(source, f"allow.consumers[{idx}] {adapter!r} is invalid")
     methods = allow.get("methods")
     if not isinstance(methods, list) or not methods:
         _policy_die(source, "allow.methods must be a non-empty array")
@@ -219,7 +219,7 @@ def _normalize_policy_doc(doc: dict[str, Any], source: str) -> dict[str, Any]:
     if velocity is not None:
         if not isinstance(velocity, dict):
             _policy_die(source, "velocity must be an object")
-        _velocity_fields = {"adapter_rpm", "key_rpm", "breaker_failures", "breaker_cooldown_seconds"}
+        _velocity_fields = {"consumer_rpm", "key_rpm", "breaker_failures", "breaker_cooldown_seconds"}
         for _vk, _vv in velocity.items():
             if _vk not in _velocity_fields:
                 _policy_die(source, f"velocity.{_vk} is not a recognized field")
@@ -342,7 +342,7 @@ def _load_and_verify_catalog() -> dict[str, dict]:
             die(f"Template {name!r} top-level YAML value must be an object")
         result[name] = template_doc
 
-    adapter_result: dict[str, dict] = {}
+    consumer_result: dict[str, dict] = {}
     for entry in catalog_doc.get("adapters", []):
         name = entry["name"]
         file_path = CATALOG_DIR / entry["file"]
@@ -358,10 +358,10 @@ def _load_and_verify_catalog() -> dict[str, dict]:
             die(f"Adapter template {name!r} YAML is invalid: {exc}")
         if not isinstance(template_doc, dict):
             die(f"Adapter template {name!r} top-level YAML value must be an object")
-        adapter_result[name] = template_doc
+        consumer_result[name] = template_doc
 
     global _ADAPTER_CATALOG_CACHE
-    _ADAPTER_CATALOG_CACHE = adapter_result
+    _ADAPTER_CATALOG_CACHE = consumer_result
     _CATALOG_CACHE = result
     return _CATALOG_CACHE
 
@@ -484,11 +484,11 @@ def _load_keys_payload_if_present() -> dict[str, dict[str, Any]]:
     return _load_keys_payload_or_die()
 
 
-def _format_adapter_line(adapter_ids: Iterable[str]) -> str:
-    return "[" + ", ".join(adapter_ids) + "]"
+def _format_consumer_line(consumer_ids: Iterable[str]) -> str:
+    return "[" + ", ".join(consumer_ids) + "]"
 
 
-def _rewrite_manifest_adapters_line(target_key_id: str, adapter_ids: list[str]) -> tuple[bool, str]:
+def _rewrite_manifest_adapters_line(target_key_id: str, consumer_ids: list[str]) -> tuple[bool, str]:
     """Best-effort manifest sync for canonical single-line YAML adapter lists only."""
     try:
         manifest_text = MANIFEST_FILE.read_text(encoding="utf-8")
@@ -509,7 +509,7 @@ def _rewrite_manifest_adapters_line(target_key_id: str, adapter_ids: list[str]) 
     if adapters_match is None:
         return False, "adapters line is not in canonical single-line form"
 
-    replacement = adapters_match.group(1) + _format_adapter_line(adapter_ids)
+    replacement = adapters_match.group(1) + _format_consumer_line(consumer_ids)
     rewritten_stanza = adapters_pattern.sub(replacement, stanza_text, count=1)
     rewritten_manifest = (
         manifest_text[:stanza_match.start()] +
@@ -526,8 +526,8 @@ def _rewrite_manifest_adapters_line(target_key_id: str, adapter_ids: list[str]) 
 
 def _prompt_manifest_sync_after_adapter_mutation(target_key_id: str, adapters: list[str]) -> None:
     prompt = (
-        f"  Deployed record for {target_key_id!r} changed. Also update subumbra.yaml "
-        f"adapters line to {_format_adapter_line(adapters)}? [y/N]: "
+        f"  Deployed record for {target_key_id!r} changed. Also update manifest.yaml "
+        f"adapters line to {_format_consumer_line(adapters)}? [y/N]: "
     )
     if not sys.stdin.isatty():
         warn("Manifest sync prompt unavailable without a TTY; manual manifest update required.")
@@ -573,15 +573,15 @@ def _normalize_manifest_record(record: Any, idx: int) -> dict[str, Any]:
         _manifest_die(f"{source}.adapters must be an array")
     normalized_adapters: list[str] = []
     seen_adapters: set[str] = set()
-    for adapter_idx, adapter_id in enumerate(adapters):
-        if not isinstance(adapter_id, str) or not ADAPTER_ID_RE.fullmatch(adapter_id):
-            _manifest_die(f"{source}.adapters[{adapter_idx}] is invalid")
-        if adapter_id in BUILTIN_ADAPTER_IDS:
-            _manifest_die(f"{source}.adapters[{adapter_idx}] {adapter_id!r} is reserved")
-        if adapter_id in seen_adapters:
+    for consumer_idx, consumer_id in enumerate(adapters):
+        if not isinstance(consumer_id, str) or not CONSUMER_ID_RE.fullmatch(consumer_id):
+            _manifest_die(f"{source}.adapters[{consumer_idx}] is invalid")
+        if consumer_id in BUILTIN_CONSUMER_IDS:
+            _manifest_die(f"{source}.adapters[{consumer_idx}] {consumer_id!r} is reserved")
+        if consumer_id in seen_adapters:
             continue
-        seen_adapters.add(adapter_id)
-        normalized_adapters.append(adapter_id)
+        seen_adapters.add(consumer_id)
+        normalized_adapters.append(consumer_id)
     effective_adapters = _effective_manifest_adapters(normalized_adapters)
 
     unique_vault = record.get("unique_vault")
@@ -694,9 +694,9 @@ def _normalize_manifest_record(record: Any, idx: int) -> dict[str, Any]:
         )
     if normalized_policy.get("source") != "env":
         _manifest_die(f"{source}.policy.source must be 'env' for direct secret bootstrap")
-    if sorted(_policy_adapter_ids(normalized_policy)) != sorted(effective_adapters):
+    if sorted(_policy_consumer_ids(normalized_policy)) != sorted(effective_adapters):
         _manifest_die(
-            f"{source}.policy.allow.adapters does not match adapters for key_id {key_id!r}"
+            f"{source}.policy.allow.consumers does not match consumers for key_id {key_id!r}"
         )
     auth_header, auth_prefix = _auth_metadata_from_policy(normalized_policy, f"{source}.policy")
 
@@ -794,7 +794,7 @@ def _binding_policy_id(key_id: str, allowed_adapters: list[str]) -> str:
 
 
 
-def _mutate_adapter_binding(target_key_id: str, adapter_id: str, *, add: bool) -> None:
+def _mutate_adapter_binding(target_key_id: str, consumer_id: str, *, add: bool) -> None:
     cf_creds = _get_push_registry_cf_creds()
     keys_payload = _load_keys_payload_or_die()
     existing_record = _require_existing_active_record(keys_payload, target_key_id)
@@ -802,21 +802,21 @@ def _mutate_adapter_binding(target_key_id: str, adapter_id: str, *, add: bool) -
     raw_secret = authority["raw_secret"]
 
     policy = json.loads(json.dumps(existing_record["policy"]))
-    current_adapters = _policy_adapter_ids(policy)
+    current_adapters = _policy_consumer_ids(policy)
     if add:
-        if adapter_id not in current_adapters:
-            current_adapters.append(adapter_id)
+        if consumer_id not in current_adapters:
+            current_adapters.append(consumer_id)
     else:
-        if adapter_id not in current_adapters:
-            die(f"adapter_id {adapter_id!r} is not currently bound to key_id {target_key_id!r}")
-        current_adapters = [candidate for candidate in current_adapters if candidate != adapter_id]
+        if consumer_id not in current_adapters:
+            die(f"consumer_id {consumer_id!r} is not currently bound to key_id {target_key_id!r}")
+        current_adapters = [candidate for candidate in current_adapters if candidate != consumer_id]
         if not current_adapters:
-            die(f"adapter mutation would leave key_id {target_key_id!r} with no allowed adapters")
+            die(f"consumer mutation would leave key_id {target_key_id!r} with no allowed consumers")
 
     policy["allow"]["adapters"] = sorted(current_adapters)
     adapters = list(policy["allow"]["adapters"])
     step(
-        f"{'Adding' if add else 'Revoking'} adapter binding via re-encryption path "
+        f"{'Adding' if add else 'Revoking'} consumer binding via re-encryption path "
         f"for key_id {target_key_id}"
     )
     info("policy-hash-baseline mutation detected — re-encryption required")
@@ -828,19 +828,19 @@ def _mutate_adapter_binding(target_key_id: str, adapter_id: str, *, add: bool) -
         adapters=adapters,
     )
     _write_keys_payload(keys_payload)
-    ok(f"Updated {target_key_id} in keys.json")
+    ok(f"Updated {target_key_id} in endpoint.json")
     _publish_after_local_record_update(cf_creds, keys_payload)
 
     if sorted(authority["adapters"]) != sorted(adapters):
         _prompt_manifest_sync_after_adapter_mutation(target_key_id, adapters)
 
 
-def run_add_adapter(target_key_id: str, adapter_id: str) -> None:
-    _mutate_adapter_binding(target_key_id, adapter_id, add=True)
+def run_add_adapter(target_key_id: str, consumer_id: str) -> None:
+    _mutate_adapter_binding(target_key_id, consumer_id, add=True)
 
 
-def run_revoke_adapter(target_key_id: str, adapter_id: str) -> None:
-    _mutate_adapter_binding(target_key_id, adapter_id, add=False)
+def run_revoke_adapter(target_key_id: str, consumer_id: str) -> None:
+    _mutate_adapter_binding(target_key_id, consumer_id, add=False)
 
 
 def run_publish_policy(target_key_id: str) -> None:
@@ -867,7 +867,7 @@ def run_publish_policy(target_key_id: str) -> None:
         updated["revoked"] = False
         keys_payload[target_key_id] = updated
         _write_keys_payload(keys_payload)
-        ok(f"Updated SSH policy for {target_key_id} in keys.json")
+        ok(f"Updated SSH policy for {target_key_id} in endpoint.json")
         _publish_after_local_record_update(cf_creds, keys_payload)
         return
 
@@ -892,7 +892,7 @@ def run_publish_policy(target_key_id: str) -> None:
         )
 
     _write_keys_payload(keys_payload)
-    ok(f"Updated policy for {target_key_id} in keys.json")
+    ok(f"Updated policy for {target_key_id} in endpoint.json")
     _publish_after_local_record_update(cf_creds, keys_payload)
 
 def print_help() -> None:
@@ -903,9 +903,9 @@ Usage: ./bootstrap.sh [OPTIONS]
 
 Options:
   --help, -h                  Show this help message and exit
-  --list-key-ids              List all key IDs defined in the manifest (subumbra.yaml)
-  --list-adapters             List supported integrations with token status and authorized keys
-  --show <adapter_id>         Print paste-ready setup config for a specific integration
+  --list-key-ids              List all key IDs defined in the manifest (manifest.yaml)
+  --list-consumers             List supported integrations with token status and authorized keys
+  --show <consumer_id>         Print paste-ready setup config for a specific integration
   --status                    Compare manifest authority to deployed record state
   --upgrade                   Rebuild images and recreate containers
   --nuke                      Destructive run: destroys existing Cloudflare Vault keypairs
@@ -913,32 +913,32 @@ Options:
   --rotate                    Rotate upstream keys for existing records
   --rotate-npm-token <key_id> Rotate an existing npm_token record in place
   --add-ssh-key <key_id>      Generate and publish a new SSH key for day-2 use
-    --adapters <csv>            Required adapter IDs allowed to sign with the key
+    --consumers <csv>            Required consumer IDs allowed to sign with the key
     --allow-hosts <csv>         Optional hostnames/IPs to resolve into allowed SSH host keys
   --rotate-ssh-key <key_id>   Rotate an existing generated SSH key in place
     --allow-hosts <csv>         Optional hostnames/IPs to replace the current allowed host set
   --revoke-ssh-key <key_id>   Revoke an existing SSH key and delete its live KV entries
-  --push-registry             Push keys.json state directly to Cloudflare KV
+  --push-registry             Push endpoint.json state directly to Cloudflare KV
   --deploy-worker             Redeploy the Cloudflare Worker code (+ KV binding)
                               without rotating secrets. Run this after a round
                               that changes worker/src/worker.js; --upgrade only
                               rebuilds local Docker images.
   --nuke-cloudflare           Delete Cloudflare-managed Tunnel / DNS / Access resources
   --provision <key_id>        Targeted provisioning/repair for a single key
-  --revoke-key <key_id>       Revoke a key (deletes from KV; --offline updates local keys.json only)
-  --add-adapter <key_id>      Add an adapter binding to an existing key
-  --revoke-adapter <key_id>   Revoke an adapter binding from an existing key
-  --publish-policy <key_id>   Republish a key's policy/adapters to KV
+  --revoke-key <key_id>       Revoke a key (deletes from KV; --offline updates local endpoint.json only)
+  --add-consumer <key_id>      Add a consumer binding to an existing key
+  --revoke-consumer <key_id>   Revoke a consumer binding from an existing key
+  --publish-policy <key_id>   Republish a key's policy/consumers to KV
   --session start             Open a session (enables key-fetch for the duration)
     --ttl <duration>            Required. How long the session stays open.
                                 Format: <number><unit>  s=seconds  m=minutes  h=hours  d=days
                                 Examples: 30m  2h  8h  1d
-    --adapters <csv|all>        Adapters to open. Omit or pass 'all' for all.
+    --consumers <csv|all>        Consumers to open. Omit or pass 'all' for all.
     --keys <csv|all>            Keys to allow. Omit or pass 'all' for all.
     --name <label>              Optional human-readable label for this session.
     --max-queries <n>           Optional query cap before the session auto-closes.
     --max-sign-ops <n>          Optional SSH sign cap before the session auto-closes.
-    (If --ttl or --adapters are omitted on a TTY, an interactive wizard starts.)
+    (If --ttl or --consumers are omitted on a TTY, an interactive wizard starts.)
   --session end [session_id]  Close one active session immediately.
     --all                       Close every active session.
     (With multiple sessions on a TTY, omitting session_id shows a picker.)
@@ -1008,8 +1008,8 @@ def print_adapters() -> None:
         if not entries:
             continue
         print(f"  {_ADAPTER_CATEGORY_LABELS.get(cat, cat)}")
-        for entry in sorted(entries, key=lambda e: e.get("display_name", e["adapter_id"])):
-            aid        = entry["adapter_id"]
+        for entry in sorted(entries, key=lambda e: e.get("display_name", e["consumer_id"])):
+            aid        = entry["consumer_id"]
             dname      = entry.get("display_name", aid)
             token_var  = entry.get("default_token_env_var", "")
             token_val  = _read_env_file_value(HOST_ENV_FILE, token_var).strip() if token_var else ""
@@ -1031,23 +1031,23 @@ def print_adapters() -> None:
                 print(f"    {status} {aid:<16} {dname:<20} {token_str}")
         print()
 
-    print("  Run: ./bootstrap.sh --show <adapter_id>  for paste-ready setup")
+    print("  Run: ./bootstrap.sh --show <consumer_id>  for paste-ready setup")
     print()
 
 
-def print_show_adapter(adapter_id: str) -> None:
+def print_show_adapter(consumer_id: str) -> None:
     try:
         catalog = _load_adapter_catalog()
         records = _load_manifest_records()
     except SystemExit:
         sys.exit(1)
 
-    if adapter_id not in catalog:
+    if consumer_id not in catalog:
         known = ", ".join(sorted(catalog)) if catalog else "(none)"
-        die(f"Adapter {adapter_id!r} not found in catalog. Known: {known}")
+        die(f"Adapter {consumer_id!r} not found in catalog. Known: {known}")
 
-    entry      = catalog[adapter_id]
-    dname      = entry.get("display_name", adapter_id)
+    entry      = catalog[consumer_id]
+    dname      = entry.get("display_name", consumer_id)
     cat        = entry.get("category", "")
     cat_label  = _ADAPTER_CATEGORY_LABELS.get(cat, cat)
     docs_path  = entry.get("docs_path", "")
@@ -1065,7 +1065,7 @@ def print_show_adapter(adapter_id: str) -> None:
     primary_key = key_ids[0] if key_ids else "{key_id}"
 
     def sub(val: str) -> str:
-        return val.replace("{adapter_token}", token_val or "{adapter_token}") \
+        return val.replace("{consumer_token}", token_val or "{consumer_token}") \
                   .replace("{key_id}", primary_key)
 
     print(f"\n=== {dname} ===")
@@ -1073,13 +1073,13 @@ def print_show_adapter(adapter_id: str) -> None:
     if docs_path:
         print(f"Guide    : {docs_path}")
     if not token_val:
-        print(f"Status   : not configured — run bootstrap to generate {token_var or 'adapter token'}")
+        print(f"Status   : not configured — run bootstrap to generate {token_var or 'consumer token'}")
     else:
         print(f"Token    : {token_val[:8]}...  (from {token_var})")
     if key_ids:
         print(f"Keys     : {', '.join(key_ids)}")
     else:
-        print("Keys     : (no keys authorized for this adapter in subumbra.yaml)")
+        print("Keys     : (no keys authorized for this adapter in manifest.yaml)")
 
     if not fields:
         print("\n  No config_format fields defined — see the guide above.")
@@ -1101,7 +1101,7 @@ def print_show_adapter(adapter_id: str) -> None:
             # Expand one block per key_id
             for kid in key_ids:
                 def sub_kid(val: str) -> str:
-                    return val.replace("{adapter_token}", token_val or "{adapter_token}") \
+                    return val.replace("{consumer_token}", token_val or "{consumer_token}") \
                               .replace("{key_id}", kid)
                 print(f"  # --- {kid} ---")
                 for f in fields:

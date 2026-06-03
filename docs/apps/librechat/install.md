@@ -42,7 +42,7 @@ Expected proxy health:
 {"status":"ok","worker_auth":"ok"}
 ```
 
-The LibreChat adapter token must already be available to the LibreChat
+The LibreChat consumer token must already be available to the LibreChat
 container.
 
 ## Supported Config Shape
@@ -55,7 +55,7 @@ LibreChat custom endpoints use three files:
 
 For the secure Subumbra path:
 
-- the adapter token is the credential
+- the consumer token is the credential
 - the target `key_id` lives in the path
 - no real provider secret belongs in LibreChat config
 
@@ -100,7 +100,7 @@ Examples from the promoted template:
 - LibreChat custom endpoints are configured in `librechat.yaml`, not in the chat UI.
 - Remove or comment out real direct-provider secrets from `.env` when adopting
   the Subumbra path.
-- The active credential is the LibreChat adapter token. The target provider key
+- The active credential is the LibreChat consumer token. The target provider key
   selection happens in the URL path.
 
 ## Fail-Closed Check
@@ -108,16 +108,16 @@ Examples from the promoted template:
 Fail closed means:
 
 - LibreChat attempts a normal routed chat
-- `subumbra-proxy` cannot resolve the configured adapter token or cannot use the
+- `subumbra-proxy` cannot resolve the configured consumer token or cannot use the
   path-carried `key_id`
 - the caller-facing chat attempt returns a non-200 failure
 
 ## Operator Checklist
 
 1. Confirm `http://127.0.0.1:10199/health` returns `worker_auth":"ok"`.
-2. Confirm the LibreChat adapter token is available to the container.
+2. Confirm the LibreChat consumer token is available to the container.
 3. Keep the active endpoint `baseURL` on `http://subumbra-proxy:8090/t/<key_id>/...`.
-4. Keep `apiKey` on the shared LibreChat adapter token.
+4. Keep `apiKey` on the shared LibreChat consumer token.
 5. Register the first LibreChat user through the UI.
 6. Export `LIBRECHAT_EMAIL` and `LIBRECHAT_PASSWORD` before verification.
 7. Confirm the routed chat proof in `subumbra-proxy` logs.

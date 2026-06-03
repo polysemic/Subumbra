@@ -27,8 +27,8 @@ Do not set `GENERIC_OPEN_AI_BASE_PATH` or `EMBEDDING_BASE_PATH` to
 
 AnythingLLM now uses:
 
-- `GENERIC_OPEN_AI_API_KEY` = the AnythingLLM adapter token
-- `GENERIC_OPEN_AI_EMBEDDING_API_KEY` = the same adapter token
+- `GENERIC_OPEN_AI_API_KEY` = the AnythingLLM consumer token
+- `GENERIC_OPEN_AI_EMBEDDING_API_KEY` = the same consumer token
 - `GENERIC_OPEN_AI_BASE_PATH` = `http://subumbra-proxy:8090/t/<key_id>/v1`
 - `EMBEDDING_BASE_PATH` = `http://subumbra-proxy:8090/t/<key_id>/v1`
 
@@ -38,7 +38,7 @@ Before pointing AnythingLLM at Subumbra, confirm:
 
 1. the Subumbra core stack is already running in `/opt/subumbra`
 2. `subumbra-proxy` reports healthy Worker auth
-3. the AnythingLLM adapter token is available to the container
+3. the AnythingLLM consumer token is available to the container
 4. AnythingLLM is attached to `subumbra-net`
 
 ```bash
@@ -68,7 +68,7 @@ http://subumbra-proxy:8090/t/openai_prod/v1
 
 Two important rules:
 
-1. both AnythingLLM credential fields use the adapter token
+1. both AnythingLLM credential fields use the consumer token
 2. the target Subumbra `key_id` lives in the base path
 
 After editing the compose file, recreate the container so the new env loads:
@@ -95,7 +95,7 @@ GENERIC_OPEN_AI_EMBEDDING_API_KEY=${SUBUMBRA_TOKEN_ANYTHINGLLM}
 A successful AnythingLLM chat request should produce proxy logs like:
 
 ```text
-request adapter=anythingllm key_id=openai_prod method=POST target_url=https://api.openai.com/v1/chat/completions
+request consumer=anythingllm key_id=openai_prod method=POST target_url=https://api.openai.com/v1/chat/completions
 complete key_id=openai_prod status=200
 ```
 
@@ -104,13 +104,13 @@ complete key_id=openai_prod status=200
 A fresh document ingest should produce proxy logs like:
 
 ```text
-request adapter=anythingllm key_id=openai_prod method=POST target_url=https://api.openai.com/v1/embeddings
+request consumer=anythingllm key_id=openai_prod method=POST target_url=https://api.openai.com/v1/embeddings
 complete key_id=openai_prod status=200
 ```
 
 ### Fail-closed check
 
-An invalid adapter token must fail closed:
+An invalid consumer token must fail closed:
 
 ```bash
 curl -sS -i \
@@ -127,8 +127,8 @@ Expected result: `401`.
 
 1. Confirm `subumbra-proxy` health is `worker_auth":"ok"`.
 2. Set `GENERIC_OPEN_AI_BASE_PATH=http://subumbra-proxy:8090/t/<key_id>/v1`.
-3. Set `GENERIC_OPEN_AI_API_KEY` to the AnythingLLM adapter token.
-4. Set `GENERIC_OPEN_AI_EMBEDDING_API_KEY` to the same adapter token.
+3. Set `GENERIC_OPEN_AI_API_KEY` to the AnythingLLM consumer token.
+4. Set `GENERIC_OPEN_AI_EMBEDDING_API_KEY` to the same consumer token.
 5. Set `EMBEDDING_ENGINE=generic-openai`.
 6. Recreate AnythingLLM after env changes.
 7. Confirm the live request paths in proxy logs.

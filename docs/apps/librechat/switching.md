@@ -9,7 +9,7 @@
 LibreChat provider configuration lives in `librechat.yaml`. The secure pattern
 is:
 
-- one shared LibreChat adapter token in the credential field
+- one shared LibreChat consumer token in the credential field
 - one path-carried Subumbra `key_id` per endpoint
 
 ### Anthropic (native endpoint type)
@@ -70,6 +70,6 @@ Use a custom endpoint in `librechat.yaml` pointing at Bifrost:
 ## App-Specific Notes
 
 - `librechat.yaml` is file-authoritative.
-- The credential is now the LibreChat adapter token, not a plain key ID.
+- The credential is now the LibreChat consumer token, not a plain key ID.
 - The target provider key choice happens in the base URL path or reverse proxy
   path.

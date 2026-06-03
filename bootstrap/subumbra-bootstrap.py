@@ -50,13 +50,13 @@ if __name__ == "__main__":
     elif "--list-key-ids" in sys.argv:
         print_key_ids()
         sys.exit(0)
-    elif "--list-adapters" in sys.argv:
+    elif "--list-consumers" in sys.argv:
         print_adapters()
         sys.exit(0)
     elif "--show" in sys.argv:
         idx = sys.argv.index("--show")
         if idx + 1 >= len(sys.argv):
-            die("--show requires an adapter_id argument, e.g. --show anythingllm")
+            die("--show requires a consumer_id argument, e.g. --show anythingllm")
         print_show_adapter(sys.argv[idx + 1])
         sys.exit(0)
     elif "--status" in sys.argv:
@@ -78,13 +78,13 @@ if __name__ == "__main__":
         "--revoke-ssh-key",
         "--provision",
         "--revoke-key",
-        "--add-adapter",
-        "--revoke-adapter",
+        "--add-consumer",
+        "--revoke-consumer",
         "--publish-policy",
         "--update-tunnel",
         "--update-access",
         "--update-ui-auth",
-        "--update-gate",
+        "--update-janus",
         "--nuke-cloudflare",
         "--status",
     )
@@ -130,12 +130,12 @@ if __name__ == "__main__":
             target_key_id = sys.argv[idx + 1]
         except IndexError:
             die("--add-ssh-key requires <key_id>")
-        if "--adapters" not in sys.argv:
-            die("--add-ssh-key requires --adapters <csv>")
+        if "--consumers" not in sys.argv:
+            die("--add-ssh-key requires --consumers <csv>")
         try:
-            adapters_csv = sys.argv[sys.argv.index("--adapters") + 1]
+            adapters_csv = sys.argv[sys.argv.index("--consumers") + 1]
         except IndexError:
-            die("--adapters requires <csv>")
+            die("--consumers requires <csv>")
         allow_hosts_csv = None
         if "--allow-hosts" in sys.argv:
             try:
@@ -161,22 +161,22 @@ if __name__ == "__main__":
         except IndexError:
             die("--revoke-ssh-key requires <key_id>")
         run_revoke_ssh_key(target_key_id)
-    elif "--add-adapter" in sys.argv:
+    elif "--add-consumer" in sys.argv:
         try:
-            idx = sys.argv.index("--add-adapter")
+            idx = sys.argv.index("--add-consumer")
             target_key_id = sys.argv[idx + 1]
-            adapter_id = sys.argv[idx + 2]
+            consumer_id = sys.argv[idx + 2]
         except IndexError:
-            die("--add-adapter requires <key_id> <adapter_id>")
-        run_add_adapter(target_key_id, adapter_id)
-    elif "--revoke-adapter" in sys.argv:
+            die("--add-consumer requires <key_id> <consumer_id>")
+        run_add_adapter(target_key_id, consumer_id)
+    elif "--revoke-consumer" in sys.argv:
         try:
-            idx = sys.argv.index("--revoke-adapter")
+            idx = sys.argv.index("--revoke-consumer")
             target_key_id = sys.argv[idx + 1]
-            adapter_id = sys.argv[idx + 2]
+            consumer_id = sys.argv[idx + 2]
         except IndexError:
-            die("--revoke-adapter requires <key_id> <adapter_id>")
-        run_revoke_adapter(target_key_id, adapter_id)
+            die("--revoke-consumer requires <key_id> <consumer_id>")
+        run_revoke_adapter(target_key_id, consumer_id)
     elif "--publish-policy" in sys.argv:
         try:
             target_key_id = sys.argv[sys.argv.index("--publish-policy") + 1]
@@ -197,7 +197,7 @@ if __name__ == "__main__":
         run_update_access()
     elif "--update-ui-auth" in sys.argv:
         run_update_ui_auth()
-    elif "--update-gate" in sys.argv:
+    elif "--update-janus" in sys.argv:
         run_update_gate()
     elif "--nuke-cloudflare" in sys.argv:
         run_nuke_cloudflare()

@@ -15,7 +15,7 @@
 
 This path now uses:
 
-- adapter token in the credential field
+- consumer token in the credential field
 - target Subumbra `key_id` in the base path
 
 ---
@@ -43,5 +43,5 @@ access behind one app credential surface.
 
 - The base path applies to both chat and embedding endpoints for the Generic
   OpenAI provider.
-- The credential is now the adapter token, not a plain key ID.
+- The credential is now the consumer token, not a plain key ID.
 - For multi-provider access, LiteLLM remains the supported aggregator path.
