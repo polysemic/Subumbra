@@ -704,8 +704,8 @@ def _normalize_policy_doc(doc: dict[str, Any], source: str) -> dict[str, Any]:
             for idx, pattern in enumerate(deny_patterns):
                 _validate_safe_pattern(pattern, source, f"response.deny_patterns[{idx}]")
 
-    janus = doc.get("gate")
-    if janus is not None:
+    gate = doc.get("gate")
+    if gate is not None:
         if not isinstance(gate, dict):
             _policy_die(source, "janus must be an object")
         require_approval = gate.get("require_approval")
@@ -769,7 +769,7 @@ def _normalize_policy_doc(doc: dict[str, Any], source: str) -> dict[str, Any]:
                 }
             )
         gate["require_approval"] = normalized_rules
-        unknown_janus = set(gate) - {"require_approval"}
+        unknown_gate = set(gate) - {"require_approval"}
         if unknown_gate:
             _policy_die(source, f"janus contains unsupported field(s): {', '.join(sorted(unknown_gate))}")
 
@@ -1187,9 +1187,9 @@ def _normalize_manifest_record(record: Any, idx: int) -> dict[str, Any]:
         except SshBootstrapError as exc:
             _manifest_die(f"{source}.allow.hosts could not be resolved: {exc}")
 
-        janus = record.get("gate")
+        gate = record.get("gate")
         normalized_gate: dict[str, Any] | None = None
-        if janus is not None:
+        if gate is not None:
             if not isinstance(gate, dict):
                 _manifest_die(f"{source}.janus must be an object when provided")
             require_approval = gate.get("require_approval")
@@ -1255,10 +1255,10 @@ def _normalize_manifest_record(record: Any, idx: int) -> dict[str, Any]:
                         "timeout_seconds": timeout_seconds,
                     }
                 )
-            unknown_janus = set(gate) - {"require_approval"}
+            unknown_gate = set(gate) - {"require_approval"}
             if unknown_gate:
                 _manifest_die(f"{source}.janus contains unsupported field(s): {', '.join(sorted(unknown_gate))}")
-            normalized_janus = {"require_approval": normalized_rules}
+            normalized_gate = {"require_approval": normalized_rules}
 
         policy = build_ssh_policy(
             key_id=key_id,
@@ -2284,7 +2284,7 @@ def compute_policy_hash(policy_doc: dict[str, Any]) -> str:
             "algorithm": policy_doc["algorithm"],
             "allow": baseline_allow,
         }
-        janus = policy_doc.get("gate")
+        gate = policy_doc.get("gate")
         if isinstance(gate, dict) and isinstance(gate.get("require_approval"), list):
             baseline_obj["gate"] = {
                 "require_approval": gate["require_approval"],
@@ -2318,7 +2318,7 @@ def compute_policy_hash(policy_doc: dict[str, Any]) -> str:
         baseline_obj["auth"]["query_param"] = auth["query_param"]
     if "allow_query" in auth:
         baseline_obj["auth"]["allow_query"] = auth["allow_query"]
-    janus = policy_doc.get("gate")
+    gate = policy_doc.get("gate")
     if isinstance(gate, dict) and isinstance(gate.get("require_approval"), list):
         baseline_obj["gate"] = {
             "require_approval": gate["require_approval"],
