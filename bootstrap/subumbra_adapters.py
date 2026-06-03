@@ -565,8 +565,8 @@ def _normalize_manifest_record(record: Any, idx: int) -> dict[str, Any]:
         _manifest_die(f"{source}.key_id is invalid")
 
     record_type = record.get("type", "api_key")
-    if not isinstance(record_type, str) or record_type not in {"api_key", "ssh_key"}:
-        _manifest_die(f"{source}.type must be 'api_key' or 'ssh_key'")
+    if not isinstance(record_type, str) or record_type not in {"api_key", "ssh_key", "npm_token"}:
+        _manifest_die(f"{source}.type must be 'api_key', 'ssh_key', or 'npm_token'")
 
     adapters = record.get("adapters")
     if not isinstance(adapters, list):
@@ -702,7 +702,7 @@ def _normalize_manifest_record(record: Any, idx: int) -> dict[str, Any]:
 
     return {
         "key_id": key_id,
-        "type": "api_key",
+        "type": "npm_token" if record_type == "npm_token" else "api_key",
         "provider": provider,
         "secret_ref": secret_ref,
         "adapters": normalized_adapters,
