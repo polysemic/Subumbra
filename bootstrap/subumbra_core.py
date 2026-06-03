@@ -955,7 +955,7 @@ def _expand_template_into_policy(
     allow: dict[str, Any] = {}
     if "allow" in template:
         allow.update(template["allow"])
-    allow["adapters"] = effective_adapters
+    allow["consumers"] = effective_adapters
     policy["allow"] = allow
 
     for opt in ("response", "intent", "velocity", "deny"):
@@ -972,13 +972,13 @@ def _expand_template_into_policy(
                 continue
             if k == "allow" and isinstance(v, dict):
                 for ak, av in v.items():
-                    if ak != "adapters":
+                    if ak != "consumers":
                         policy["allow"][ak] = av
             else:
                 policy[k] = v
         policy["key_id"] = key_id
         policy["source"] = "env"
-        policy["allow"]["adapters"] = effective_adapters
+        policy["allow"]["consumers"] = effective_adapters
 
     return policy
 
@@ -1532,9 +1532,9 @@ def _resolve_policy_for_key(
         )
     if sorted(_policy_consumer_ids(policy)) != sorted(allowed_adapters):
         die(
-            f"Policy adapter conflict for key_id {key_id!r}: "
-            f"policy adapters={', '.join(_policy_consumer_ids(policy))} "
-            f"do not match bootstrap adapters={', '.join(allowed_adapters)}"
+            f"Policy consumer conflict for key_id {key_id!r}: "
+            f"policy consumers={', '.join(_policy_consumer_ids(policy))} "
+            f"do not match bootstrap consumers={', '.join(allowed_adapters)}"
         )
     return policy
 
@@ -2111,10 +2111,10 @@ def _bind_key_to_adapters(
 
 
 def _policy_consumer_ids(policy: dict[str, Any]) -> list[str]:
-    adapters = policy.get("allow", {}).get("adapters")
-    if not isinstance(adapters, list) or not adapters:
+    consumers = policy.get("allow", {}).get("consumers")
+    if not isinstance(consumers, list) or not consumers:
         die(f"Policy {policy.get('policy_id', '<unknown>')} missing allow.consumers")
-    return [str(adapter) for adapter in adapters]
+    return [str(consumer) for consumer in consumers]
 
 
 def _validate_allowed_keys(
@@ -2273,7 +2273,7 @@ def compute_policy_hash(policy_doc: dict[str, Any]) -> str:
     if policy_doc.get("type") == "ssh_key":
         allow = policy_doc["allow"]
         baseline_allow: dict[str, Any] = {
-            "adapters": sorted(allow["adapters"]),
+            "consumers": sorted(allow["consumers"]),
         }
         hosts = allow.get("hosts")
         if isinstance(hosts, list) and hosts:
@@ -2303,7 +2303,7 @@ def compute_policy_hash(policy_doc: dict[str, Any]) -> str:
             "scheme": auth["scheme"],
         },
         "allow": {
-            "adapters": sorted(allow["adapters"]),
+            "consumers": sorted(allow["consumers"]),
             "methods": sorted(allow["methods"]),
             "path_prefixes": sorted(allow["path_prefixes"]),
             "content_types": sorted(allow["content_types"]),
