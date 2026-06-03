@@ -12,7 +12,6 @@ config_format:
   fields:
     - name: registry
       value: "http://subumbra-proxy:8090/t/{key_id}/"
-      static: true
       note: "Set the registry for the package or scope you publish through Subumbra"
     - name: //subumbra-proxy:8090/t/{key_id}/:_authToken
       value: "{adapter_token}"

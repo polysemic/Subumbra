@@ -618,6 +618,21 @@ async def send_worker_request_with_gate(
         )
 
 
+def classify_npm_operation(method: str, url: str) -> str | None:
+    # Extract path from URL to perform classification
+    parts = urlsplit(url)
+    path = parts.path or "/"
+    if method == "GET":
+        return "query"
+    if method == "DELETE":
+        return "unpublish"
+    if method == "PUT":
+        if "/dist-tags/" in path:
+            return "dist-tag"
+        return "publish"
+    return None
+
+
 async def proxy_via_worker(
     key_id: str,
     target_url: str,
@@ -715,6 +730,29 @@ async def proxy_via_worker(
                     "reason_code": "worker_auth_failure",
                 },
                 headers=response_headers,
+            )
+
+        error_reason = None
+        try:
+            body_json = json.loads(body_bytes)
+            if isinstance(body_json, dict):
+                error_reason = body_json.get("error")
+        except Exception:
+            pass
+
+        if error_reason == "npm_operation_not_allowed":
+            operation = classify_npm_operation(method, target_url) or "unknown"
+            LOG.warning(
+                "subumbra: policy deny reason=npm_operation_not_allowed operation=%s adapter=%s key_id=%s",
+                operation,
+                adapter_id or "",
+                key_id,
+            )
+        elif error_reason == "publish_tarball_too_large":
+            LOG.warning(
+                "subumbra: policy deny reason=publish_tarball_too_large adapter=%s key_id=%s",
+                adapter_id or "",
+                key_id,
             )
 
         LOG.warning("worker failure key_id=%s status=%s", key_id, worker_resp.status_code)
