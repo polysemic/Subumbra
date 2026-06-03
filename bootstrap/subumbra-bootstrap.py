@@ -5,21 +5,21 @@ from __future__ import annotations
 
 import sys
 
-from subumbra_adapters import (
-    print_adapters,
+from subumbra_consumers import (
+    print_adapters as print_consumers,
     print_help,
     print_key_ids,
     print_show_adapter,
-    run_add_adapter,
+    run_add_adapter as run_add_consumer,
     run_publish_policy,
-    run_revoke_adapter,
+    run_revoke_adapter as run_revoke_consumer,
 )
 from subumbra_cf import (
     run_deploy_worker,
     run_nuke_cloudflare,
     run_push_registry,
     run_update_access,
-    run_update_gate,
+    run_update_gate as run_update_janus,
     run_update_tunnel,
     run_update_ui_auth,
 )
@@ -51,7 +51,7 @@ if __name__ == "__main__":
         print_key_ids()
         sys.exit(0)
     elif "--list-consumers" in sys.argv:
-        print_adapters()
+        print_consumers()
         sys.exit(0)
     elif "--show" in sys.argv:
         idx = sys.argv.index("--show")
@@ -168,7 +168,7 @@ if __name__ == "__main__":
             consumer_id = sys.argv[idx + 2]
         except IndexError:
             die("--add-consumer requires <key_id> <consumer_id>")
-        run_add_adapter(target_key_id, consumer_id)
+        run_add_consumer(target_key_id, consumer_id)
     elif "--revoke-consumer" in sys.argv:
         try:
             idx = sys.argv.index("--revoke-consumer")
@@ -176,7 +176,7 @@ if __name__ == "__main__":
             consumer_id = sys.argv[idx + 2]
         except IndexError:
             die("--revoke-consumer requires <key_id> <consumer_id>")
-        run_revoke_adapter(target_key_id, consumer_id)
+        run_revoke_consumer(target_key_id, consumer_id)
     elif "--publish-policy" in sys.argv:
         try:
             target_key_id = sys.argv[sys.argv.index("--publish-policy") + 1]
@@ -198,7 +198,7 @@ if __name__ == "__main__":
     elif "--update-ui-auth" in sys.argv:
         run_update_ui_auth()
     elif "--update-janus" in sys.argv:
-        run_update_gate()
+        run_update_janus()
     elif "--nuke-cloudflare" in sys.argv:
         run_nuke_cloudflare()
     else:
