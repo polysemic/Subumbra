@@ -171,7 +171,8 @@ async function getRegistryEntry(env, keyId) {
       typeof policyAuth.header_name === "string" ? policyAuth.header_name : null,
     auth_query_param:
       typeof policyAuth.query_param === "string" ? policyAuth.query_param : null,
-    allow_consumers: Array.isArray(allow.consumers) ? allow.consumers : [],
+    // r94 migration: accept allow.adapters as fallback for allow.consumers
+    allow_consumers: Array.isArray(allow.consumers) ? allow.consumers : Array.isArray(allow.adapters) ? allow.adapters : [],
     allow_methods: Array.isArray(allow.methods) ? allow.methods : [],
     allow_npm_operations: Array.isArray(allow.npm_operations) ? allow.npm_operations : [],
     allow_path_prefixes: Array.isArray(allow.path_prefixes) ? allow.path_prefixes : [],
