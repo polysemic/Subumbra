@@ -113,7 +113,9 @@ _worker_auth_ok_until = 0.0
 
 
 class SubumbraForbiddenError(RuntimeError):
-    pass
+    def __init__(self, reason: str = "forbidden"):
+        super().__init__(reason)
+        self.reason = reason
 
 
 def load_consumer_registry(raw: str) -> dict[str, dict[str, Any]]:
@@ -185,7 +187,19 @@ async def fetch_record(
         headers=subumbra_headers(key_id, consumer_id=consumer_id, consumer_token=consumer_token),
     )
     if response.status_code == 403:
-        raise SubumbraForbiddenError("forbidden")
+        reason = "forbidden"
+        try:
+            payload = response.json()
+        except Exception:
+            payload = None
+        if isinstance(payload, dict):
+            detail = payload.get("detail")
+            error = payload.get("error")
+            if isinstance(detail, str) and detail:
+                reason = detail
+            elif isinstance(error, str) and error:
+                reason = error
+        raise SubumbraForbiddenError(reason)
     if response.status_code != 200:
         raise RuntimeError(f"status {response.status_code}")
     record = response.json()
@@ -666,13 +680,14 @@ async def proxy_via_worker(
         except httpx.ConnectError:
             LOG.error("subumbra failure key_id=%s error=subumbra-keys unreachable", key_id)
             raise HTTPException(502, detail="subumbra-keys unreachable")
-        except SubumbraForbiddenError:
+        except SubumbraForbiddenError as exc:
             LOG.warning(
-                "transparent reject consumer=%s key_id=%s reason=key_scope_denied",
+                "transparent reject consumer=%s key_id=%s reason=%s",
                 consumer_id,
                 key_id,
+                exc.reason,
             )
-            raise HTTPException(403, detail="forbidden")
+            raise HTTPException(403, detail=exc.reason)
         except Exception as exc:
             LOG.error("subumbra failure key_id=%s error=%s", key_id, exc)
             raise HTTPException(502, detail="subumbra record fetch failed")
@@ -994,13 +1009,14 @@ async def handle_transparent_request(path: str, request: Request):
     except httpx.ConnectError:
         LOG.error("subumbra failure key_id=%s error=subumbra-keys unreachable", key_id)
         raise HTTPException(502, detail="subumbra-keys unreachable")
-    except SubumbraForbiddenError:
+    except SubumbraForbiddenError as exc:
         LOG.warning(
-            "transparent reject consumer=%s key_id=%s reason=key_scope_denied",
+            "transparent reject consumer=%s key_id=%s reason=%s",
             consumer_id,
             key_id,
+            exc.reason,
         )
-        raise HTTPException(403, detail="forbidden")
+        raise HTTPException(403, detail=exc.reason)
     except Exception as exc:
         LOG.error("subumbra failure key_id=%s error=%s", key_id, exc)
         raise HTTPException(502, detail="subumbra record fetch failed")
