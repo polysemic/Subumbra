@@ -506,10 +506,10 @@ def serve() -> None:
     with ThreadedUnixServer(str(SOCKET_PATH), AgentRequestHandler) as server:
         os.chmod(SOCKET_PATH, stat.S_IRUSR | stat.S_IWUSR)
         LOG.info(
-            "agent ready socket=%s consumer=%s keys_json=%s uid=%s gid=%s",
+            "agent ready socket=%s consumer=%s endpoint_json=%s uid=%s gid=%s",
             SOCKET_PATH,
             CONSUMER_ID,
-            KEYS_JSON_PATH,
+            ENDPOINT_JSON_PATH,
             os.getuid(),
             os.getgid(),
         )
