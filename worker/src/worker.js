@@ -279,6 +279,21 @@ const GATE_SCHEMA = `
     last_seen_at TEXT NOT NULL
   );
 `;
+// r94 upgrade-path: velocity_counters gained consumer_id/key_id columns.
+// Existing vaults have the table without those columns; drop and recreate.
+// Rate-limit counters are ephemeral state — loss is acceptable.
+const VAULT_MIGRATIONS = `
+  DROP TABLE IF EXISTS velocity_counters;
+  CREATE TABLE IF NOT EXISTS velocity_counters (
+    scope TEXT NOT NULL,
+    consumer_id TEXT,
+    key_id TEXT,
+    window_start INTEGER NOT NULL,
+    count INTEGER NOT NULL,
+    PRIMARY KEY (scope, consumer_id, key_id, window_start)
+  );
+`;
+
 const VAULT_SCHEMA = `
   CREATE TABLE IF NOT EXISTS custody (
     id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -1599,6 +1614,8 @@ export class SubumbraVault {
     this.state.blockConcurrencyWhile(async () => {
       try {
         this.state.storage.sql.exec(VAULT_SCHEMA);
+        // r94 upgrade-path: repair schema changes that CREATE TABLE IF NOT EXISTS cannot apply
+        this.state.storage.sql.exec(VAULT_MIGRATIONS);
         await this._primeCachedPrivateKey();
       } catch (err) {
         this._constructorError = err;
