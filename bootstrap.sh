@@ -66,10 +66,16 @@ compose_profile_args() {
     fi
 }
 
-# Discover manifest: require manifest.yaml.
+# Discover manifest: prefer manifest.yaml; fall back to subumbra.yaml with a warning.
 manifest_file=""
 if [[ -f "manifest.yaml" ]]; then
     manifest_file="manifest.yaml"
+elif [[ -f "subumbra.yaml" ]]; then
+    echo "WARNING: subumbra.yaml found — rename to manifest.yaml for r94+ compatibility" >&2
+    manifest_file="subumbra.yaml"
+elif [[ -f "subumbra.json" ]]; then
+    echo "WARNING: subumbra.json found — convert to manifest.yaml for r94+ compatibility" >&2
+    manifest_file="subumbra.json"
 fi
 
 # Resolve primary bootstrap subcommand (may appear after flags, e.g. --revoke-key … --offline).

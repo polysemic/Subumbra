@@ -25,6 +25,9 @@ SUBUMBRA_KEYS_URL = os.environ.get("SUBUMBRA_KEYS_URL", "").rstrip("/")
 CF_WORKER_URL = os.environ.get("CF_WORKER_URL", "").rstrip("/")
 CF_ACCESS_CLIENT_ID = os.environ.get("CF_ACCESS_CLIENT_ID", "")
 CF_ACCESS_CLIENT_SECRET = os.environ.get("CF_ACCESS_CLIENT_SECRET", "")
+# r94 migration: accept SUBUMBRA_ADAPTER_REGISTRY as fallback for pre-r94 deployments
+if not os.environ.get("SUBUMBRA_CONSUMER_REGISTRY") and os.environ.get("SUBUMBRA_ADAPTER_REGISTRY"):
+    os.environ["SUBUMBRA_CONSUMER_REGISTRY"] = os.environ["SUBUMBRA_ADAPTER_REGISTRY"]
 SUBUMBRA_CONSUMER_REGISTRY_RAW = os.environ.get("SUBUMBRA_CONSUMER_REGISTRY", "")
 try:
     SUBUMBRA_SIGN_TIMEOUT = float(os.environ.get("SUBUMBRA_SIGN_TIMEOUT", "30") or "30")

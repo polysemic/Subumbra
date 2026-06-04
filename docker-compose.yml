@@ -48,7 +48,7 @@ services:
       - keys_data:/app/data
       - subumbra_audit_data:/app/audit
     environment:
-      SUBUMBRA_CONSUMER_REGISTRY: ${SUBUMBRA_CONSUMER_REGISTRY}
+      SUBUMBRA_CONSUMER_REGISTRY: ${SUBUMBRA_CONSUMER_REGISTRY:-${SUBUMBRA_ADAPTER_REGISTRY:-}}
       SUBUMBRA_HMAC_KEY: ${SUBUMBRA_HMAC_KEY}
       DATA_DIR: /app/data
       AUDIT_DIR: /app/audit
@@ -162,7 +162,7 @@ services:
       - "127.0.0.1:10199:8090"
     environment:
       SUBUMBRA_ACCESS_TOKEN: ${SUBUMBRA_TOKEN_PROXY}
-      SUBUMBRA_CONSUMER_REGISTRY: ${SUBUMBRA_CONSUMER_REGISTRY}
+      SUBUMBRA_CONSUMER_REGISTRY: ${SUBUMBRA_CONSUMER_REGISTRY:-${SUBUMBRA_ADAPTER_REGISTRY:-}}
       SUBUMBRA_HMAC_KEY: ${SUBUMBRA_HMAC_KEY}
       SUBUMBRA_KEYS_URL: http://subumbra-keys:9090
       CF_WORKER_URL: ${CF_WORKER_URL}
@@ -261,7 +261,7 @@ services:
         required: false
     environment:
       DATA_DIR: /app/data
-      SUBUMBRA_CONSUMER_REGISTRY: ${SUBUMBRA_CONSUMER_REGISTRY:-}
+      SUBUMBRA_CONSUMER_REGISTRY: ${SUBUMBRA_CONSUMER_REGISTRY:-${SUBUMBRA_ADAPTER_REGISTRY:-}}
 
   # ───────────────────────────────────────────────────────────────────────────
   # cloudflared  —  optional Cloudflare Tunnel; run with: --profile tunnel

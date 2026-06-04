@@ -3323,14 +3323,20 @@ async function handleSshSign(request, env) {
 }
 
 async function authorizeRequest(request, env) {
-  if (!env.SUBUMBRA_CONSUMER_TOKENS) {
+  // r94 migration: accept SUBUMBRA_ADAPTER_TOKENS as fallback for deployments
+  // that haven't re-bootstrapped yet after the r94 rename
+  const tokensRaw = env.SUBUMBRA_CONSUMER_TOKENS || env.SUBUMBRA_ADAPTER_TOKENS;
+  if (!tokensRaw) {
     console.error("subumbra: worker bindings not configured (run bootstrap)");
     return { ok: false, response: jsonError("worker not configured", 503) };
+  }
+  if (!env.SUBUMBRA_CONSUMER_TOKENS && env.SUBUMBRA_ADAPTER_TOKENS) {
+    console.warn("subumbra: SUBUMBRA_ADAPTER_TOKENS fallback active — re-bootstrap to migrate to SUBUMBRA_CONSUMER_TOKENS");
   }
 
   let validTokens;
   try {
-    validTokens = parseAdapterTokens(env.SUBUMBRA_CONSUMER_TOKENS);
+    validTokens = parseAdapterTokens(tokensRaw);
   } catch (err) {
     console.error("subumbra: SUBUMBRA_CONSUMER_TOKENS invalid:", err.message);
     return { ok: false, response: jsonError("worker not configured", 503) };

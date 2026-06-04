@@ -2273,7 +2273,7 @@ def compute_policy_hash(policy_doc: dict[str, Any]) -> str:
     if policy_doc.get("type") == "ssh_key":
         allow = policy_doc["allow"]
         baseline_allow: dict[str, Any] = {
-            "consumers": sorted(allow["consumers"]),
+            "consumers": sorted(allow.get("consumers", allow.get("adapters", []))),
         }
         hosts = allow.get("hosts")
         if isinstance(hosts, list) and hosts:
@@ -2303,7 +2303,7 @@ def compute_policy_hash(policy_doc: dict[str, Any]) -> str:
             "scheme": auth["scheme"],
         },
         "allow": {
-            "consumers": sorted(allow["consumers"]),
+            "consumers": sorted(allow.get("consumers", allow.get("adapters", []))),
             "methods": sorted(allow["methods"]),
             "path_prefixes": sorted(allow["path_prefixes"]),
             "content_types": sorted(allow["content_types"]),

@@ -64,6 +64,21 @@ from flask import Flask, Response, jsonify, request
 
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/app/data"))
 KEYS_FILE = DATA_DIR / "endpoint.json"
+
+# r94 migration: rename keys.json → endpoint.json on first startup after upgrade
+_legacy_keys = DATA_DIR / "keys.json"
+if _legacy_keys.exists() and not KEYS_FILE.exists():
+    try:
+        _legacy_keys.rename(KEYS_FILE)
+        import logging as _log
+        _log.getLogger(__name__).info(
+            "subumbra-keys: migrated keys.json → endpoint.json (r94 upgrade)"
+        )
+    except OSError as _e:
+        import logging as _log
+        _log.getLogger(__name__).warning(
+            "subumbra-keys: could not migrate keys.json → endpoint.json: %s", _e
+        )
 AUDIT_DIR = Path(os.environ.get("AUDIT_DIR", "/app/audit"))
 AUDIT_DB_PATH = AUDIT_DIR / "audit.db"
 SESSION_DB_PATH = DATA_DIR / "sessions.db"
@@ -90,6 +105,14 @@ AUDIT_ENDPOINT_FILTERS = {
     "observability",
     "gate",
 }
+
+# r94 migration: accept SUBUMBRA_ADAPTER_REGISTRY as fallback for pre-r94 deployments
+if not os.environ.get("SUBUMBRA_CONSUMER_REGISTRY") and os.environ.get("SUBUMBRA_ADAPTER_REGISTRY"):
+    os.environ["SUBUMBRA_CONSUMER_REGISTRY"] = os.environ["SUBUMBRA_ADAPTER_REGISTRY"]
+    import logging as _log
+    _log.getLogger(__name__).warning(
+        "subumbra-keys: SUBUMBRA_ADAPTER_REGISTRY fallback active — re-bootstrap to migrate"
+    )
 
 _required = ("SUBUMBRA_CONSUMER_REGISTRY", "SUBUMBRA_HMAC_KEY")
 for _var in _required:
