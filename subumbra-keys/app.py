@@ -395,6 +395,16 @@ def _init_audit_db() -> sqlite3.Connection | None:
             str(row[1])
             for row in conn.execute("PRAGMA table_info(audit_events)").fetchall()
         }
+        if "consumer_id" not in existing_columns:
+            conn.execute("ALTER TABLE audit_events ADD COLUMN consumer_id TEXT")
+            if "adapter_id" in existing_columns:
+                conn.execute(
+                    """
+                    UPDATE audit_events
+                    SET consumer_id = adapter_id
+                    WHERE consumer_id IS NULL AND adapter_id IS NOT NULL
+                    """
+                )
         if "target_host" not in existing_columns:
             conn.execute("ALTER TABLE audit_events ADD COLUMN target_host TEXT")
         conn.execute(
