@@ -1,5 +1,5 @@
 # PROJECT_STATUS
-*Current state — updated 2026-06-03 (r93-npm-professional npm professional controls verified and closed)*
+*Current state — updated 2026-06-08 (r94-naming-consistency naming consistency verified and closed)*
 
 
 
@@ -178,6 +178,7 @@ CF Access header strip is enforced at Worker edge only. Accepted as architectura
 | r91-doc-updaes | 2026-05-31 (CLOSED) | Documentation comparison atlas implemented and verified under `docs/comparisons/`: secret vaults, API brokers/AI gateways, SSH agent access, agent/MCP security, threat-model failure modes, alpha limitations, and source notes. Full factual audit performed against codebase; one inaccuracy corrected (deny_path_prefixes ✓ Yes → ⊙ Planned); all matrices updated for accuracy, planned items, and Subumbra differentiators; threat-model doc reviewed to remove attack-roadmap content. |
 | r92-npm-credential | 2026-06-01 (CLOSED) | npm publish brokering: `type: npm_token` manifest records with V3 RSA envelope encryption; Worker-side tarball inspection (`_attachments` base64-decode → gunzip → tar parse) against safe-literal `deny.publish_path_patterns` and `deny.publish_content_patterns`; package identity enforcement across URL path / body `_id` / body `name`; `allow.scopes` scope-prefix allowlist; `--rotate-npm-token` offline rotation; path-scoped `.npmrc` documentation. Proof run IDs: `claude-vps-20260531T221448Z`, `gemini-vps-20260531T222725Z`, `codex-vps-20260601T000807Z`. |
 | r93-npm-professional | 2026-06-03 (CLOSED) | npm professional controls: bootstrap now validates `allow.npm_operations`, `allow.scopes`, and explicit positive `deny.max_tarball_bytes`; the Worker classifies npm traffic into `publish`, `query`, `dist-tag`, `owner`, `access`, and `unpublish`, enforcing default `publish/query` behavior when `allow.npm_operations` is absent or empty; tarballs are denied when declared or decoded gzip bytes exceed the configured limit; `.npmrc` show output now substitutes real `key_id` values; and `docs/apps/npm/install.md` documents GitHub Actions path-scoped auth plus the new npm policy fields. Verification close-out used Gemini PASS/remediation evidence `gemini-vps-20260601T051920Z` and `manual-20260603T105710`; Claude recorded accepted harness-only issues in `claude-vps-20260601T050600Z`. |
+| r94-naming-consistency | 2026-06-08 (CLOSED) | Naming consistency cutover: `adapter` terminology is now `consumer` across the approved runtime/document surfaces; Gate is now Janus across Worker routes, bindings, and bootstrap day-2 verbs; `subumbra.yaml` starter/operator naming is now `manifest.yaml`; `keys.json` naming is now `endpoint.json`; and public wording now consistently uses split-trust language. Final council PASS evidence: Claude `claude-vps-20260604T183534Z` and Codex `codex-vps-20260608T223434Z`; earlier Gemini/Codex failures were remediated on-branch before close-out. |
 
 
 
