@@ -863,13 +863,31 @@ def _cf_api_json(path: str, cf_creds: dict[str, str]) -> Any:
             "Content-Type": "application/json",
         },
     )
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        die(f"Cloudflare API request failed with HTTP {exc.code}")
-    except urllib.error.URLError as exc:
-        die(f"Cloudflare API request failed: {exc.reason}")
+    last_http_error: urllib.error.HTTPError | None = None
+    for attempt in range(1, 4):
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            last_http_error = exc
+            if exc.code in (401, 403, 429, 500, 502, 503, 504) and attempt < 3:
+                info(f"Cloudflare API transient HTTP {exc.code}; retrying ({attempt}/3)")
+                time.sleep(2)
+                continue
+            body_text = exc.read().decode("utf-8", errors="replace")
+            die(
+                f"Cloudflare API request failed with HTTP {exc.code}\n"
+                f"--- response body ---\n{body_text}"
+            )
+        except urllib.error.URLError as exc:
+            die(f"Cloudflare API request failed: {exc.reason}")
+    if last_http_error is not None:
+        body_text = last_http_error.read().decode("utf-8", errors="replace")
+        die(
+            f"Cloudflare API request failed after retries with HTTP {last_http_error.code}\n"
+            f"--- response body ---\n{body_text}"
+        )
+    die("Cloudflare API request failed after retries")
 
 
 def _cf_api_bytes(path: str, cf_creds: dict[str, str]) -> tuple[bytes, str]:
@@ -877,13 +895,31 @@ def _cf_api_bytes(path: str, cf_creds: dict[str, str]) -> tuple[bytes, str]:
         f"https://api.cloudflare.com/client/v4{path}",
         headers={"Authorization": f"Bearer {cf_creds['CF_API_TOKEN']}"},
     )
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            return response.read(), response.headers.get("Content-Type", "")
-    except urllib.error.HTTPError as exc:
-        die(f"Cloudflare content fetch failed with HTTP {exc.code}")
-    except urllib.error.URLError as exc:
-        die(f"Cloudflare content fetch failed: {exc.reason}")
+    last_http_error: urllib.error.HTTPError | None = None
+    for attempt in range(1, 4):
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return response.read(), response.headers.get("Content-Type", "")
+        except urllib.error.HTTPError as exc:
+            last_http_error = exc
+            if exc.code in (401, 403, 429, 500, 502, 503, 504) and attempt < 3:
+                info(f"Cloudflare content fetch transient HTTP {exc.code}; retrying ({attempt}/3)")
+                time.sleep(2)
+                continue
+            body_text = exc.read().decode("utf-8", errors="replace")
+            die(
+                f"Cloudflare content fetch failed with HTTP {exc.code}\n"
+                f"--- response body ---\n{body_text}"
+            )
+        except urllib.error.URLError as exc:
+            die(f"Cloudflare content fetch failed: {exc.reason}")
+    if last_http_error is not None:
+        body_text = last_http_error.read().decode("utf-8", errors="replace")
+        die(
+            f"Cloudflare content fetch failed after retries with HTTP {last_http_error.code}\n"
+            f"--- response body ---\n{body_text}"
+        )
+    die("Cloudflare content fetch failed after retries")
 
 
 def _latest_worker_version_id(cf_creds: dict[str, str], worker_name: str) -> str:
@@ -1039,19 +1075,35 @@ def _kv_auth_headers(cf_creds: dict[str, str]) -> dict[str, str]:
 
 def _kv_get_json_value(cf_creds: dict[str, str], namespace_id: str, key_name: str) -> dict[str, Any] | None:
     request = urllib.request.Request(_kv_value_url(cf_creds, namespace_id, key_name), headers=_kv_auth_headers(cf_creds))
-    try:
-        with urllib.request.urlopen(request) as resp:
-            payload = resp.read().decode("utf-8")
-    except urllib.error.HTTPError as exc:
-        if exc.code == 404:
-            return None
-        body_text = exc.read().decode("utf-8", errors="replace")
-        die(
-            f"Failed to read structured KV key {key_name!r}: HTTP {exc.code}\n"
-            f"--- response body ---\n{body_text}"
-        )
-    except Exception as exc:
-        die(f"Failed to read structured KV key {key_name!r}: {exc}")
+    last_http_error: urllib.error.HTTPError | None = None
+    for attempt in range(1, 4):
+        try:
+            with urllib.request.urlopen(request) as resp:
+                payload = resp.read().decode("utf-8")
+            break
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                return None
+            last_http_error = exc
+            if exc.code in (401, 403, 429, 500, 502, 503, 504) and attempt < 3:
+                info(f"Structured KV read transient HTTP {exc.code} for {key_name!r}; retrying ({attempt}/3)")
+                time.sleep(2)
+                continue
+            body_text = exc.read().decode("utf-8", errors="replace")
+            die(
+                f"Failed to read structured KV key {key_name!r}: HTTP {exc.code}\n"
+                f"--- response body ---\n{body_text}"
+            )
+        except Exception as exc:
+            die(f"Failed to read structured KV key {key_name!r}: {exc}")
+    else:
+        if last_http_error is not None:
+            body_text = last_http_error.read().decode("utf-8", errors="replace")
+            die(
+                f"Failed to read structured KV key {key_name!r} after retries: HTTP {last_http_error.code}\n"
+                f"--- response body ---\n{body_text}"
+            )
+        die(f"Failed to read structured KV key {key_name!r} after retries")
 
     try:
         parsed = json.loads(payload)
@@ -1098,17 +1150,33 @@ def _kv_put_value(cf_creds: dict[str, str], namespace_id: str, key_name: str, va
         data=value.encode("utf-8"),
         headers={**_kv_auth_headers(cf_creds), "Content-Type": "text/plain"},
     )
-    try:
-        with urllib.request.urlopen(request) as resp:
-            body = json.loads(resp.read())
-    except urllib.error.HTTPError as exc:
-        body_text = exc.read().decode("utf-8", errors="replace")
-        die(
-            f"Failed to write structured KV key {key_name!r}: HTTP {exc.code}\n"
-            f"--- response body ---\n{body_text}"
-        )
-    except Exception as exc:
-        die(f"Failed to write structured KV key {key_name!r}: {exc}")
+    last_http_error: urllib.error.HTTPError | None = None
+    for attempt in range(1, 4):
+        try:
+            with urllib.request.urlopen(request) as resp:
+                body = json.loads(resp.read())
+            break
+        except urllib.error.HTTPError as exc:
+            last_http_error = exc
+            if exc.code in (401, 403, 429, 500, 502, 503, 504) and attempt < 3:
+                info(f"Structured KV write transient HTTP {exc.code} for {key_name!r}; retrying ({attempt}/3)")
+                time.sleep(2)
+                continue
+            body_text = exc.read().decode("utf-8", errors="replace")
+            die(
+                f"Failed to write structured KV key {key_name!r}: HTTP {exc.code}\n"
+                f"--- response body ---\n{body_text}"
+            )
+        except Exception as exc:
+            die(f"Failed to write structured KV key {key_name!r}: {exc}")
+    else:
+        if last_http_error is not None:
+            body_text = last_http_error.read().decode("utf-8", errors="replace")
+            die(
+                f"Failed to write structured KV key {key_name!r} after retries: HTTP {last_http_error.code}\n"
+                f"--- response body ---\n{body_text}"
+            )
+        die(f"Failed to write structured KV key {key_name!r} after retries")
     if not body.get("success"):
         die(f"Failed to write structured KV key {key_name!r}: {body}")
 

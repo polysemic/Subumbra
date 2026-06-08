@@ -21,6 +21,21 @@ require_xdg_runtime_dir() {
     install -d -m 700 "$xdg_runtime_dir/subumbra"
 }
 
+profiles_include_ssh() {
+    local -a args=("$@")
+    local idx=0
+    while [[ $idx -lt ${#args[@]} ]]; do
+        if [[ "${args[$idx]}" == "--profile" ]]; then
+            local next=$((idx + 1))
+            if [[ $next -lt ${#args[@]} && "${args[$next]}" == "ssh" ]]; then
+                return 0
+            fi
+        fi
+        idx=$((idx + 1))
+    done
+    return 1
+}
+
 env_key_present() {
     local key="$1"
     [[ -f "$env_file" ]] || return 1
@@ -93,7 +108,6 @@ if [[ -z "$mode" ]]; then
 fi
 
 if [[ "$mode" == "--upgrade" ]]; then
-    require_xdg_runtime_dir
     if [[ ! -f "$env_file" ]]; then
         echo "ERROR: $env_file not found. Create it (e.g. cp .env.example .env), run ./bootstrap.sh once, then use --upgrade." >&2
         exit 1
@@ -105,6 +119,9 @@ if [[ "$mode" == "--upgrade" ]]; then
     docker compose build
     docker compose --profile bootstrap build bootstrap
     mapfile -t _profiles < <(compose_profile_args)
+    if profiles_include_ssh "${_profiles[@]}"; then
+        require_xdg_runtime_dir
+    fi
     docker compose "${_profiles[@]}" up -d --force-recreate
     python3 "$repo_root/scripts/subumbra-print-adapters.py" "$repo_root/$env_file"
     exit 0
@@ -247,10 +264,12 @@ PY
 fi
 
 if [[ $bootstrap_rc -eq 0 && ( -z "$mode" || "$mode" == "--nuke" ) ]]; then
-    require_xdg_runtime_dir
+    mapfile -t _profiles < <(compose_profile_args)
+    if profiles_include_ssh "${_profiles[@]}"; then
+        require_xdg_runtime_dir
+    fi
     echo ""
     echo "▶  Starting / refreshing core stack (docker compose up -d --force-recreate)"
-    mapfile -t _profiles < <(compose_profile_args)
     docker compose "${_profiles[@]}" up -d --force-recreate
     python3 "$repo_root/scripts/subumbra-print-adapters.py" "$repo_root/$env_file" || true
 fi
