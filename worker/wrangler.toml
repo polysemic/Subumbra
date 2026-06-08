@@ -11,8 +11,8 @@ name       = "SUBUMBRA_VAULT"      # env.SUBUMBRA_VAULT in Worker code
 class_name = "SubumbraVault"       # exported class name in worker.js
 
 [[durable_objects.bindings]]
-name       = "SUBUMBRA_GATE"       # env.SUBUMBRA_GATE in Worker code
-class_name = "SubumbraGate"        # exported class name in worker.js
+name       = "SUBUMBRA_JANUS"       # env.SUBUMBRA_JANUS in Worker code
+class_name = "SubumbraJanus"        # exported class name in worker.js
 
 [[migrations]]
 tag = "v2"
@@ -25,6 +25,13 @@ tag = "v3"
 tag = "v4"
 new_sqlite_classes = ["SubumbraGate"]
 
+[[migrations]]
+tag = "v5"
+
+  [[migrations.renamed_classes]]
+  from = "SubumbraGate"
+  to = "SubumbraJanus"
+
 
 # ── Observability ─────────────────────────────────────────────────────────────
 [observability]
@@ -35,9 +42,9 @@ head_sampling_rate = 1
 # These are NOT defined here — they live in CF Secrets and are injected at
 # runtime as env bindings. Listing them here for documentation only:
 #
-#   SUBUMBRA_ADAPTER_TOKENS — JSON token map, set by bootstrap
-#   SUBUMBRA_GATE_HMAC_KEY — one-time gate capability HMAC secret
-#   SUBUMBRA_GATE_VAPID_PRIVATE_JWK — browser push private key (JWK JSON)
+#   SUBUMBRA_CONSUMER_TOKENS — JSON token map, set by bootstrap
+#   SUBUMBRA_JANUS_HMAC_KEY — one-time janus capability HMAC secret
+#   SUBUMBRA_JANUS_VAPID_PRIVATE_JWK — browser push private key (JWK JSON)
 #   SUBUMBRA_MANAGEMENT_TOKEN — management bearer token, set by bootstrap
 #   SUBUMBRA_HMAC_KEY       — HMAC signing key, set by bootstrap
 #   SUBUMBRA_SETUP_TOKEN    — transient bootstrap-time setup token

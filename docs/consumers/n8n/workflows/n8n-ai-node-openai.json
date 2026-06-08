@@ -1,0 +1,79 @@
+{
+  "name": "Subumbra — OpenAI AI Node",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "d1e2f3a4-0001-0001-0001-000000000001",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "Say hello in exactly 5 words."
+      },
+      "id": "d1e2f3a4-0002-0002-0002-000000000002",
+      "name": "Basic LLM Chain",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o-mini",
+        "options": {}
+      },
+      "id": "d1e2f3a4-0003-0003-0003-000000000003",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.1,
+      "position": [460, 480],
+      "credentials": {
+        "openAiApi": {
+          "id": "subumbra-openai-cred",
+          "name": "OpenAI via Subumbra"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Basic LLM Chain": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "OpenAI Chat Model",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "pinData": {},
+  "_subumbra_notes": {
+    "credential_type": "openAiApi",
+    "credential_fields": {
+      "apiKey": "${SUBUMBRA_TOKEN_N8N}",
+      "baseURL": "http://subumbra-proxy:8090/t/openai_prod/v1"
+    },
+    "base_url": "http://subumbra-proxy:8090/t/openai_prod/v1",
+    "note": "Set the OpenAI credential Base URL to http://subumbra-proxy:8090/t/openai_prod/v1 and the API key to the n8n consumer token. The node appends /responses after the path-carried key_id."
+  }
+}

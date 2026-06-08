@@ -48,7 +48,7 @@ services:
       - keys_data:/app/data
       - subumbra_audit_data:/app/audit
     environment:
-      SUBUMBRA_ADAPTER_REGISTRY: ${SUBUMBRA_ADAPTER_REGISTRY}
+      SUBUMBRA_CONSUMER_REGISTRY: ${SUBUMBRA_CONSUMER_REGISTRY:-${SUBUMBRA_ADAPTER_REGISTRY:-}}
       SUBUMBRA_HMAC_KEY: ${SUBUMBRA_HMAC_KEY}
       DATA_DIR: /app/data
       AUDIT_DIR: /app/audit
@@ -95,7 +95,7 @@ services:
       CF_WORKER_URL: ${CF_WORKER_URL}
       CF_ACCESS_CLIENT_ID: ${CF_ACCESS_CLIENT_ID:-}
       CF_ACCESS_CLIENT_SECRET: ${CF_ACCESS_CLIENT_SECRET:-}
-      SUBUMBRA_GATE_VAPID_PUBLIC_KEY: ${SUBUMBRA_GATE_VAPID_PUBLIC_KEY:-}
+      SUBUMBRA_JANUS_VAPID_PUBLIC_KEY: ${SUBUMBRA_JANUS_VAPID_PUBLIC_KEY:-}
       # Optional: set UI_PASSWORD_HASH for in-process Basic Auth and
       # CF_ACCESS_PROTECTED=true when Cloudflare Access is the outer auth gate.
       UI_USERNAME: ${UI_USERNAME:-}
@@ -162,7 +162,7 @@ services:
       - "127.0.0.1:10199:8090"
     environment:
       SUBUMBRA_ACCESS_TOKEN: ${SUBUMBRA_TOKEN_PROXY}
-      SUBUMBRA_ADAPTER_REGISTRY: ${SUBUMBRA_ADAPTER_REGISTRY}
+      SUBUMBRA_CONSUMER_REGISTRY: ${SUBUMBRA_CONSUMER_REGISTRY:-${SUBUMBRA_ADAPTER_REGISTRY:-}}
       SUBUMBRA_HMAC_KEY: ${SUBUMBRA_HMAC_KEY}
       SUBUMBRA_KEYS_URL: http://subumbra-keys:9090
       CF_WORKER_URL: ${CF_WORKER_URL}
@@ -195,22 +195,22 @@ services:
     networks:
       - internal
     environment:
-      SUBUMBRA_AGENT_ADAPTER_ID: ${SUBUMBRA_AGENT_ADAPTER_ID:-sshtest}
-      SUBUMBRA_AGENT_ADAPTER_TOKEN: ${SUBUMBRA_TOKEN_SSHTEST:-}
+      SUBUMBRA_AGENT_CONSUMER_ID: ${SUBUMBRA_AGENT_CONSUMER_ID:-${SUBUMBRA_AGENT_CONSUMER_ID:-sshtest}}
+      SUBUMBRA_AGENT_CONSUMER_TOKEN: ${SUBUMBRA_AGENT_CONSUMER_TOKEN:-${SUBUMBRA_TOKEN_SSHTEST:-}}
       SUBUMBRA_AGENT_PROXY_URL: http://subumbra-proxy:8090
       SUBUMBRA_AGENT_SOCKET_PATH: /run/subumbra/ssh-agent.sock
-      SUBUMBRA_AGENT_KEYS_PATH: /app/data/keys.json
+      SUBUMBRA_AGENT_KEYS_PATH: /app/data/endpoint.json
       SUBUMBRA_SIGN_TIMEOUT: ${SUBUMBRA_SIGN_TIMEOUT:-30}
     volumes:
       # Mount the whole keys_data volume read-only at /app/data. We can't use a
-      # per-file `volume.subpath: keys.json` mount because day-2 commands
-      # (--add-ssh-key / --rotate-ssh-key / --revoke-ssh-key) rewrite keys.json
+      # per-file `volume.subpath: endpoint.json` mount because day-2 commands
+      # (--add-ssh-key / --rotate-ssh-key / --revoke-ssh-key) rewrite endpoint.json
       # atomically via rename, which replaces the inode and is not picked up
       # by single-file bind mounts. Reading from the directory mount makes the
       # rewrite visible immediately.
       # Security: runtime.env in this volume is mode 0600 owned by root and
       # remains unreadable to the non-root agent (uid 1000). Only the
-      # world-readable files (keys.json, kv-config.json, public_key.pem,
+      # world-readable files (endpoint.json, kv-config.json, public_key.pem,
       # system-integrity.json) are reachable — exactly what the agent needs.
       - type: volume
         source: keys_data
@@ -253,7 +253,7 @@ services:
       - keys_data:/app/data
       # Mount worker source so bootstrap can deploy via wrangler
       - ./worker:/app/worker:ro
-      # Manifest is mounted dynamically by bootstrap.sh (subumbra.yaml preferred, subumbra.json fallback)
+      # Manifest is mounted dynamically by bootstrap.sh from manifest.yaml
     env_file:
       # required: false — wizard runs when file is absent (interactive mode)
       # Populate this file for CI/automation (headless) mode.
@@ -261,7 +261,7 @@ services:
         required: false
     environment:
       DATA_DIR: /app/data
-      SUBUMBRA_ADAPTER_REGISTRY: ${SUBUMBRA_ADAPTER_REGISTRY:-}
+      SUBUMBRA_CONSUMER_REGISTRY: ${SUBUMBRA_CONSUMER_REGISTRY:-${SUBUMBRA_ADAPTER_REGISTRY:-}}
 
   # ───────────────────────────────────────────────────────────────────────────
   # cloudflared  —  optional Cloudflare Tunnel; run with: --profile tunnel

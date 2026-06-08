@@ -22,7 +22,7 @@
       userVisibleOnly: true,
       applicationServerKey: base64UrlToUint8Array(publicKey),
     });
-    const response = await fetch("/api/gate/subscribe", {
+    const response = await fetch("/api/janus/subscribe", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(subscription.toJSON()),

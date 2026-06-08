@@ -165,43 +165,35 @@ class Verifier:
         if self.repo_root is None:
             return
         self.check_manifest()
-        self.check_keys_json()
+        self.check_endpoint_json()
         self.check_env_file()
         self.check_cf_resources()
 
     def check_manifest(self) -> None:
-        yaml_path = self.repo_root / "subumbra.yaml"
-        json_path = self.repo_root / "subumbra.json"
+        yaml_path = self.repo_root / "manifest.yaml"
         if yaml_path.exists():
             try:
                 import yaml  # type: ignore
 
                 yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
-                self.add("manifest-parse", "PASS", "subumbra.yaml parses")
+                self.add("manifest-parse", "PASS", "manifest.yaml parses")
             except Exception as exc:
-                self.add("manifest-parse", "FAIL", f"subumbra.yaml parse error: {exc}")
-            return
-        if json_path.exists():
-            try:
-                json.loads(json_path.read_text(encoding="utf-8"))
-                self.add("manifest-parse", "PASS", "subumbra.json parses")
-            except json.JSONDecodeError as exc:
-                self.add("manifest-parse", "FAIL", f"subumbra.json parse error: {exc}")
+                self.add("manifest-parse", "FAIL", f"manifest.yaml parse error: {exc}")
             return
         self.add("manifest-parse", "WARN" if not self.args.preflight else "SKIP", "no operator manifest present")
 
-    def check_keys_json(self) -> None:
-        path = self.repo_root / "data" / "keys.json"
+    def check_endpoint_json(self) -> None:
+        path = self.repo_root / "data" / "endpoint.json"
         if not path.exists():
-            self.add("keys-json-v3", "SKIP", "data/keys.json absent")
+            self.add("endpoint-json-v3", "SKIP", "data/endpoint.json absent")
             return
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:
-            self.add("keys-json-v3", "FAIL", f"data/keys.json parse error: {exc}")
+            self.add("endpoint-json-v3", "FAIL", f"data/endpoint.json parse error: {exc}")
             return
         if not isinstance(payload, dict):
-            self.add("keys-json-v3", "FAIL", "data/keys.json top-level value is not an object")
+            self.add("endpoint-json-v3", "FAIL", "data/endpoint.json top-level value is not an object")
             return
         required = {"ciphertext", "wrapped_dek", "pub_key_fp", "policy_hash"}
         failures: list[str] = []
@@ -214,9 +206,9 @@ class Verifier:
             if record.get("enc_version") != 3 or not required.issubset(record):
                 failures.append(str(key_id))
         if failures:
-            self.add("keys-json-v3", "FAIL", "invalid V3 records: " + ", ".join(failures[:10]))
+            self.add("endpoint-json-v3", "FAIL", "invalid V3 records: " + ", ".join(failures[:10]))
         else:
-            self.add("keys-json-v3", "PASS", f"{len(payload)} V3 record(s) validated")
+            self.add("endpoint-json-v3", "PASS", f"{len(payload)} V3 record(s) validated")
 
     def check_env_file(self) -> None:
         path = self.repo_root / ".env"

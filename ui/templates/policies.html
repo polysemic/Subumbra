@@ -78,10 +78,10 @@
     <div class="policy-detail-section">
       <div class="section-title" style="border:0;padding:0;margin-bottom:10px">Allow</div>
       <div class="policy-row-kv">
-        <div class="k">Adapters</div>
+        <div class="k">Consumers</div>
         <div class="v" style="display:flex;gap:4px;flex-wrap:wrap">
-          {% for adapter_id in selected.allow_adapters %}
-            <span class="tag mono">{{ adapter_id }}</span>
+          {% for consumer_id in selected.allow_consumers %}
+            <span class="tag mono">{{ consumer_id }}</span>
           {% endfor %}
         </div>
       </div>

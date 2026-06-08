@@ -2,7 +2,7 @@
 
 *Cookbook for operator-declared `http_rest` policies and example `curl` calls through `subumbra-proxy`. For the canonical adapter API see [adapter-contract.md](adapter-contract.md). For manifest authoring see [operator-guide.md](operator-guide.md).*
 
-**Status:** Several paths below are still **experimental** for the `1.1.1-alpha` operator path; validate against your own `subumbra.yaml` before production.
+**Status:** Several paths below are still **experimental** for the `1.1.1-alpha` operator path; validate against your own `manifest.yaml` before production.
 
 ---
 
@@ -14,7 +14,7 @@ Any HTTPS JSON API can be brokered when you set:
 - `policy.target.host` / `policy.target.base_path`
 - `policy.auth` (`bearer`, `basic`, `header`, or `query` per operator guide)
 
-Declare labels, hosts, and auth in `subumbra.yaml`; use [subumbra.example.yaml](../subumbra.example.yaml) as the **gold** reference (every signed catalog template plus one full inline policy example) and [subumbra.minimal.yaml](../subumbra.minimal.yaml) for the **smallest** valid manifest (one OpenAI key via `template` only). For sample `curl` paths per provider, see the sections below.
+Declare labels, hosts, and auth in `manifest.yaml`; use [manifest.example.yaml](../manifest.example.yaml) as the **gold** reference (every signed catalog template plus one full inline policy example) and [manifest.minimal.yaml](../manifest.minimal.yaml) for the **smallest** valid manifest (one OpenAI key via `template` only). For sample `curl` paths per provider, see the sections below.
 
 ---
 
@@ -22,7 +22,7 @@ Declare labels, hosts, and auth in `subumbra.yaml`; use [subumbra.example.yaml](
 
 **Target:** `api.github.com` | **Scheme:** `bearer` | **Capability:** e.g. `source_control_read`
 
-Author policy in `subumbra.yaml` with the correct `target.host` and path allowlist. Internal proof templates lived under historical council rounds; treat those YAML files as **inspiration only**—your manifest is source of truth.
+Author policy in `manifest.yaml` with the correct `target.host` and path allowlist. Internal proof templates lived under historical council rounds; treat those YAML files as **inspiration only**—your manifest is source of truth.
 
 ---
 
@@ -42,7 +42,7 @@ Set `policy.auth.scheme` to `"header"` and `policy.auth.header_name` (for exampl
 
 ## 5. Example `curl` — transparent `/t` route
 
-Subumbra does **not** ship a hardcoded provider catalog. Replace `<your_*_key_id>` and `<your_adapter_token>` with values from your **local** `subumbra.yaml` (gitignored) and `.env` after bootstrap.
+Subumbra does **not** ship a hardcoded provider catalog. Replace `<your_*_key_id>` and `<your_consumer_token>` with values from your **local** `manifest.yaml` (gitignored) and `.env` after bootstrap.
 
 Host below uses `localhost:10199` (published proxy on the VPS). Apps on the Docker internal network use `http://subumbra-proxy:8090/t/<key_id>/...` instead.
 
@@ -50,7 +50,7 @@ Host below uses `localhost:10199` (published proxy on the VPS). Apps on the Dock
 
 ```bash
 curl -s -X POST http://127.0.0.1:10199/t/<your_anthropic_key_id>/v1/messages \
-  -H "Authorization: Bearer <your_adapter_token>" \
+  -H "Authorization: Bearer <your_consumer_token>" \
   -H "Content-Type: application/json" \
   -H "anthropic-version: 2023-06-01" \
   -d '{"model":"claude-3-5-haiku-latest","max_tokens":16,"messages":[{"role":"user","content":"Say test"}]}'
@@ -60,7 +60,7 @@ curl -s -X POST http://127.0.0.1:10199/t/<your_anthropic_key_id>/v1/messages \
 
 ```bash
 curl -s -X POST http://127.0.0.1:10199/t/<your_openai_key_id>/v1/chat/completions \
-  -H "Authorization: Bearer <your_adapter_token>" \
+  -H "Authorization: Bearer <your_consumer_token>" \
   -H "Content-Type: application/json" \
   -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"Say test"}],"max_tokens":16}'
 ```
@@ -69,7 +69,7 @@ curl -s -X POST http://127.0.0.1:10199/t/<your_openai_key_id>/v1/chat/completion
 
 ```bash
 curl -s -X POST http://127.0.0.1:10199/t/<your_groq_key_id>/openai/v1/chat/completions \
-  -H "Authorization: Bearer <your_adapter_token>" \
+  -H "Authorization: Bearer <your_consumer_token>" \
   -H "Content-Type: application/json" \
   -d '{"model":"llama-3.1-8b-instant","messages":[{"role":"user","content":"Say test"}],"max_tokens":16}'
 ```
@@ -78,7 +78,7 @@ curl -s -X POST http://127.0.0.1:10199/t/<your_groq_key_id>/openai/v1/chat/compl
 
 ```bash
 curl -s -X POST http://127.0.0.1:10199/t/<your_deepseek_key_id>/v1/chat/completions \
-  -H "Authorization: Bearer <your_adapter_token>" \
+  -H "Authorization: Bearer <your_consumer_token>" \
   -H "Content-Type: application/json" \
   -d '{"model":"deepseek-chat","messages":[{"role":"user","content":"Say test"}],"max_tokens":16}'
 ```
@@ -89,7 +89,7 @@ GitHub requires a `User-Agent` header (HTTP 403 without it).
 
 ```bash
 curl -s http://127.0.0.1:10199/t/<your_github_key_id>/user \
-  -H "Authorization: Bearer <your_adapter_token>" \
+  -H "Authorization: Bearer <your_consumer_token>" \
   -H "Accept: application/vnd.github+json" \
   -H "X-GitHub-Api-Version: 2022-11-28" \
   -H "User-Agent: subumbra-proxy/1.0"
@@ -99,7 +99,7 @@ curl -s http://127.0.0.1:10199/t/<your_github_key_id>/user \
 
 ```bash
 curl -s -X POST http://127.0.0.1:10199/t/<your_slack_key_id>/api/auth.test \
-  -H "Authorization: Bearer <your_adapter_token>" \
+  -H "Authorization: Bearer <your_consumer_token>" \
   -H "Content-Type: application/json" \
   -d '{}'
 ```
@@ -108,7 +108,7 @@ curl -s -X POST http://127.0.0.1:10199/t/<your_slack_key_id>/api/auth.test \
 
 ```bash
 curl -s http://127.0.0.1:10199/t/<your_sendgrid_key_id>/v3/scopes \
-  -H "Authorization: Bearer <your_adapter_token>" \
+  -H "Authorization: Bearer <your_consumer_token>" \
   -H "Content-Type: application/json"
 ```
 

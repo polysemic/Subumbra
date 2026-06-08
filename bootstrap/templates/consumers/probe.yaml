@@ -1,0 +1,19 @@
+consumer_id: probe
+display_name: Subumbra Probe
+category: internal
+docs_path: docs/
+allow_adapters:
+  - subumbra-probe
+default_token_env_var: SUBUMBRA_TOKEN_PROBE
+verified: true
+config_format:
+  type: env_file
+  target: .env   # Subumbra core deployment directory
+  fields:
+    - name: SUBUMBRA_ACCESS_TOKEN
+      value: "{consumer_token}"
+      note: "Bootstrap sets this automatically as SUBUMBRA_TOKEN_PROBE"
+config_notes: >
+  The probe is a Subumbra-internal diagnostic container, not a third-party app.
+  Bootstrap generates its token automatically — no manual setup needed.
+  This template exists so --list-consumers displays it alongside external apps.

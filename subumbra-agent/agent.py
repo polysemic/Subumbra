@@ -34,10 +34,10 @@ SSH_SESSION_BIND_EXTENSION = b"session-bind@openssh.com"
 SSH_HOSTBOUND_METHOD = b"publickey-hostbound-v00@openssh.com"
 
 SOCKET_PATH = Path(os.environ.get("SUBUMBRA_AGENT_SOCKET_PATH", "/run/subumbra/ssh-agent.sock"))
-KEYS_JSON_PATH = Path(os.environ.get("SUBUMBRA_AGENT_KEYS_PATH", "/app/keys.json"))
+ENDPOINT_JSON_PATH = Path(os.environ.get("SUBUMBRA_AGENT_KEYS_PATH", "/app/data/endpoint.json"))
 PROXY_URL = os.environ.get("SUBUMBRA_AGENT_PROXY_URL", "http://subumbra-proxy:8090").rstrip("/")
-ADAPTER_ID = os.environ.get("SUBUMBRA_AGENT_ADAPTER_ID", "sshtest")
-ADAPTER_TOKEN = os.environ.get("SUBUMBRA_AGENT_ADAPTER_TOKEN", "")
+CONSUMER_ID = os.environ.get("SUBUMBRA_AGENT_CONSUMER_ID", os.environ.get("SUBUMBRA_AGENT_CONSUMER_ID", "sshtest"))
+CONSUMER_TOKEN = os.environ.get("SUBUMBRA_AGENT_CONSUMER_TOKEN", os.environ.get("SUBUMBRA_AGENT_CONSUMER_TOKEN", ""))
 AGENT_UID = int(os.environ.get("SUBUMBRA_AGENT_UID", "1000"))
 AGENT_GID = int(os.environ.get("SUBUMBRA_AGENT_GID", "1000"))
 try:
@@ -47,8 +47,8 @@ except ValueError:
 if SIGN_TIMEOUT <= 0:
     SIGN_TIMEOUT = 30.0
 
-if not ADAPTER_TOKEN:
-    print("ERROR: SUBUMBRA_AGENT_ADAPTER_TOKEN is required", file=sys.stderr)
+if not CONSUMER_TOKEN:
+    print("ERROR: SUBUMBRA_AGENT_CONSUMER_TOKEN is required", file=sys.stderr)
     sys.exit(1)
 
 logging.basicConfig(
@@ -202,11 +202,11 @@ def parse_public_key_line(public_key: str) -> tuple[bytes, bytes]:
     return key_blob, comment
 
 
-def load_identities(keys_json_path: Path, adapter_id: str) -> list[IdentityRecord]:
-    with keys_json_path.open("r", encoding="utf-8") as handle:
+def load_identities(endpoint_json_path: Path, consumer_id: str) -> list[IdentityRecord]:
+    with endpoint_json_path.open("r", encoding="utf-8") as handle:
         payload = json.load(handle)
     if not isinstance(payload, dict):
-        raise AgentError("keys.json must contain an object")
+        raise AgentError("endpoint.json must contain an object")
 
     identities: list[IdentityRecord] = []
     for key_id, entry in payload.items():
@@ -217,7 +217,7 @@ def load_identities(keys_json_path: Path, adapter_id: str) -> list[IdentityRecor
         if entry.get("status", "active") != "active":
             continue
         adapters = entry.get("adapters")
-        if not isinstance(adapters, list) or adapter_id not in adapters:
+        if not isinstance(adapters, list) or consumer_id not in adapters:
             continue
         public_key = entry.get("public_key")
         if not isinstance(public_key, str) or not public_key:
@@ -262,7 +262,7 @@ def wrap_ssh_ed25519_signature(raw_sig: bytes) -> bytes:
 def forward_sign_request(
     *,
     proxy_base_url: str,
-    adapter_token: str,
+    consumer_token: str,
     key_id: str,
     challenge_b64: str,
     verified_host_fingerprint: str | None,
@@ -277,7 +277,7 @@ def forward_sign_request(
         data=body,
         headers={
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {adapter_token}",
+            "Authorization": f"Bearer {consumer_token}",
         },
     )
     try:
@@ -406,11 +406,11 @@ class AgentRequestHandler(socketserver.StreamRequestHandler):
 
     def handle_request_identities(self) -> bytes:
         try:
-            identities = load_identities(KEYS_JSON_PATH, ADAPTER_ID)
+            identities = load_identities(ENDPOINT_JSON_PATH, CONSUMER_ID)
         except Exception as exc:
             LOG.error("identities failure error=%s", exc)
             return build_failure()
-        LOG.info("identities served count=%s adapter=%s", len(identities), ADAPTER_ID)
+        LOG.info("identities served count=%s consumer=%s", len(identities), CONSUMER_ID)
         return build_identities_answer(identities)
 
     def handle_extension(self, message: bytes) -> bytes:
@@ -435,7 +435,7 @@ class AgentRequestHandler(socketserver.StreamRequestHandler):
     def handle_sign_request(self, message: bytes) -> bytes:
         try:
             key_blob, data, flags = parse_sign_request(message)
-            identities = load_identities(KEYS_JSON_PATH, ADAPTER_ID)
+            identities = load_identities(ENDPOINT_JSON_PATH, CONSUMER_ID)
         except Exception as exc:
             LOG.warning("sign reject reason=%s", exc)
             return build_failure()
@@ -471,7 +471,7 @@ class AgentRequestHandler(socketserver.StreamRequestHandler):
         challenge_b64 = base64.b64encode(data).decode("ascii")
         status_code, response_body = forward_sign_request(
             proxy_base_url=PROXY_URL,
-            adapter_token=ADAPTER_TOKEN,
+            consumer_token=CONSUMER_TOKEN,
             key_id=matched.key_id,
             challenge_b64=challenge_b64,
             verified_host_fingerprint=verified_host_fingerprint,
@@ -506,10 +506,10 @@ def serve() -> None:
     with ThreadedUnixServer(str(SOCKET_PATH), AgentRequestHandler) as server:
         os.chmod(SOCKET_PATH, stat.S_IRUSR | stat.S_IWUSR)
         LOG.info(
-            "agent ready socket=%s adapter=%s keys_json=%s uid=%s gid=%s",
+            "agent ready socket=%s consumer=%s endpoint_json=%s uid=%s gid=%s",
             SOCKET_PATH,
-            ADAPTER_ID,
-            KEYS_JSON_PATH,
+            CONSUMER_ID,
+            ENDPOINT_JSON_PATH,
             os.getuid(),
             os.getgid(),
         )

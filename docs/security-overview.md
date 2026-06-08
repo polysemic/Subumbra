@@ -33,7 +33,7 @@ Subumbra reduces your attack surface; it does not eliminate Cloudflare as a
 dependency.
 
 **Root access to your server breaks the model.** An attacker with root on
-your VPS can read container environment variables (adapter tokens, HMAC key)
+your VPS can read container environment variables (consumer tokens, HMAC key)
 from running process memory. They cannot directly extract provider API keys,
 but they can make authenticated requests through the proxy. Treat your server
 as a security boundary.
@@ -98,7 +98,7 @@ The following threats are structurally addressed in the current release:
 
 | Threat | Mitigation |
 |--------|-----------|
-| Compromised adapter token requests any key | `allow.adapters` binds each token to specific `key_id`s; `capability_class` limits what APIs can be called |
+| Compromised consumer token requests any key | `allow.consumers` binds each token to specific `key_id`s; `capability_class` limits what APIs can be called |
 | Prompt-injection causes an LLM app to call unintended APIs | `capability_class` + `allow.path_prefixes` and `allow.methods` enforce scope at the Worker boundary |
 | Stolen Cloudflare deploy token replaces the Worker | Bootstrap captures a SHA-256 of the deployed bundle; `subumbra-verify-deploy` detects drift |
 | Local source modified before bootstrap | `scripts/subumbra-verify` checks sensitive source files and bootstrap runs it before reading secrets |
@@ -121,10 +121,10 @@ The following are known gaps or deferred work:
 
 | File | Why |
 |------|-----|
-| `.env` | Contains adapter tokens and HMAC key |
+| `.env` | Contains consumer tokens and HMAC key |
 | `.env.bootstrap` | Contains provider API keys and Cloudflare credentials — shred after use |
-| `subumbra.yaml` | Contains `key_id` labels and `secret_ref` names — low sensitivity but gitignored by convention |
-| `keys.json` | Encrypted ciphertext — safe cryptographically, but no reason to expose |
+| `manifest.yaml` | Contains `key_id` labels and `secret_ref` names — low sensitivity but gitignored by convention |
+| `endpoint.json` | Encrypted ciphertext — safe cryptographically, but no reason to expose |
 | `public_key*.pem` | RSA public keys — not secret, but no reason to commit |
 
 All of the above are covered by `.gitignore`. Do not force-add them.

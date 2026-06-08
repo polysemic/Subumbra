@@ -1,0 +1,21 @@
+consumer_id: github
+display_name: GitHub Actions
+category: automation
+docs_path: docs/operator-guide.md
+allow_adapters:
+  - github
+default_token_env_var: SUBUMBRA_TOKEN_GITHUB
+verified: true
+config_format:
+  type: env_file
+  target: GitHub repository or organization secrets
+  fields:
+    - name: SUBUMBRA_ACCESS_TOKEN
+      value: "{consumer_token}"
+      note: "Store as a GitHub Actions secret and pass to your workflow job"
+    - name: SUBUMBRA_BASE_URL
+      value: "http://subumbra-proxy:8090/t/{key_id}"
+      note: "Append provider-specific path suffixes in your workflow as needed"
+config_notes: >
+  Use this adapter when GitHub-hosted workflows call Subumbra's HTTP proxy path.
+  SSH key custody and /ssh/sign are documented separately in docs/operator-guide.md.

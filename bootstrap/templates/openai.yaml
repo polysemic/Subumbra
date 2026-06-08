@@ -2,7 +2,7 @@
 # OpenAI Chat Completions and related endpoints (GPT-4o, o1, o3, etc.)
 # Auth: bearer  |  Docs: https://platform.openai.com/docs/api-reference
 #
-# Reference in subumbra.yaml:
+# Reference in manifest.yaml:
 #   - key_id: openai_prod
 #     provider: openai
 #     secret_ref: OPENAI_KEY
@@ -11,7 +11,7 @@
 #     template: openai
 #
 # To override any field or add optional controls, replace template: with a full
-# inline policy block. See subumbra.example.yaml for the complete field reference.
+# inline policy block. See manifest.example.yaml for the complete field reference.
 #
 # Updating policy after bootstrap (no re-bootstrap required):
 #   ./bootstrap.sh --publish-policy <key_id>
@@ -53,7 +53,7 @@ response:
     - x-ratelimit-reset-requests
     - x-ratelimit-reset-tokens
 velocity:
-  adapter_rpm: 120
+  consumer_rpm: 120
   key_rpm: 600
   breaker_failures: 3
   breaker_cooldown_seconds: 30

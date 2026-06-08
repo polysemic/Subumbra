@@ -1,4 +1,4 @@
-description: "Subumbra staging keys service auth pass. Focus on adapter token resolution, HMAC validation, nonce replay protection, and record access controls."
+description: "Subumbra staging keys service auth pass. Focus on consumer token resolution, HMAC validation, nonce replay protection, and record access controls."
 vuln_classes: [auth]
 
 pipeline:

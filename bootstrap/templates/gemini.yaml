@@ -2,7 +2,7 @@
 # Google Gemini via the OpenAI-compatible Generative Language API endpoint
 # Auth: bearer  |  Docs: https://ai.google.dev/gemini-api/docs/openai
 #
-# Reference in subumbra.yaml:
+# Reference in manifest.yaml:
 #   - key_id: gemini_prod
 #     provider: gemini
 #     secret_ref: GEMINI_KEY
@@ -11,7 +11,7 @@
 #     template: gemini
 #
 # To override any field or add optional controls, replace template: with a full
-# inline policy block. See subumbra.example.yaml for the complete field reference.
+# inline policy block. See manifest.example.yaml for the complete field reference.
 #
 # Updating policy after bootstrap (no re-bootstrap required):
 #   ./bootstrap.sh --publish-policy <key_id>
@@ -41,7 +41,7 @@ allow:
 # response:
 #   deny_patterns: []
 velocity:
-  adapter_rpm: 120
+  consumer_rpm: 120
   key_rpm: 600
   breaker_failures: 3
   breaker_cooldown_seconds: 30

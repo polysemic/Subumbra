@@ -2,7 +2,7 @@
 # Twilio SendGrid v3 Mail Send and Account APIs
 # Auth: bearer  |  Docs: https://docs.sendgrid.com/api-reference
 #
-# Reference in subumbra.yaml:
+# Reference in manifest.yaml:
 #   - key_id: sendgrid_prod
 #     provider: sendgrid
 #     secret_ref: SENDGRID_KEY
@@ -11,7 +11,7 @@
 #     template: sendgrid
 #
 # To override any field or add optional controls, replace template: with a full
-# inline policy block. See subumbra.example.yaml for the complete field reference.
+# inline policy block. See manifest.example.yaml for the complete field reference.
 #
 # Updating policy after bootstrap (no re-bootstrap required):
 #   ./bootstrap.sh --publish-policy <key_id>
@@ -40,7 +40,7 @@ allow:
 # response:
 #   deny_patterns: []
 velocity:
-  adapter_rpm: 60
+  consumer_rpm: 60
   key_rpm: 300
   breaker_failures: 3
   breaker_cooldown_seconds: 30

@@ -2,7 +2,7 @@
 
 This page covers Subumbra and emerging adjacent projects in the agent and MCP credential-security space. It is not a mature enterprise parity table, and inclusion is not endorsement. The agent/MCP security ecosystem is moving quickly; several tools below are complementary to Subumbra rather than alternatives.
 
-Subumbra's planned direction for MCP and agent workflows is described in the sections below. The goal is to let local agents call providers through scoped adapter tokens — not provider plaintext — with the same session limits, policy firewalling, and Janus approval model used for all other Subumbra-brokered calls. This work is actively planned and not yet shipped.
+Subumbra's planned direction for MCP and agent workflows is described in the sections below. The goal is to let local agents call providers through scoped consumer tokens — not provider plaintext — with the same session limits, policy firewalling, and Janus approval model used for all other Subumbra-brokered calls. This work is actively planned and not yet shipped.
 
 ## Visual Matrix
 
@@ -14,7 +14,7 @@ Subumbra's planned direction for MCP and agent workflows is described in the sec
 | Google MCP security | Security-product MCP servers | SecOps, SOAR, GTI, SCC access through MCP | Uses Google Cloud IAM | ◑ Partial | ✗ No | ◑ Partial | Google-managed plus local packages | Large vendor repo | [src:google-mcp-security] |
 | MCPProxy | MCP proxy | Tool discovery, proxying, keyring secrets | Storage plus proxying | ◑ Partial | ◑ Partial | ◑ Partial | Local-first | Active OSS | [src:mcpproxy-github] |
 | nono | Agent sandbox | Capability-based sandbox and policy controls | Brokering/isolation | ◑ Partial | ✓ Yes | ✓ Yes | Local-first | Active OSS (Rust) | [src:nono-github] |
-| Peta Core | MCP runtime / gateway | MCP runtime and zero-trust gateway | Brokering | ✗ No | ✓ Yes | ✓ Yes | Self-hosted (requires PostgreSQL) | Emerging (v1.2.1) | [src:peta-core] |
+| Peta Core | MCP runtime / gateway | MCP runtime and Janus approval edgeway | Brokering | ✗ No | ✓ Yes | ✓ Yes | Self-hosted (requires PostgreSQL) | Emerging (v1.2.1) | [src:peta-core] |
 | Pipelock | Agent firewall | Egress, MCP, DLP, SSRF, prompt-injection defense | Not primary focus | ◑ Partial | ✓ Yes | ✓ Yes | Local/sidecar | Active OSS (Go, CNCF) | [src:pipelock-github] |
 | Snyk Agent Scan | Scanner | Agent/MCP/skill risks and prompt injection | Not a broker | — N/A | ◑ Partial | ✓ Yes | Local scanner | Active OSS | [src:snyk-agent-scan] |
 | Subumbra | Secret broker / MCP credential custody (planned) | Provider API keys and SSH keys from agent context; MCP tool-call custody planned | Split-custody storage + brokering (V3 encrypted envelope) | ✗ No | ✓ Yes | ◑ Partial | Self-hosted + Cloudflare DO | Alpha (v1.1.1-alpha) | [src:subumbra-claude] |
@@ -31,17 +31,17 @@ Subumbra's planned direction for MCP and agent workflows is described in the sec
 - varlock is developer-facing config tooling (schema-only .env management with leak scanning) — useful as a pre-runtime complement but not a runtime policy or custody system.
 - nono (Rust, kernel-level Landlock/Seatbelt sandbox) is a containment layer for agent processes; it sits below the credential layer.
 - Google MCP Security is a security data plane (access to Chronicle, SOAR, GTI, SCC) rather than a security control plane — not comparable in the credential-custody or policy-enforcement sense.
-- Subumbra currently protects provider-key usage through adapter tokens, session state, policy firewalling, and split custody. Formal MCP server integration is planned but not yet shipped. [src:subumbra-claude]
+- Subumbra currently protects provider-key usage through consumer tokens, session state, policy firewalling, and split custody. Formal MCP server integration is planned but not yet shipped. [src:subumbra-claude]
 
 ## Planned Subumbra MCP Direction
 
 The planned approach is to give MCP agents the same credential isolation that Subumbra already provides for LiteLLM, LibreChat, and other apps:
 
-- **Adapter tokens, not provider keys.** An MCP server or local agent receives a scoped adapter token for its session. The provider key never appears in the agent's context, config, or memory.
+- **Consumer tokens, not provider keys.** An MCP server or local agent receives a scoped consumer token for its session. The provider key never appears in the agent's context, config, or memory.
 - **Session-bounded access.** Agents will be assigned named sessions with TTLs, per-session key scope, and optional total-request quotas — matching the session model already in use for operator sessions.
 - **Policy firewalling.** Method allowlists, path-prefix allowlists, content-type restrictions, body-size caps, and response deny-pattern scanning apply to MCP-originated calls through the same Worker enforcement path as all other proxied requests.
 - **Janus approval.** Selected MCP tool calls can be held for operator approval before the proxy resubmits, using the same gate mechanism already implemented for HTTP operations.
-- **Bootstrap template integration.** Agent adapter tokens will be declarable in `bootstrap/templates/adapters` alongside existing adapter definitions, allowing admins to provision agent credentials without touching provider secrets.
+- **Bootstrap template integration.** Agent consumer tokens will be declarable in `bootstrap/templates/consumers` alongside existing adapter definitions, allowing admins to provision agent credentials without touching provider secrets.
 
 This work is tracked in the project scratchpad and is planned for a future round. The current Subumbra row in the matrix above reflects this planned state.
 

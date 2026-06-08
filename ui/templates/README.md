@@ -105,7 +105,7 @@ Polled every 30 seconds. Drives all dashboard state.
   "recent_log": [
     {
       "timestamp": "2026-04-22T18:30:00Z",
-      "adapter_id": "claude-adapter",
+      "consumer_id": "claude-adapter",
       "endpoint": "/v1/messages",
       "key_id": "prod-anthropic-1",
       "remote": "192.168.1.10",

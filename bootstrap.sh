@@ -21,6 +21,21 @@ require_xdg_runtime_dir() {
     install -d -m 700 "$xdg_runtime_dir/subumbra"
 }
 
+profiles_include_ssh() {
+    local -a args=("$@")
+    local idx=0
+    while [[ $idx -lt ${#args[@]} ]]; do
+        if [[ "${args[$idx]}" == "--profile" ]]; then
+            local next=$((idx + 1))
+            if [[ $next -lt ${#args[@]} && "${args[$next]}" == "ssh" ]]; then
+                return 0
+            fi
+        fi
+        idx=$((idx + 1))
+    done
+    return 1
+}
+
 env_key_present() {
     local key="$1"
     [[ -f "$env_file" ]] || return 1
@@ -66,11 +81,15 @@ compose_profile_args() {
     fi
 }
 
-# Discover manifest: prefer subumbra.yaml, fall back to subumbra.json.
+# Discover manifest: prefer manifest.yaml; fall back to subumbra.yaml with a warning.
 manifest_file=""
-if [[ -f "subumbra.yaml" ]]; then
+if [[ -f "manifest.yaml" ]]; then
+    manifest_file="manifest.yaml"
+elif [[ -f "subumbra.yaml" ]]; then
+    echo "WARNING: subumbra.yaml found — rename to manifest.yaml for r94+ compatibility" >&2
     manifest_file="subumbra.yaml"
 elif [[ -f "subumbra.json" ]]; then
+    echo "WARNING: subumbra.json found — convert to manifest.yaml for r94+ compatibility" >&2
     manifest_file="subumbra.json"
 fi
 
@@ -78,7 +97,7 @@ fi
 mode=""
 for arg in "$@"; do
     case "$arg" in
-        --upgrade|--nuke|--rotate|--add-ssh-key|--rotate-ssh-key|--revoke-ssh-key|--rotate-npm-token|--push-registry|--deploy-worker|--session|--provision|--revoke-key|--add-adapter|--revoke-adapter|--publish-policy|--update-tunnel|--update-access|--update-ui-auth|--update-gate|--nuke-cloudflare|--help|-h|--list-key-ids|--list-adapters|--show|--status)
+        --upgrade|--nuke|--rotate|--add-ssh-key|--rotate-ssh-key|--revoke-ssh-key|--rotate-npm-token|--push-registry|--deploy-worker|--session|--provision|--revoke-key|--add-consumer|--revoke-consumer|--publish-policy|--update-tunnel|--update-access|--update-ui-auth|--update-janus|--nuke-cloudflare|--help|-h|--list-key-ids|--list-consumers|--show|--status)
             mode="$arg"
             break
             ;;
@@ -89,7 +108,6 @@ if [[ -z "$mode" ]]; then
 fi
 
 if [[ "$mode" == "--upgrade" ]]; then
-    require_xdg_runtime_dir
     if [[ ! -f "$env_file" ]]; then
         echo "ERROR: $env_file not found. Create it (e.g. cp .env.example .env), run ./bootstrap.sh once, then use --upgrade." >&2
         exit 1
@@ -101,6 +119,9 @@ if [[ "$mode" == "--upgrade" ]]; then
     docker compose build
     docker compose --profile bootstrap build bootstrap
     mapfile -t _profiles < <(compose_profile_args)
+    if profiles_include_ssh "${_profiles[@]}"; then
+        require_xdg_runtime_dir
+    fi
     docker compose "${_profiles[@]}" up -d --force-recreate
     python3 "$repo_root/scripts/subumbra-print-adapters.py" "$repo_root/$env_file"
     exit 0
@@ -136,12 +157,12 @@ if [[ -d "$repo_root/templates" ]]; then
 fi
 
 if [[ -z "$manifest_file" ]]; then
-    echo "ERROR: manifest not found. Create subumbra.yaml (preferred) or subumbra.json." >&2
+    echo "ERROR: manifest not found. Create manifest.yaml." >&2
     exit 1
 fi
 
 case "$mode" in
-    --help|-h|--list-key-ids|--list-adapters|--show|--status)
+    --help|-h|--list-key-ids|--list-consumers|--show|--status)
         echo "▶  Skipping source preflight for read-only mode: ${mode}"
         ;;
     *)
@@ -202,7 +223,7 @@ if [[ "$mode" == "--rotate" || "$mode" == "--nuke" || -z "$mode" ]]; then
         "${volume_args[@]}" \
         "${env_args[@]}" \
         bootstrap "$@" || bootstrap_rc=$?
-elif [[ "$mode" == "--push-registry" || "$mode" == "--session" || "$mode" == "--provision" || "$mode" == "--revoke-key" || "$mode" == "--add-ssh-key" || "$mode" == "--rotate-ssh-key" || "$mode" == "--revoke-ssh-key" || "$mode" == "--rotate-npm-token" || "$mode" == "--add-adapter" || "$mode" == "--revoke-adapter" || "$mode" == "--publish-policy" || "$mode" == "--update-tunnel" || "$mode" == "--update-access" || "$mode" == "--update-ui-auth" || "$mode" == "--update-gate" || "$mode" == "--nuke-cloudflare" || "$mode" == "--status" ]]; then
+elif [[ "$mode" == "--push-registry" || "$mode" == "--session" || "$mode" == "--provision" || "$mode" == "--revoke-key" || "$mode" == "--add-ssh-key" || "$mode" == "--rotate-ssh-key" || "$mode" == "--revoke-ssh-key" || "$mode" == "--rotate-npm-token" || "$mode" == "--add-consumer" || "$mode" == "--revoke-consumer" || "$mode" == "--publish-policy" || "$mode" == "--update-tunnel" || "$mode" == "--update-access" || "$mode" == "--update-ui-auth" || "$mode" == "--update-janus" || "$mode" == "--nuke-cloudflare" || "$mode" == "--status" ]]; then
     if [[ -t 0 ]]; then
         run_io_flags=(-it)
     else
@@ -220,7 +241,7 @@ else
 fi
 
 if [[ $bootstrap_rc -eq 0 ]]; then
-    if [[ -f "$bootstrap_file" && "$mode" != "--provision" && "$mode" != "--add-adapter" && "$mode" != "--revoke-adapter" && "$mode" != "--publish-policy" ]]; then
+    if [[ -f "$bootstrap_file" && "$mode" != "--provision" && "$mode" != "--add-consumer" && "$mode" != "--revoke-consumer" && "$mode" != "--publish-policy" ]]; then
         if command -v shred >/dev/null 2>&1; then
             shred -u "$bootstrap_file"
         else
@@ -237,16 +258,18 @@ with open(path, "r+b") as fh:
 os.remove(path)
 PY
         fi
-    elif [[ -f "$bootstrap_file" && ( "$mode" == "--provision" || "$mode" == "--add-adapter" || "$mode" == "--revoke-adapter" || "$mode" == "--publish-policy" ) ]]; then
+    elif [[ -f "$bootstrap_file" && ( "$mode" == "--provision" || "$mode" == "--add-consumer" || "$mode" == "--revoke-consumer" || "$mode" == "--publish-policy" ) ]]; then
         echo "WARNING: .env.bootstrap retained after $mode for additional secure mutation steps. Shred it manually when repairs are complete." >&2
     fi
 fi
 
 if [[ $bootstrap_rc -eq 0 && ( -z "$mode" || "$mode" == "--nuke" ) ]]; then
-    require_xdg_runtime_dir
+    mapfile -t _profiles < <(compose_profile_args)
+    if profiles_include_ssh "${_profiles[@]}"; then
+        require_xdg_runtime_dir
+    fi
     echo ""
     echo "▶  Starting / refreshing core stack (docker compose up -d --force-recreate)"
-    mapfile -t _profiles < <(compose_profile_args)
     docker compose "${_profiles[@]}" up -d --force-recreate
     python3 "$repo_root/scripts/subumbra-print-adapters.py" "$repo_root/$env_file" || true
 fi

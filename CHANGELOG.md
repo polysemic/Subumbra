@@ -6,6 +6,24 @@ This file is intentionally concise. For longer release writeups, operator notes,
 and release-specific context, see `docs/releases/`.
 
 ## 1.2.1-alpha - 2026-05-29
+## 1.3.0-alpha - 2026-06-03
+
+### Changed
+
+- Renamed the app-facing caller vocabulary from `adapter` to `consumer` across
+  bootstrap/session flows, registry env wiring, UI routes, and Worker log
+  fields.
+- Renamed the approval subsystem from Gate to Janus across Worker bindings,
+  operator commands, and dashboard references, with a Durable Object rename
+  migration in `worker/wrangler.toml`.
+- Standardized the operator manifest name on `manifest.yaml` and retired the
+  active `subumbra.json` fallback from bootstrap and verification helpers.
+- Renamed the local encrypted record store from `data/keys.json` to
+  `data/endpoint.json` across runtime code, compose wiring, and proof helpers.
+- Updated install/operator/app docs and website copy to use split-trust,
+  consumer, Janus, `manifest.yaml`, and `endpoint.json` terminology.
+
+## 1.2.1-alpha - 2026-05-29
 
 ### Changed
 

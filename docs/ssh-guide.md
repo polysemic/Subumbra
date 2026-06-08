@@ -79,19 +79,19 @@ To check a session opened in another terminal or shell invocation, just run
 `--session status`.
 
 ```bash
-./bootstrap.sh --session start --ttl 8h --adapters sshtest --keys github_vps_test
+./bootstrap.sh --session start --ttl 8h --consumers sshtest --keys github_vps_test
 ```
 
 If you want a separate SSH-sign quota for the session, add `--max-sign-ops`:
 
 ```bash
-./bootstrap.sh --session start --ttl 8h --adapters sshtest --keys github_vps_test --max-sign-ops 10
+./bootstrap.sh --session start --ttl 8h --consumers sshtest --keys github_vps_test --max-sign-ops 10
 ```
 
 Recommended daily-use pattern:
 
 - `--ttl 8h` for a normal workday
-- `--adapters sshtest` or your specific SSH adapter
+- `--consumers sshtest` or your specific SSH adapter
 - `--keys <ssh_key_id>` for the minimum key scope you need
 - `--max-sign-ops <n>` only when you want a hard cap on signatures successfully issued by Subumbra for that session
 
@@ -111,7 +111,7 @@ Check status with:
 Close access when you are done:
 
 ```bash
-SESSION_START_OUTPUT=$(./bootstrap.sh --session start --ttl 8h --adapters sshtest --keys github_vps_test)
+SESSION_START_OUTPUT=$(./bootstrap.sh --session start --ttl 8h --consumers sshtest --keys github_vps_test)
 printf '%s\n' "$SESSION_START_OUTPUT"
 SESSION_ID=$(printf '%s\n' "$SESSION_START_OUTPUT" | awk '/Started session /{print $NF}')
 ./bootstrap.sh --session end "$SESSION_ID"
@@ -157,11 +157,11 @@ SSH_AUTH_SOCK="${XDG_RUNTIME_DIR}/subumbra/ssh-agent.sock" ssh-add -L
 ```
 Copy the string starting with `ssh-ed25519 ...`.
 
-#### Option B: Directly from `keys.json` on the server
+#### Option B: Directly from `endpoint.json` on the server
 You can extract the plain-text public key from your server's data volume using `jq`:
 ```bash
 # Replace 'verify_vps_key' with your actual key ID
-jq -r '.keys.verify_vps_key.public_key' /opt/subumbra/data/keys.json
+jq -r '.keys.verify_vps_key.public_key' /opt/subumbra/data/endpoint.json
 ```
 
 #### Option C: From the dashboard UI
@@ -243,13 +243,13 @@ These commands are for an already-initialized deployment.
 ### Add a new generated SSH key
 
 ```bash
-./bootstrap.sh --add-ssh-key verify_vps_key --adapters sshtest
+./bootstrap.sh --add-ssh-key verify_vps_key --consumers sshtest
 ```
 
 Add a restricted key for one or more SSH destinations:
 
 ```bash
-./bootstrap.sh --add-ssh-key verify_vps_key --adapters sshtest --allow-hosts github.com,127.0.0.1
+./bootstrap.sh --add-ssh-key verify_vps_key --consumers sshtest --allow-hosts github.com,127.0.0.1
 ```
 
 ### Rotate an existing generated SSH key

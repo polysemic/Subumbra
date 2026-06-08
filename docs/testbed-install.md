@@ -565,7 +565,7 @@ Then the apps are re-pointed:
 |-----|--------|-------|
 | LiteLLM | `api_key: os.environ/ANTHROPIC_API_KEY` | `api_base: http://subumbra-proxy:8090/t/anthropic_prod` + `api_key: ${SUBUMBRA_TOKEN_LITELLM}` |
 | OpenWebUI | `OPENAI_API_BASE_URL=https://api.openai.com/v1` | `OPENAI_API_BASE_URL=http://subumbra-proxy:8090/t/openai_prod/v1` |
-| N8N | Credentials stored in N8N DB | HTTP/node base URL carries `<key_id>` in the path and uses the n8n adapter token |
+| N8N | Credentials stored in N8N DB | HTTP/node base URL carries `<key_id>` in the path and uses the n8n consumer token |
 
 The apps continue working identically. The plaintext provider keys are no longer
 needed in the app-owned path after the Subumbra cutover.

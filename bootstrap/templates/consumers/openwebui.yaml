@@ -1,0 +1,22 @@
+consumer_id: openwebui
+display_name: Open WebUI
+category: llm_frontend
+docs_path: docs/apps/openwebui/
+allow_adapters:
+  - openwebui-app
+default_token_env_var: SUBUMBRA_TOKEN_OPENWEBUI
+verified: true
+config_format:
+  type: env_file
+  target: .env   # Open WebUI deployment directory
+  fields:
+    - name: OPENAI_API_KEY
+      value: "{consumer_token}"
+      note: "Adapter token — Open WebUI treats this as its OpenAI credential"
+    - name: OPENAI_API_BASE_URL
+      value: "http://subumbra-proxy:8090/t/{key_id}/v1"
+      note: "Replace {key_id} with your configured key, e.g. openai_prod"
+    - name: ENABLE_PERSISTENT_CONFIG
+      value: "False"
+      static: true
+      note: "Required — prevents Open WebUI from overwriting env-based config"

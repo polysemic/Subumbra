@@ -8,11 +8,11 @@
 .env.bootstrap_bak
 .env.bootstrap.local
 subumbra.json
-subumbra.yaml
+manifest.yaml
 templates/
 *.bak
 subumbra.json.bak
-subumbra.yaml.bak
+manifest.yaml.bak
 
 # Runtime env (contains generated tokens, not keys — still keep out of git)
 .env
@@ -29,7 +29,7 @@ local-archive/
 scripts/legacy/
 
 # Encrypted key blobs — safe cryptographically, but no reason to commit
-subumbra-keys/keys.json
+subumbra-keys/endpoint.json
 subumbra-keys/data/
 data/cf-resources.json
 
@@ -72,3 +72,4 @@ Thumbs.db
 .codex
 
 worker/.dev.vars
+data/endpoint.json

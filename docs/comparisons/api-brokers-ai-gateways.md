@@ -36,7 +36,7 @@ This page is not a ranking. AI gateways tend to focus on routing, model choice, 
 - Request-side enforcement in Subumbra is structural (method, path, content-type, body-size, header allowlists) — not request body content scanning. Deny-pattern scanning applies to buffered provider responses only.
 - LiteLLM documents method allowlists for pass-through endpoints and `max_request_size_mb` body-size caps, but does not support content-type allowlists, deny path lists, or response-header filtering. [src:litellm-docs]
 - LiteLLM documents virtual keys, budgets, and rate limits; Portkey, Helicone, Cloudflare AI Gateway, and OpenRouter document routing or gateway features. [src:litellm-docs] [src:portkey-docs] [src:helicone-docs] [src:cloudflare-ai-gateway] [src:openrouter-docs]
-- The Subumbra policy rows come from `subumbra.example.yaml` and Worker enforcement paths for method, path, content type, body size, headers, velocity, circuit breaker, and response denial. Deny path-prefix list is declared in the manifest schema but not yet parsed or enforced by the Worker; it is marked ⊙ Planned. [src:subumbra-manifest] [src:subumbra-worker]
+- The Subumbra policy rows come from `manifest.example.yaml` and Worker enforcement paths for method, path, content type, body size, headers, velocity, circuit breaker, and response denial. Deny path-prefix list is declared in the manifest schema but not yet parsed or enforced by the Worker; it is marked ⊙ Planned. [src:subumbra-manifest] [src:subumbra-worker]
 - The two new core-value rows reflect Subumbra's primary design constraint: the adapter never receives the provider key, and the provider key is never stored in plaintext on any system the operator controls. [src:subumbra-claude] [src:subumbra-worker]
 
 ## How Subumbra Complements LiteLLM And Similar Gateways
@@ -44,14 +44,14 @@ This page is not a ranking. AI gateways tend to focus on routing, model choice, 
 Subumbra is not a replacement for LiteLLM, Portkey, or other AI gateways — it is a credential custody layer that can sit in front of or beside them. The two can work together without disturbing each other's functionality.
 
 **Transparent integration pattern:**
-- LiteLLM (or any gateway) is configured to use an adapter token as its `api_key` and a Subumbra proxy URL as its `api_base`.
+- LiteLLM (or any gateway) is configured to use a consumer token as its `api_key` and a Subumbra proxy URL as its `api_base`.
 - LiteLLM retains all of its features: model routing, fallback, virtual keys, spend tracking, prompt observability, caching, and rate limits.
 - Subumbra intercepts the outbound provider call, decrypts the real API key inside the Cloudflare Durable Object, injects auth, and forwards the request — then streams the response back transparently.
-- The provider key never exists in LiteLLM's config, environment, or logs. If a LiteLLM instance is compromised or its config is leaked, the attacker has an adapter token and a proxy URL — not a provider key.
+- The provider key never exists in LiteLLM's config, environment, or logs. If a LiteLLM instance is compromised or its config is leaked, the attacker has a consumer token and a proxy URL — not a provider key.
 
 **What Subumbra adds without disrupting the gateway:**
 - The provider key is held in a split-custody encrypted envelope: ciphertext and wrapped DEK on the operator's host, RSA private key inside the Cloudflare Durable Object. Neither side can decrypt alone.
-- Adapter tokens are scoped to specific keys and methods, so a leaked LiteLLM token cannot be used against a different key or a different provider.
+- Consumer tokens are scoped to specific keys and methods, so a leaked LiteLLM token cannot be used against a different key or a different provider.
 - Velocity limits and circuit breakers apply at the Subumbra Worker layer, complementing whatever rate limits LiteLLM itself enforces.
 - Janus approval can gate specific high-risk operations even when LiteLLM passes them through.
 
@@ -66,7 +66,7 @@ Latency impact is minimal: the proxy adds one additional local hop (subumbra-pro
 ## Where Subumbra Is Different
 
 - Subumbra's default question is not "which model should this request use?" It is "should this adapter be able to use this specific key for this specific method/path/body/header shape right now?"
-- The adapter token is not the provider key. If an app config leaks, the leaked value is still constrained by adapter scope, key binding, session state, policy, and the Worker boundary. [src:subumbra-proxy] [src:subumbra-worker]
+- The consumer token is not the provider key. If an app config leaks, the leaked value is still constrained by adapter scope, key binding, session state, policy, and the Worker boundary. [src:subumbra-proxy] [src:subumbra-worker]
 - The provider key is stored in a split-custody encrypted envelope — the host side holds ciphertext and a wrapped data-encryption key, while the Cloudflare Durable Object holds the RSA private key. Neither side can reconstruct the plaintext key alone. [src:subumbra-claude] [src:subumbra-worker]
 - Janus approval can hold selected HTTP operations behind an operator approval step before the proxy resubmits the request. [src:subumbra-janus]
 

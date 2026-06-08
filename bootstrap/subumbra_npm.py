@@ -72,7 +72,7 @@ def rewrite_npm_token_record_from_plaintext(
 
     provider = str(existing_record.get("provider", "")).strip()
     if not provider:
-        die(f"keys.json record {key_id!r} missing provider")
+        die(f"endpoint.json record {key_id!r} missing provider")
     target_host = str(policy.get("target", {}).get("host", "")).strip()
     if not target_host:
         die(f"policy for {key_id!r} is missing target.host")
@@ -137,7 +137,7 @@ def run_rotate_npm_token(target_key_id: str) -> None:
     del confirm_token
     gc.collect()
 
-    step(f"Updating {target_key_id} in keys.json")
+    step(f"Updating {target_key_id} in endpoint.json")
     existing_keys[target_key_id] = record
     _write_keys_payload(existing_keys)
     ok(f"Updated {target_key_id} — only this record changed")

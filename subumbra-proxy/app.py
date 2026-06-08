@@ -25,7 +25,10 @@ SUBUMBRA_KEYS_URL = os.environ.get("SUBUMBRA_KEYS_URL", "").rstrip("/")
 CF_WORKER_URL = os.environ.get("CF_WORKER_URL", "").rstrip("/")
 CF_ACCESS_CLIENT_ID = os.environ.get("CF_ACCESS_CLIENT_ID", "")
 CF_ACCESS_CLIENT_SECRET = os.environ.get("CF_ACCESS_CLIENT_SECRET", "")
-SUBUMBRA_ADAPTER_REGISTRY_RAW = os.environ.get("SUBUMBRA_ADAPTER_REGISTRY", "")
+# r94 migration: accept SUBUMBRA_ADAPTER_REGISTRY as fallback for pre-r94 deployments
+if not os.environ.get("SUBUMBRA_CONSUMER_REGISTRY") and os.environ.get("SUBUMBRA_ADAPTER_REGISTRY"):
+    os.environ["SUBUMBRA_CONSUMER_REGISTRY"] = os.environ["SUBUMBRA_ADAPTER_REGISTRY"]
+SUBUMBRA_CONSUMER_REGISTRY_RAW = os.environ.get("SUBUMBRA_CONSUMER_REGISTRY", "")
 try:
     SUBUMBRA_SIGN_TIMEOUT = float(os.environ.get("SUBUMBRA_SIGN_TIMEOUT", "30") or "30")
 except ValueError:
@@ -37,7 +40,7 @@ REQUIRED = (
     "SUBUMBRA_HMAC_KEY",
     "SUBUMBRA_KEYS_URL",
     "CF_WORKER_URL",
-    "SUBUMBRA_ADAPTER_REGISTRY",
+    "SUBUMBRA_CONSUMER_REGISTRY",
 )
 MISSING = [name for name in REQUIRED if not os.environ.get(name)]
 if not SUBUMBRA_ACCESS_TOKEN:
@@ -83,7 +86,7 @@ KEY_ID_MAX_LEN = 128
 TRANSPARENT_STRIP_HEADERS = {"authorization", "x-api-key", "x-api-key-id"}
 TRANSPARENT_STRIP_PREFIXES = ("x-subumbra-",)
 TRANSPARENT_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
-AUDIT_WRITER_ADAPTER_ID = "subumbra-proxy"
+AUDIT_WRITER_CONSUMER_ID = "subumbra-proxy"
 INTENT_SOURCE_HEADER = "x-subumbra-intent-source"
 INTENT_INITIATORS_HEADER = "x-subumbra-intent-initiators"
 INTENT_CONTENT_SOURCES_HEADER = "x-subumbra-intent-content-sources"
@@ -113,60 +116,62 @@ _worker_auth_ok_until = 0.0
 
 
 class SubumbraForbiddenError(RuntimeError):
-    pass
+    def __init__(self, reason: str = "forbidden"):
+        super().__init__(reason)
+        self.reason = reason
 
 
-def load_adapter_registry(raw: str) -> dict[str, dict[str, Any]]:
+def load_consumer_registry(raw: str) -> dict[str, dict[str, Any]]:
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise ValueError("SUBUMBRA_ADAPTER_REGISTRY is not valid JSON") from exc
+        raise ValueError("SUBUMBRA_CONSUMER_REGISTRY is not valid JSON") from exc
     if not isinstance(data, dict) or not data:
-        raise ValueError("SUBUMBRA_ADAPTER_REGISTRY must be a non-empty JSON object")
-    for adapter_id, entry in data.items():
+        raise ValueError("SUBUMBRA_CONSUMER_REGISTRY must be a non-empty JSON object")
+    for consumer_id, entry in data.items():
         if not isinstance(entry, dict):
-            raise ValueError(f"SUBUMBRA_ADAPTER_REGISTRY[{adapter_id}] must be an object")
+            raise ValueError(f"SUBUMBRA_CONSUMER_REGISTRY[{consumer_id}] must be an object")
         token = entry.get("token")
         if not isinstance(token, str) or not token:
             raise ValueError(
-                f"SUBUMBRA_ADAPTER_REGISTRY[{adapter_id}].token must be a non-empty string"
+                f"SUBUMBRA_CONSUMER_REGISTRY[{consumer_id}].token must be a non-empty string"
             )
     return data
 
 
 try:
-    ADAPTER_REGISTRY = load_adapter_registry(SUBUMBRA_ADAPTER_REGISTRY_RAW)
+    ADAPTER_REGISTRY = load_consumer_registry(SUBUMBRA_CONSUMER_REGISTRY_RAW)
 except ValueError as exc:
     print(f"ERROR: {exc}", file=sys.stderr)
     sys.exit(1)
 
 
-def resolve_adapter_token(token: str) -> tuple[str, dict[str, Any]] | None:
+def resolve_consumer_token(token: str) -> tuple[str, dict[str, Any]] | None:
     matched: tuple[str, dict[str, Any]] | None = None
-    for adapter_id, entry in ADAPTER_REGISTRY.items():
+    for consumer_id, entry in ADAPTER_REGISTRY.items():
         if hmac.compare_digest(token, entry["token"]):
-            matched = (adapter_id, entry)
+            matched = (consumer_id, entry)
     return matched
 
 
 def subumbra_headers(
     key_id: str,
     *,
-    adapter_id: str,
-    adapter_token: str | None = None,
+    consumer_id: str,
+    consumer_token: str | None = None,
 ) -> dict[str, str]:
     timestamp = str(int(time.time()))
     nonce = secrets.token_hex(16)
     signature = hmac.new(
         SUBUMBRA_HMAC_KEY.encode(),
         (
-            f"{len(adapter_id)}:{adapter_id}:{len(key_id)}:{key_id}:"
+            f"{len(consumer_id)}:{consumer_id}:{len(key_id)}:{key_id}:"
             f"{len(timestamp)}:{timestamp}:{len(nonce)}:{nonce}"
         ).encode(),
         hashlib.sha256,
     ).hexdigest()
     return {
-        "X-Subumbra-Token": adapter_token,
+        "X-Subumbra-Token": consumer_token,
         "X-Subumbra-Timestamp": timestamp,
         "X-Subumbra-Nonce": nonce,
         "X-Subumbra-Signature": signature,
@@ -177,15 +182,27 @@ async def fetch_record(
     client,
     key_id: str,
     *,
-    adapter_id: str,
-    adapter_token: str | None = None,
+    consumer_id: str,
+    consumer_token: str | None = None,
 ):
     response = await client.get(
         f"{SUBUMBRA_KEYS_URL}/keys/{key_id}",
-        headers=subumbra_headers(key_id, adapter_id=adapter_id, adapter_token=adapter_token),
+        headers=subumbra_headers(key_id, consumer_id=consumer_id, consumer_token=consumer_token),
     )
     if response.status_code == 403:
-        raise SubumbraForbiddenError("forbidden")
+        reason = "forbidden"
+        try:
+            payload = response.json()
+        except Exception:
+            payload = None
+        if isinstance(payload, dict):
+            detail = payload.get("detail")
+            error = payload.get("error")
+            if isinstance(detail, str) and detail:
+                reason = detail
+            elif isinstance(error, str) and error:
+                reason = error
+        raise SubumbraForbiddenError(reason)
     if response.status_code != 200:
         raise RuntimeError(f"status {response.status_code}")
     record = response.json()
@@ -197,7 +214,7 @@ async def fetch_record(
 
 async def post_audit_event(
     *,
-    source_adapter_id: str,
+    source_consumer_id: str,
     key_id: str,
     endpoint: str,
     target_host: str | None = None,
@@ -210,14 +227,14 @@ async def post_audit_event(
             headers={
                 **subumbra_headers(
                     key_id,
-                    adapter_id=AUDIT_WRITER_ADAPTER_ID,
-                    adapter_token=SUBUMBRA_ACCESS_TOKEN,
+                    consumer_id=AUDIT_WRITER_CONSUMER_ID,
+                    consumer_token=SUBUMBRA_ACCESS_TOKEN,
                 ),
                 "Content-Type": "application/json",
                 "X-Subumbra-Token": SUBUMBRA_ACCESS_TOKEN,
             },
             json={
-                "adapter_id": source_adapter_id,
+                "consumer_id": source_consumer_id,
                 "key_id": key_id,
                 "endpoint": endpoint,
                 "verdict": verdict,
@@ -228,8 +245,8 @@ async def post_audit_event(
         )
     except httpx.RequestError as exc:
         LOG.warning(
-            "ssh-sign audit failure adapter=%s key_id=%s verdict=%s reason=request_error error=%s",
-            source_adapter_id,
+            "ssh-sign audit failure consumer=%s key_id=%s verdict=%s reason=request_error error=%s",
+            source_consumer_id,
             key_id,
             verdict,
             type(exc).__name__,
@@ -238,8 +255,8 @@ async def post_audit_event(
 
     if response.status_code != 204:
         LOG.warning(
-            "ssh-sign audit failure adapter=%s key_id=%s verdict=%s status=%s body=%s",
-            source_adapter_id,
+            "ssh-sign audit failure consumer=%s key_id=%s verdict=%s status=%s body=%s",
+            source_consumer_id,
             key_id,
             verdict,
             response.status_code,
@@ -248,8 +265,8 @@ async def post_audit_event(
         return
 
     LOG.info(
-        "ssh-sign audit posted adapter=%s key_id=%s verdict=%s reason=%s",
-        source_adapter_id,
+        "ssh-sign audit posted consumer=%s key_id=%s verdict=%s reason=%s",
+        source_consumer_id,
         key_id,
         verdict,
         reason_code,
@@ -278,7 +295,7 @@ def parse_session_sign_headers(headers: httpx.Headers) -> dict[str, object] | No
     }
 
 
-async def reflect_session_sign(*, session_metadata: dict[str, object], adapter_id: str) -> None:
+async def reflect_session_sign(*, session_metadata: dict[str, object], consumer_id: str) -> None:
     session_id = str(session_metadata["session_id"])
     ssh_sign_count = int(session_metadata["ssh_sign_count"])
     limit_reached = bool(session_metadata["limit_reached"])
@@ -288,8 +305,8 @@ async def reflect_session_sign(*, session_metadata: dict[str, object], adapter_i
             headers={
                 **subumbra_headers(
                     session_id,
-                    adapter_id=AUDIT_WRITER_ADAPTER_ID,
-                    adapter_token=SUBUMBRA_ACCESS_TOKEN,
+                    consumer_id=AUDIT_WRITER_CONSUMER_ID,
+                    consumer_token=SUBUMBRA_ACCESS_TOKEN,
                 ),
                 "Content-Type": "application/json",
                 "X-Subumbra-Token": SUBUMBRA_ACCESS_TOKEN,
@@ -303,24 +320,24 @@ async def reflect_session_sign(*, session_metadata: dict[str, object], adapter_i
         )
     except httpx.RequestError as exc:
         LOG.warning(
-            "ssh-sign session reflection failure adapter=%s session_id=%s reason=request_error error=%s",
-            adapter_id,
+            "ssh-sign session reflection failure consumer=%s session_id=%s reason=request_error error=%s",
+            consumer_id,
             session_id,
             type(exc).__name__,
         )
         return
     if response.status_code != 200:
         LOG.warning(
-            "ssh-sign session reflection failure adapter=%s session_id=%s status=%s body=%s",
-            adapter_id,
+            "ssh-sign session reflection failure consumer=%s session_id=%s status=%s body=%s",
+            consumer_id,
             session_id,
             response.status_code,
             response.text.strip(),
         )
         return
     LOG.info(
-        "ssh-sign session reflected adapter=%s session_id=%s ssh_sign_count=%s limit_reached=%s",
-        adapter_id,
+        "ssh-sign session reflected consumer=%s session_id=%s ssh_sign_count=%s limit_reached=%s",
+        consumer_id,
         session_id,
         ssh_sign_count,
         str(limit_reached).lower(),
@@ -348,10 +365,10 @@ def proxy_payload(record, key_id, *, target_url, method, headers, body, intent: 
     return payload
 
 
-def worker_headers(*, adapter_token: str | None = None):
+def worker_headers(*, consumer_token: str | None = None):
     headers = {
         "Content-Type": "application/json",
-        "X-Subumbra-Token": adapter_token,
+        "X-Subumbra-Token": consumer_token,
     }
     if CF_ACCESS_CLIENT_ID:
         headers["CF-Access-Client-Id"] = CF_ACCESS_CLIENT_ID
@@ -494,11 +511,11 @@ def effective_response_allow_headers(record: dict[str, Any] | None) -> set[str] 
 async def send_worker_request_with_gate(
     *,
     path: str,
-    adapter_token: str | None,
+    consumer_token: str | None,
     payload: dict[str, Any],
     timeout_seconds: float,
     key_id: str,
-    adapter_id: str,
+    consumer_id: str,
     flow: str,
     target_host: str | None = None,
 ) -> httpx.Response:
@@ -506,7 +523,7 @@ async def send_worker_request_with_gate(
         return CLIENT.build_request(
             "POST",
             f"{CF_WORKER_URL}{path}",
-            headers=worker_headers(adapter_token=adapter_token),
+            headers=worker_headers(consumer_token=consumer_token),
             json=body,
             timeout=timeout_value,
         )
@@ -516,43 +533,43 @@ async def send_worker_request_with_gate(
         return worker_resp
 
     try:
-        gate_payload = json.loads(await worker_resp.aread())
+        janus_payload = json.loads(await worker_resp.aread())
     except Exception:
         await worker_resp.aclose()
         return httpx.Response(
             502,
-            json={"error": "gate_invalid_response"},
+            json={"error": "janus_invalid_response"},
             headers={"content-type": "application/json"},
         )
     await worker_resp.aclose()
 
-    request_id = gate_payload.get("request_id")
-    poll_url = gate_payload.get("poll_url")
+    request_id = janus_payload.get("request_id")
+    poll_url = janus_payload.get("poll_url")
     if not isinstance(request_id, str) or not request_id or not isinstance(poll_url, str) or not poll_url:
         return httpx.Response(
             502,
-            json={"error": "gate_invalid_response"},
+            json={"error": "janus_invalid_response"},
             headers={"content-type": "application/json"},
         )
 
     deadline = time.monotonic() + timeout_seconds
     poll_delay = 2.0
-    LOG.info("gate_pending request_id=%s flow=%s key_id=%s", request_id, flow, key_id)
+    LOG.info("janus_pending request_id=%s flow=%s key_id=%s", request_id, flow, key_id)
     while True:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            LOG.warning("gate_terminal request_id=%s status=expired", request_id)
+            LOG.warning("janus_terminal request_id=%s status=expired", request_id)
             await post_audit_event(
-                source_adapter_id=adapter_id,
+                source_consumer_id=consumer_id,
                 key_id=key_id,
                 endpoint="gate",
                 target_host=target_host,
-                verdict="gate_timeout",
+                verdict="janus_timeout",
                 reason_code=flow,
             )
             return httpx.Response(
                 403,
-                json={"error": "gate_timeout"},
+                json={"error": "janus_timeout"},
                 headers={"content-type": "application/json"},
             )
 
@@ -561,13 +578,13 @@ async def send_worker_request_with_gate(
         try:
             status_resp = await CLIENT.get(
                 f"{CF_WORKER_URL}{poll_url}",
-                headers=worker_headers(adapter_token=adapter_token),
+                headers=worker_headers(consumer_token=consumer_token),
                 timeout=min(remaining, 5.0),
             )
         except httpx.RequestError:
             return httpx.Response(
                 502,
-                json={"error": "gate_status_unavailable"},
+                json={"error": "janus_status_unavailable"},
                 headers={"content-type": "application/json"},
             )
 
@@ -576,39 +593,39 @@ async def send_worker_request_with_gate(
         except Exception:
             status_payload = {}
         status_value = status_payload.get("status")
-        LOG.info("gate_poll request_id=%s status=%s", request_id, status_value or "unknown")
+        LOG.info("janus_poll request_id=%s status=%s", request_id, status_value or "unknown")
         if status_value == "pending":
             continue
         if status_value == "approved":
-            LOG.info("gate_terminal request_id=%s status=approved", request_id)
+            LOG.info("janus_terminal request_id=%s status=approved", request_id)
             await post_audit_event(
-                source_adapter_id=adapter_id,
+                source_consumer_id=consumer_id,
                 key_id=key_id,
                 endpoint="gate",
                 target_host=target_host,
-                verdict="gate_approved",
+                verdict="janus_approved",
                 reason_code=flow,
             )
             approved_payload = dict(payload)
-            approved_payload["gate_approved_id"] = request_id
+            approved_payload["janus_approved_id"] = request_id
             return await CLIENT.send(build_request(approved_payload, timeout_seconds), stream=True)
         if status_value == "consumed":
-            LOG.warning("gate_terminal request_id=%s status=consumed", request_id)
+            LOG.warning("janus_terminal request_id=%s status=consumed", request_id)
             return httpx.Response(
                 409,
-                json={"error": "gate_replayed"},
+                json={"error": "janus_replayed"},
                 headers={"content-type": "application/json"},
             )
         error_code = status_payload.get("error")
         if not isinstance(error_code, str) or not error_code:
-            error_code = "gate_denied" if status_value == "denied" else "gate_timeout"
-        LOG.warning("gate_terminal request_id=%s status=%s", request_id, status_value)
+            error_code = "janus_denied" if status_value == "denied" else "janus_timeout"
+        LOG.warning("janus_terminal request_id=%s status=%s", request_id, status_value)
         await post_audit_event(
-            source_adapter_id=adapter_id,
+            source_consumer_id=consumer_id,
             key_id=key_id,
             endpoint="gate",
             target_host=target_host,
-            verdict="gate_denied" if status_value == "denied" else "gate_timeout",
+            verdict="janus_denied" if status_value == "denied" else "janus_timeout",
             reason_code=flow,
         )
         return httpx.Response(
@@ -640,15 +657,15 @@ async def proxy_via_worker(
     headers: dict,
     body: Optional[Any],
     *,
-    adapter_token: str | None = None,
-    adapter_id: str | None = None,
+    consumer_token: str | None = None,
+    consumer_id: str | None = None,
     record: dict | None = None,
     intent: dict[str, Any] | None = None,
 ) -> Response:
     target_host, target_path = derive_log_safe_target(target_url)
     LOG.info(
-        "request adapter=%s key_id=%s method=%s target_host=%s target_path=%s",
-        adapter_id,
+        "request consumer=%s key_id=%s method=%s target_host=%s target_path=%s",
+        consumer_id,
         key_id,
         method,
         target_host,
@@ -660,19 +677,20 @@ async def proxy_via_worker(
             record = await fetch_record(
                 CLIENT,
                 key_id,
-                adapter_id=adapter_id or "",
-                adapter_token=adapter_token,
+                consumer_id=consumer_id or "",
+                consumer_token=consumer_token,
             )
         except httpx.ConnectError:
             LOG.error("subumbra failure key_id=%s error=subumbra-keys unreachable", key_id)
             raise HTTPException(502, detail="subumbra-keys unreachable")
-        except SubumbraForbiddenError:
+        except SubumbraForbiddenError as exc:
             LOG.warning(
-                "transparent reject adapter=%s key_id=%s reason=key_scope_denied",
-                adapter_id,
+                "transparent reject consumer=%s key_id=%s reason=%s",
+                consumer_id,
                 key_id,
+                exc.reason,
             )
-            raise HTTPException(403, detail="forbidden")
+            raise HTTPException(403, detail=exc.reason)
         except Exception as exc:
             LOG.error("subumbra failure key_id=%s error=%s", key_id, exc)
             raise HTTPException(502, detail="subumbra record fetch failed")
@@ -689,11 +707,11 @@ async def proxy_via_worker(
 
     worker_resp = await send_worker_request_with_gate(
         path="/proxy",
-        adapter_token=adapter_token,
+        consumer_token=consumer_token,
         payload=payload,
         timeout_seconds=120.0,
         key_id=key_id,
-        adapter_id=adapter_id or "",
+        consumer_id=consumer_id or "",
         flow="proxy",
         target_host=target_host,
     )
@@ -743,15 +761,15 @@ async def proxy_via_worker(
         if error_reason == "npm_operation_not_allowed":
             operation = classify_npm_operation(method, target_url) or "unknown"
             LOG.warning(
-                "subumbra: policy deny reason=npm_operation_not_allowed operation=%s adapter=%s key_id=%s",
+                "subumbra: policy deny reason=npm_operation_not_allowed operation=%s consumer=%s key_id=%s",
                 operation,
-                adapter_id or "",
+                consumer_id or "",
                 key_id,
             )
         elif error_reason == "publish_tarball_too_large":
             LOG.warning(
-                "subumbra: policy deny reason=publish_tarball_too_large adapter=%s key_id=%s",
-                adapter_id or "",
+                "subumbra: policy deny reason=publish_tarball_too_large consumer=%s key_id=%s",
+                consumer_id or "",
                 key_id,
             )
 
@@ -765,7 +783,7 @@ async def proxy_via_worker(
     tasks = BackgroundTasks()
     tasks.add_task(worker_resp.aclose)
 
-    LOG.info("complete adapter=%s key_id=%s status=%s", adapter_id, key_id, worker_resp.status_code)
+    LOG.info("complete consumer=%s key_id=%s status=%s", consumer_id, key_id, worker_resp.status_code)
     return StreamingResponse(
         worker_resp.aiter_bytes(),
         status_code=worker_resp.status_code,
@@ -784,7 +802,7 @@ async def get_worker_auth_status() -> str:
     try:
         response = await CLIENT.get(
             f"{CF_WORKER_URL}/auth-ping",
-            headers=worker_headers(adapter_token=SUBUMBRA_ACCESS_TOKEN),
+            headers=worker_headers(consumer_token=SUBUMBRA_ACCESS_TOKEN),
             timeout=WORKER_AUTH_TIMEOUT_SECONDS,
         )
     except httpx.RequestError:
@@ -813,30 +831,30 @@ async def handle_ssh_sign_request(key_id: str, request: Request):
         LOG.warning("ssh-sign reject reason=missing_pseudo_key")
         raise HTTPException(401, detail="missing pseudo-key")
 
-    secure_match = resolve_adapter_token(credential)
+    secure_match = resolve_consumer_token(credential)
     if secure_match is None:
-        LOG.warning("ssh-sign reject reason=adapter_unknown")
+        LOG.warning("ssh-sign reject reason=consumer_unknown")
         raise HTTPException(401, detail="unauthorized")
 
-    adapter_id, adapter_entry = secure_match
-    adapter_token = adapter_entry["token"]
+    consumer_id, consumer_entry = secure_match
+    consumer_token = consumer_entry["token"]
 
     if not validate_transparent_key_id(key_id):
-        LOG.warning("ssh-sign reject adapter=%s reason=invalid_key_id", adapter_id)
+        LOG.warning("ssh-sign reject consumer=%s reason=invalid_key_id", consumer_id)
         raise HTTPException(400, detail="invalid key_id")
 
     if dual_header_present:
         LOG.warning(
-            "ssh-sign warning adapter=%s reason=authorization_precedence key_id=%s",
-            adapter_id,
+            "ssh-sign warning consumer=%s reason=authorization_precedence key_id=%s",
+            consumer_id,
             key_id,
         )
 
     content_type = request.headers.get("content-type", "")
     if not content_type.lower().startswith("application/json"):
         LOG.warning(
-            "ssh-sign reject adapter=%s key_id=%s reason=unsupported_content_type",
-            adapter_id,
+            "ssh-sign reject consumer=%s key_id=%s reason=unsupported_content_type",
+            consumer_id,
             key_id,
         )
         raise HTTPException(400, detail="unsupported content-type")
@@ -844,32 +862,32 @@ async def handle_ssh_sign_request(key_id: str, request: Request):
     try:
         body = await request.json()
     except Exception:
-        LOG.warning("ssh-sign reject adapter=%s key_id=%s reason=invalid_json_body", adapter_id, key_id)
+        LOG.warning("ssh-sign reject consumer=%s key_id=%s reason=invalid_json_body", consumer_id, key_id)
         raise HTTPException(400, detail="invalid JSON body")
 
     challenge = body.get("challenge") if isinstance(body, dict) else None
     verified_host_fingerprint = body.get("verified_host_fingerprint") if isinstance(body, dict) else None
     if not isinstance(challenge, str) or not challenge:
-        LOG.warning("ssh-sign reject adapter=%s key_id=%s reason=missing_challenge", adapter_id, key_id)
+        LOG.warning("ssh-sign reject consumer=%s key_id=%s reason=missing_challenge", consumer_id, key_id)
         raise HTTPException(400, detail="missing required fields")
     if verified_host_fingerprint is not None and (
         not isinstance(verified_host_fingerprint, str) or not verified_host_fingerprint
     ):
-        LOG.warning("ssh-sign reject adapter=%s key_id=%s reason=invalid_verified_host_fingerprint", adapter_id, key_id)
+        LOG.warning("ssh-sign reject consumer=%s key_id=%s reason=invalid_verified_host_fingerprint", consumer_id, key_id)
         raise HTTPException(400, detail="missing required fields")
 
     worker_payload: dict[str, str] = {"key_id": key_id, "challenge": challenge}
     if isinstance(verified_host_fingerprint, str):
         worker_payload["verified_host_fingerprint"] = verified_host_fingerprint
 
-    LOG.info("ssh-sign request adapter=%s key_id=%s", adapter_id, key_id)
+    LOG.info("ssh-sign request consumer=%s key_id=%s", consumer_id, key_id)
     worker_resp = await send_worker_request_with_gate(
         path="/ssh/sign",
-        adapter_token=adapter_token,
+        consumer_token=consumer_token,
         payload=worker_payload,
         timeout_seconds=SUBUMBRA_SIGN_TIMEOUT,
         key_id=key_id,
-        adapter_id=adapter_id,
+        consumer_id=consumer_id,
         flow="ssh_sign",
         target_host=verified_host_fingerprint,
     )
@@ -895,7 +913,7 @@ async def handle_ssh_sign_request(key_id: str, request: Request):
         except Exception:
             pass
         await post_audit_event(
-            source_adapter_id=adapter_id,
+            source_consumer_id=consumer_id,
             key_id=key_id,
             endpoint="ssh_sign",
             target_host=verified_host_fingerprint,
@@ -903,10 +921,10 @@ async def handle_ssh_sign_request(key_id: str, request: Request):
             reason_code=reason_code,
         )
         if session_metadata is not None:
-            await reflect_session_sign(session_metadata=session_metadata, adapter_id=adapter_id)
+            await reflect_session_sign(session_metadata=session_metadata, consumer_id=consumer_id)
         LOG.warning(
-            "ssh-sign complete adapter=%s key_id=%s status=%s",
-            adapter_id,
+            "ssh-sign complete consumer=%s key_id=%s status=%s",
+            consumer_id,
             key_id,
             worker_resp.status_code,
         )
@@ -915,7 +933,7 @@ async def handle_ssh_sign_request(key_id: str, request: Request):
     tasks = BackgroundTasks()
     tasks.add_task(worker_resp.aclose)
     await post_audit_event(
-        source_adapter_id=adapter_id,
+        source_consumer_id=consumer_id,
         key_id=key_id,
         endpoint="ssh_sign",
         target_host=verified_host_fingerprint,
@@ -923,8 +941,8 @@ async def handle_ssh_sign_request(key_id: str, request: Request):
         reason_code="allowed",
     )
     if session_metadata is not None:
-        await reflect_session_sign(session_metadata=session_metadata, adapter_id=adapter_id)
-    LOG.info("ssh-sign complete adapter=%s key_id=%s status=%s", adapter_id, key_id, worker_resp.status_code)
+        await reflect_session_sign(session_metadata=session_metadata, consumer_id=consumer_id)
+    LOG.info("ssh-sign complete consumer=%s key_id=%s status=%s", consumer_id, key_id, worker_resp.status_code)
     return StreamingResponse(
         worker_resp.aiter_bytes(),
         status_code=worker_resp.status_code,
@@ -943,28 +961,28 @@ async def handle_transparent_request(path: str, request: Request):
         LOG.warning("transparent reject reason=missing_pseudo_key")
         raise HTTPException(401, detail="missing pseudo-key")
 
-    secure_match = resolve_adapter_token(credential)
+    secure_match = resolve_consumer_token(credential)
     if secure_match is None:
-        LOG.warning("transparent reject reason=adapter_unknown")
+        LOG.warning("transparent reject reason=consumer_unknown")
         raise HTTPException(401, detail="unauthorized")
 
-    adapter_id: str
-    adapter_token: str
+    consumer_id: str
+    consumer_token: str
     forwarded_path = path
-    adapter_id, adapter_entry = secure_match
-    adapter_token = adapter_entry["token"]
+    consumer_id, consumer_entry = secure_match
+    consumer_token = consumer_entry["token"]
     key_id, forwarded_path = split_secure_path(path)
     if key_id is None:
-        LOG.warning("transparent reject adapter=%s reason=missing_key_id_segment", adapter_id)
+        LOG.warning("transparent reject consumer=%s reason=missing_key_id_segment", consumer_id)
         raise HTTPException(400, detail="invalid key_id")
     if not validate_transparent_key_id(key_id):
-        LOG.warning("transparent reject adapter=%s reason=invalid_key_id", adapter_id)
+        LOG.warning("transparent reject consumer=%s reason=invalid_key_id", consumer_id)
         raise HTTPException(400, detail="invalid key_id")
 
     if dual_header_present:
         LOG.warning(
-            "transparent warning adapter=%s reason=authorization_precedence key_id=%s",
-            adapter_id,
+            "transparent warning consumer=%s reason=authorization_precedence key_id=%s",
+            consumer_id,
             key_id,
         )
 
@@ -988,19 +1006,20 @@ async def handle_transparent_request(path: str, request: Request):
         record = await fetch_record(
             CLIENT,
             key_id,
-            adapter_id=adapter_id,
-            adapter_token=adapter_token,
+            consumer_id=consumer_id,
+            consumer_token=consumer_token,
         )
     except httpx.ConnectError:
         LOG.error("subumbra failure key_id=%s error=subumbra-keys unreachable", key_id)
         raise HTTPException(502, detail="subumbra-keys unreachable")
-    except SubumbraForbiddenError:
+    except SubumbraForbiddenError as exc:
         LOG.warning(
-            "transparent reject adapter=%s key_id=%s reason=key_scope_denied",
-            adapter_id,
+            "transparent reject consumer=%s key_id=%s reason=%s",
+            consumer_id,
             key_id,
+            exc.reason,
         )
-        raise HTTPException(403, detail="forbidden")
+        raise HTTPException(403, detail=exc.reason)
     except Exception as exc:
         LOG.error("subumbra failure key_id=%s error=%s", key_id, exc)
         raise HTTPException(502, detail="subumbra record fetch failed")
@@ -1014,8 +1033,8 @@ async def handle_transparent_request(path: str, request: Request):
         request.method,
         stripped_headers,
         body,
-        adapter_token=adapter_token,
-        adapter_id=adapter_id,
+        consumer_token=consumer_token,
+        consumer_id=consumer_id,
         record=record,
         intent=intent,
     )

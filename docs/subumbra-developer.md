@@ -83,8 +83,8 @@ A full bootstrap is required for a new installation, after token expiration, or 
 
 ```bash
 # 1. Copy the example manifest and configure your keys
-cp subumbra.example.yaml subumbra.yaml
-nano subumbra.yaml
+cp manifest.example.yaml manifest.yaml
+nano manifest.yaml
 
 # 2. Rebuild the bootstrap container if bootstrap code changed
 docker compose --profile bootstrap build bootstrap
@@ -120,7 +120,7 @@ Subumbra's `./bootstrap.sh` host wrapper supports several direct CLI commands to
 
 ### 1. Adding a New Provider Key
 To provision an additional provider key without impacting existing encrypted keys:
-1. Open `subumbra.yaml` and configure/uncomment the new provider block.
+1. Open `manifest.yaml` and configure/uncomment the new provider block.
 2. Run the bootstrap wrapper:
    ```bash
    ./bootstrap.sh
@@ -132,17 +132,17 @@ To rotate a provider's underlying API secret without interacting with Cloudflare
 ```bash
 ./bootstrap.sh --rotate
 ```
-*You will be prompted to enter the new secret key. The target record in `keys.json` is updated atomically with a new AES-256-GCM data encryption key (DEK) wrapped by the active RSA public key.*
+*You will be prompted to enter the new secret key. The target record in `endpoint.json` is updated atomically with a new AES-256-GCM data encryption key (DEK) wrapped by the active RSA public key.*
 
 ### 3. Modifying Adapter Access Rules
 To add or remove an adapter's access to a specific key without re-encrypting the key:
 * **Add Adapter**:
   ```bash
-  ./bootstrap.sh --add-adapter <key_id> <adapter_id>
+  ./bootstrap.sh --add-consumer <key_id> <consumer_id>
   ```
 * **Revoke Adapter**:
   ```bash
-  ./bootstrap.sh --revoke-adapter <key_id> <adapter_id>
+  ./bootstrap.sh --revoke-consumer <key_id> <consumer_id>
   ```
 * **Re-publish Policy Updates**:
   ```bash
@@ -176,7 +176,7 @@ docker compose down --rmi all 2>/dev/null || true
 docker rmi subumbra-bootstrap 2>/dev/null || true
 
 # 3. Shred local credential and environment configuration files
-rm -f .env .env.bootstrap subumbra.yaml
+rm -f .env .env.bootstrap manifest.yaml
 ```
 
 > [!NOTE]

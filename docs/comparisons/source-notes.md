@@ -7,14 +7,14 @@ Reviewed on 2026-05-30. External offerings change frequently; refresh these note
 ## Subumbra Source Evidence
 
 - `[src:subumbra-claude]` - `CLAUDE.md` documents the product purpose, adapter-token app path, Cloudflare Worker/Durable Object decrypt boundary, V3 envelope shape, AAD binding, read-only UI rationale, and offline rotation path.
-- `[src:subumbra-manifest]` - `subumbra.example.yaml` documents policy fields for allowed adapters, methods, path prefixes, content types, body-size caps, request headers, deny path prefixes, response header allowlists, response deny patterns, velocity, SSH key entries, host restrictions, and approval policy.
-- `[src:subumbra-proxy]` - `subumbra-proxy/app.py` validates adapter tokens through `SUBUMBRA_ADAPTER_REGISTRY`, extracts `key_id` from `/t/<key_id>/...`, fetches the encrypted record, strips/filters headers, and sends canonical Worker `/proxy` payloads.
+- `[src:subumbra-manifest]` - `manifest.example.yaml` documents policy fields for allowed adapters, methods, path prefixes, content types, body-size caps, request headers, deny path prefixes, response header allowlists, response deny patterns, velocity, SSH key entries, host restrictions, and approval policy.
+- `[src:subumbra-proxy]` - `subumbra-proxy/app.py` validates consumer tokens through `SUBUMBRA_CONSUMER_REGISTRY`, extracts `key_id` from `/t/<key_id>/...`, fetches the encrypted record, strips/filters headers, and sends canonical Worker `/proxy` payloads.
 - `[src:subumbra-worker]` - `worker/src/worker.js` maps policy schema fields, strips hop-by-hop headers, enforces content type/body-size/header policy, tracks velocity and circuit breakers, uses the live registry `policy_hash`, and scans buffered responses when deny patterns are configured.
 - `[src:subumbra-rotation]` - `bootstrap/subumbra_keys.py` implements `./bootstrap.sh --rotate` for existing V3 records using the existing RSA public key and no Cloudflare interaction.
-- `[src:subumbra-session]` - `bootstrap/subumbra_session.py` rejects overlapping sessions and reconciles `active_adapter:<adapter_id>` gates.
+- `[src:subumbra-session]` - `bootstrap/subumbra_session.py` rejects overlapping sessions and reconciles `active_consumer:<consumer_id>` gates.
 - `[src:subumbra-ssh]` - `worker/src/worker.js` stores SSH private material in Durable Object SQLite, performs Ed25519 signing in custody, and supports host-bound sign requests.
 - `[src:subumbra-ssh-quota]` - `worker/src/worker.js` enforces SSH per-session sign quotas in Durable Object state.
-- `[src:subumbra-janus]` - `worker/src/worker.js` currently names the Durable Object class `SubumbraGate`; public docs use Janus while code-name alignment remains deferred in `council/r91-doc-updaes/deferred.md`.
+- `[src:subumbra-janus]` - `worker/src/worker.js` currently names the Durable Object class `SubumbraJanus`; public docs use Janus while code-name alignment remains deferred in `council/r91-doc-updaes/deferred.md`.
 
 ## External Product Sources
 
@@ -36,7 +36,7 @@ Reviewed on 2026-05-30. External offerings change frequently; refresh these note
 - `[src:boundary-docs]` - HashiCorp Boundary docs, retrieved 2026-05-30. Claim areas: least-privilege secure access to applications and machines, targets, RBAC, secure sessions. https://developer.hashicorp.com/boundary/docs
 - `[src:github-deploy-keys]` - GitHub deploy key docs, retrieved 2026-05-30. Claim areas: deployment SSH key management options. https://docs.github.com/en/authentication/connecting-to-github-with-ssh/managing-deploy-keys
 - `[src:agentsecrets-github]` - AgentSecrets primary GitHub repo, retrieved 2026-05-30. Claim areas: MCP credential broker concept. https://github.com/The-17/agentsecrets
-- `[src:peta-core]` - Peta Core primary project / site, retrieved 2026-05-30. Claim areas: managed MCP runtime and zero-trust gateway. https://github.com/dunialabs/peta-core and https://peta.io/
+- `[src:peta-core]` - Peta Core primary project / site, retrieved 2026-05-30. Claim areas: managed MCP runtime and Janus approval edgeway. https://github.com/dunialabs/peta-core and https://peta.io/
 - `[src:nono-github]` - nono primary GitHub repo, retrieved 2026-05-30. Claim areas: capability-based agent sandbox and fine-grained policies. https://github.com/always-further/nono
 - `[src:faramesh-github]` - Faramesh primary GitHub repo, retrieved 2026-05-30. Claim areas: agent execution control, policy, approval, evidence, credential broker. https://github.com/faramesh/faramesh-core
 - `[src:mcpproxy-github]` - MCPProxy primary GitHub repo, retrieved 2026-05-30. Claim areas: MCP proxy, local keyring storage, OAuth, tool limits. https://github.com/smart-mcp-proxy/mcpproxy-go

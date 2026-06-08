@@ -12,7 +12,7 @@ Assumes the core stack is already running. See
 export CF_WORKER_URL="$(sed -n 's/^CF_WORKER_URL=//p' .env)"
 ```
 
-> Do not `source .env` — it contains JSON in `SUBUMBRA_ADAPTER_REGISTRY`.
+> Do not `source .env` — it contains JSON in `SUBUMBRA_CONSUMER_REGISTRY`.
 
 ## 2. Core Health Checks
 

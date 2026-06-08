@@ -31,12 +31,12 @@ namespace. Does **not** touch app installs (LiteLLM, OpenWebUI, etc.),
 
 ### `subumbra-expire-adapter.sh`
 
-Immediately expires a named adapter token in `.env` by setting its `expires_at`
+Immediately expires a named consumer token in `.env` by setting its `expires_at`
 to the past. The adapter returns `403 adapter_expired` on the next request.
 No re-bootstrap required.
 
 ```bash
-./scripts/subumbra-expire-adapter.sh <adapter_id>
+./scripts/subumbra-expire-adapter.sh <consumer_id>
 # example:
 ./scripts/subumbra-expire-adapter.sh litellm
 ```
@@ -48,7 +48,7 @@ revoking a specific app's access without rotating all tokens.
 
 ### `subumbra-print-adapters.py`
 
-Summarizes adapter tokens and their allowed `key_id`s from the repo-local `.env`.
+Summarizes consumer tokens and their allowed `key_id`s from the repo-local `.env`.
 When run in a TTY, prints full token values with a warning. When piped or
 redirected, prints only env var names and key IDs (no token values).
 
@@ -108,7 +108,7 @@ development bypasses.
 
 ### `subumbra-env-ingest.py`
 
-Generates a draft `subumbra.yaml.proposed` and `env.bootstrap.proposed` from
+Generates a draft `manifest.yaml.proposed` and `env.bootstrap.proposed` from
 one or more existing app `.env` files. Useful when migrating an existing
 deployment or setting up a new manifest from known keys.
 
@@ -117,7 +117,7 @@ python3 scripts/subumbra-env-ingest.py <path/to/app.env> [<path/to/app2.env> ...
 ```
 
 **Intended outcome:** reviewable draft files you can inspect and rename before
-running bootstrap. Does not write to `.env` or `subumbra.yaml` directly.
+running bootstrap. Does not write to `.env` or `manifest.yaml` directly.
 
 ---
 
@@ -297,7 +297,7 @@ baseline and round hook. Used to sign off a round before merge.
 ### `council/preflight.sh`
 
 Polls Docker health status for all Subumbra containers until they are healthy
-or a timeout is reached. Used as a gate before running verification checks.
+or a timeout is reached. Used as a janus before running verification checks.
 
 ```bash
 scripts/council/preflight.sh

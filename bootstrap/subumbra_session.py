@@ -166,46 +166,46 @@ def _get_session_row_by_id(conn: sqlite3.Connection, session_id: str) -> sqlite3
     ).fetchone()
 
 
-def _load_runtime_adapter_registry() -> dict[str, dict[str, Any]]:
-    raw = _read_runtime_credential_value("SUBUMBRA_ADAPTER_REGISTRY")
+def _load_runtime_consumer_registry() -> dict[str, dict[str, Any]]:
+    raw = _read_runtime_credential_value("SUBUMBRA_CONSUMER_REGISTRY")
     if not raw:
-        die("SUBUMBRA_ADAPTER_REGISTRY missing from runtime environment / host .env")
+        die("SUBUMBRA_CONSUMER_REGISTRY missing from runtime environment / host .env")
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError as exc:
-        die(f"SUBUMBRA_ADAPTER_REGISTRY invalid JSON: {exc}")
+        die(f"SUBUMBRA_CONSUMER_REGISTRY invalid JSON: {exc}")
     if not isinstance(parsed, dict) or not parsed:
-        die("SUBUMBRA_ADAPTER_REGISTRY must be a non-empty JSON object")
-    for adapter_id, config in parsed.items():
+        die("SUBUMBRA_CONSUMER_REGISTRY must be a non-empty JSON object")
+    for consumer_id, config in parsed.items():
         if not isinstance(config, dict):
-            die(f"SUBUMBRA_ADAPTER_REGISTRY[{adapter_id!r}] must be an object")
+            die(f"SUBUMBRA_CONSUMER_REGISTRY[{consumer_id!r}] must be an object")
         can_write_audit = config.get("can_write_audit", False)
         if not isinstance(can_write_audit, bool):
-            die(f"SUBUMBRA_ADAPTER_REGISTRY[{adapter_id!r}].can_write_audit must be true/false")
+            die(f"SUBUMBRA_CONSUMER_REGISTRY[{consumer_id!r}].can_write_audit must be true/false")
     return parsed
 
 
 def _load_active_session_static_adapters() -> dict[str, dict[str, Any]]:
-    registry = _load_runtime_adapter_registry()
-    active_adapters: dict[str, dict[str, Any]] = {}
-    for adapter_id, config in registry.items():
-        if not isinstance(adapter_id, str) or not adapter_id:
+    registry = _load_runtime_consumer_registry()
+    active_consumers: dict[str, dict[str, Any]] = {}
+    for consumer_id, config in registry.items():
+        if not isinstance(consumer_id, str) or not consumer_id:
             continue
         if not isinstance(config, dict):
             continue
         allowed_keys = config.get("allowed_keys")
         if isinstance(allowed_keys, list) and allowed_keys:
-            active_adapters[adapter_id] = config
-    if not active_adapters:
-        die("No static key-fetch-capable adapters found in SUBUMBRA_ADAPTER_REGISTRY")
-    return active_adapters
+            active_consumers[consumer_id] = config
+    if not active_consumers:
+        die("No static key-fetch-capable adapters found in SUBUMBRA_CONSUMER_REGISTRY")
+    return active_consumers
 
 
 def _load_live_key_ids() -> list[str]:
     keys_payload = _load_keys_payload_or_die()
     key_ids = [key_id for key_id, record in keys_payload.items() if not _is_revoked_record(record)]
     if not key_ids:
-        die("No live key IDs found in keys.json")
+        die("No live key IDs found in endpoint.json")
     return sorted(key_ids)
 
 
@@ -255,16 +255,16 @@ def _session_arg_value(args: list[str], flag_name: str) -> str | None:
 
 def _resolve_session_adapter_scope(raw_adapters: str) -> tuple[list[str], list[str] | None]:
     static_adapters = _load_active_session_static_adapters()
-    selected = _parse_session_csv_arg(raw_adapters, field_name="--adapters")
+    selected = _parse_session_csv_arg(raw_adapters, field_name="--consumers")
     if selected is None:
         concrete = sorted(static_adapters.keys())
         return concrete, None
 
     resolved: list[str] = []
-    for adapter_id in selected:
-        if adapter_id not in static_adapters:
-            die(f"Unknown or non-key-fetch-capable adapter_id {adapter_id!r} for --adapters")
-        resolved.append(adapter_id)
+    for consumer_id in selected:
+        if consumer_id not in static_adapters:
+            die(f"Unknown or non-key-fetch-capable consumer_id {consumer_id!r} for --consumers")
+        resolved.append(consumer_id)
     return sorted(dict.fromkeys(resolved)), sorted(dict.fromkeys(resolved))
 
 
@@ -288,11 +288,11 @@ def _format_session_scope(values: list[str] | None, *, empty_label: str = "all")
     return ",".join(values)
 
 
-def _effective_session_adapter_ids(session_dict: dict[str, Any]) -> list[str]:
+def _effective_session_consumer_ids(session_dict: dict[str, Any]) -> list[str]:
     allowed_adapters = session_dict["allowed_adapters"]
     if allowed_adapters is None:
         return sorted(_load_active_session_static_adapters().keys())
-    return sorted(dict.fromkeys(str(adapter_id) for adapter_id in allowed_adapters))
+    return sorted(dict.fromkeys(str(consumer_id) for consumer_id in allowed_adapters))
 
 
 def _effective_session_key_ids(session_dict: dict[str, Any]) -> list[str]:
@@ -302,14 +302,14 @@ def _effective_session_key_ids(session_dict: dict[str, Any]) -> list[str]:
     return sorted(dict.fromkeys(str(key_id) for key_id in allowed_keys))
 
 
-def _ssh_session_scope_key(adapter_id: str, key_id: str) -> str:
-    return f"ssh_session_scope:{adapter_id}:{key_id}"
+def _ssh_session_scope_key(consumer_id: str, key_id: str) -> str:
+    return f"ssh_session_scope:{consumer_id}:{key_id}"
 
 
 def _ssh_session_scope_pairs(session_dict: dict[str, Any]) -> list[tuple[str, str]]:
     return [
-        (adapter_id, key_id)
-        for adapter_id in _effective_session_adapter_ids(session_dict)
+        (consumer_id, key_id)
+        for consumer_id in _effective_session_consumer_ids(session_dict)
         for key_id in _effective_session_key_ids(session_dict)
     ]
 
@@ -320,54 +320,54 @@ def _session_remaining_ttl_seconds(session_dict: dict[str, Any], now: datetime |
     return max(0, int((expires_at - current_time).total_seconds()))
 
 
-def _reconcile_active_adapter_gate(
+def _reconcile_active_consumer_gate(
     cf_creds: dict[str, str],
     namespace_id: str,
-    adapter_id: str,
+    consumer_id: str,
     active_sessions: Iterable[dict[str, Any]],
 ) -> None:
     max_remaining_ttl = 0
     now = datetime.now(timezone.utc)
     for session_dict in active_sessions:
-        if adapter_id not in _effective_session_adapter_ids(session_dict):
+        if consumer_id not in _effective_session_consumer_ids(session_dict):
             continue
         max_remaining_ttl = max(
             max_remaining_ttl,
             _session_remaining_ttl_seconds(session_dict, now),
         )
-    gate_key = f"active_adapter:{adapter_id}"
+    janus_key = f"active_consumer:{consumer_id}"
     if max_remaining_ttl > 0:
         _kv_put_text_value(
             cf_creds,
             namespace_id,
-            gate_key,
+            janus_key,
             "1",
             expiration_ttl=max_remaining_ttl,
         )
         return
-    _kv_delete_key(cf_creds, namespace_id, gate_key)
+    _kv_delete_key(cf_creds, namespace_id, janus_key)
 
 
-def _reconcile_active_adapter_gates(
+def _reconcile_active_consumer_gates(
     cf_creds: dict[str, str],
     namespace_id: str,
-    adapter_ids: Iterable[str],
+    consumer_ids: Iterable[str],
     active_sessions: Iterable[dict[str, Any]],
 ) -> None:
     active_session_list = list(active_sessions)
-    for adapter_id in sorted(dict.fromkeys(adapter_ids)):
-        _reconcile_active_adapter_gate(cf_creds, namespace_id, adapter_id, active_session_list)
+    for consumer_id in sorted(dict.fromkeys(consumer_ids)):
+        _reconcile_active_consumer_gate(cf_creds, namespace_id, consumer_id, active_session_list)
 
 
 def _ensure_session_start_has_no_overlap(
     candidate_session: dict[str, Any],
     active_sessions: Iterable[dict[str, Any]],
 ) -> None:
-    candidate_adapter_ids = set(_effective_session_adapter_ids(candidate_session))
+    candidate_consumer_ids = set(_effective_session_consumer_ids(candidate_session))
     candidate_key_ids = set(_effective_session_key_ids(candidate_session))
     for active_session in active_sessions:
         overlapping_adapters = sorted(
-            candidate_adapter_ids & set(_effective_session_adapter_ids(active_session))
+            candidate_consumer_ids & set(_effective_session_consumer_ids(active_session))
         )
         if not overlapping_adapters:
             continue
@@ -379,7 +379,7 @@ def _ensure_session_start_has_no_overlap(
         die(
             "session_start_overlap_denied "
             f"conflicting_session_id={active_session['session_id']} "
-            f"adapter_id={overlapping_adapters[0]} "
+            f"consumer_id={overlapping_adapters[0]} "
             f"key_id={overlapping_keys[0]}"
         )
 
@@ -432,25 +432,25 @@ def _session_wizard(
 
     Returns (ttl_raw, adapters_raw, keys_raw, name, max_queries_raw, max_sign_ops_raw).
     Entry modes:
-      - adapter-first: --adapters provided, only keys for those adapters shown
+      - consumer-first: --consumers provided, only keys for those consumers shown
       - key-first:     --keys provided, only adapters that include those keys shown
       - bare:          show all adapters, then filter keys to selected adapters
     """
     if not sys.stdin.isatty():
-        die("--session start: --ttl and --adapters are required in non-interactive mode")
+        die("--session start: --ttl and --consumers are required in non-interactive mode")
 
-    adapter_key_map: dict[str, list[str]] = {}
-    for adapter_id, config in static_adapters.items():
+    consumer_key_map: dict[str, list[str]] = {}
+    for consumer_id, config in static_adapters.items():
         allowed = config.get("allowed_keys")
-        adapter_key_map[adapter_id] = allowed if isinstance(allowed, list) else list(live_key_ids)
+        consumer_key_map[consumer_id] = allowed if isinstance(allowed, list) else list(live_key_ids)
 
     key_adapter_map: dict[str, list[str]] = {}
-    for adapter_id, keys in adapter_key_map.items():
+    for consumer_id, keys in consumer_key_map.items():
         for k in keys:
-            key_adapter_map.setdefault(k, []).append(adapter_id)
+            key_adapter_map.setdefault(k, []).append(consumer_id)
 
     ttl_raw = _session_arg_value(args, "--ttl")
-    adapters_raw = _session_arg_value(args, "--adapters")
+    adapters_raw = _session_arg_value(args, "--consumers")
     keys_raw = _session_arg_value(args, "--keys")
     name = (_session_arg_value(args, "--name") or "").strip() or None
     max_queries_raw = _session_arg_value(args, "--max-queries")
@@ -459,9 +459,9 @@ def _session_wizard(
     print("\n=== Subumbra session wizard ===")
 
     if adapters_raw is not None:
-        # adapter-first: show only keys available for requested adapters
+        # consumer-first: show only keys available for requested consumers
         selected_adapters_list = [a.strip() for a in adapters_raw.split(",") if a.strip()]
-        visible_keys = sorted({k for a in selected_adapters_list for k in adapter_key_map.get(a, [])})
+        visible_keys = sorted({k for a in selected_adapters_list for k in consumer_key_map.get(a, [])})
         if keys_raw is None:
             if visible_keys:
                 print(f"\nKeys accessible by {', '.join(selected_adapters_list)}:")
@@ -487,10 +487,10 @@ def _session_wizard(
         if not visible_adapters:
             die(f"No adapters are authorized for keys: {', '.join(selected_keys_list)}")
         if adapters_raw is None:
-            print(f"\nAdapters authorized for {', '.join(selected_keys_list)}:")
+            print(f"\nConsumers authorized for {', '.join(selected_keys_list)}:")
             for i, a in enumerate(visible_adapters, 1):
                 print(f"  {i}. {a}")
-            raw = input("Adapters to open [enter = all shown, or comma-separated numbers/names]: ").strip()
+            raw = input("Consumers to open [enter = all shown, or comma-separated numbers/names]: ").strip()
             if raw:
                 chosen_a: list[str] = []
                 for token in raw.split(","):
@@ -500,37 +500,37 @@ def _session_wizard(
                     elif token in visible_adapters:
                         chosen_a.append(token)
                     else:
-                        die(f"Unknown adapter {token!r}")
+                        die(f"Unknown consumer {token!r}")
                 adapters_raw = ",".join(chosen_a)
             else:
                 adapters_raw = ",".join(visible_adapters)
 
     else:
         # bare: show all adapters, then filter keys
-        all_adapter_ids = sorted(static_adapters.keys())
+        all_consumer_ids = sorted(static_adapters.keys())
         print("\nAvailable adapters:")
-        for i, a in enumerate(all_adapter_ids, 1):
-            key_count = len(adapter_key_map.get(a, []))
+        for i, a in enumerate(all_consumer_ids, 1):
+            key_count = len(consumer_key_map.get(a, []))
             print(f"  {i}. {a}  ({key_count} key(s))")
-        raw = input("Adapters to open [enter = all, or comma-separated numbers/names]: ").strip()
+        raw = input("Consumers to open [enter = all, or comma-separated numbers/names]: ").strip()
         if raw:
             chosen_a2: list[str] = []
             for token in raw.split(","):
                 token = token.strip()
-                if token.isdigit() and 1 <= int(token) <= len(all_adapter_ids):
-                    chosen_a2.append(all_adapter_ids[int(token) - 1])
-                elif token in all_adapter_ids:
+                if token.isdigit() and 1 <= int(token) <= len(all_consumer_ids):
+                    chosen_a2.append(all_consumer_ids[int(token) - 1])
+                elif token in all_consumer_ids:
                     chosen_a2.append(token)
                 else:
-                    die(f"Unknown adapter {token!r}")
+                    die(f"Unknown consumer {token!r}")
             adapters_raw = ",".join(chosen_a2)
             selected_for_keys = chosen_a2
         else:
             adapters_raw = "all"
-            selected_for_keys = all_adapter_ids
+            selected_for_keys = all_consumer_ids
 
         # filter keys to those accessible by the selected adapters
-        visible_keys2 = sorted({k for a in selected_for_keys for k in adapter_key_map.get(a, [])})
+        visible_keys2 = sorted({k for a in selected_for_keys for k in consumer_key_map.get(a, [])})
         if visible_keys2:
             print(f"\nKeys accessible by selected adapters:")
             for i, k in enumerate(visible_keys2, 1):
@@ -583,7 +583,7 @@ def run_session_start() -> None:
         die("--session start requires the 'start' subcommand immediately after --session")
 
     ttl_raw = _session_arg_value(args, "--ttl")
-    adapters_raw = _session_arg_value(args, "--adapters")
+    adapters_raw = _session_arg_value(args, "--consumers")
     keys_raw = _session_arg_value(args, "--keys")
     name = (_session_arg_value(args, "--name") or "").strip() or None
     max_queries_raw = _session_arg_value(args, "--max-queries")
@@ -600,9 +600,9 @@ def run_session_start() -> None:
         die("--session start requires --ttl <duration>")
 
     if adapters_raw is None:
-        die("--session start requires --adapters <csv|all>")
+        die("--session start requires --consumers <csv|all>")
     ttl_seconds = _parse_session_duration_seconds(ttl_raw)
-    _resolved_adapter_ids, stored_adapter_scope = _resolve_session_adapter_scope(adapters_raw)
+    _resolved_consumer_ids, stored_adapter_scope = _resolve_session_adapter_scope(adapters_raw)
     stored_key_scope = _resolve_session_key_scope(keys_raw)
     max_queries: int | None = None
     if max_queries_raw is not None:
@@ -648,7 +648,7 @@ def run_session_start() -> None:
         for row in _list_active_session_rows(conn)
     ]
     _ensure_session_start_has_no_overlap(candidate_session, active_sessions)
-    effective_adapter_ids = _effective_session_adapter_ids(candidate_session)
+    effective_consumer_ids = _effective_session_consumer_ids(candidate_session)
 
     cf_creds = _get_push_registry_cf_creds()
     namespace_id = _load_kv_namespace_id()
@@ -679,14 +679,14 @@ def run_session_start() -> None:
     written_shadow_keys: list[str] = []
     written_scope_keys: list[str] = []
     try:
-        for adapter_id, key_id in _ssh_session_scope_pairs(candidate_session):
+        for consumer_id, key_id in _ssh_session_scope_pairs(candidate_session):
             _kv_delete_key(
                 cf_creds,
                 namespace_id,
-                _ssh_session_scope_key(adapter_id, key_id),
+                _ssh_session_scope_key(consumer_id, key_id),
             )
-        for adapter_id in effective_adapter_ids:
-            kv_key = f"session_token:{session_id}:{adapter_id}"
+        for consumer_id in effective_consumer_ids:
+            kv_key = f"session_token:{session_id}:{consumer_id}"
             _kv_put_text_value(
                 cf_creds,
                 namespace_id,
@@ -696,8 +696,8 @@ def run_session_start() -> None:
             )
             written_shadow_keys.append(kv_key)
         if max_sign_ops is not None:
-            for adapter_id, key_id in _ssh_session_scope_pairs(candidate_session):
-                scope_key = _ssh_session_scope_key(adapter_id, key_id)
+            for consumer_id, key_id in _ssh_session_scope_pairs(candidate_session):
+                scope_key = _ssh_session_scope_key(consumer_id, key_id)
                 _kv_put_text_value(
                     cf_creds,
                     namespace_id,
@@ -705,7 +705,7 @@ def run_session_start() -> None:
                     json.dumps(
                         {
                             "session_id": session_id,
-                            "adapter_id": adapter_id,
+                            "consumer_id": consumer_id,
                             "key_id": key_id,
                             "expires_at": expires_at,
                             "max_sign_ops": max_sign_ops,
@@ -725,10 +725,10 @@ def run_session_start() -> None:
             _session_row_to_dict(row)
             for row in _list_active_session_rows(conn)
         ]
-        _reconcile_active_adapter_gates(
+        _reconcile_active_consumer_gates(
             cf_creds,
             namespace_id,
-            effective_adapter_ids,
+            effective_consumer_ids,
             active_sessions,
         )
     except SystemExit:
@@ -749,10 +749,10 @@ def run_session_start() -> None:
             for row in _list_active_session_rows(conn)
         ]
         try:
-            _reconcile_active_adapter_gates(
+            _reconcile_active_consumer_gates(
                 cf_creds,
                 namespace_id,
-                effective_adapter_ids,
+                effective_consumer_ids,
                 remaining_active_sessions,
             )
         except SystemExit:
@@ -825,30 +825,30 @@ def run_session_end() -> None:
 
     current_active_sessions = list(active_sessions)
     for session_dict in target_sessions:
-        adapter_ids = _effective_session_adapter_ids(session_dict)
+        consumer_ids = _effective_session_consumer_ids(session_dict)
         remaining_sessions = [
             active_session
             for active_session in current_active_sessions
             if active_session["session_id"] != session_dict["session_id"]
         ]
-        _reconcile_active_adapter_gates(
+        _reconcile_active_consumer_gates(
             cf_creds,
             namespace_id,
-            adapter_ids,
+            consumer_ids,
             remaining_sessions,
         )
-        for adapter_id in adapter_ids:
+        for consumer_id in consumer_ids:
             _kv_delete_key(
                 cf_creds,
                 namespace_id,
-                f"session_token:{session_dict['session_id']}:{adapter_id}",
+                f"session_token:{session_dict['session_id']}:{consumer_id}",
             )
         if session_dict["max_sign_ops"] is not None:
-            for adapter_id, key_id in _ssh_session_scope_pairs(session_dict):
+            for consumer_id, key_id in _ssh_session_scope_pairs(session_dict):
                 _kv_delete_key(
                     cf_creds,
                     namespace_id,
-                    _ssh_session_scope_key(adapter_id, key_id),
+                    _ssh_session_scope_key(consumer_id, key_id),
                 )
         conn.execute(
             "UPDATE sessions SET status = 'closed' WHERE session_id = ? AND status = 'active'",
@@ -906,5 +906,4 @@ def run_session_list() -> None:
     for idx, row in enumerate(rows, start=1):
         print(f"[{idx}]")
         _print_session_row("  ", _session_row_to_dict(row))
-
 

@@ -68,7 +68,7 @@ if [[ ! -f .env ]]; then
     exit 1
 fi
 
-expected_registry="$(grep '^SUBUMBRA_ADAPTER_REGISTRY=' .env | cut -d= -f2- || true)"
+expected_registry="$(grep '^SUBUMBRA_CONSUMER_REGISTRY=' .env | cut -d= -f2- || grep '^SUBUMBRA_ADAPTER_REGISTRY=' .env | cut -d= -f2- || true)"
 expected_litellm_token="$(grep '^SUBUMBRA_TOKEN_LITELLM=' .env | cut -d= -f2- || true)"
 expected_proxy_token="$(grep '^SUBUMBRA_TOKEN_PROXY=' .env | cut -d= -f2- || true)"
 expected_ui_token="$(grep '^SUBUMBRA_TOKEN_UI=' .env | cut -d= -f2- || true)"
@@ -104,7 +104,7 @@ container_for_service() {
 
 env_key_for_service() {
     case "$1" in
-        subumbra-keys) echo "SUBUMBRA_ADAPTER_REGISTRY" ;;
+        subumbra-keys) echo "SUBUMBRA_CONSUMER_REGISTRY" ;;
         *) echo "SUBUMBRA_ACCESS_TOKEN" ;;
     esac
 }

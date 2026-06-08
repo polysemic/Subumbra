@@ -8,7 +8,7 @@ between the three ways to configure a provider.
 
 ### 1. Built-in signed template (`template: <name>`)
 
-The simplest option. A single field in `subumbra.yaml` references a pre-written
+The simplest option. A single field in `manifest.yaml` references a pre-written
 policy from the signed catalog at `bootstrap/templates/`.
 
 ```yaml
@@ -73,10 +73,10 @@ separate file per provider.
 
 ---
 
-### 3. Inline policy in `subumbra.yaml`
+### 3. Inline policy in `manifest.yaml`
 
-The full policy block written directly inside `subumbra.yaml`. No separate
-file needed. `subumbra.example.yaml` shows a complete inline example with every
+The full policy block written directly inside `manifest.yaml`. No separate
+file needed. `manifest.example.yaml` shows a complete inline example with every
 field documented.
 
 ```yaml
@@ -102,7 +102,7 @@ keys:
       # deny:
       #   path_prefixes: [/v1/fine-tuning]
       # velocity:
-      #   adapter_rpm: 60
+      #   consumer_rpm: 60
 ```
 
 **Use this when:** you want everything in one file, or are configuring a
@@ -154,14 +154,14 @@ million-token context windows. All other LLM providers are 8 MB, which covers
 Use an inline policy or a custom local template with `protocol: http_rest` and
 set `target.host`, `auth.scheme`, `allow.path_prefixes`, and
 `capability_class` to match the API you are brokering. See
-[subumbra.example.yaml](../subumbra.example.yaml) for the full field reference.
+[manifest.example.yaml](../manifest.example.yaml) for the full field reference.
 
 ## npm note
 
 npm publish brokering does not use a built-in signed provider template in this
 catalog. The npm path relies on an operator-authored `type: npm_token` policy
 that declares package scope and publish deny fields, while the operator-facing
-CLI snippet comes from adapter metadata in `bootstrap/templates/adapters/npm.yaml`.
+CLI snippet comes from adapter metadata in `bootstrap/templates/consumers/npm.yaml`.
 
 ---
 

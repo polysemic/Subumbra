@@ -44,7 +44,7 @@ While scans identified specific implementation flaws, Subumbra's layered control
 ### Keys-Service HMAC and Adapter Gates
 * **Scan Profiles**: `keys-auth-lite` pre-hardening and post-r80/r81 follow-up.
 * **Blocked Exploit**: Current keys-service reads require adapter authorization plus a valid timestamped HMAC signature; unauthorized callers cannot retrieve encrypted records or management metadata.
-* **Protection That Held**: Rounds 79-81 scoped list/stat/audit reads, normalized denied/nonexistent key responses, enforced global nonce uniqueness, adopted length-prefixed HMAC payloads, bound HMAC to `adapter_id`, and collapsed staged HMAC error oracles.
+* **Protection That Held**: Rounds 79-81 scoped list/stat/audit reads, normalized denied/nonexistent key responses, enforced global nonce uniqueness, adopted length-prefixed HMAC payloads, bound HMAC to `consumer_id`, and collapsed staged HMAC error oracles.
 * **Impact**: Shannon's initial keys-service reconnaissance paths were converted from confirmed vulnerabilities into denied or scoped responses in the release branch.
 * **Caveat**: The first keys scan did find real HMAC and metadata-scope flaws. The release report should present HMAC validation as a post-remediation invariant, not as a control that was already complete during the initial scan.
 
@@ -134,7 +134,7 @@ These assessments used the Shannon security testing harness to evaluate both the
   * **Quoting Shannon**: `"AUTH-VULN-02 (Internal): get_key Bypass of Key Paused State"` (Medium Severity).
   * **Finding**: The keys database query did not validate key pause states, bypassing the Worker-level pause checks.
   * **Remediation**: Patched in Round 81. Paused-state verification was integrated directly into database key resolution.
-  * **Quoting Shannon**: `"AUTH-VULN-03 (Internal): HMAC Payload Excludes adapter_id"` (Medium Severity).
+  * **Quoting Shannon**: `"AUTH-VULN-03 (Internal): HMAC Payload Excludes consumer_id"` (Medium Severity).
   * **Finding**: The signing string omitted the adapter ID, allowing signatures to be reused across different credentials.
   * **Remediation**: Patched in Round 81. Bound HMAC validation to the requesting adapter identity.
   * **Quoting Shannon**: `"AUTH-VULN-04 (Internal): Cross-Adapter Activity Disclosure via /audit NULL key_id Rows"` (Medium Severity).
@@ -180,4 +180,4 @@ Significant improvements to platform lifecycle automation, validation tooling, a
 ### Multi-Session Isolation (v1.2.0-alpha Release)
 * Expanded session capabilities to support concurrent active sessions.
 * Enforces disjoint mapping: overlapping scopes (duplicate adapter-to-key associations) are rejected at session initialization to prevent tenant interference.
-* Propagates session status to the edge via shadow KV keys (`session_token:<session_id>:<adapter_id>`) and aggregate gates (`active_adapter:<adapter_id>`), laying the groundwork for edge-level session revocation.
+* Propagates session status to the edge via shadow KV keys (`session_token:<session_id>:<consumer_id>`) and aggregate gates (`active_consumer:<consumer_id>`), laying the groundwork for edge-level session revocation.

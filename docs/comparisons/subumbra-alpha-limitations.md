@@ -39,8 +39,8 @@ This page is not a ranking. It is the control panel for honesty: Subumbra has a 
 
 - You operate the stack yourself.
 - You need Cloudflare credentials and Worker/Durable Object state today.
-- You need to understand adapter names, key IDs, sessions, policies, and manifests.
-- You need to treat `subumbra.yaml`, `.env.bootstrap`, and local runtime state carefully.
+- You need to understand consumer IDs, key IDs, sessions, policies, and manifests.
+- You need to treat `manifest.yaml`, `.env.bootstrap`, and local runtime state carefully.
 
 ## Current Cloudflare dependency
 
@@ -73,7 +73,7 @@ Subumbra currently has a small set of examples and templates compared with matur
 - **Planned:** Hosted SaaS deployment option.
 - **Planned:** Cost analytics and spend dashboard (Cloudflare Analytics Engine / log-tail integration).
 - **Planned:** Dynamic credential engine for databases and cloud services.
-- **Planned:** MCP / agent native integration via scoped adapter tokens.
+- **Planned:** MCP / agent native integration via scoped consumer tokens.
 - **Planned:** CSP cleanup after inline code is removed.
 - **Planned:** Public Janus naming alignment across code and docs.
 - **Planned:** More app integrations (AnythingLLM, LibreChat, Dify, and others).

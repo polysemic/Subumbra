@@ -2,14 +2,14 @@
 
 This atlas is not a ranking. Mature products solve many problems Subumbra does not solve yet, and several tools listed here may be complementary rather than alternatives. The goal is a truthful value-proposition map: what each category is designed to do, where Subumbra is different, and where Subumbra is still alpha.
 
-Start with [Subumbra alpha limitations](subumbra-alpha-limitations.md) before reading the feature tables. In normal runtime, apps receive adapter tokens and proxy routes, not provider plaintext; decrypted provider keys exist only inside the Cloudflare Durable Object during the proxied request. [src:subumbra-claude]
+Start with [Subumbra alpha limitations](subumbra-alpha-limitations.md) before reading the feature tables. In normal runtime, apps receive consumer tokens and proxy routes, not provider plaintext; decrypted provider keys exist only inside the Cloudflare Durable Object during the proxied request. [src:subumbra-claude]
 
 ## Visual Matrix
 
 | Subumbra capability | Comparison page |
 |---------------------|-----------------|
 | Split-trust custody, no provider plaintext in normal app runtime, AAD binding, offline rotation | [Secret vaults](secret-vaults.md) |
-| Adapter tokens, local proxy mediation, policy firewall controls, RPM/velocity | [API brokers and AI gateways](api-brokers-ai-gateways.md) |
+| Consumer tokens, local proxy mediation, policy firewall controls, RPM/velocity | [API brokers and AI gateways](api-brokers-ai-gateways.md) |
 | SSH sign-only custody, host binding, per-sign Janus approval | [SSH agent access](ssh-agent-access.md) |
 | Agent/MCP adjacent credential protection and runtime policy projects | [Agent/MCP security](agent-mcp-security.md) |
 | Malware, CI leak, social engineering, malicious PR, and control-plane failure outcomes | [Threat model and failure modes](threat-model-failure-modes.md) |
@@ -30,7 +30,7 @@ Start with [Subumbra alpha limitations](subumbra-alpha-limitations.md) before re
 
 - The matrix layer is meant for quick scanning; the sections underneath each table are the actual claim boundary.
 - External products change quickly. Refresh [source notes](source-notes.md) before using these docs for public release.
-- A `✓ Yes` for Subumbra should map back to repo evidence, usually `CLAUDE.md`, `subumbra.example.yaml`, `subumbra-proxy/app.py`, `worker/src/worker.js`, or bootstrap modules.
+- A `✓ Yes` for Subumbra should map back to repo evidence, usually `CLAUDE.md`, `manifest.example.yaml`, `subumbra-proxy/app.py`, `worker/src/worker.js`, or bootstrap modules.
 - A `? Needs verification` row is deliberately unfinished, not a quiet criticism of another project.
 
 ## Where Others Are Stronger

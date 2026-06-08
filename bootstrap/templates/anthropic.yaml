@@ -2,7 +2,7 @@
 # Anthropic Messages API (Claude 3.x, Claude 4.x, etc.)
 # Auth: header (x-api-key)  |  Docs: https://docs.anthropic.com/en/api/getting-started
 #
-# Reference in subumbra.yaml:
+# Reference in manifest.yaml:
 #   - key_id: anthropic_prod
 #     provider: anthropic
 #     secret_ref: ANTHROPIC_KEY
@@ -11,7 +11,7 @@
 #     template: anthropic
 #
 # To override any field or add optional controls, replace template: with a full
-# inline policy block. See subumbra.example.yaml for the complete field reference.
+# inline policy block. See manifest.example.yaml for the complete field reference.
 #
 # Updating policy after bootstrap (no re-bootstrap required):
 #   ./bootstrap.sh --publish-policy <key_id>
@@ -60,7 +60,7 @@ response:
     - anthropic-ratelimit-tokens-remaining
     - anthropic-ratelimit-tokens-reset
 velocity:
-  adapter_rpm: 120
+  consumer_rpm: 120
   key_rpm: 600
   breaker_failures: 3
   breaker_cooldown_seconds: 30

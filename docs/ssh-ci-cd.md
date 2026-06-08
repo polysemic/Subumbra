@@ -10,7 +10,7 @@ Subumbra supports two pipeline architectures depending on your team size and sec
 
 | Model | Setup Complexity | Security Profile | Ideal For |
 |---|---|---|---|
-| **1. Operator-Gate Flow (Recommended)** | 🟢 Trivial (2 mins) | 🛡️ **Maximum** (Zero static secrets on GitHub, fully locked down by default) | Single developers, small teams, personal repos, highly sensitive environments |
+| **1. Operator-Gate Flow (Recommended)** | 🟢 Trivial (2 mins) | 🛡️ **Strong** (No static secrets on GitHub; real key stays in the split-trust vault) | Single developers, small teams, personal repos, highly sensitive environments |
 | **2. Autonomous Flow** | 🟡 Moderate (10 mins) | 🔒 **High** (Time-gated sessions, but requires Cloudflare credentials in GitHub Secrets) | Larger teams, standard corporate unattended pipelines |
 
 ---
@@ -71,7 +71,7 @@ jobs:
 ### Daily Usage Loop:
 1. **Start Your Coding Session**: When you sit down to develop and test, open a session on the VPS (e.g. for a 2-hour window):
    ```bash
-   ssh subumbra-via-agent "cd /opt/subumbra && ./bootstrap.sh --session start --ttl 2h --adapters sshtest --keys github_vps_test"
+   ssh subumbra-via-agent "cd /opt/subumbra && ./bootstrap.sh --session start --ttl 2h --consumers sshtest --keys github_vps_test"
    ```
 2. **Push to Trigger**: Commit and run `git push`. The runner will pick up the job and successfully check out your repository.
 3. **Automatic Expiry**: Once the 2-hour TTL runs out, the VPS agent automatically locks down again.
@@ -118,7 +118,7 @@ jobs:
         run: |
           SESSION_START_OUTPUT=$(./bootstrap.sh --session start \
             --ttl 30m \
-            --adapters sshtest \
+            --consumers sshtest \
             --keys github_vps_test \
             --max-sign-ops 20)
           printf '%s\n' "$SESSION_START_OUTPUT"
@@ -187,7 +187,7 @@ deploy:
     # CF_API_TOKEN and CF_ACCOUNT_ID are injected as masked CI/CD variables
     - |
       SESSION_START_OUTPUT=$(cd /opt/subumbra && ./bootstrap.sh --session start \
-        --ttl 30m --adapters ci_runner --keys gitlab_deploy_key --max-sign-ops 20)
+        --ttl 30m --consumers ci_runner --keys gitlab_deploy_key --max-sign-ops 20)
       printf '%s\n' "$SESSION_START_OUTPUT"
       SESSION_ID=$(printf '%s\n' "$SESSION_START_OUTPUT" | awk '/Started session /{print $NF}')
       printf '%s\n' "$SESSION_ID" > /tmp/subumbra-session-id

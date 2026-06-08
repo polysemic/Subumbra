@@ -1395,13 +1395,13 @@
           <div class="arch-box">
             <div class="arch-box-label">Your application</div>
             <div class="arch-box-name">LiteLLM · Bifrost · Open WebUI · AnythingLLM · LibreChat · n8n · any HTTP client</div>
-            <!-- <div class="arch-box-sub">Uses an adapter token · carries key_id in the /t/... path</div> -->
+            <!-- <div class="arch-box-sub">Uses a consumer token · carries key_id in the /t/... path</div> -->
           </div>
 
           <!-- Arrow: App → proxy → encrypted record fetch -->
           <div class="arch-arrow arch-arrow-to-keys">
             <div class="arch-arrow-line"></div>
-            <div class="arch-arrow-label">adapter token + key_id via subumbra-proxy :8090/t</div>
+            <div class="arch-arrow-label">consumer token + key_id via subumbra-proxy :8090/t</div>
             <div class="arch-arrow-line"></div>
           </div>
 
@@ -1541,13 +1541,13 @@
           <div class="how-step-num">02 / Configure</div>
           <div class="how-step-title">Manifest (and optional automation)</div>
           <div class="how-step-body">Copy the minimal template to <code
-              style="font-family:var(--font-mono);font-size:0.85em;">subumbra.yaml</code> and edit providers, routing, and
-            adapter names. For CI or unattended runs, copy <code
+              style="font-family:var(--font-mono);font-size:0.85em;">manifest.yaml</code> and edit providers, routing, and
+            consumer IDs. For CI or unattended runs, copy <code
               style="font-family:var(--font-mono);font-size:0.85em;">.env.bootstrap.example</code> to <code
               style="font-family:var(--font-mono);font-size:0.85em;">.env.bootstrap</code> and add Cloudflare credentials
             plus the same <code style="font-family:var(--font-mono);font-size:0.85em;">secret_ref</code> values referenced
             in the manifest.</div>
-          <div class="how-step-code">cp subumbra.minimal.yaml subumbra.yaml</div>
+          <div class="how-step-code">cp manifest.minimal.yaml manifest.yaml</div>
           <div class="how-step-code">cp .env.bootstrap.example .env.bootstrap</div>
         </div>
         <div class="how-step">
@@ -1565,19 +1565,19 @@
               same script runs headlessly, then securely shreds that file after a successful pass so it does not linger on
               disk.</p>
             <p>When the script exits cleanly, your <code style="font-family:var(--font-mono);font-size:0.85em;">.env</code>
-              contains the adapter tokens the stack expects, encrypted material is on the volume, and the core containers
+              contains the consumer tokens the stack expects, encrypted material is on the volume, and the core containers
               can start normally.</p>
           </div>
           <div class="how-step-code">./bootstrap.sh</div>
         </div>
         <div class="how-step">
           <div class="how-step-num">04 / Integrate</div>
-          <div class="how-step-title">Transparent proxy URL + adapter token</div>
+          <div class="how-step-title">Transparent proxy URL + consumer token</div>
           <div class="how-step-body">
             <p>Update your apps wherever they read provider settings — <code
                 style="font-family:var(--font-mono);font-size:0.85em;">.env</code> files, YAML or JSON config, admin UIs,
               or secrets in your orchestrator. Where you used to paste the real vendor key and call the provider directly,
-              aim traffic at Subumbra and put the narrow adapter token in the credential field instead. The <code
+              aim traffic at Subumbra and put the narrow consumer token in the credential field instead. The <code
                 style="font-family:var(--font-mono);font-size:0.85em;">key_id</code> from your manifest still goes in the URL
               path right after <code style="font-family:var(--font-mono);font-size:0.85em;">/t/</code> (below, <code
                 style="font-family:var(--font-mono);font-size:0.85em;">anthropic_prod</code> is only an example).</p>
@@ -1586,7 +1586,7 @@
           <div class="how-step-code">api_base: http://subumbra-proxy:8090/t/anthropic_prod</div>
           <div class="how-step-subhead">Apps not using docker or the network</div>
           <div class="how-step-code">api_base: http://127.0.0.1:10199/t/anthropic_prod</div>
-          <div class="how-step-subhead">Both use the adapter token</div>
+          <div class="how-step-subhead">Both use the consumer token</div>
           <div class="how-step-code">api_key: ${SUBUMBRA_TOKEN_YOUR_ADAPTER}</div>
         </div>
       </div>
@@ -1607,18 +1607,18 @@
               class="how-cmd-desc">Targeted repair for one record</span></div>
           <div class="how-cmd-line"><span class="how-cmd-bin">./bootstrap.sh --revoke-key &lt;key_id&gt;</span><span
               class="how-cmd-desc">Revoke a key (optional <span class="how-cmd-bin">--offline</span> for local-only)</span></div>
-          <div class="how-cmd-line"><span class="how-cmd-bin">./bootstrap.sh --add-adapter &lt;key_id&gt; &lt;adapter_id&gt;</span><span
+          <div class="how-cmd-line"><span class="how-cmd-bin">./bootstrap.sh --add-consumer &lt;key_id&gt; &lt;consumer_id&gt;</span><span
               class="how-cmd-desc">Bind an adapter to an existing key</span></div>
-          <div class="how-cmd-line"><span class="how-cmd-bin">./bootstrap.sh --revoke-adapter &lt;key_id&gt; &lt;adapter_id&gt;</span><span
-              class="how-cmd-desc">Remove an adapter binding</span></div>
+          <div class="how-cmd-line"><span class="how-cmd-bin">./bootstrap.sh --revoke-consumer &lt;key_id&gt; &lt;consumer_id&gt;</span><span
+              class="how-cmd-desc">Remove a consumer binding</span></div>
           <div class="how-cmd-line"><span class="how-cmd-bin">./bootstrap.sh --publish-policy &lt;key_id&gt;</span><span
               class="how-cmd-desc">Republish policy metadata to KV</span></div>
           <div class="how-cmd-line"><span class="how-cmd-bin">./bootstrap.sh --push-registry</span><span class="how-cmd-desc">Push
-              local keys.json state to Cloudflare KV</span></div>
+              local endpoint.json state to Cloudflare KV</span></div>
           <div class="how-cmd-line"><span class="how-cmd-bin">./bootstrap.sh --list-key-ids</span><span class="how-cmd-desc">List
               manifest key IDs</span></div>
-          <div class="how-cmd-line"><span class="how-cmd-bin">./bootstrap.sh --list-adapters</span><span class="how-cmd-desc">List
-              distinct adapter names from the manifest</span></div>
+          <div class="how-cmd-line"><span class="how-cmd-bin">./bootstrap.sh --list-consumers</span><span class="how-cmd-desc">List
+              distinct consumer IDs from the manifest</span></div>
           <div class="how-cmd-line"><span class="how-cmd-bin">./bootstrap.sh --status</span><span class="how-cmd-desc">Compare
               manifest authority to deployed record state</span></div>
           <div class="how-cmd-line"><span class="how-cmd-bin">./bootstrap.sh --nuke</span><span class="how-cmd-desc">Destructive:
@@ -1654,7 +1654,7 @@
             <div class="feature-icon fi-orange">🧩</div>
             <div class="feature-title">Live provider registry</div>
             <div class="feature-body">You declare providers and policy in <code
-                style="font-family:var(--font-mono);font-size:0.8em;color:#7dd3fc;">subumbra.yaml</code>; bootstrap publishes
+                style="font-family:var(--font-mono);font-size:0.8em;color:#7dd3fc;">manifest.yaml</code>; bootstrap publishes
               structured entries to Cloudflare KV so the Worker can validate every upstream target fail-closed.</div>
           </article>
           <article class="feature-card">
@@ -1668,7 +1668,7 @@
             <div class="feature-title">Ciphertext-only at rest on your side</div>
             <div class="feature-body">After bootstrap, real provider secrets are not returned to your servers for storage
               or display. <code style="font-family:var(--font-mono);font-size:0.8em;color:#7dd3fc;">subumbra-keys</code> only
-              ever persists envelopes (ciphertext + wrapped DEKs). Apps and operators use narrow adapter tokens — not the
+              ever persists envelopes (ciphertext + wrapped DEKs). Apps and operators use narrow consumer tokens — not the
               upstream key material.</div>
           </article>
           <article class="feature-card">
@@ -1731,8 +1731,8 @@
             <div class="security-check">✓</div>
             <div>
               <div class="security-item-title">Adapter allowlists and capability gates</div>
-              <div class="security-item-body">Manifest <code style="font-family:var(--font-mono);font-size:0.78em;">allow.adapters</code>
-                binds each adapter token to specific records; policy can scope methods, paths, hosts, and capability class so a
+              <div class="security-item-body">Manifest <code style="font-family:var(--font-mono);font-size:0.78em;">allow.consumers</code>
+                binds each consumer token to specific records; policy can scope methods, paths, hosts, and capability class so a
                 compromised chat app cannot silently pivot to unrelated APIs.</div>
             </div>
           </li>
@@ -1771,7 +1771,7 @@
           </div>
           <div class="threat-row"><span class="threat-name">Server filesystem compromise</span><span
               class="threat-verdict v-blocked">Blocked</span></div>
-          <div class="threat-row"><span class="threat-name">keys.json stolen</span><span
+          <div class="threat-row"><span class="threat-name">endpoint.json stolen</span><span
               class="threat-verdict v-blocked">Blocked</span></div>
           <div class="threat-row"><span class="threat-name">Ciphertext replay attack</span><span
               class="threat-verdict v-blocked">Blocked</span></div>

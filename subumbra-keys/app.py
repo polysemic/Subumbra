@@ -6,14 +6,14 @@ service; only internal Subumbra services such as the proxy, UI, and probe toolin
 
 Auth model:
   All endpoints except /health require:
-    X-Subumbra-Token: <adapter token from SUBUMBRA_ADAPTER_REGISTRY>
+    X-Subumbra-Token: <consumer token from SUBUMBRA_CONSUMER_REGISTRY>
 
   GET /keys/<key_id> additionally requires a per-request HMAC signature to
   prevent replay attacks:
     X-Subumbra-Timestamp: <unix epoch, seconds>
     X-Subumbra-Nonce: <single-use hex nonce>
     X-Subumbra-Signature: HMAC-SHA256(
-        f"{len(adapter_id)}:{adapter_id}:{len(key_id)}:{key_id}:{len(timestamp)}:{timestamp}:{len(nonce)}:{nonce}",
+        f"{len(consumer_id)}:{consumer_id}:{len(key_id)}:{key_id}:{len(timestamp)}:{timestamp}:{len(nonce)}:{nonce}",
         SUBUMBRA_HMAC_KEY,
     )
 
@@ -21,7 +21,7 @@ Auth model:
   and the nonce must be globally unique per key fetch.
 
 Keys file (written by bootstrap, read-only at runtime):
-  /app/data/keys.json
+  /app/data/endpoint.json
   {
     "anthropic_prod": {
       "key_id":       "anthropic_prod",
@@ -63,7 +63,22 @@ from flask import Flask, Response, jsonify, request
 # ─────────────────────────────────────────────────────────────────────────────
 
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/app/data"))
-KEYS_FILE = DATA_DIR / "keys.json"
+KEYS_FILE = DATA_DIR / "endpoint.json"
+
+# r94 migration: rename keys.json → endpoint.json on first startup after upgrade
+_legacy_keys = DATA_DIR / "keys.json"
+if _legacy_keys.exists() and not KEYS_FILE.exists():
+    try:
+        _legacy_keys.rename(KEYS_FILE)
+        import logging as _log
+        _log.getLogger(__name__).info(
+            "subumbra-keys: migrated keys.json → endpoint.json (r94 upgrade)"
+        )
+    except OSError as _e:
+        import logging as _log
+        _log.getLogger(__name__).warning(
+            "subumbra-keys: could not migrate keys.json → endpoint.json: %s", _e
+        )
 AUDIT_DIR = Path(os.environ.get("AUDIT_DIR", "/app/audit"))
 AUDIT_DB_PATH = AUDIT_DIR / "audit.db"
 SESSION_DB_PATH = DATA_DIR / "sessions.db"
@@ -91,7 +106,15 @@ AUDIT_ENDPOINT_FILTERS = {
     "gate",
 }
 
-_required = ("SUBUMBRA_ADAPTER_REGISTRY", "SUBUMBRA_HMAC_KEY")
+# r94 migration: accept SUBUMBRA_ADAPTER_REGISTRY as fallback for pre-r94 deployments
+if not os.environ.get("SUBUMBRA_CONSUMER_REGISTRY") and os.environ.get("SUBUMBRA_ADAPTER_REGISTRY"):
+    os.environ["SUBUMBRA_CONSUMER_REGISTRY"] = os.environ["SUBUMBRA_ADAPTER_REGISTRY"]
+    import logging as _log
+    _log.getLogger(__name__).warning(
+        "subumbra-keys: SUBUMBRA_ADAPTER_REGISTRY fallback active — re-bootstrap to migrate"
+    )
+
+_required = ("SUBUMBRA_CONSUMER_REGISTRY", "SUBUMBRA_HMAC_KEY")
 for _var in _required:
     if not os.environ.get(_var):
         raise RuntimeError(f"Required environment variable {_var!r} is not set")
@@ -99,45 +122,45 @@ for _var in _required:
 
 @dataclass(frozen=True)
 class _AdapterDenial:
-    adapter_id: str | None
+    consumer_id: str | None
     reason_code: str
     status_code: int = 401
     message: str = "unauthorized"
     retry_after: str | None = None
 
 
-def _parse_registry_timestamp(adapter_id: str, field: str, raw_value: object) -> tuple[str, datetime]:
+def _parse_registry_timestamp(consumer_id: str, field: str, raw_value: object) -> tuple[str, datetime]:
     if not isinstance(raw_value, str) or not raw_value:
-        raise RuntimeError(f"SUBUMBRA_ADAPTER_REGISTRY[{adapter_id!r}].{field} must be a non-empty string")
+        raise RuntimeError(f"SUBUMBRA_CONSUMER_REGISTRY[{consumer_id!r}].{field} must be a non-empty string")
     normalized = raw_value[:-1] + "+00:00" if raw_value.endswith("Z") else raw_value
     try:
         parsed = datetime.fromisoformat(normalized)
     except ValueError as exc:
         raise RuntimeError(
-            f"SUBUMBRA_ADAPTER_REGISTRY[{adapter_id!r}].{field} must be a valid ISO-8601 UTC timestamp"
+            f"SUBUMBRA_CONSUMER_REGISTRY[{consumer_id!r}].{field} must be a valid ISO-8601 UTC timestamp"
         ) from exc
     if parsed.tzinfo is None:
         raise RuntimeError(
-            f"SUBUMBRA_ADAPTER_REGISTRY[{adapter_id!r}].{field} must include a timezone offset"
+            f"SUBUMBRA_CONSUMER_REGISTRY[{consumer_id!r}].{field} must include a timezone offset"
         )
     return raw_value, parsed.astimezone(timezone.utc)
 
 
-def _load_adapter_registry(raw: str) -> dict[str, dict]:
+def _load_consumer_registry(raw: str) -> dict[str, dict]:
     try:
         registry = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise RuntimeError("SUBUMBRA_ADAPTER_REGISTRY must be valid JSON") from exc
+        raise RuntimeError("SUBUMBRA_CONSUMER_REGISTRY must be valid JSON") from exc
 
     if not isinstance(registry, dict) or not registry:
-        raise RuntimeError("SUBUMBRA_ADAPTER_REGISTRY must be a non-empty JSON object")
+        raise RuntimeError("SUBUMBRA_CONSUMER_REGISTRY must be a non-empty JSON object")
 
     parsed: dict[str, dict] = {}
-    for adapter_id, config in registry.items():
-        if not isinstance(adapter_id, str) or not adapter_id:
-            raise RuntimeError("SUBUMBRA_ADAPTER_REGISTRY keys must be non-empty strings")
+    for consumer_id, config in registry.items():
+        if not isinstance(consumer_id, str) or not consumer_id:
+            raise RuntimeError("SUBUMBRA_CONSUMER_REGISTRY keys must be non-empty strings")
         if not isinstance(config, dict):
-            raise RuntimeError(f"SUBUMBRA_ADAPTER_REGISTRY[{adapter_id!r}] must be an object")
+            raise RuntimeError(f"SUBUMBRA_CONSUMER_REGISTRY[{consumer_id!r}] must be an object")
 
         token = config.get("token")
         allowed_keys = config.get("allowed_keys")
@@ -145,25 +168,25 @@ def _load_adapter_registry(raw: str) -> dict[str, dict]:
         can_read_stats = config.get("can_read_stats")
         # Backward-compatibility for pre-r85 registries already deployed in .env:
         # subumbra-proxy is the only writer allowed to emit audit rows.
-        default_can_write_audit = adapter_id == "subumbra-proxy"
+        default_can_write_audit = consumer_id == "subumbra-proxy"
         can_write_audit = config.get("can_write_audit", default_can_write_audit)
         can_list_all_keys = config.get("can_list_all_keys", False)
-        issued_at_raw, issued_at_dt = _parse_registry_timestamp(adapter_id, "issued_at", config.get("issued_at"))
-        expires_at_raw, expires_at_dt = _parse_registry_timestamp(adapter_id, "expires_at", config.get("expires_at"))
+        issued_at_raw, issued_at_dt = _parse_registry_timestamp(consumer_id, "issued_at", config.get("issued_at"))
+        expires_at_raw, expires_at_dt = _parse_registry_timestamp(consumer_id, "expires_at", config.get("expires_at"))
 
         if not isinstance(token, str) or not token:
-            raise RuntimeError(f"SUBUMBRA_ADAPTER_REGISTRY[{adapter_id!r}].token must be a non-empty string")
+            raise RuntimeError(f"SUBUMBRA_CONSUMER_REGISTRY[{consumer_id!r}].token must be a non-empty string")
         if not isinstance(allowed_keys, list) or any(not isinstance(key_id, str) or not key_id for key_id in allowed_keys):
-            raise RuntimeError(f"SUBUMBRA_ADAPTER_REGISTRY[{adapter_id!r}].allowed_keys must be a list of non-empty strings")
+            raise RuntimeError(f"SUBUMBRA_CONSUMER_REGISTRY[{consumer_id!r}].allowed_keys must be a list of non-empty strings")
         if not isinstance(can_list_keys, bool):
-            raise RuntimeError(f"SUBUMBRA_ADAPTER_REGISTRY[{adapter_id!r}].can_list_keys must be true/false")
+            raise RuntimeError(f"SUBUMBRA_CONSUMER_REGISTRY[{consumer_id!r}].can_list_keys must be true/false")
         if not isinstance(can_read_stats, bool):
-            raise RuntimeError(f"SUBUMBRA_ADAPTER_REGISTRY[{adapter_id!r}].can_read_stats must be true/false")
+            raise RuntimeError(f"SUBUMBRA_CONSUMER_REGISTRY[{consumer_id!r}].can_read_stats must be true/false")
         if not isinstance(can_write_audit, bool):
-            raise RuntimeError(f"SUBUMBRA_ADAPTER_REGISTRY[{adapter_id!r}].can_write_audit must be true/false")
+            raise RuntimeError(f"SUBUMBRA_CONSUMER_REGISTRY[{consumer_id!r}].can_write_audit must be true/false")
 
-        parsed[adapter_id] = {
-            "adapter_id": adapter_id,
+        parsed[consumer_id] = {
+            "consumer_id": consumer_id,
             "token": token,
             "allowed_keys": allowed_keys,
             "can_list_keys": can_list_keys,
@@ -179,7 +202,7 @@ def _load_adapter_registry(raw: str) -> dict[str, dict]:
     return parsed
 
 
-SUBUMBRA_ADAPTER_REGISTRY: dict[str, dict] = _load_adapter_registry(os.environ["SUBUMBRA_ADAPTER_REGISTRY"])
+SUBUMBRA_CONSUMER_REGISTRY: dict[str, dict] = _load_consumer_registry(os.environ["SUBUMBRA_CONSUMER_REGISTRY"])
 SUBUMBRA_HMAC_KEY: bytes = os.environ["SUBUMBRA_HMAC_KEY"].encode()
 
 TIMESTAMP_TOLERANCE: int = 30   # seconds; adjust down for tighter replay window
@@ -196,8 +219,8 @@ logging.basicConfig(
 log = logging.getLogger("subumbra-keys")
 
 _expired_at_startup = sorted(
-    adapter["adapter_id"]
-    for adapter in SUBUMBRA_ADAPTER_REGISTRY.values()
+    adapter["consumer_id"]
+    for adapter in SUBUMBRA_CONSUMER_REGISTRY.values()
     if adapter["expires_at_dt"] <= datetime.now(timezone.utc)
 )
 if _expired_at_startup:
@@ -244,7 +267,7 @@ def _is_private_ip(addr: str) -> bool:
 
 def _load_keys() -> dict:
     """
-    Load keys.json from disk.  Returns empty dict if file missing or unreadable.
+    Load endpoint.json from disk.  Returns empty dict if file missing or unreadable.
 
     Uses a try/except rather than a pre-existence check to avoid a TOCTOU race
     between existence check and open.  JSONDecodeError can occur transiently if
@@ -257,10 +280,10 @@ def _load_keys() -> dict:
     except FileNotFoundError:
         return {}
     except json.JSONDecodeError as exc:
-        log.error("subumbra-keys: keys.json is corrupt — returning empty set: %s", exc)
+        log.error("subumbra-keys: endpoint.json is corrupt — returning empty set: %s", exc)
         return {}
     except OSError as exc:
-        log.error("subumbra-keys: cannot read keys.json: %s", exc)
+        log.error("subumbra-keys: cannot read endpoint.json: %s", exc)
         return {}
 
 
@@ -381,7 +404,7 @@ def _init_audit_db() -> sqlite3.Connection | None:
             CREATE TABLE IF NOT EXISTS audit_events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp TEXT NOT NULL,
-                adapter_id TEXT,
+                consumer_id TEXT,
                 endpoint TEXT NOT NULL,
                 key_id TEXT,
                 target_host TEXT,
@@ -395,6 +418,16 @@ def _init_audit_db() -> sqlite3.Connection | None:
             str(row[1])
             for row in conn.execute("PRAGMA table_info(audit_events)").fetchall()
         }
+        if "consumer_id" not in existing_columns:
+            conn.execute("ALTER TABLE audit_events ADD COLUMN consumer_id TEXT")
+            if "adapter_id" in existing_columns:
+                conn.execute(
+                    """
+                    UPDATE audit_events
+                    SET consumer_id = adapter_id
+                    WHERE consumer_id IS NULL AND adapter_id IS NOT NULL
+                    """
+                )
         if "target_host" not in existing_columns:
             conn.execute("ALTER TABLE audit_events ADD COLUMN target_host TEXT")
         conn.execute(
@@ -667,7 +700,7 @@ def _sqlite_recent_log_last50(allowed_keys: set[str], list_all: bool) -> list[di
         return []
 
     query = """
-        SELECT timestamp, adapter_id, endpoint, key_id, target_host, verdict, reason_code, remote
+        SELECT timestamp, consumer_id, endpoint, key_id, target_host, verdict, reason_code, remote
         FROM audit_events
     """
     params: tuple[str, ...] = ()
@@ -683,7 +716,7 @@ def _sqlite_recent_log_last50(allowed_keys: set[str], list_all: bool) -> list[di
     recent: list[dict] = [
         {
             "timestamp": r[0],
-            "adapter_id": r[1],
+            "consumer_id": r[1],
             "endpoint": r[2],
             "key_id": r[3],
             "target_host": r[4],
@@ -758,7 +791,7 @@ def _recent_cutoff_iso(seconds: int) -> str:
 
 def _record_audit(
     *,
-    adapter_id: str | None,
+    consumer_id: str | None,
     key_id: str | None,
     endpoint: str,
     target_host: str | None = None,
@@ -775,10 +808,10 @@ def _record_audit(
                 _audit_conn.execute(
                     """
                     INSERT INTO audit_events (
-                        timestamp, adapter_id, endpoint, key_id, target_host, verdict, reason_code, remote
+                        timestamp, consumer_id, endpoint, key_id, target_host, verdict, reason_code, remote
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (ts, adapter_id, endpoint, key_id, target_host, verdict, reason_code, remote),
+                    (ts, consumer_id, endpoint, key_id, target_host, verdict, reason_code, remote),
                 )
                 _audit_conn.commit()
                 _audit_write_count += 1
@@ -805,13 +838,13 @@ def _record_audit(
                 log.warning("audit_write_error error=%s", exc)
 
 
-def _resolve_adapter() -> dict | _AdapterDenial:
+def _resolve_consumer() -> dict | _AdapterDenial:
     """Resolve X-Subumbra-Token to an adapter config using constant-time comparison."""
     remote = request.remote_addr or ""
     allowed, attempt_count = _record_auth_attempt(remote)
     if attempt_count == -1:
         return _AdapterDenial(
-            adapter_id=None,
+            consumer_id=None,
             reason_code="audit_unavailable",
             status_code=503,
             message="service unavailable",
@@ -829,7 +862,7 @@ def _resolve_adapter() -> dict | _AdapterDenial:
             _RATE_LIMIT_WINDOW_SECONDS,
         )
         return _AdapterDenial(
-            adapter_id=None,
+            consumer_id=None,
             reason_code="rate_limit_exceeded",
             status_code=429,
             message="rate limit exceeded",
@@ -838,23 +871,23 @@ def _resolve_adapter() -> dict | _AdapterDenial:
 
     token = request.headers.get("X-Subumbra-Token", "")
     matched: dict | None = None
-    for adapter in SUBUMBRA_ADAPTER_REGISTRY.values():
+    for adapter in SUBUMBRA_CONSUMER_REGISTRY.values():
         if hmac.compare_digest(token, adapter["token"]):
             matched = adapter
     if matched is None:
-        return _AdapterDenial(adapter_id=None, reason_code="adapter_unknown")
+        return _AdapterDenial(consumer_id=None, reason_code="adapter_unknown")
     if matched["expires_at_dt"] <= datetime.now(timezone.utc):
         log.warning(
-            "token_expired adapter=%s expires_at=%s remote=%s",
-            matched["adapter_id"],
+            "token_expired consumer=%s expires_at=%s remote=%s",
+            matched["consumer_id"],
             matched["expires_at"],
             request.remote_addr,
         )
-        return _AdapterDenial(adapter_id=matched["adapter_id"], reason_code="adapter_expired")
+        return _AdapterDenial(consumer_id=matched["consumer_id"], reason_code="adapter_expired")
     return matched
 
 
-def _hmac_ok_for_subject(adapter_id: str, subject_id: str, nonce: str) -> tuple[bool, str]:
+def _hmac_ok_for_subject(consumer_id: str, subject_id: str, nonce: str) -> tuple[bool, str]:
     """
     Validate per-request HMAC signature for ciphertext endpoints.
     Returns (valid: bool, reason_code: str).
@@ -881,7 +914,7 @@ def _hmac_ok_for_subject(adapter_id: str, subject_id: str, nonce: str) -> tuple[
     expected = hmac.new(
         SUBUMBRA_HMAC_KEY,
         (
-            f"{len(adapter_id)}:{adapter_id}:{len(subject_id)}:{subject_id}:"
+            f"{len(consumer_id)}:{consumer_id}:{len(subject_id)}:{subject_id}:"
             f"{len(timestamp_str)}:{timestamp_str}:{len(nonce)}:{nonce}"
         ).encode(),
         hashlib.sha256,
@@ -893,8 +926,8 @@ def _hmac_ok_for_subject(adapter_id: str, subject_id: str, nonce: str) -> tuple[
     return True, ""
 
 
-def _hmac_ok(adapter_id: str, key_id: str, nonce: str) -> tuple[bool, str]:
-    return _hmac_ok_for_subject(adapter_id, key_id, nonce)
+def _hmac_ok(consumer_id: str, key_id: str, nonce: str) -> tuple[bool, str]:
+    return _hmac_ok_for_subject(consumer_id, key_id, nonce)
 
 
 def _nonce_ok(key_id: str, nonce: str) -> tuple[bool, str]:
@@ -967,33 +1000,33 @@ def health() -> tuple[Response, int]:
 def list_keys() -> tuple[Response, int]:
     """List available key IDs (names only, never values).  Requires token."""
     remote = request.remote_addr or ""
-    adapter_result = _resolve_adapter()
-    if isinstance(adapter_result, _AdapterDenial):
+    consumer_result = _resolve_consumer()
+    if isinstance(consumer_result, _AdapterDenial):
         _record_audit(
-            adapter_id=adapter_result.adapter_id,
+            consumer_id=consumer_result.consumer_id,
             key_id=None,
             endpoint="list_keys",
             verdict="deny",
-            reason_code=adapter_result.reason_code,
+            reason_code=consumer_result.reason_code,
             remote=remote,
         )
-        if adapter_result.reason_code == "adapter_expired":
-            log.warning("list_keys: rejected — expired token adapter=%s remote=%s", adapter_result.adapter_id, remote)
-        elif adapter_result.reason_code == "rate_limit_exceeded":
+        if consumer_result.reason_code == "adapter_expired":
+            log.warning("list_keys: rejected — expired token consumer=%s remote=%s", consumer_result.consumer_id, remote)
+        elif consumer_result.reason_code == "rate_limit_exceeded":
             log.warning("list_keys: rejected — rate limited remote=%s", remote)
         else:
             log.warning("list_keys: rejected — bad token remote=%s", remote)
-        return _denial_response(adapter_result)
+        return _denial_response(consumer_result)
 
-    adapter = adapter_result
+    adapter = consumer_result
     if not adapter["can_list_keys"]:
         log.warning(
-            "list_keys: forbidden adapter=%s remote=%s",
-            adapter["adapter_id"],
+            "list_keys: forbidden consumer=%s remote=%s",
+            adapter["consumer_id"],
             remote,
         )
         _record_audit(
-            adapter_id=adapter["adapter_id"],
+            consumer_id=adapter["consumer_id"],
             key_id=None,
             endpoint="list_keys",
             verdict="deny",
@@ -1040,7 +1073,7 @@ def list_keys() -> tuple[Response, int]:
             "auth_prefix": auth.get("prefix"),
             "target_host": target.get("host") or meta.get("target_host"),
             "base_path": target.get("base_path"),
-            "allow_adapters": allow.get("adapters", []),
+            "allow_consumers": allow.get("consumers", []),
             "allow_methods": allow.get("methods", []),
             "allow_path_prefixes": allow.get("path_prefixes", []),
             "public_key": meta.get("public_key") if meta.get("type") == "ssh_key" else None,
@@ -1058,27 +1091,27 @@ def get_key(key_id: str) -> tuple[Response, int]:
     """
     remote = request.remote_addr or ""
 
-    adapter_result = _resolve_adapter()
-    if isinstance(adapter_result, _AdapterDenial):
-        log.warning("get_key: rejected key_id=%s remote=%s reason=%s", key_id, remote, adapter_result.reason_code)
+    consumer_result = _resolve_consumer()
+    if isinstance(consumer_result, _AdapterDenial):
+        log.warning("get_key: rejected key_id=%s remote=%s reason=%s", key_id, remote, consumer_result.reason_code)
         _record_audit(
-            adapter_id=adapter_result.adapter_id,
+            consumer_id=consumer_result.consumer_id,
             key_id=key_id,
             endpoint="get_key",
             verdict="deny",
-            reason_code=adapter_result.reason_code,
+            reason_code=consumer_result.reason_code,
             remote=remote,
         )
-        return _denial_response(adapter_result)
+        return _denial_response(consumer_result)
 
-    adapter = adapter_result
+    adapter = consumer_result
     nonce = request.headers.get("X-Subumbra-Nonce", "")
-    valid, reason = _hmac_ok(adapter["adapter_id"], key_id, nonce)
+    valid, reason = _hmac_ok(adapter["consumer_id"], key_id, nonce)
     if not valid:
         status = 400 if reason == "subumbra_header_missing" else 401
         log.warning("get_key: rejected key_id=%s remote=%s reason=%s", key_id, remote, reason)
         _record_audit(
-            adapter_id=adapter["adapter_id"],
+            consumer_id=adapter["consumer_id"],
             key_id=key_id,
             endpoint="get_key",
             verdict="deny",
@@ -1098,7 +1131,7 @@ def get_key(key_id: str) -> tuple[Response, int]:
             message = "internal error"
             status = 500
         _record_audit(
-            adapter_id=adapter["adapter_id"],
+            consumer_id=adapter["consumer_id"],
             key_id=key_id,
             endpoint="get_key",
             verdict="deny",
@@ -1117,13 +1150,13 @@ def get_key(key_id: str) -> tuple[Response, int]:
             active_rows = []
         if not active_rows:
             log.warning(
-                "get_key: locked adapter=%s key_id=%s remote=%s reason=system_locked",
-                adapter["adapter_id"],
+                "get_key: locked consumer=%s key_id=%s remote=%s reason=system_locked",
+                adapter["consumer_id"],
                 key_id,
                 remote,
             )
             _record_audit(
-                adapter_id=adapter["adapter_id"],
+                consumer_id=adapter["consumer_id"],
                 key_id=key_id,
                 endpoint="get_key",
                 verdict="deny",
@@ -1139,7 +1172,7 @@ def get_key(key_id: str) -> tuple[Response, int]:
             except ValueError:
                 log.error("get_key: invalid_session_scope session_id=%s", active_row["session_id"])
                 _record_audit(
-                    adapter_id=adapter["adapter_id"],
+                    consumer_id=adapter["consumer_id"],
                     key_id=key_id,
                     endpoint="get_key",
                     verdict="deny",
@@ -1152,17 +1185,17 @@ def get_key(key_id: str) -> tuple[Response, int]:
             session_dict
             for session_dict in active_sessions
             if session_dict["allowed_adapters"] is None
-            or adapter["adapter_id"] in session_dict["allowed_adapters"]
+            or adapter["consumer_id"] in session_dict["allowed_adapters"]
         ]
         if not adapter_matches:
             log.warning(
-                "get_key: denied adapter=%s key_id=%s remote=%s reason=adapter_not_in_session_scope",
-                adapter["adapter_id"],
+                "get_key: denied consumer=%s key_id=%s remote=%s reason=adapter_not_in_session_scope",
+                adapter["consumer_id"],
                 key_id,
                 remote,
             )
             _record_audit(
-                adapter_id=adapter["adapter_id"],
+                consumer_id=adapter["consumer_id"],
                 key_id=key_id,
                 endpoint="get_key",
                 verdict="deny",
@@ -1179,13 +1212,13 @@ def get_key(key_id: str) -> tuple[Response, int]:
         ]
         if not full_matches:
             log.warning(
-                "get_key: denied adapter=%s key_id=%s remote=%s reason=key_not_in_session_scope",
-                adapter["adapter_id"],
+                "get_key: denied consumer=%s key_id=%s remote=%s reason=key_not_in_session_scope",
+                adapter["consumer_id"],
                 key_id,
                 remote,
             )
             _record_audit(
-                adapter_id=adapter["adapter_id"],
+                consumer_id=adapter["consumer_id"],
                 key_id=key_id,
                 endpoint="get_key",
                 verdict="deny",
@@ -1196,14 +1229,14 @@ def get_key(key_id: str) -> tuple[Response, int]:
         if len(full_matches) > 1:
             session_ids = ",".join(str(session_dict["session_id"]) for session_dict in full_matches)
             log.error(
-                "get_key: ambiguous_session_match adapter=%s key_id=%s remote=%s session_ids=%s",
-                adapter["adapter_id"],
+                "get_key: ambiguous_session_match consumer=%s key_id=%s remote=%s session_ids=%s",
+                adapter["consumer_id"],
                 key_id,
                 remote,
                 session_ids,
             )
             _record_audit(
-                adapter_id=adapter["adapter_id"],
+                consumer_id=adapter["consumer_id"],
                 key_id=key_id,
                 endpoint="get_key",
                 verdict="deny",
@@ -1216,13 +1249,13 @@ def get_key(key_id: str) -> tuple[Response, int]:
     keys = _load_keys()
     if key_id not in keys or key_id not in adapter["allowed_keys"]:
         log.warning(
-            "get_key: not found or forbidden adapter=%s key_id=%s remote=%s",
-            adapter["adapter_id"],
+            "get_key: not found or forbidden consumer=%s key_id=%s remote=%s",
+            adapter["consumer_id"],
             key_id,
             remote,
         )
         _record_audit(
-            adapter_id=adapter["adapter_id"],
+            consumer_id=adapter["consumer_id"],
             key_id=key_id,
             endpoint="get_key",
             verdict="deny",
@@ -1235,7 +1268,7 @@ def get_key(key_id: str) -> tuple[Response, int]:
     if entry.get("revoked") is True:
         log.warning("get_key: revoked key_id=%s remote=%s", key_id, remote)
         _record_audit(
-            adapter_id=adapter["adapter_id"],
+            consumer_id=adapter["consumer_id"],
             key_id=key_id,
             endpoint="get_key",
             verdict="deny",
@@ -1246,7 +1279,7 @@ def get_key(key_id: str) -> tuple[Response, int]:
     if entry.get("paused") is True:
         log.warning("get_key: paused key_id=%s remote=%s", key_id, remote)
         _record_audit(
-            adapter_id=adapter["adapter_id"],
+            consumer_id=adapter["consumer_id"],
             key_id=key_id,
             endpoint="get_key",
             verdict="deny",
@@ -1260,13 +1293,13 @@ def get_key(key_id: str) -> tuple[Response, int]:
         if isinstance(max_queries, int) and max_queries >= 0:
             if not _try_consume_session_query(str(matching_session["session_id"]), max_queries):
                 log.warning(
-                    "get_key: denied adapter=%s key_id=%s remote=%s reason=session_query_limit_reached",
-                    adapter["adapter_id"],
+                    "get_key: denied consumer=%s key_id=%s remote=%s reason=session_query_limit_reached",
+                    adapter["consumer_id"],
                     key_id,
                     remote,
                 )
                 _record_audit(
-                    adapter_id=adapter["adapter_id"],
+                    consumer_id=adapter["consumer_id"],
                     key_id=key_id,
                     endpoint="get_key",
                     verdict="deny",
@@ -1277,7 +1310,7 @@ def get_key(key_id: str) -> tuple[Response, int]:
 
     log.info("get_key: served key_id=%s remote=%s", key_id, remote)
     _record_audit(
-        adapter_id=adapter["adapter_id"],
+        consumer_id=adapter["consumer_id"],
         key_id=key_id,
         endpoint="get_key",
         verdict="allow",
@@ -1319,27 +1352,27 @@ def get_key(key_id: str) -> tuple[Response, int]:
 def stats() -> tuple[Response, int]:
     """Usage stats for the UI dashboard.  Requires token (no HMAC needed)."""
     remote = request.remote_addr or ""
-    adapter_result = _resolve_adapter()
-    if isinstance(adapter_result, _AdapterDenial):
+    consumer_result = _resolve_consumer()
+    if isinstance(consumer_result, _AdapterDenial):
         _record_audit(
-            adapter_id=adapter_result.adapter_id,
+            consumer_id=consumer_result.consumer_id,
             key_id=None,
             endpoint="stats",
             verdict="deny",
-            reason_code=adapter_result.reason_code,
+            reason_code=consumer_result.reason_code,
             remote=remote,
         )
-        return _denial_response(adapter_result)
+        return _denial_response(consumer_result)
 
-    adapter = adapter_result
+    adapter = consumer_result
     if not adapter["can_read_stats"]:
         log.warning(
-            "stats: forbidden adapter=%s remote=%s reason=stats_scope_denied",
-            adapter["adapter_id"],
+            "stats: forbidden consumer=%s remote=%s reason=stats_scope_denied",
+            adapter["consumer_id"],
             remote,
         )
         _record_audit(
-            adapter_id=adapter["adapter_id"],
+            consumer_id=adapter["consumer_id"],
             key_id=None,
             endpoint="stats",
             verdict="deny",
@@ -1376,27 +1409,27 @@ def stats() -> tuple[Response, int]:
 @app.get("/adapters")
 def adapters() -> tuple[Response, int]:
     remote = request.remote_addr or ""
-    adapter_result = _resolve_adapter()
-    if isinstance(adapter_result, _AdapterDenial):
+    consumer_result = _resolve_consumer()
+    if isinstance(consumer_result, _AdapterDenial):
         _record_audit(
-            adapter_id=adapter_result.adapter_id,
+            consumer_id=consumer_result.consumer_id,
             key_id=None,
             endpoint="adapters",
             verdict="deny",
-            reason_code=adapter_result.reason_code,
+            reason_code=consumer_result.reason_code,
             remote=remote,
         )
-        return _denial_response(adapter_result)
+        return _denial_response(consumer_result)
 
-    adapter = adapter_result
+    adapter = consumer_result
     if not adapter.get("can_list_all_keys", False):
         log.warning(
-            "adapters: forbidden adapter=%s remote=%s reason=adapters_scope_denied",
-            adapter["adapter_id"],
+            "adapters: forbidden consumer=%s remote=%s reason=adapters_scope_denied",
+            adapter["consumer_id"],
             remote,
         )
         _record_audit(
-            adapter_id=adapter["adapter_id"],
+            consumer_id=adapter["consumer_id"],
             key_id=None,
             endpoint="adapters",
             verdict="deny",
@@ -1407,7 +1440,7 @@ def adapters() -> tuple[Response, int]:
 
     payload = [
         {
-            "adapter_id": entry["adapter_id"],
+            "consumer_id": entry["consumer_id"],
             "token": entry["token"],
             "allowed_keys": entry["allowed_keys"],
             "can_list_keys": entry["can_list_keys"],
@@ -1418,8 +1451,8 @@ def adapters() -> tuple[Response, int]:
             "expires_at": entry["expires_at"],
         }
         for entry in sorted(
-            SUBUMBRA_ADAPTER_REGISTRY.values(),
-            key=lambda item: item["adapter_id"],
+            SUBUMBRA_CONSUMER_REGISTRY.values(),
+            key=lambda item: item["consumer_id"],
         )
     ]
     return jsonify({"adapters": payload, "timestamp": _now_iso()}), 200
@@ -1428,27 +1461,27 @@ def adapters() -> tuple[Response, int]:
 @app.get("/observability")
 def observability() -> tuple[Response, int]:
     remote = request.remote_addr or ""
-    adapter_result = _resolve_adapter()
-    if isinstance(adapter_result, _AdapterDenial):
+    consumer_result = _resolve_consumer()
+    if isinstance(consumer_result, _AdapterDenial):
         _record_audit(
-            adapter_id=adapter_result.adapter_id,
+            consumer_id=consumer_result.consumer_id,
             key_id=None,
             endpoint="observability",
             verdict="deny",
-            reason_code=adapter_result.reason_code,
+            reason_code=consumer_result.reason_code,
             remote=remote,
         )
-        return _denial_response(adapter_result)
+        return _denial_response(consumer_result)
 
-    adapter = adapter_result
+    adapter = consumer_result
     if not adapter["can_read_stats"]:
         log.warning(
-            "observability: forbidden adapter=%s remote=%s reason=observability_scope_denied",
-            adapter["adapter_id"],
+            "observability: forbidden consumer=%s remote=%s reason=observability_scope_denied",
+            adapter["consumer_id"],
             remote,
         )
         _record_audit(
-            adapter_id=adapter["adapter_id"],
+            consumer_id=adapter["consumer_id"],
             key_id=None,
             endpoint="observability",
             verdict="deny",
@@ -1480,27 +1513,27 @@ def observability() -> tuple[Response, int]:
 def audit() -> tuple[Response, int]:
     """Durable structured audit trail for operator-facing reads."""
     remote = request.remote_addr or ""
-    adapter_result = _resolve_adapter()
-    if isinstance(adapter_result, _AdapterDenial):
+    consumer_result = _resolve_consumer()
+    if isinstance(consumer_result, _AdapterDenial):
         _record_audit(
-            adapter_id=adapter_result.adapter_id,
+            consumer_id=consumer_result.consumer_id,
             key_id=None,
             endpoint="audit",
             verdict="deny",
-            reason_code=adapter_result.reason_code,
+            reason_code=consumer_result.reason_code,
             remote=remote,
         )
-        return _denial_response(adapter_result)
+        return _denial_response(consumer_result)
 
-    adapter = adapter_result
+    adapter = consumer_result
     if not adapter["can_read_stats"]:
         log.warning(
-            "audit: forbidden adapter=%s remote=%s reason=audit_scope_denied",
-            adapter["adapter_id"],
+            "audit: forbidden consumer=%s remote=%s reason=audit_scope_denied",
+            adapter["consumer_id"],
             remote,
         )
         _record_audit(
-            adapter_id=adapter["adapter_id"],
+            consumer_id=adapter["consumer_id"],
             key_id=None,
             endpoint="audit",
             verdict="deny",
@@ -1516,7 +1549,7 @@ def audit() -> tuple[Response, int]:
     endpoint_filter = (request.args.get("endpoint") or "").strip()
     verdict_filter = (request.args.get("verdict") or "").strip()
     target_host_filter = (request.args.get("target_host") or "").strip()
-    if verdict_filter and verdict_filter not in {"allow", "deny", "gate_approved", "gate_denied", "gate_timeout"}:
+    if verdict_filter and verdict_filter not in {"allow", "deny", "janus_approved", "janus_denied", "janus_timeout"}:
         return _err("invalid verdict filter", 400)
     if endpoint_filter and endpoint_filter not in AUDIT_ENDPOINT_FILTERS:
         return _err("invalid endpoint filter", 400)
@@ -1553,7 +1586,7 @@ def audit() -> tuple[Response, int]:
     try:
         rows = _audit_conn.execute(
             f"""
-            SELECT timestamp, adapter_id, endpoint, key_id, target_host, verdict, reason_code, remote
+            SELECT timestamp, consumer_id, endpoint, key_id, target_host, verdict, reason_code, remote
             FROM audit_events
             {where_sql}
             ORDER BY id DESC
@@ -1568,7 +1601,7 @@ def audit() -> tuple[Response, int]:
     events = [
         {
             "timestamp": row[0],
-            "adapter_id": row[1],
+            "consumer_id": row[1],
             "endpoint": row[2],
             "key_id": row[3],
             "target_host": row[4],
@@ -1589,16 +1622,16 @@ def audit() -> tuple[Response, int]:
 @app.post("/audit")
 def write_audit() -> tuple[Response, int]:
     remote = request.remote_addr or ""
-    adapter_result = _resolve_adapter()
-    if isinstance(adapter_result, _AdapterDenial):
-        log.warning("audit_write: denied remote=%s reason=%s", remote, adapter_result.reason_code)
-        return _denial_response(adapter_result)
+    consumer_result = _resolve_consumer()
+    if isinstance(consumer_result, _AdapterDenial):
+        log.warning("audit_write: denied remote=%s reason=%s", remote, consumer_result.reason_code)
+        return _denial_response(consumer_result)
 
-    adapter = adapter_result
+    adapter = consumer_result
     if not adapter.get("can_write_audit", False):
         log.warning(
-            "audit_write: forbidden adapter=%s remote=%s reason=audit_write_scope_denied",
-            adapter["adapter_id"],
+            "audit_write: forbidden consumer=%s remote=%s reason=audit_write_scope_denied",
+            adapter["consumer_id"],
             remote,
         )
         return _err("forbidden", 403)
@@ -1610,18 +1643,18 @@ def write_audit() -> tuple[Response, int]:
     try:
         payload = request.get_json(force=True, silent=False)
     except Exception:
-        log.warning("audit_write: invalid_json adapter=%s remote=%s", adapter["adapter_id"], remote)
+        log.warning("audit_write: invalid_json consumer=%s remote=%s", adapter["consumer_id"], remote)
         return _err("invalid JSON body", 400)
 
     if not isinstance(payload, dict):
-        log.warning("audit_write: invalid_payload adapter=%s remote=%s", adapter["adapter_id"], remote)
+        log.warning("audit_write: invalid_payload consumer=%s remote=%s", adapter["consumer_id"], remote)
         return _err("invalid JSON body", 400)
 
     key_id = payload.get("key_id")
     endpoint = payload.get("endpoint")
     verdict = payload.get("verdict")
     reason_code = payload.get("reason_code")
-    source_adapter_id = payload.get("adapter_id")
+    source_consumer_id = payload.get("consumer_id")
     target_host = payload.get("target_host")
 
     if (
@@ -1630,11 +1663,11 @@ def write_audit() -> tuple[Response, int]:
         or not isinstance(endpoint, str)
         or not endpoint
         or not isinstance(verdict, str)
-        or verdict not in {"allow", "deny", "gate_approved", "gate_denied", "gate_timeout"}
+        or verdict not in {"allow", "deny", "janus_approved", "janus_denied", "janus_timeout"}
         or not isinstance(reason_code, str)
         or not reason_code
-        or not isinstance(source_adapter_id, str)
-        or not source_adapter_id
+        or not isinstance(source_consumer_id, str)
+        or not source_consumer_id
         or (
             target_host is not None
             and (
@@ -1643,16 +1676,16 @@ def write_audit() -> tuple[Response, int]:
             )
         )
     ):
-        log.warning("audit_write: invalid_fields adapter=%s key_id=%s remote=%s", adapter["adapter_id"], key_id, remote)
+        log.warning("audit_write: invalid_fields consumer=%s key_id=%s remote=%s", adapter["consumer_id"], key_id, remote)
         return _err("missing required fields", 400)
 
     nonce = request.headers.get("X-Subumbra-Nonce", "")
-    valid, reason = _hmac_ok(adapter["adapter_id"], key_id, nonce)
+    valid, reason = _hmac_ok(adapter["consumer_id"], key_id, nonce)
     if not valid:
         status = 400 if reason == "subumbra_header_missing" else 401
         log.warning(
-            "audit_write: rejected adapter=%s key_id=%s remote=%s reason=%s",
-            adapter["adapter_id"],
+            "audit_write: rejected consumer=%s key_id=%s remote=%s reason=%s",
+            adapter["consumer_id"],
             key_id,
             remote,
             reason,
@@ -1663,18 +1696,18 @@ def write_audit() -> tuple[Response, int]:
     if not valid:
         if reason == "nonce_reused":
             log.warning(
-                "audit_write: rejected adapter=%s key_id=%s remote=%s reason=%s",
-                adapter["adapter_id"],
+                "audit_write: rejected consumer=%s key_id=%s remote=%s reason=%s",
+                adapter["consumer_id"],
                 key_id,
                 remote,
                 reason,
             )
             return _err("unauthorized", 401)
-        log.error("audit_write: nonce_store_failure adapter=%s key_id=%s reason=%s", adapter["adapter_id"], key_id, reason)
+        log.error("audit_write: nonce_store_failure consumer=%s key_id=%s reason=%s", adapter["consumer_id"], key_id, reason)
         return _err("internal error", 500)
 
     _record_audit(
-        adapter_id=source_adapter_id,
+        consumer_id=source_consumer_id,
         key_id=key_id,
         endpoint=endpoint,
         target_host=target_host,
@@ -1683,9 +1716,9 @@ def write_audit() -> tuple[Response, int]:
         remote=remote,
     )
     log.info(
-        "audit_write: recorded writer=%s source_adapter=%s key_id=%s endpoint=%s verdict=%s reason=%s",
-        adapter["adapter_id"],
-        source_adapter_id,
+        "audit_write: recorded writer=%s source_consumer=%s key_id=%s endpoint=%s verdict=%s reason=%s",
+        adapter["consumer_id"],
+        source_consumer_id,
         key_id,
         endpoint,
         verdict,
@@ -1697,16 +1730,16 @@ def write_audit() -> tuple[Response, int]:
 @app.post("/internal/session-ssh-sign")
 def reflect_session_ssh_sign() -> tuple[Response, int]:
     remote = request.remote_addr or ""
-    adapter_result = _resolve_adapter()
-    if isinstance(adapter_result, _AdapterDenial):
-        log.warning("session_ssh_sign_reflect: denied remote=%s reason=%s", remote, adapter_result.reason_code)
-        return _denial_response(adapter_result)
+    consumer_result = _resolve_consumer()
+    if isinstance(consumer_result, _AdapterDenial):
+        log.warning("session_ssh_sign_reflect: denied remote=%s reason=%s", remote, consumer_result.reason_code)
+        return _denial_response(consumer_result)
 
-    adapter = adapter_result
+    adapter = consumer_result
     if not adapter.get("can_write_audit", False):
         log.warning(
-            "session_ssh_sign_reflect: forbidden adapter=%s remote=%s reason=audit_write_scope_denied",
-            adapter["adapter_id"],
+            "session_ssh_sign_reflect: forbidden consumer=%s remote=%s reason=audit_write_scope_denied",
+            adapter["consumer_id"],
             remote,
         )
         return _err("forbidden", 403)
@@ -1714,10 +1747,10 @@ def reflect_session_ssh_sign() -> tuple[Response, int]:
     try:
         payload = request.get_json(force=True, silent=False)
     except Exception:
-        log.warning("session_ssh_sign_reflect: invalid_json adapter=%s remote=%s", adapter["adapter_id"], remote)
+        log.warning("session_ssh_sign_reflect: invalid_json consumer=%s remote=%s", adapter["consumer_id"], remote)
         return _err("invalid JSON body", 400)
     if not isinstance(payload, dict):
-        log.warning("session_ssh_sign_reflect: invalid_payload adapter=%s remote=%s", adapter["adapter_id"], remote)
+        log.warning("session_ssh_sign_reflect: invalid_payload consumer=%s remote=%s", adapter["consumer_id"], remote)
         return _err("invalid JSON body", 400)
 
     session_id = payload.get("session_id")
@@ -1731,20 +1764,20 @@ def reflect_session_ssh_sign() -> tuple[Response, int]:
         or not isinstance(limit_reached, bool)
     ):
         log.warning(
-            "session_ssh_sign_reflect: invalid_fields adapter=%s session_id=%s remote=%s",
-            adapter["adapter_id"],
+            "session_ssh_sign_reflect: invalid_fields consumer=%s session_id=%s remote=%s",
+            adapter["consumer_id"],
             session_id,
             remote,
         )
         return _err("missing required fields", 400)
 
     nonce = request.headers.get("X-Subumbra-Nonce", "")
-    valid, reason = _hmac_ok_for_subject(adapter["adapter_id"], session_id, nonce)
+    valid, reason = _hmac_ok_for_subject(adapter["consumer_id"], session_id, nonce)
     if not valid:
         status = 400 if reason == "subumbra_header_missing" else 401
         log.warning(
-            "session_ssh_sign_reflect: rejected adapter=%s session_id=%s remote=%s reason=%s",
-            adapter["adapter_id"],
+            "session_ssh_sign_reflect: rejected consumer=%s session_id=%s remote=%s reason=%s",
+            adapter["consumer_id"],
             session_id,
             remote,
             reason,
@@ -1755,16 +1788,16 @@ def reflect_session_ssh_sign() -> tuple[Response, int]:
     if not valid:
         if reason == "nonce_reused":
             log.warning(
-                "session_ssh_sign_reflect: rejected adapter=%s session_id=%s remote=%s reason=%s",
-                adapter["adapter_id"],
+                "session_ssh_sign_reflect: rejected consumer=%s session_id=%s remote=%s reason=%s",
+                adapter["consumer_id"],
                 session_id,
                 remote,
                 reason,
             )
             return _err("unauthorized", 401)
         log.error(
-            "session_ssh_sign_reflect: nonce_store_failure adapter=%s session_id=%s reason=%s",
-            adapter["adapter_id"],
+            "session_ssh_sign_reflect: nonce_store_failure consumer=%s session_id=%s reason=%s",
+            adapter["consumer_id"],
             session_id,
             reason,
         )
@@ -1773,28 +1806,28 @@ def reflect_session_ssh_sign() -> tuple[Response, int]:
     reflected, result = _reflect_session_ssh_sign(session_id, ssh_sign_count, limit_reached)
     if not reflected:
         log.warning(
-            "session_ssh_sign_reflect: unavailable adapter=%s session_id=%s result=%s",
-            adapter["adapter_id"],
+            "session_ssh_sign_reflect: unavailable consumer=%s session_id=%s result=%s",
+            adapter["consumer_id"],
             session_id,
             result,
         )
         return _err("session unavailable", 503)
     if result == "session_missing":
         log.warning(
-            "session_ssh_sign_reflect: noop adapter=%s session_id=%s reason=session_missing",
-            adapter["adapter_id"],
+            "session_ssh_sign_reflect: noop consumer=%s session_id=%s reason=session_missing",
+            adapter["consumer_id"],
             session_id,
         )
     elif result == "session_inactive":
         log.warning(
-            "session_ssh_sign_reflect: noop adapter=%s session_id=%s reason=session_inactive",
-            adapter["adapter_id"],
+            "session_ssh_sign_reflect: noop consumer=%s session_id=%s reason=session_inactive",
+            adapter["consumer_id"],
             session_id,
         )
     else:
         log.info(
-            "session_ssh_sign_reflect: recorded adapter=%s session_id=%s ssh_sign_count=%s limit_reached=%s",
-            adapter["adapter_id"],
+            "session_ssh_sign_reflect: recorded consumer=%s session_id=%s ssh_sign_count=%s limit_reached=%s",
+            adapter["consumer_id"],
             session_id,
             ssh_sign_count,
             str(limit_reached).lower(),
@@ -1805,22 +1838,22 @@ def reflect_session_ssh_sign() -> tuple[Response, int]:
 @app.get("/sessions")
 def sessions() -> tuple[Response, int]:
     remote = request.remote_addr or ""
-    adapter_result = _resolve_adapter()
-    if isinstance(adapter_result, _AdapterDenial):
+    consumer_result = _resolve_consumer()
+    if isinstance(consumer_result, _AdapterDenial):
         _record_audit(
-            adapter_id=adapter_result.adapter_id,
+            consumer_id=consumer_result.consumer_id,
             key_id=None,
             endpoint="sessions",
             verdict="deny",
-            reason_code=adapter_result.reason_code,
+            reason_code=consumer_result.reason_code,
             remote=remote,
         )
-        return _denial_response(adapter_result)
+        return _denial_response(consumer_result)
 
-    adapter = adapter_result
+    adapter = consumer_result
     if not adapter["can_read_stats"]:
         _record_audit(
-            adapter_id=adapter["adapter_id"],
+            consumer_id=adapter["consumer_id"],
             key_id=None,
             endpoint="sessions",
             verdict="deny",

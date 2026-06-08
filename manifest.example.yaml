@@ -1,0 +1,711 @@
+# Subumbra manifest — all supported providers as full inline policies.
+# Copy to manifest.yaml, uncomment the providers you need, fill in values, then bootstrap.
+#
+# Usage:
+#   cp manifest.example.yaml manifest.yaml
+#   # Edit manifest.yaml: uncomment providers, set adapters and secret_ref values, then:
+#   ./bootstrap.sh
+#
+# Adding a provider after initial bootstrap:
+#   1. Uncomment and configure the provider block in manifest.yaml
+#   2. Re-run ./bootstrap.sh — the new key is provisioned; existing keys are preserved
+#
+# Day-2 changes (no full re-bootstrap needed):
+#   ./bootstrap.sh --publish-policy <key_id>           re-publish policy/adapter changes to KV
+#   ./bootstrap.sh --add-consumer <key_id> <adapter>    add an adapter to an existing key
+#   ./bootstrap.sh --revoke-consumer <key_id> <adapter> remove an adapter from a key
+#   ./bootstrap.sh --rotate                            rotate provider secrets (offline, no CF interaction)
+#
+# ⚠️  Uncomment provider blocks carefully — each active key is provisioned in Cloudflare
+#    on the next bootstrap run. Use unique_vault: true for keys that require full isolation.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# Optional service bootstrap examples
+# ─────────────────────────────────────────────────────────────────────────────
+# services:
+#   ui:
+#     deploy: true
+#     auth:
+#       mode: basic        # basic | cf_access | both
+#   ssh_agent:
+#     deploy: true
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# Inline policy field guide
+# ─────────────────────────────────────────────────────────────────────────────
+#   policy:                    (required if template is omitted)
+#     policy_id:               (required) human-readable identifier for audit/UI display
+#     protocol:                (required) http_rest | openai_compatible
+#     capability_class:        (required) llm | embedding | tts | stt | image | code |
+#                                         search | data | messaging | storage |
+#                                         email_send | source_control_read | custom_rest
+#     source:                  (required) env  ← only valid value
+#     target:                  (required)
+#       host:                  (required) upstream API hostname — no scheme, path, or wildcards
+#       base_path:             (optional) path prefix prepended to all upstream calls
+#     auth:                    (required)
+#       scheme:                (required) bearer | header | basic | query
+#       header_name:           (required only when scheme is header) e.g. x-api-key
+#                              omit entirely for bearer, basic, or query schemes
+#     allow:                   (required)
+#       adapters:              (required) adapter IDs allowed — must match top-level adapters list
+#                              Revocation granularity: all keys sharing the same adapter name share
+#                              one token. To revoke one app without affecting others, assign each
+#                              app a distinct adapter name (e.g. litellm, openwebui, bifrost) and
+#                              use --revoke-consumer <key_id> <adapter> for targeted removal.
+#       methods:               (required) HTTP methods the Worker will forward
+#       path_prefixes:         (required) upstream paths allowed — no wildcards, must start with /
+#       scopes:                (optional) npm package scope prefixes allowed for `type: npm_token`
+#       content_types:         (required) accepted request Content-Type values
+#       max_body_bytes:        (required) maximum request body size in bytes
+#       request_headers:       (optional) exact request headers forwarded after invariant stripping;
+#                              if omitted/empty, current pass-through behavior is preserved
+#     deny:                    (optional)
+#       path_prefixes:         (optional) paths always blocked regardless of allow list
+#       publish_path_patterns: (optional) npm publish tar entry path substrings blocked before upstream forward
+#       publish_content_patterns: (optional) npm publish tar entry content substrings blocked before upstream forward
+#     intent:                  (optional)
+#       policy_match:          (optional) intent verification profile name
+#       trust:                 (optional)
+#         allowed_initiators:      (optional) allowed request initiator labels
+#         allowed_content_sources: (optional) allowed content-source labels
+#     response:                (optional)
+#       allow_headers:         (optional) exact response headers preserved after invariant stripping;
+#                              if omitted/empty, current pass-through behavior is preserved
+#       deny_patterns:         (optional) substrings triggering 403 if found in buffered response body
+#     velocity:                (optional)
+#                              Built-in signed templates ship active default velocity values.
+#                              Inline policy velocity remains the override path when you use a
+#                              full inline policy or a template plus inline policy override.
+#       consumer_rpm:           (optional) per-adapter rate limit (requests/minute)
+#       key_rpm:               (optional) per-key aggregate rate limit (requests/minute)
+#       breaker_failures:      (optional) consecutive failures before circuit breaker opens
+#       breaker_cooldown_seconds: (optional) seconds before circuit breaker resets
+
+keys:
+
+  # ── SSH Keys ────────────────────────────────────────────────────────────────
+  # Subumbra can hold SSH keys alongside provider API keys.
+  # Generated keys stay inside the Cloudflare vault; provided keys resolve from
+  # secret_ref and currently require an unencrypted OpenSSH ed25519 private key.
+  #
+  # - key_id: workstation_ssh
+  #   type: ssh_key
+  #   key_source: generated
+  #   adapters: [sshtest]
+  #   unique_vault: false
+  #
+  # - key_id: github_deploy_ssh
+  #   type: ssh_key
+  #   key_source: generated
+  #   adapters: [sshtest]
+  #   unique_vault: false
+  #   gate:
+  #     require_approval:
+  #       - when:
+  #           any_request: true
+  #         timeout_seconds: 90
+  #   allow:
+  #     hosts:
+  #       - github.com           # resolved to the verified GitHub host-key fingerprint at bootstrap
+  #
+  # - key_id: imported_deploy_ssh
+  #   type: ssh_key
+  #   key_source: provided
+  #   secret_ref: DEPLOY_SSH_KEY
+  #   adapters: [sshtest]
+  #   unique_vault: false
+
+  # ── npm Publish ────────────────────────────────────────────────────────────
+  # npm publish through the transparent proxy using a brokered upstream npm
+  # token held in the Worker vault.
+  #
+  # - key_id: npm_publish
+  #   type: npm_token
+  #   provider: npmjs
+  #   secret_ref: NPM_TOKEN
+  #   adapters: [npm]
+  #   unique_vault: false
+  #   policy:
+  #     key_id: npm_publish
+  #     policy_id: npm-publish-policy
+  #     protocol: http_rest
+  #     capability_class: custom_rest
+  #     source: env
+  #     target:
+  #       host: registry.npmjs.org
+  #     auth:
+  #       scheme: bearer
+  #     allow:
+  #       adapters: [npm]
+  #       methods: [GET, PUT]
+  #       path_prefixes: [/@your-scope]
+  #       scopes: ["@your-scope"]
+  #       content_types: [application/json]
+  #       max_body_bytes: 10485760
+  #     deny:
+  #       publish_path_patterns: [.env, .pem, .key, .npmrc, credentials.json]
+  #       publish_content_patterns: [AKIA, npm_, PRIVATE KEY]
+
+  # ── Anthropic ──────────────────────────────────────────────────────────────
+  # Anthropic Messages API — Claude 3, 3.5, 3.7, and future models.
+  # Auth: x-api-key header (not bearer — see header_name below).
+  # secret_ref: ANTHROPIC_KEY — set in .env.bootstrap or enter when the wizard prompts.
+  # Docs: https://docs.anthropic.com/en/api
+  # ⚠️  Remove the leading '# ' from required lines below to activate this provider.
+  #    Optional fields stay commented — uncomment individually as needed.
+  #
+  # - key_id: anthropic_prod
+  #   provider: anthropic
+  #   secret_ref: ANTHROPIC_KEY
+  #   adapters: [universal]           # replace with your adapter name(s)
+  #   unique_vault: false             # true = dedicated Durable Object vault for this key
+  #   policy:
+  #     policy_id: anthropic-prod-policy
+  #     protocol: http_rest
+  #     capability_class: llm
+  #     source: env
+  #     target:
+  #       host: api.anthropic.com
+  #       base_path: /v1
+  #     auth:
+  #       scheme: header
+  #       header_name: x-api-key
+  #     allow:
+  #       adapters: [universal]
+  #       methods: [GET, POST]
+  #       path_prefixes: [/v1/messages, /v1/models]
+  #       content_types: [application/json]
+  #       max_body_bytes: 8388608     # 8MB — covers ~200K token context in JSON; verify at docs.anthropic.com
+  #       request_headers: [content-type, accept, anthropic-version]
+  #     gate:
+  #       require_approval:
+  #         - when:
+  #             method: POST
+  #             path_prefix: /v1/messages
+  #           timeout_seconds: 60
+  #     # deny:
+  #     #   path_prefixes: []
+  #     # intent:
+  #     #   policy_match: subumbra-intent-baseline-v1
+  #     #   trust:
+  #     #     allowed_initiators: []
+  #     #     allowed_content_sources: []
+  #     response:
+  #       allow_headers:
+  #         - content-type
+  #         - request-id
+  #         - retry-after
+  #         - anthropic-ratelimit-input-tokens-limit
+  #         - anthropic-ratelimit-input-tokens-remaining
+  #         - anthropic-ratelimit-input-tokens-reset
+  #         - anthropic-ratelimit-output-tokens-limit
+  #         - anthropic-ratelimit-output-tokens-remaining
+  #         - anthropic-ratelimit-output-tokens-reset
+  #         - anthropic-ratelimit-requests-limit
+  #         - anthropic-ratelimit-requests-remaining
+  #         - anthropic-ratelimit-requests-reset
+  #         - anthropic-ratelimit-tokens-limit
+  #         - anthropic-ratelimit-tokens-remaining
+  #         - anthropic-ratelimit-tokens-reset
+  #       # deny_patterns: [api_key]
+  #     # velocity:
+  #     #   consumer_rpm: 120
+  #     #   key_rpm: 600
+  #     #   breaker_failures: 3
+  #     #   breaker_cooldown_seconds: 30
+
+  # ── DeepSeek ───────────────────────────────────────────────────────────────
+  # DeepSeek OpenAI-compatible API — deepseek-chat, deepseek-reasoner.
+  # Auth: bearer.
+  # secret_ref: DEEPSEEK_KEY — set in .env.bootstrap or enter when the wizard prompts.
+  # Docs: https://platform.deepseek.com/api-docs
+  # ⚠️  Remove the leading '# ' from required lines below to activate this provider.
+  #
+  # - key_id: deepseek_prod
+  #   provider: deepseek
+  #   secret_ref: DEEPSEEK_KEY
+  #   adapters: [universal]
+  #   unique_vault: false
+  #   policy:
+  #     policy_id: deepseek-prod-policy
+  #     protocol: openai_compatible
+  #     capability_class: llm
+  #     source: env
+  #     target:
+  #       host: api.deepseek.com
+  #       base_path: /v1
+  #     auth:
+  #       scheme: bearer
+  #     allow:
+  #       adapters: [universal]
+  #       methods: [GET, POST]
+  #       path_prefixes: [/v1]
+  #       content_types: [application/json]
+  #       max_body_bytes: 8388608     # 8MB — covers large context DeepSeek models; verify at platform.deepseek.com
+  #     # deny:
+  #     #   path_prefixes: []
+  #     # intent:
+  #     #   policy_match: subumbra-intent-baseline-v1
+  #     #   trust:
+  #     #     allowed_initiators: []
+  #     #     allowed_content_sources: []
+  #     # response:
+  #     #   deny_patterns: [sk-]
+  #     # velocity:
+  #     #   consumer_rpm: 120
+  #     #   key_rpm: 600
+  #     #   breaker_failures: 3
+  #     #   breaker_cooldown_seconds: 30
+
+  # ── Gemini ─────────────────────────────────────────────────────────────────
+  # Google Gemini via the OpenAI-compatible Generative Language API endpoint.
+  # Auth: bearer.
+  # secret_ref: GEMINI_KEY — set in .env.bootstrap or enter when the wizard prompts.
+  # Docs: https://ai.google.dev/gemini-api/docs
+  # ⚠️  Remove the leading '# ' from required lines below to activate this provider.
+  #
+  # - key_id: gemini_prod
+  #   provider: gemini
+  #   secret_ref: GEMINI_KEY
+  #   adapters: [universal]
+  #   unique_vault: false
+  #   policy:
+  #     policy_id: gemini-prod-policy
+  #     protocol: openai_compatible
+  #     capability_class: llm
+  #     source: env
+  #     target:
+  #       host: generativelanguage.googleapis.com
+  #       base_path: /v1beta/openai
+  #     auth:
+  #       scheme: bearer
+  #     allow:
+  #       adapters: [universal]
+  #       methods: [GET, POST]
+  #       path_prefixes: [/v1beta/openai, /v1beta/models]
+  #       content_types: [application/json]
+  #       max_body_bytes: 16777216    # 16MB — covers Gemini 1.5 Pro 1M token context; verify at ai.google.dev
+  #     # deny:
+  #     #   path_prefixes: []
+  #     # intent:
+  #     #   policy_match: subumbra-intent-baseline-v1
+  #     #   trust:
+  #     #     allowed_initiators: []
+  #     #     allowed_content_sources: []
+  #     # response:
+  #     #   deny_patterns: []
+  #     # velocity:
+  #     #   consumer_rpm: 120
+  #     #   key_rpm: 600
+  #     #   breaker_failures: 3
+  #     #   breaker_cooldown_seconds: 30
+
+  # ── GitHub ─────────────────────────────────────────────────────────────────
+  # GitHub REST API and GraphQL — use a classic PAT or fine-grained token.
+  # Auth: bearer.
+  # secret_ref: GITHUB_KEY — set in .env.bootstrap or enter when the wizard prompts.
+  # Docs: https://docs.github.com/en/rest
+  # ⚠️  Remove the leading '# ' from required lines below to activate this provider.
+  #    Narrow path_prefixes to only the GitHub API scopes your app actually needs.
+  #
+  # - key_id: github_prod
+  #   provider: github
+  #   secret_ref: GITHUB_KEY
+  #   adapters: [universal]
+  #   unique_vault: false
+  #   policy:
+  #     policy_id: github-prod-policy
+  #     protocol: http_rest
+  #     capability_class: source_control_read
+  #     source: env
+  #     target:
+  #       host: api.github.com
+  #     auth:
+  #       scheme: bearer
+  #     allow:
+  #       adapters: [universal]
+  #       methods: [GET, POST, PATCH, PUT, DELETE]
+  #       path_prefixes: [/repos, /user, /orgs, /graphql, /zen]
+  #       content_types: [application/json]
+  #       max_body_bytes: 1048576     # 1MB — REST/GraphQL request bodies are small; verify at docs.github.com
+  #     # deny:
+  #     #   path_prefixes: []
+  #     # intent:
+  #     #   policy_match: subumbra-intent-baseline-v1
+  #     #   trust:
+  #     #     allowed_initiators: []
+  #     #     allowed_content_sources: []
+  #     # response:
+  #     #   deny_patterns: []
+  #     # velocity:
+  #     #   consumer_rpm: 120
+  #     #   key_rpm: 600
+  #     #   breaker_failures: 3
+  #     #   breaker_cooldown_seconds: 30
+
+  # ── Groq ───────────────────────────────────────────────────────────────────
+  # Groq OpenAI-compatible API — Llama, Mixtral, and other hosted models.
+  # Auth: bearer.
+  # secret_ref: GROQ_KEY — set in .env.bootstrap or enter when the wizard prompts.
+  # Docs: https://console.groq.com/docs
+  # ⚠️  Remove the leading '# ' from required lines below to activate this provider.
+  #
+  # - key_id: groq_prod
+  #   provider: groq
+  #   secret_ref: GROQ_KEY
+  #   adapters: [universal]
+  #   unique_vault: false
+  #   policy:
+  #     policy_id: groq-prod-policy
+  #     protocol: openai_compatible
+  #     capability_class: llm
+  #     source: env
+  #     target:
+  #       host: api.groq.com
+  #       base_path: /openai/v1
+  #     auth:
+  #       scheme: bearer
+  #     allow:
+  #       adapters: [universal]
+  #       methods: [GET, POST]
+  #       path_prefixes: [/openai/v1/chat, /openai/v1/completions, /openai/v1/models]
+  #       content_types: [application/json]
+  #       max_body_bytes: 8388608     # 8MB — covers large context Llama models; verify at console.groq.com
+  #       request_headers: [content-type, accept]
+  #     # deny:
+  #     #   path_prefixes: []
+  #     # intent:
+  #     #   policy_match: subumbra-intent-baseline-v1
+  #     #   trust:
+  #     #     allowed_initiators: []
+  #     #     allowed_content_sources: []
+  #     response:
+  #       allow_headers:
+  #         - content-type
+  #         - x-request-id
+  #         - retry-after
+  #         - x-ratelimit-limit-requests
+  #         - x-ratelimit-limit-tokens
+  #         - x-ratelimit-remaining-requests
+  #         - x-ratelimit-remaining-tokens
+  #         - x-ratelimit-reset-requests
+  #         - x-ratelimit-reset-tokens
+  #       # deny_patterns: [gsk_]
+  #     # velocity:
+  #     #   consumer_rpm: 120
+  #     #   key_rpm: 600
+  #     #   breaker_failures: 3
+  #     #   breaker_cooldown_seconds: 30
+
+  # ── Mistral ────────────────────────────────────────────────────────────────
+  # Mistral AI OpenAI-compatible API — Mistral, Codestral, and Mixtral models.
+  # Auth: bearer.
+  # secret_ref: MISTRAL_KEY — set in .env.bootstrap or enter when the wizard prompts.
+  # Docs: https://docs.mistral.ai/api
+  # ⚠️  Remove the leading '# ' from required lines below to activate this provider.
+  #
+  # - key_id: mistral_prod
+  #   provider: mistral
+  #   secret_ref: MISTRAL_KEY
+  #   adapters: [universal]
+  #   unique_vault: false
+  #   policy:
+  #     policy_id: mistral-prod-policy
+  #     protocol: openai_compatible
+  #     capability_class: llm
+  #     source: env
+  #     target:
+  #       host: api.mistral.ai
+  #       base_path: /v1
+  #     auth:
+  #       scheme: bearer
+  #     allow:
+  #       adapters: [universal]
+  #       methods: [GET, POST]
+  #       path_prefixes: [/v1]
+  #       content_types: [application/json]
+  #       max_body_bytes: 8388608     # 8MB — covers large context Mistral models; verify at docs.mistral.ai
+  #     # deny:
+  #     #   path_prefixes: []
+  #     # intent:
+  #     #   policy_match: subumbra-intent-baseline-v1
+  #     #   trust:
+  #     #     allowed_initiators: []
+  #     #     allowed_content_sources: []
+  #     # response:
+  #     #   deny_patterns: []
+  #     # velocity:
+  #     #   consumer_rpm: 120
+  #     #   key_rpm: 600
+  #     #   breaker_failures: 3
+  #     #   breaker_cooldown_seconds: 30
+
+  # ── OpenAI ─────────────────────────────────────────────────────────────────
+  # OpenAI Chat Completions and related endpoints — GPT-4o, o1, o3, etc.
+  # Auth: bearer.
+  # secret_ref: OPENAI_KEY — set in .env.bootstrap or enter when the wizard prompts.
+  # Docs: https://platform.openai.com/docs/api-reference
+  # ⚠️  Remove the leading '# ' from required lines below to activate this provider.
+  #
+  # - key_id: openai_prod
+  #   provider: openai
+  #   secret_ref: OPENAI_KEY
+  #   adapters: [universal]
+  #   unique_vault: false
+  #   policy:
+  #     policy_id: openai-prod-policy
+  #     protocol: openai_compatible
+  #     capability_class: llm
+  #     source: env
+  #     target:
+  #       host: api.openai.com
+  #       base_path: /v1
+  #     auth:
+  #       scheme: bearer
+  #     allow:
+  #       adapters: [universal]
+  #       methods: [GET, POST]
+  #       path_prefixes: [/v1/chat, /v1/completions, /v1/models]
+  #       content_types: [application/json]
+  #       max_body_bytes: 8388608     # 8MB — covers GPT-4o 128K context in JSON; verify at platform.openai.com
+  #       request_headers: [content-type, accept]
+  #     # deny:
+  #     #   path_prefixes: [/v1/fine-tuning, /v1/assistants]
+  #     # intent:
+  #     #   policy_match: subumbra-intent-baseline-v1
+  #     #   trust:
+  #     #     allowed_initiators: []
+  #     #     allowed_content_sources: []
+  #     response:
+  #       allow_headers:
+  #         - content-type
+  #         - x-request-id
+  #         - retry-after
+  #         - x-ratelimit-limit-requests
+  #         - x-ratelimit-limit-tokens
+  #         - x-ratelimit-remaining-requests
+  #         - x-ratelimit-remaining-tokens
+  #         - x-ratelimit-reset-requests
+  #         - x-ratelimit-reset-tokens
+  #       # deny_patterns: [sk-]
+  #     # velocity:
+  #     #   consumer_rpm: 120
+  #     #   key_rpm: 600
+  #     #   breaker_failures: 3
+  #     #   breaker_cooldown_seconds: 30
+
+  # ── OpenRouter ─────────────────────────────────────────────────────────────
+  # OpenRouter — unified routing API to hundreds of models from many providers.
+  # Auth: bearer.
+  # secret_ref: OPENROUTER_KEY — set in .env.bootstrap or enter when the wizard prompts.
+  # Docs: https://openrouter.ai/docs
+  # ⚠️  Remove the leading '# ' from required lines below to activate this provider.
+  #
+  # - key_id: openrouter_prod
+  #   provider: openrouter
+  #   secret_ref: OPENROUTER_KEY
+  #   adapters: [universal]
+  #   unique_vault: false
+  #   policy:
+  #     policy_id: openrouter-prod-policy
+  #     protocol: openai_compatible
+  #     capability_class: llm
+  #     source: env
+  #     target:
+  #       host: openrouter.ai
+  #       base_path: /api/v1
+  #     auth:
+  #       scheme: bearer
+  #     allow:
+  #       adapters: [universal]
+  #       methods: [GET, POST]
+  #       path_prefixes: [/api/v1]
+  #       content_types: [application/json]
+  #       max_body_bytes: 16777216    # 16MB — OpenRouter routes to long-context models; verify at openrouter.ai
+  #     # deny:
+  #     #   path_prefixes: []
+  #     # intent:
+  #     #   policy_match: subumbra-intent-baseline-v1
+  #     #   trust:
+  #     #     allowed_initiators: []
+  #     #     allowed_content_sources: []
+  #     # response:
+  #     #   deny_patterns: []
+  #     # velocity:
+  #     #   consumer_rpm: 120
+  #     #   key_rpm: 600
+  #     #   breaker_failures: 3
+  #     #   breaker_cooldown_seconds: 30
+
+  # ── SendGrid ───────────────────────────────────────────────────────────────
+  # SendGrid v3 Mail Send and related transactional email APIs.
+  # Auth: bearer.
+  # secret_ref: SENDGRID_KEY — set in .env.bootstrap or enter when the wizard prompts.
+  # Docs: https://docs.sendgrid.com/api-reference
+  # ⚠️  Remove the leading '# ' from required lines below to activate this provider.
+  #    Narrow path_prefixes to only the SendGrid API endpoints your app uses.
+  #
+  # - key_id: sendgrid_prod
+  #   provider: sendgrid
+  #   secret_ref: SENDGRID_KEY
+  #   adapters: [universal]
+  #   unique_vault: false
+  #   policy:
+  #     policy_id: sendgrid-prod-policy
+  #     protocol: http_rest
+  #     capability_class: email_send
+  #     source: env
+  #     target:
+  #       host: api.sendgrid.com
+  #     auth:
+  #       scheme: bearer
+  #     allow:
+  #       adapters: [universal]
+  #       methods: [GET, POST]
+  #       path_prefixes: [/v3/mail, /v3/scopes, /v3/user]
+  #       content_types: [application/json]
+  #       max_body_bytes: 10485760    # 10MB — email API bodies can include encoded content; verify at docs.sendgrid.com
+  #     # deny:
+  #     #   path_prefixes: []
+  #     # intent:
+  #     #   policy_match: subumbra-intent-baseline-v1
+  #     #   trust:
+  #     #     allowed_initiators: []
+  #     #     allowed_content_sources: []
+  #     # response:
+  #     #   deny_patterns: []
+  #     # velocity:
+  #     #   consumer_rpm: 60
+  #     #   key_rpm: 300
+  #     #   breaker_failures: 3
+  #     #   breaker_cooldown_seconds: 30
+
+  # ── Slack ──────────────────────────────────────────────────────────────────
+  # Slack Web API — bot token or user token for messaging and workspace automation.
+  # Auth: bearer.
+  # secret_ref: SLACK_KEY — set in .env.bootstrap or enter when the wizard prompts.
+  # Docs: https://api.slack.com/web
+  # ⚠️  Remove the leading '# ' from required lines below to activate this provider.
+  #    Restrict path_prefixes to only the Slack API methods your app needs.
+  #
+  # - key_id: slack_prod
+  #   provider: slack
+  #   secret_ref: SLACK_KEY
+  #   adapters: [universal]
+  #   unique_vault: false
+  #   policy:
+  #     policy_id: slack-prod-policy
+  #     protocol: http_rest
+  #     capability_class: custom_rest
+  #     source: env
+  #     target:
+  #       host: api.slack.com
+  #     auth:
+  #       scheme: bearer
+  #     allow:
+  #       adapters: [universal]
+  #       methods: [GET, POST]
+  #       path_prefixes: [/api]
+  #       content_types: [application/json]
+  #       max_body_bytes: 1048576     # 1MB — Slack message payloads are small; verify at api.slack.com
+  #     # deny:
+  #     #   path_prefixes: []
+  #     # intent:
+  #     #   policy_match: subumbra-intent-baseline-v1
+  #     #   trust:
+  #     #     allowed_initiators: []
+  #     #     allowed_content_sources: []
+  #     # response:
+  #     #   deny_patterns: []
+  #     # velocity:
+  #     #   consumer_rpm: 60
+  #     #   key_rpm: 300
+  #     #   breaker_failures: 3
+  #     #   breaker_cooldown_seconds: 30
+
+  # ── Together AI ────────────────────────────────────────────────────────────
+  # Together AI OpenAI-compatible API — Llama, Qwen, DBRX, and other open models.
+  # Auth: bearer.
+  # secret_ref: TOGETHER_KEY — set in .env.bootstrap or enter when the wizard prompts.
+  # Docs: https://docs.together.ai/reference
+  # ⚠️  Remove the leading '# ' from required lines below to activate this provider.
+  #
+  # - key_id: together_prod
+  #   provider: together
+  #   secret_ref: TOGETHER_KEY
+  #   adapters: [universal]
+  #   unique_vault: false
+  #   policy:
+  #     policy_id: together-prod-policy
+  #     protocol: openai_compatible
+  #     capability_class: llm
+  #     source: env
+  #     target:
+  #       host: api.together.xyz
+  #       base_path: /v1
+  #     auth:
+  #       scheme: bearer
+  #     allow:
+  #       adapters: [universal]
+  #       methods: [GET, POST]
+  #       path_prefixes: [/v1]
+  #       content_types: [application/json]
+  #       max_body_bytes: 8388608     # 8MB — covers large context open models; verify at docs.together.ai
+  #     # deny:
+  #     #   path_prefixes: []
+  #     # intent:
+  #     #   policy_match: subumbra-intent-baseline-v1
+  #     #   trust:
+  #     #     allowed_initiators: []
+  #     #     allowed_content_sources: []
+  #     # response:
+  #     #   deny_patterns: []
+  #     # velocity:
+  #     #   consumer_rpm: 120
+  #     #   key_rpm: 600
+  #     #   breaker_failures: 3
+  #     #   breaker_cooldown_seconds: 30
+
+  # ── xAI ────────────────────────────────────────────────────────────────────
+  # xAI Grok OpenAI-compatible API — Grok 2, Grok 3, and related models.
+  # Auth: bearer.
+  # secret_ref: XAI_KEY — set in .env.bootstrap or enter when the wizard prompts.
+  # Docs: https://docs.x.ai/api
+  # ⚠️  Remove the leading '# ' from required lines below to activate this provider.
+  #
+  # - key_id: xai_prod
+  #   provider: xai
+  #   secret_ref: XAI_KEY
+  #   adapters: [universal]
+  #   unique_vault: false
+  #   policy:
+  #     policy_id: xai-prod-policy
+  #     protocol: openai_compatible
+  #     capability_class: llm
+  #     source: env
+  #     target:
+  #       host: api.x.ai
+  #       base_path: /v1
+  #     auth:
+  #       scheme: bearer
+  #     allow:
+  #       adapters: [universal]
+  #       methods: [GET, POST]
+  #       path_prefixes: [/v1]
+  #       content_types: [application/json]
+  #       max_body_bytes: 8388608     # 8MB — covers Grok large context windows; verify at docs.x.ai
+  #     # deny:
+  #     #   path_prefixes: []
+  #     # intent:
+  #     #   policy_match: subumbra-intent-baseline-v1
+  #     #   trust:
+  #     #     allowed_initiators: []
+  #     #     allowed_content_sources: []
+  #     # response:
+  #     #   deny_patterns: []
+  #     # velocity:
+  #     #   consumer_rpm: 120
+  #     #   key_rpm: 600
+  #     #   breaker_failures: 3
+  #     #   breaker_cooldown_seconds: 30
