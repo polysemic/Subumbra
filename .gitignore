@@ -72,3 +72,4 @@ Thumbs.db
 .codex
 
 worker/.dev.vars
+data/endpoint.json
