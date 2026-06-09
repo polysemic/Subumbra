@@ -13,6 +13,55 @@ Current planning direction after `1.1.1-alpha`:
 
 ---
 
+## Major epics
+
+_Large, multi-part arcs that span several sub-rounds. Each is an **epic**: one
+parent objective with a definition of "done," implemented as merged sub-rounds
+(`r10N-1`, `r10N-2`, …) and closed as a single named release. Each gets a
+tracker at `council/epics/<epic>.md` (untracked) when it becomes active. The
+sections below this one are the finer-grained per-area backlog that epics and
+one-off rounds draw from._
+
+- **Multi-user / single-org model** — user attribution, per-user grants, admin
+  approval, opaque tokens. Introduces durable records: `org_id`, `principal_id`,
+  `token_id`, `consumer_id`, `key_id`, `role_id`, `grant_id`, `session_id`,
+  `approval_id`. Keep the app-facing contract to proxy URL + opaque token; put
+  complexity in server-side metadata. Do **not** bake identity into
+  `consumer_id` / `key_id` / URL paths / token strings. Starts with recon on the
+  current consumer-token, session-lockdown, Janus, audit, and UI data models.
+- **Structured control-plane → Go + libSQL/Turso-ready data layer** — converge
+  on a schema-first control plane (durable records above), a narrow storage
+  abstraction over today's SQLite/state files, then optional libSQL/Turso and a
+  pilot Go service (identity/token/audit first). Staged, many rounds; keep
+  Python while contracts move. Database-per-org as the default tenancy boundary.
+  Evidence-only recon before any backend commitment.
+- **Agent-blast-radius security hardening** *(HIGH)* — guardrails must be
+  enforced and verified **outside the agent's blast radius**: out-of-band Worker
+  integrity verification (so a compromised host cannot disable the check),
+  runtime CF-token de-scoping (runtime needs no deploy authority), Janus-required
+  defaults for irreversible actions, and explicit blast-radius assumptions in
+  every endpoint template. Discrete unfixed findings that pair with this work are
+  tracked privately in `council/SECURITY_FINDINGS.md` (untracked).
+- **Operator command palette (⌘K)** — structured command-dispatch API (no shell
+  passthrough), operator-mode session flag, SSE output. Stage 1 (verify / session
+  / pause / revoke) needs no CF creds; Stage 2 (rotate / add-consumer / provision)
+  is blocked on the management API trust boundary.
+- **`.env` secrets-at-rest hardening** — `age`-encrypted `.env` with a
+  tmpfs unlock lifecycle (laptop `$XDG_RUNTIME_DIR`, VPS dedicated tmpfs), plus
+  CF-token scope minimization and expiry. Removes long-lived plaintext authority
+  from the host disk.
+- **Credential-abuse telemetry & canaries** — stolen consumer tokens are not
+  provider secrets, so attempted use against Subumbra surfaces is a
+  high-confidence detection signal. Canary tokens, source-context logging,
+  bounded defensive friction. Evidence-only recon first; no deception/enforcement
+  before threat modeling.
+- **Session-bound git / repo workflow automation** — sessions carry repo+branch
+  policy; a local helper enforces checkout/pull/push within policy with optional
+  Janus gating on push/merge/deploy. Authorization stays in Subumbra; command
+  execution stays in the local helper (never the Worker / secret path).
+
+---
+
 ## Near-term priority candidates
 
 _Work that tends to reduce operator time-to-diagnosis or closes obvious foot-guns._
@@ -169,7 +218,10 @@ _Items completed after the 1.1.1-alpha release. Add entries here as work ships._
 
 ---
 
-*Last updated: 2026-05-30 — comparison atlas seeded; core hardening and product simplification remain the active direction.*
+*Last updated: 2026-06-09 — added the **Major epics** section (strategic arcs
+migrated out of `council/cleanup.md`); security blind-spot findings moved to the
+untracked `council/SECURITY_FINDINGS.md`. Core hardening and product
+simplification remain the active direction.*
 
 ---
 

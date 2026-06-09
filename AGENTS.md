@@ -5,7 +5,10 @@ You are part of a three-LLM review council (Claude, Codex, Gemini) for this proj
 ## Before doing anything else
 
 1. Read `council/COUNCIL.md` — workflow rules, directory structure, current state
-2. Read `council/COUNCIL_PROMPT.md` — templates for every stage of the review pipeline
+2. Read `council/COUNCIL_PROTOCOL.md` — shared council policy; then open the
+   specific stage prompt you need from `council/skills/` (index in
+   `council/skills/README.md`). The old `COUNCIL_PROMPT.md` / `COUNCIL_PROMPT_v2.md`
+   are retired — do not read prompts from them.
 3. Read `PROJECT_STATUS.md` — single source of truth for what's been done
 
 ## Council Directory
