@@ -10,7 +10,7 @@ from subumbra_npm import build_npm_token_record
 from subumbra_core import (
     _WIZARD_SECRETS,
     _automation_fail,
-    _bind_key_to_adapters,
+    _bind_key_to_consumers,
     _binding_label,
     _build_consumer_registry,
     _build_fat_record,
@@ -151,7 +151,7 @@ def _load_manifest_bootstrap() -> tuple[
     seen_declared: set[str] = set()
     api_keys: dict[str, tuple[str, str, str, str, str]] = {}
     record_types_by_key_id: dict[str, str] = {}
-    key_adapters_by_key_id: dict[str, list[str]] = {}
+    key_consumers_by_key_id: dict[str, list[str]] = {}
     policy_by_key_id: dict[str, dict[str, Any]] = {}
     unique_key_flags: dict[str, bool] = {}
     ssh_records: list[dict[str, Any]] = []
@@ -161,7 +161,7 @@ def _load_manifest_bootstrap() -> tuple[
     }
 
     for record in records:
-        for consumer_id in record["adapters"]:
+        for consumer_id in record["consumers"]:
             if consumer_id in seen_declared:
                 continue
             seen_declared.add(consumer_id)
@@ -173,10 +173,10 @@ def _load_manifest_bootstrap() -> tuple[
         record_types_by_key_id[key_id] = str(record.get("type", "api_key"))
         policy_by_key_id[key_id] = record["policy"]
         unique_key_flags[key_id] = record["unique_vault"]
-        _bind_key_to_adapters(
+        _bind_key_to_consumers(
             key_id,
-            record["adapters"],
-            key_adapters_by_key_id=key_adapters_by_key_id,
+            record["consumers"],
+            key_consumers_by_key_id=key_consumers_by_key_id,
             allowed_keys_by_consumer=allowed_keys_by_consumer,
         )
         if record.get("type") == "ssh_key":
@@ -196,7 +196,7 @@ def _load_manifest_bootstrap() -> tuple[
         record_types_by_key_id,
         cf_creds,
         allowed_keys_by_consumer,
-        key_adapters_by_key_id,
+        key_consumers_by_key_id,
         token_ttl_days,
         cf_runtime_creds,
         cf_autoprovision,
@@ -261,7 +261,7 @@ def run_interactive_wizard(
 ]:
     """
     Interactive manifest bootstrap: collect Cloudflare credentials and per-key
-    secrets in RAM, bind adapters, and return the same logical credential bundle
+    secrets in RAM, bind consumers, and return the same logical credential bundle
     as _load_manifest_bootstrap plus an empty shred_paths list.
     """
     if existing_keys:
@@ -508,7 +508,7 @@ def run_interactive_wizard(
     seen_declared: set[str] = set()
     api_keys: dict[str, tuple[str, str, str, str, str]] = {}
     record_types_by_key_id: dict[str, str] = {}
-    key_adapters_by_key_id: dict[str, list[str]] = {}
+    key_consumers_by_key_id: dict[str, list[str]] = {}
     policy_by_key_id: dict[str, dict[str, Any]] = {}
     unique_key_flags: dict[str, bool] = {}
     ssh_records: list[dict[str, Any]] = []
@@ -518,7 +518,7 @@ def run_interactive_wizard(
     }
 
     for rec in accepted:
-        for consumer_id in rec["adapters"]:
+        for consumer_id in rec["consumers"]:
             if consumer_id in seen_declared:
                 continue
             seen_declared.add(consumer_id)
@@ -529,10 +529,10 @@ def run_interactive_wizard(
         record_types_by_key_id[kid] = str(rec.get("type", "api_key"))
         policy_by_key_id[kid] = rec["policy"]
         unique_key_flags[kid] = rec["unique_vault"]
-        _bind_key_to_adapters(
+        _bind_key_to_consumers(
             kid,
-            rec["adapters"],
-            key_adapters_by_key_id=key_adapters_by_key_id,
+            rec["consumers"],
+            key_consumers_by_key_id=key_consumers_by_key_id,
             allowed_keys_by_consumer=allowed_keys_by_consumer,
         )
         if rec.get("type") == "ssh_key":
@@ -553,7 +553,7 @@ def run_interactive_wizard(
         record_types_by_key_id,
         cf_creds,
         allowed_keys_by_consumer,
-        key_adapters_by_key_id,
+        key_consumers_by_key_id,
         token_ttl_days,
         cf_runtime_creds,
         cf_autoprovision,
@@ -614,7 +614,7 @@ def _rewrite_v3_record_from_plaintext(
     existing_record: dict[str, Any],
     raw_secret: str,
     policy: dict[str, Any],
-    adapters: list[str],
+    consumers: list[str],
 ) -> dict[str, Any]:
     provider = str(existing_record.get("provider", "")).strip()
     if not provider:
@@ -638,7 +638,7 @@ def _rewrite_v3_record_from_plaintext(
         ciphertext=ciphertext,
         policy=policy,
         policy_hash=policy_hash,
-        adapters=adapters,
+        consumers=consumers,
         vault_instance=vault_instance,
         created_at=now_iso,
         label=str(existing_record.get("label", key_id)),
@@ -652,7 +652,7 @@ def _update_record_policy_without_reencrypt(
     key_id: str,
     existing_record: dict[str, Any],
     policy: dict[str, Any],
-    adapters: list[str],
+    consumers: list[str],
 ) -> dict[str, Any]:
     new_policy_hash = compute_policy_hash(policy)
     if new_policy_hash != existing_record.get("policy_hash"):
@@ -664,7 +664,7 @@ def _update_record_policy_without_reencrypt(
     updated["policy_id"] = policy["policy_id"]
     updated["policy_hash"] = new_policy_hash
     updated["policy"] = policy
-    updated["adapters"] = list(adapters)
+    updated["consumers"] = list(consumers)
     updated["target_host"] = policy["target"]["host"]
     updated["revoked"] = False
     return updated
@@ -864,7 +864,7 @@ def _require_existing_active_ssh_record(
 def run_add_ssh_key(target_key_id: str, adapters_csv: str, allow_hosts_csv: str | None = None) -> None:
     if not KEY_ID_RE.fullmatch(target_key_id):
         die(f"Invalid SSH key_id {target_key_id!r}")
-    adapters = _parse_ssh_adapters_csv(adapters_csv)
+    consumers = _parse_ssh_adapters_csv(adapters_csv)
     requested_hosts = _parse_ssh_allow_hosts_csv(allow_hosts_csv) if isinstance(allow_hosts_csv, str) else []
     try:
         allowed_host_fingerprints = resolve_allowed_host_fingerprints(requested_hosts)
@@ -884,7 +884,7 @@ def run_add_ssh_key(target_key_id: str, adapters_csv: str, allow_hosts_csv: str 
                 worker_url=worker_url,
                 headers=_worker_control_headers(setup_token),
                 key_id=target_key_id,
-                adapters=adapters,
+                consumers=consumers,
                 allowed_host_fingerprints=allowed_host_fingerprints,
                 vault_instance="vault",
             )
@@ -908,9 +908,9 @@ def run_rotate_ssh_key(target_key_id: str, allow_hosts_csv: str | None = None) -
         )
 
     cf_creds = _get_push_registry_cf_creds()
-    adapters = existing_record.get("adapters", [])
-    if not isinstance(adapters, list) or not adapters:
-        die(f"SSH record {target_key_id!r} is missing adapters")
+    consumers = existing_record.get("consumers", [])
+    if not isinstance(consumers, list) or not consumers:
+        die(f"SSH record {target_key_id!r} is missing consumers")
     vault_instance = str(existing_record.get("vault_instance", "")).strip() or "vault"
     if isinstance(allow_hosts_csv, str):
         requested_hosts = _parse_ssh_allow_hosts_csv(allow_hosts_csv)
@@ -928,7 +928,7 @@ def run_rotate_ssh_key(target_key_id: str, allow_hosts_csv: str | None = None) -
                 worker_url=worker_url,
                 headers=_worker_control_headers(setup_token),
                 key_id=target_key_id,
-                adapters=[str(consumer_id) for consumer_id in adapters],
+                consumers=[str(consumer_id) for consumer_id in consumers],
                 allowed_host_fingerprints=allowed_host_fingerprints,
                 vault_instance=vault_instance,
             )
@@ -1073,7 +1073,7 @@ def run_rotate_wizard() -> None:
         die(f"--rotate requires an existing V3 policy_hash for key_id {key_id!r}. Use full bootstrap.")
     if not isinstance(target_host, str) or not target_host:
         die(f"--rotate requires target_host on the existing V3 record for key_id {key_id!r}.")
-    policy, adapters = _require_fat_record_fields(existing_record, key_id)
+    policy, consumers = _require_fat_record_fields(existing_record, key_id)
     _verify_embedded_policy_hash(existing_record, key_id)
     vault_instance = existing_record.get("vault_instance", "vault")
     if not isinstance(vault_instance, str) or not vault_instance:
@@ -1122,7 +1122,7 @@ def run_rotate_wizard() -> None:
         ciphertext=ciphertext,
         policy=policy,
         policy_hash=existing_policy_hash,
-        adapters=adapters,
+        consumers=consumers,
         vault_instance=vault_instance,
         created_at=now_iso,
         label=existing_record.get("label", key_id),
@@ -1177,7 +1177,7 @@ def run_provision_key(target_key_id: str) -> None:
     raw = authority["raw_secret"]
     vault_instance = authority["vault_instance"]
     policy = authority["policy"]
-    adapters = authority["adapters"]
+    consumers = authority["consumers"]
 
     public_key_file = _public_key_file_for_key(target_key_id, vault_instance)
     if not public_key_file.exists():
@@ -1207,7 +1207,7 @@ def run_provision_key(target_key_id: str) -> None:
             target_host=target_host,
             raw_secret=raw,
             policy=policy,
-            adapters=adapters,
+            consumers=consumers,
             vault_instance=vault_instance,
             pub_key=pub_key,
             pub_key_fp=pub_key_fp,
@@ -1224,7 +1224,7 @@ def run_provision_key(target_key_id: str) -> None:
             ciphertext=ciphertext,
             policy=policy,
             policy_hash=policy_hash,
-            adapters=adapters,
+            consumers=consumers,
             vault_instance=vault_instance,
             created_at=now_iso,
             label=target_key_id,
@@ -1291,7 +1291,7 @@ def run_bootstrap() -> None:
                 record_types_by_key_id,
                 cf_creds,
                 allowed_keys_by_consumer,
-                key_adapters_by_key_id,
+                key_consumers_by_key_id,
                 token_ttl_days,
                 cf_runtime_creds,
                 cf_autoprovision,
@@ -1304,14 +1304,14 @@ def run_bootstrap() -> None:
                 cf_access_protected,
             ) = _load_manifest_bootstrap()
             ok(
-                f"Loaded {len(key_adapters_by_key_id)} manifest key(s): "
-                f"{', '.join(sorted(key_adapters_by_key_id))}"
+                f"Loaded {len(key_consumers_by_key_id)} manifest key(s): "
+                f"{', '.join(sorted(key_consumers_by_key_id))}"
             )
             ok("Cloudflare credentials present")
         else:
             # Automation without a manifest: `_load_env_fallback` is tombstoned (immediate `_automation_fail`).
             try:
-                api_keys, cf_creds, allowed_keys_by_consumer, key_adapters_by_key_id, token_ttl_days = _load_env_fallback(existing_keys)
+                api_keys, cf_creds, allowed_keys_by_consumer, key_consumers_by_key_id, token_ttl_days = _load_env_fallback(existing_keys)
             except AutomationInputError as exc:
                 use_wizard = _prompt_after_automation_error(str(exc))
             else:
@@ -1331,7 +1331,7 @@ def run_bootstrap() -> None:
                 record_types_by_key_id,
                 cf_creds,
                 allowed_keys_by_consumer,
-                key_adapters_by_key_id,
+                key_consumers_by_key_id,
                 token_ttl_days,
                 cf_runtime_creds,
                 cf_autoprovision,
@@ -1372,17 +1372,17 @@ def run_bootstrap() -> None:
                     provider,
                     target_host,
                     policy_index,
-                    key_adapters_by_key_id[key_id],
+                    key_consumers_by_key_id[key_id],
                 )
             unique_key_flags = _load_unique_key_flags(list(api_keys.keys()))
 
-    all_manifest_keys: dict[str, Any] = {key_id: True for key_id in key_adapters_by_key_id}
+    all_manifest_keys: dict[str, Any] = {key_id: True for key_id in key_consumers_by_key_id}
     _validate_allowed_keys(all_manifest_keys, allowed_keys_by_consumer)
 
     # ── Step 2: rotation safety check ────────────────────────────────────
     # Every bootstrap run generates a NEW RSA key pair.  Any key omitted from
     # this session will be unreachable after this run.
-    incoming_key_ids = set(key_adapters_by_key_id.keys())
+    incoming_key_ids = set(key_consumers_by_key_id.keys())
     existing_key_ids = set(existing_keys.keys())
     keys_to_remove   = existing_key_ids - incoming_key_ids
 
@@ -1421,11 +1421,11 @@ def run_bootstrap() -> None:
         print("  Keys to provision:")
         for kid, (provider, _target_host, _auth_header, _auth_prefix, _secret_ref) in api_keys.items():
             record_label = "npm_token" if record_types_by_key_id.get(kid) == "npm_token" else provider
-            print(f"    {kid:30s} → {record_label:12s} → {_binding_label(key_adapters_by_key_id[kid])}")
+            print(f"    {kid:30s} → {record_label:12s} → {_binding_label(key_consumers_by_key_id[kid])}")
         for rec in ssh_records:
             print(
                 f"    {rec['key_id']:30s} → {'ssh':12s} → "
-                f"{_binding_label(key_adapters_by_key_id[rec['key_id']])}"
+                f"{_binding_label(key_consumers_by_key_id[rec['key_id']])}"
             )
 
         if keys_to_remove:
@@ -1454,7 +1454,7 @@ def run_bootstrap() -> None:
     candidate_vault_instances = sorted(
         {
             _vault_instance_for_key(key_id, unique_key_flags)
-            for key_id in key_adapters_by_key_id.keys()
+            for key_id in key_consumers_by_key_id.keys()
         }
     )
     destructive_nuke = False
@@ -1612,7 +1612,7 @@ def run_bootstrap() -> None:
 
     for vault_instance in candidate_vault_instances:
         rep_key = _representative_key_id_for_vault_instance(
-            key_adapters_by_key_id.keys(),
+            key_consumers_by_key_id.keys(),
             unique_key_flags,
             vault_instance,
         )
@@ -1664,7 +1664,7 @@ def run_bootstrap() -> None:
     phase2_failures: list[tuple[str, str]] = []
     forced_failure_key = os.environ.get("SUBUMBRA_FORCE_PROVISION_FAILURE_KEY", "").strip()
 
-    for key_id in key_adapters_by_key_id.keys():
+    for key_id in key_consumers_by_key_id.keys():
         vault_instance = _vault_instance_for_key(key_id, unique_key_flags)
         if vault_instance in phase1_failed_vaults:
             warn(f"{key_id}: skipped — vault {vault_instance} failed during phase-1 keygen")
@@ -1732,7 +1732,7 @@ def run_bootstrap() -> None:
                 target_host=target_host,
                 raw_secret=raw,
                 policy=policy,
-                adapters=key_adapters_by_key_id[key_id],
+                consumers=key_consumers_by_key_id[key_id],
                 vault_instance=vault_instance,
                 pub_key=pub_key,
                 pub_key_fp=pub_key_fp,
@@ -1749,7 +1749,7 @@ def run_bootstrap() -> None:
                 ciphertext=ciphertext,
                 policy=policy,
                 policy_hash=policy_hash,
-                adapters=key_adapters_by_key_id[key_id],
+                consumers=key_consumers_by_key_id[key_id],
                 vault_instance=vault_instance,
                 created_at=now_iso,
                 label=key_id,
@@ -1760,7 +1760,7 @@ def run_bootstrap() -> None:
         record_label = "npm_token" if record_types_by_key_id.get(key_id) == "npm_token" else provider
         ok(
             f"Encrypted {record_label:12s} → {key_id}  →  "
-            f"{_binding_label(key_adapters_by_key_id[key_id])}  →  {vault_instance}"
+            f"{_binding_label(key_consumers_by_key_id[key_id])}  →  {vault_instance}"
         )
 
     if ssh_records:
@@ -1777,7 +1777,7 @@ def run_bootstrap() -> None:
                     worker_url=worker_url,
                     headers=_worker_control_headers(setup_token),
                     key_id=key_id,
-                    adapters=key_adapters_by_key_id[key_id],
+                    consumers=key_consumers_by_key_id[key_id],
                     allowed_host_fingerprints=record["policy"]["allow"].get("hosts"),
                     vault_instance=vault_instance,
                 )
@@ -1786,7 +1786,7 @@ def run_bootstrap() -> None:
                     worker_url=worker_url,
                     headers=_worker_control_headers(setup_token),
                     key_id=key_id,
-                    adapters=key_adapters_by_key_id[key_id],
+                    consumers=key_consumers_by_key_id[key_id],
                     allowed_host_fingerprints=record["policy"]["allow"].get("hosts"),
                     vault_instance=vault_instance,
                     public_key_pem=phase2_entry["public_key_pem"],
@@ -1797,7 +1797,7 @@ def run_bootstrap() -> None:
             die(str(exc))
         ok(
             f"Provisioned {'ssh':12s} → {key_id}  →  "
-            f"{_binding_label(key_adapters_by_key_id[key_id])}  →  {vault_instance}"
+            f"{_binding_label(key_consumers_by_key_id[key_id])}  →  {vault_instance}"
         )
 
     # ── Step 7: Phase 4 — write successful keys only ─────────────────────

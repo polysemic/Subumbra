@@ -128,14 +128,14 @@ keys:
   - key_id: github_ssh
     type: ssh_key
     key_source: generated
-    adapters: [github]
+    consumers: [github]
     unique_vault: false
 
   - key_id: deploy_ssh
     type: ssh_key
     key_source: provided
     secret_ref: DEPLOY_SSH_KEY
-    adapters: [github]
+    consumers: [github]
     unique_vault: false
 ```
 
@@ -509,7 +509,7 @@ If you run `--session start` on a terminal without `--ttl` and `--consumers`, an
 
 ### Multiple concurrent sessions
 
-You can have more than one session open at the same time, as long as their adapter/key coverage doesn't overlap. For example, one session for `litellm` and a separate one for `n8n`, each with different TTLs.
+You can have more than one session open at the same time, as long as their consumer/key coverage doesn't overlap. For example, one session for `litellm` and a separate one for `n8n`, each with different TTLs.
 
 ### Why no permanent "always open" setting?
 
@@ -548,7 +548,7 @@ enable later. Subumbra does **not** retain `CF_API_TOKEN` or `CF_ACCOUNT_ID` in
 - `./bootstrap.sh --revoke-key <key_id>` — removes key from live KV (omit `--offline` flag)
 - `./bootstrap.sh --add-consumer <key_id> <consumer_id>` — re-encrypts and pushes updated policy
 - `./bootstrap.sh --revoke-consumer <key_id> <consumer_id>` — re-encrypts and pushes updated policy
-- `./bootstrap.sh --publish-policy <key_id>` — republishes a key's policy and adapters to KV
+- `./bootstrap.sh --publish-policy <key_id>` — republishes a key's policy and consumers to KV
 
 **Session commands** (CF credentials required — writes gates to Cloudflare KV):
 
@@ -574,7 +574,7 @@ enable later. Subumbra does **not** retain `CF_API_TOKEN` or `CF_ACCOUNT_ID` in
 
 - `./bootstrap.sh --status` — compare your manifest (`manifest.yaml`) against deployed records; prints `UP_TO_DATE`, `POLICY_DRIFT`, `NOT_DEPLOYED`, or `REVOKED` per key
 - `./bootstrap.sh --list-key-ids` — list all key IDs defined in `manifest.yaml`
-- `./bootstrap.sh --list-consumers` — list all supported app integrations, which ones have active tokens, and which key IDs each adapter is authorized for
+- `./bootstrap.sh --list-consumers` — list all supported app integrations, which ones have active tokens, and which key IDs each consumer is authorized for
 - `./bootstrap.sh --show <consumer_id>` — print a paste-ready config block for a specific app integration (e.g. `--show litellm`, `--show openwebui`)
 
 **CF credentials not required — runtime credential rotation only:**

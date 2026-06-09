@@ -101,7 +101,7 @@ AUDIT_ENDPOINT_FILTERS = {
     "stats",
     "audit",
     "sessions",
-    "adapters",
+    "consumers",
     "observability",
     "gate",
 }
@@ -464,7 +464,7 @@ def _init_session_db() -> sqlite3.Connection | None:
             CREATE TABLE IF NOT EXISTS sessions (
                 session_id        TEXT PRIMARY KEY,
                 name              TEXT,
-                allowed_adapters  TEXT,
+                allowed_consumers TEXT,
                 allowed_keys      TEXT,
                 max_queries       INTEGER,
                 max_sign_ops      INTEGER,
@@ -480,6 +480,14 @@ def _init_session_db() -> sqlite3.Connection | None:
             str(row[1])
             for row in conn.execute("PRAGMA table_info(sessions)").fetchall()
         }
+        if "allowed_adapters" in existing_columns and "allowed_consumers" not in existing_columns:
+            conn.execute(
+                "ALTER TABLE sessions RENAME COLUMN allowed_adapters TO allowed_consumers"
+            )
+            existing_columns = {
+                str(row[1])
+                for row in conn.execute("PRAGMA table_info(sessions)").fetchall()
+            }
         if "owner_id" not in existing_columns:
             conn.execute(
                 "ALTER TABLE sessions ADD COLUMN owner_id TEXT NOT NULL DEFAULT 'operator'"
@@ -547,7 +555,7 @@ def _session_row_to_dict(row: sqlite3.Row) -> dict[str, object]:
     return {
         "session_id": row["session_id"],
         "name": row["name"],
-        "allowed_adapters": _decode_scope_json(row["allowed_adapters"]),
+        "allowed_consumers": _decode_scope_json(row["allowed_consumers"]),
         "allowed_keys": _decode_scope_json(row["allowed_keys"]),
         "max_queries": row["max_queries"],
         "max_sign_ops": row["max_sign_ops"],
@@ -599,7 +607,7 @@ def _list_active_session_rows() -> list[sqlite3.Row]:
     _expire_sessions_if_needed()
     return conn.execute(
         """
-        SELECT session_id, name, allowed_adapters, allowed_keys, max_queries,
+        SELECT session_id, name, allowed_consumers, allowed_keys, max_queries,
                max_sign_ops, queries_used, ssh_sign_count, created_at, expires_at,
                status, owner_id, session_type
         FROM sessions
@@ -615,7 +623,7 @@ def _list_recent_sessions(limit: int = 10) -> list[dict[str, object]]:
         return []
     rows = conn.execute(
         """
-        SELECT session_id, name, allowed_adapters, allowed_keys, max_queries,
+        SELECT session_id, name, allowed_consumers, allowed_keys, max_queries,
                max_sign_ops, queries_used, ssh_sign_count, created_at, expires_at,
                status, owner_id, session_type
         FROM sessions
@@ -1184,8 +1192,8 @@ def get_key(key_id: str) -> tuple[Response, int]:
         adapter_matches = [
             session_dict
             for session_dict in active_sessions
-            if session_dict["allowed_adapters"] is None
-            or adapter["consumer_id"] in session_dict["allowed_adapters"]
+            if session_dict["allowed_consumers"] is None
+            or adapter["consumer_id"] in session_dict["allowed_consumers"]
         ]
         if not adapter_matches:
             log.warning(
@@ -1328,7 +1336,7 @@ def get_key(key_id: str) -> tuple[Response, int]:
             "vault_instance": entry.get("vault_instance"),
             "policy_hash": entry.get("policy_hash"),
             "policy": entry.get("policy"),
-            "adapters": entry.get("adapters", []),
+            "consumers": entry.get("consumers", []),
             "created_at": entry.get("created_at"),
             "status": entry.get("status", "active"),
         }), 200
@@ -1406,15 +1414,15 @@ def stats() -> tuple[Response, int]:
     }), 200
 
 
-@app.get("/adapters")
-def adapters() -> tuple[Response, int]:
+@app.get("/consumers")
+def consumers() -> tuple[Response, int]:
     remote = request.remote_addr or ""
     consumer_result = _resolve_consumer()
     if isinstance(consumer_result, _AdapterDenial):
         _record_audit(
             consumer_id=consumer_result.consumer_id,
             key_id=None,
-            endpoint="adapters",
+            endpoint="consumers",
             verdict="deny",
             reason_code=consumer_result.reason_code,
             remote=remote,
@@ -1424,16 +1432,16 @@ def adapters() -> tuple[Response, int]:
     adapter = consumer_result
     if not adapter.get("can_list_all_keys", False):
         log.warning(
-            "adapters: forbidden consumer=%s remote=%s reason=adapters_scope_denied",
+            "consumers: forbidden consumer=%s remote=%s reason=consumers_scope_denied",
             adapter["consumer_id"],
             remote,
         )
         _record_audit(
             consumer_id=adapter["consumer_id"],
             key_id=None,
-            endpoint="adapters",
+            endpoint="consumers",
             verdict="deny",
-            reason_code="adapters_scope_denied",
+            reason_code="consumers_scope_denied",
             remote=remote,
         )
         return _err("forbidden", 403)
@@ -1455,7 +1463,7 @@ def adapters() -> tuple[Response, int]:
             key=lambda item: item["consumer_id"],
         )
     ]
-    return jsonify({"adapters": payload, "timestamp": _now_iso()}), 200
+    return jsonify({"consumers": payload, "timestamp": _now_iso()}), 200
 
 
 @app.get("/observability")

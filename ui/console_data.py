@@ -5,6 +5,10 @@ Used when SUBUMBRA_UI_DEMO=1 or when subumbra-keys is unreachable so the
 console renders cleanly during install, dev, and demos. The shape mirrors
 the live merged dataset built in app.build_console_data() — any field
 added here should also be filled in by the live merge path.
+
+Note: the live API/session contract is now `consumers` / `allowed_consumers`.
+This demo file still uses a few internal `adapters` keys because the current
+Jinja templates render the merged console dataset rather than raw API payloads.
 """
 
 NAV = [

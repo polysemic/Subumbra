@@ -518,7 +518,7 @@ def _build_adapter_rows(adapters_payload: dict | None, raw_keys: list[dict], aud
             audit_last_seen[consumer_id] = _fmt_rel(timestamp)
 
     _internal_ids = {"subumbra-ui", "subumbra-proxy", "subumbra-probe"}
-    for adapter in (adapters_payload or {}).get("adapters", []):
+    for adapter in (adapters_payload or {}).get("consumers", []):
         consumer_id = str(adapter.get("consumer_id", "")).strip()
         if not consumer_id or consumer_id in _internal_ids:
             continue
@@ -981,7 +981,7 @@ def sessions():
 
 @app.get("/consumers")
 @_require_auth
-def adapters():
+def consumers():
     selected_id = request.args.get("select", "")
     return page("adapters.html", active="adapters", crumbs=["Consumers"],
                 selected_id=selected_id)

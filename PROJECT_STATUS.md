@@ -1,5 +1,5 @@
 # PROJECT_STATUS
-*Current state — updated 2026-06-08 (r94-naming-consistency naming consistency verified and closed)*
+*Current state — updated 2026-06-09 (r94-1-schema-update implemented; verification pending)*
 
 
 
@@ -28,6 +28,7 @@ V3 Asymmetric Envelope Encryption (deployed, all three council verifiers PASS).
 - **UI read polish (r90, verified and closed):** the Secure UI vault and policy detail flows now use focused `?select=` navigation plus server-rendered drawer panes, the vault SSH detail path now shows real key metadata and fingerprints from live `public_key` / `algorithm` fields, and adapter proxy/config snippets now present local-host plus Docker-internal proxy routes instead of Worker `/t/` URLs. Release closeout for `1.2.1-alpha` landed in `VERSION`, `CHANGELOG.md`, `ROADMAP.md`, and `CLAUDE.md`.
 - **npm publish brokering (r92, verified and closed):** `type: npm_token` records are now a first-class manifest type alongside `api_key` and `ssh_key`; tokens are encrypted with V3 RSA envelope custody in the Cloudflare vault; the Worker intercepts `npm publish` PUT requests before forwarding to inspect the tarball's `_attachments[*].data` field — base64-decoded, gunzipped, tar-parsed — against operator-declared safe-literal `deny.publish_path_patterns` and `deny.publish_content_patterns`; package identity is enforced across the URL path, `_id`, and `name` body fields; `allow.scopes` restricts which package scope prefixes are authorised; `--rotate-npm-token` provides offline token rotation matching the SSH and API key pattern; and path-scoped `.npmrc` auth is documented so the developer machine never holds the real npm token. Proof run IDs: `claude-vps-20260531T221448Z`, `gemini-vps-20260531T222725Z`, `codex-vps-20260601T000807Z`.
 - **npm professional controls (r93, verified and closed):** npm policies now support validated `allow.npm_operations` and explicit `deny.max_tarball_bytes`; the Worker classifies wire-visible npm operations into `publish`, `query`, `dist-tag`, `owner`, `access`, and `unpublish`, defaulting absent/empty operation lists to `publish` plus `query`; oversized tarballs are denied before and after gzip decode using the configured limit; and `./bootstrap.sh --show npm` now renders substituted path-scoped `.npmrc` lines rather than literal `{key_id}` placeholders. `docs/apps/npm/install.md` now includes the verified `actions/setup-node@v4` / `NODE_AUTH_TOKEN` path-scoped flow and the new npm policy fields. Verification outcome: Gemini PASS with remediation dossier `manual-20260603T105710`; Claude captured accepted harness-only issues in `claude-vps-20260601T050600Z`.
+- **Schema authority unification (r94-1, implemented):** bootstrap manifest parsing, embedded `endpoint.json` records, SSH/npm record helpers, session storage, and the `subumbra-keys` `/consumers` listing contract now use `consumers` / `allowed_consumers` as the canonical caller-authority field names. Starter manifests, `docs/subumbra-install.md`, and `scripts/subumbra-env-ingest.py` were updated to emit `consumers:` and `allow.consumers`. Verification is pending fresh-install proof.
 
 
 
@@ -179,6 +180,7 @@ CF Access header strip is enforced at Worker edge only. Accepted as architectura
 | r92-npm-credential | 2026-06-01 | npm publish brokering: `type: npm_token` with V3 envelope custody; Worker tarball inspection; `allow.scopes`; `--rotate-npm-token`; path-scoped `.npmrc` |
 | r93-npm-professional | 2026-06-03 | npm professional controls: `allow.npm_operations` classification (`publish`, `query`, `dist-tag`, `owner`, `access`, `unpublish`); `deny.max_tarball_bytes`; `.npmrc` show substitution |
 | r94-naming-consistency | 2026-06-08 | Naming cutover: `adapter`→`consumer`; `Gate`→`Janus`; `subumbra.yaml`→`manifest.yaml`; `keys.json`→`endpoint.json`; split-trust language throughout |
+| r94-1-schema-update | 2026-06-09 | Schema authority cleanup: top-level `consumers`, `allow.consumers`, `allowed_consumers`, `/consumers`, and `endpoint.json` caller-authority naming |
 
 
 
