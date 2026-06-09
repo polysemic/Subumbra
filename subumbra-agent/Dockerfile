@@ -3,9 +3,9 @@ FROM python:3.12-slim@sha256:401f6e1a67dad31a1bd78e9ad22d0ee0a3b52154e6bd30e90be
 
 WORKDIR /app
 
-COPY agent.py .
+COPY agent.py requirements.txt ./
 
-RUN pip install --no-cache-dir cryptography==48.0.0
+RUN pip install --no-cache-dir --require-hashes -r requirements.txt
 
 RUN useradd --system --uid 1000 --gid 0 --home-dir /app --shell /usr/sbin/nologin subumbra \
     && chown -R subumbra:0 /app
