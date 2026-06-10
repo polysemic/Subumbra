@@ -3,7 +3,7 @@
 #
 # Usage:
 #   cp manifest.example.yaml manifest.yaml
-#   # Edit manifest.yaml: uncomment providers, set adapters and secret_ref values, then:
+#   # Edit manifest.yaml: uncomment providers, set consumers and secret_ref values, then:
 #   ./bootstrap.sh
 #
 # Adding a provider after initial bootstrap:
@@ -11,9 +11,9 @@
 #   2. Re-run ./bootstrap.sh — the new key is provisioned; existing keys are preserved
 #
 # Day-2 changes (no full re-bootstrap needed):
-#   ./bootstrap.sh --publish-policy <key_id>           re-publish policy/adapter changes to KV
-#   ./bootstrap.sh --add-consumer <key_id> <adapter>    add an adapter to an existing key
-#   ./bootstrap.sh --revoke-consumer <key_id> <adapter> remove an adapter from a key
+#   ./bootstrap.sh --publish-policy <key_id>             re-publish policy/consumer changes to KV
+#   ./bootstrap.sh --add-consumer <key_id> <consumer>    add a consumer to an existing key
+#   ./bootstrap.sh --revoke-consumer <key_id> <consumer> remove a consumer from a key
 #   ./bootstrap.sh --rotate                            rotate provider secrets (offline, no CF interaction)
 #
 # ⚠️  Uncomment provider blocks carefully — each active key is provisioned in Cloudflare
@@ -48,11 +48,11 @@
 #       header_name:           (required only when scheme is header) e.g. x-api-key
 #                              omit entirely for bearer, basic, or query schemes
 #     allow:                   (required)
-#       adapters:              (required) adapter IDs allowed — must match top-level adapters list
-#                              Revocation granularity: all keys sharing the same adapter name share
+#       consumers:             (required) consumer IDs allowed — must match top-level consumers list
+#                              Revocation granularity: all keys sharing the same consumer name share
 #                              one token. To revoke one app without affecting others, assign each
-#                              app a distinct adapter name (e.g. litellm, openwebui, bifrost) and
-#                              use --revoke-consumer <key_id> <adapter> for targeted removal.
+#                              app a distinct consumer name (e.g. litellm, openwebui, bifrost) and
+#                              use --revoke-consumer <key_id> <consumer> for targeted removal.
 #       methods:               (required) HTTP methods the Worker will forward
 #       path_prefixes:         (required) upstream paths allowed — no wildcards, must start with /
 #       scopes:                (optional) npm package scope prefixes allowed for `type: npm_token`
@@ -77,7 +77,7 @@
 #                              Built-in signed templates ship active default velocity values.
 #                              Inline policy velocity remains the override path when you use a
 #                              full inline policy or a template plus inline policy override.
-#       consumer_rpm:           (optional) per-adapter rate limit (requests/minute)
+#       consumer_rpm:          (optional) per-consumer rate limit (requests/minute)
 #       key_rpm:               (optional) per-key aggregate rate limit (requests/minute)
 #       breaker_failures:      (optional) consecutive failures before circuit breaker opens
 #       breaker_cooldown_seconds: (optional) seconds before circuit breaker resets
@@ -92,13 +92,13 @@ keys:
   # - key_id: workstation_ssh
   #   type: ssh_key
   #   key_source: generated
-  #   adapters: [sshtest]
+  #   consumers: [sshtest]
   #   unique_vault: false
   #
   # - key_id: github_deploy_ssh
   #   type: ssh_key
   #   key_source: generated
-  #   adapters: [sshtest]
+  #   consumers: [sshtest]
   #   unique_vault: false
   #   gate:
   #     require_approval:
@@ -113,7 +113,7 @@ keys:
   #   type: ssh_key
   #   key_source: provided
   #   secret_ref: DEPLOY_SSH_KEY
-  #   adapters: [sshtest]
+  #   consumers: [sshtest]
   #   unique_vault: false
 
   # ── npm Publish ────────────────────────────────────────────────────────────
@@ -124,7 +124,7 @@ keys:
   #   type: npm_token
   #   provider: npmjs
   #   secret_ref: NPM_TOKEN
-  #   adapters: [npm]
+  #   consumers: [npm]
   #   unique_vault: false
   #   policy:
   #     key_id: npm_publish
@@ -137,7 +137,7 @@ keys:
   #     auth:
   #       scheme: bearer
   #     allow:
-  #       adapters: [npm]
+  #       consumers: [npm]
   #       methods: [GET, PUT]
   #       path_prefixes: [/@your-scope]
   #       scopes: ["@your-scope"]
@@ -158,7 +158,7 @@ keys:
   # - key_id: anthropic_prod
   #   provider: anthropic
   #   secret_ref: ANTHROPIC_KEY
-  #   adapters: [universal]           # replace with your adapter name(s)
+  #   consumers: [universal]           # replace with your consumer name(s)
   #   unique_vault: false             # true = dedicated Durable Object vault for this key
   #   policy:
   #     policy_id: anthropic-prod-policy
@@ -172,7 +172,7 @@ keys:
   #       scheme: header
   #       header_name: x-api-key
   #     allow:
-  #       adapters: [universal]
+  #       consumers: [universal]
   #       methods: [GET, POST]
   #       path_prefixes: [/v1/messages, /v1/models]
   #       content_types: [application/json]
@@ -225,7 +225,7 @@ keys:
   # - key_id: deepseek_prod
   #   provider: deepseek
   #   secret_ref: DEEPSEEK_KEY
-  #   adapters: [universal]
+  #   consumers: [universal]
   #   unique_vault: false
   #   policy:
   #     policy_id: deepseek-prod-policy
@@ -238,7 +238,7 @@ keys:
   #     auth:
   #       scheme: bearer
   #     allow:
-  #       adapters: [universal]
+  #       consumers: [universal]
   #       methods: [GET, POST]
   #       path_prefixes: [/v1]
   #       content_types: [application/json]
@@ -268,7 +268,7 @@ keys:
   # - key_id: gemini_prod
   #   provider: gemini
   #   secret_ref: GEMINI_KEY
-  #   adapters: [universal]
+  #   consumers: [universal]
   #   unique_vault: false
   #   policy:
   #     policy_id: gemini-prod-policy
@@ -281,7 +281,7 @@ keys:
   #     auth:
   #       scheme: bearer
   #     allow:
-  #       adapters: [universal]
+  #       consumers: [universal]
   #       methods: [GET, POST]
   #       path_prefixes: [/v1beta/openai, /v1beta/models]
   #       content_types: [application/json]
@@ -312,7 +312,7 @@ keys:
   # - key_id: github_prod
   #   provider: github
   #   secret_ref: GITHUB_KEY
-  #   adapters: [universal]
+  #   consumers: [universal]
   #   unique_vault: false
   #   policy:
   #     policy_id: github-prod-policy
@@ -324,7 +324,7 @@ keys:
   #     auth:
   #       scheme: bearer
   #     allow:
-  #       adapters: [universal]
+  #       consumers: [universal]
   #       methods: [GET, POST, PATCH, PUT, DELETE]
   #       path_prefixes: [/repos, /user, /orgs, /graphql, /zen]
   #       content_types: [application/json]
@@ -354,7 +354,7 @@ keys:
   # - key_id: groq_prod
   #   provider: groq
   #   secret_ref: GROQ_KEY
-  #   adapters: [universal]
+  #   consumers: [universal]
   #   unique_vault: false
   #   policy:
   #     policy_id: groq-prod-policy
@@ -367,7 +367,7 @@ keys:
   #     auth:
   #       scheme: bearer
   #     allow:
-  #       adapters: [universal]
+  #       consumers: [universal]
   #       methods: [GET, POST]
   #       path_prefixes: [/openai/v1/chat, /openai/v1/completions, /openai/v1/models]
   #       content_types: [application/json]
@@ -408,7 +408,7 @@ keys:
   # - key_id: mistral_prod
   #   provider: mistral
   #   secret_ref: MISTRAL_KEY
-  #   adapters: [universal]
+  #   consumers: [universal]
   #   unique_vault: false
   #   policy:
   #     policy_id: mistral-prod-policy
@@ -421,7 +421,7 @@ keys:
   #     auth:
   #       scheme: bearer
   #     allow:
-  #       adapters: [universal]
+  #       consumers: [universal]
   #       methods: [GET, POST]
   #       path_prefixes: [/v1]
   #       content_types: [application/json]
@@ -451,7 +451,7 @@ keys:
   # - key_id: openai_prod
   #   provider: openai
   #   secret_ref: OPENAI_KEY
-  #   adapters: [universal]
+  #   consumers: [universal]
   #   unique_vault: false
   #   policy:
   #     policy_id: openai-prod-policy
@@ -464,7 +464,7 @@ keys:
   #     auth:
   #       scheme: bearer
   #     allow:
-  #       adapters: [universal]
+  #       consumers: [universal]
   #       methods: [GET, POST]
   #       path_prefixes: [/v1/chat, /v1/completions, /v1/models]
   #       content_types: [application/json]
@@ -505,7 +505,7 @@ keys:
   # - key_id: openrouter_prod
   #   provider: openrouter
   #   secret_ref: OPENROUTER_KEY
-  #   adapters: [universal]
+  #   consumers: [universal]
   #   unique_vault: false
   #   policy:
   #     policy_id: openrouter-prod-policy
@@ -518,7 +518,7 @@ keys:
   #     auth:
   #       scheme: bearer
   #     allow:
-  #       adapters: [universal]
+  #       consumers: [universal]
   #       methods: [GET, POST]
   #       path_prefixes: [/api/v1]
   #       content_types: [application/json]
@@ -549,7 +549,7 @@ keys:
   # - key_id: sendgrid_prod
   #   provider: sendgrid
   #   secret_ref: SENDGRID_KEY
-  #   adapters: [universal]
+  #   consumers: [universal]
   #   unique_vault: false
   #   policy:
   #     policy_id: sendgrid-prod-policy
@@ -561,7 +561,7 @@ keys:
   #     auth:
   #       scheme: bearer
   #     allow:
-  #       adapters: [universal]
+  #       consumers: [universal]
   #       methods: [GET, POST]
   #       path_prefixes: [/v3/mail, /v3/scopes, /v3/user]
   #       content_types: [application/json]
@@ -592,7 +592,7 @@ keys:
   # - key_id: slack_prod
   #   provider: slack
   #   secret_ref: SLACK_KEY
-  #   adapters: [universal]
+  #   consumers: [universal]
   #   unique_vault: false
   #   policy:
   #     policy_id: slack-prod-policy
@@ -604,7 +604,7 @@ keys:
   #     auth:
   #       scheme: bearer
   #     allow:
-  #       adapters: [universal]
+  #       consumers: [universal]
   #       methods: [GET, POST]
   #       path_prefixes: [/api]
   #       content_types: [application/json]
@@ -634,7 +634,7 @@ keys:
   # - key_id: together_prod
   #   provider: together
   #   secret_ref: TOGETHER_KEY
-  #   adapters: [universal]
+  #   consumers: [universal]
   #   unique_vault: false
   #   policy:
   #     policy_id: together-prod-policy
@@ -647,7 +647,7 @@ keys:
   #     auth:
   #       scheme: bearer
   #     allow:
-  #       adapters: [universal]
+  #       consumers: [universal]
   #       methods: [GET, POST]
   #       path_prefixes: [/v1]
   #       content_types: [application/json]
@@ -677,7 +677,7 @@ keys:
   # - key_id: xai_prod
   #   provider: xai
   #   secret_ref: XAI_KEY
-  #   adapters: [universal]
+  #   consumers: [universal]
   #   unique_vault: false
   #   policy:
   #     policy_id: xai-prod-policy
@@ -690,7 +690,7 @@ keys:
   #     auth:
   #       scheme: bearer
   #     allow:
-  #       adapters: [universal]
+  #       consumers: [universal]
   #       methods: [GET, POST]
   #       path_prefixes: [/v1]
   #       content_types: [application/json]

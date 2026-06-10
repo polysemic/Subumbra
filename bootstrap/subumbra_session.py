@@ -29,7 +29,7 @@ def _open_session_db() -> sqlite3.Connection:
             CREATE TABLE IF NOT EXISTS sessions (
                 session_id        TEXT PRIMARY KEY,
                 name              TEXT,
-                allowed_adapters  TEXT,
+                allowed_consumers  TEXT,
                 allowed_keys      TEXT,
                 max_queries       INTEGER,
                 max_sign_ops      INTEGER,
@@ -45,6 +45,14 @@ def _open_session_db() -> sqlite3.Connection:
             str(row[1])
             for row in conn.execute("PRAGMA table_info(sessions)").fetchall()
         }
+        if "allowed_adapters" in existing_columns and "allowed_consumers" not in existing_columns:
+            conn.execute(
+                "ALTER TABLE sessions RENAME COLUMN allowed_adapters TO allowed_consumers"
+            )
+            existing_columns = {
+                str(row[1])
+                for row in conn.execute("PRAGMA table_info(sessions)").fetchall()
+            }
         if "owner_id" not in existing_columns:
             conn.execute(
                 "ALTER TABLE sessions ADD COLUMN owner_id TEXT NOT NULL DEFAULT 'operator'"
@@ -112,7 +120,7 @@ def _session_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     return {
         "session_id": row["session_id"],
         "name": row["name"],
-        "allowed_adapters": _session_scope_from_db_value(row["allowed_adapters"]),
+        "allowed_consumers": _session_scope_from_db_value(row["allowed_consumers"]),
         "allowed_keys": _session_scope_from_db_value(row["allowed_keys"]),
         "max_queries": row["max_queries"],
         "max_sign_ops": row["max_sign_ops"],
@@ -141,7 +149,7 @@ def _list_active_session_rows(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     _expire_active_sessions(conn)
     return conn.execute(
         """
-        SELECT session_id, name, allowed_adapters, allowed_keys, max_queries,
+        SELECT session_id, name, allowed_consumers, allowed_keys, max_queries,
                max_sign_ops, queries_used, ssh_sign_count, created_at, expires_at,
                status, owner_id, session_type
         FROM sessions
@@ -155,7 +163,7 @@ def _get_session_row_by_id(conn: sqlite3.Connection, session_id: str) -> sqlite3
     _expire_active_sessions(conn)
     return conn.execute(
         """
-        SELECT session_id, name, allowed_adapters, allowed_keys, max_queries,
+        SELECT session_id, name, allowed_consumers, allowed_keys, max_queries,
                max_sign_ops, queries_used, ssh_sign_count, created_at, expires_at,
                status, owner_id, session_type
         FROM sessions
@@ -185,7 +193,7 @@ def _load_runtime_consumer_registry() -> dict[str, dict[str, Any]]:
     return parsed
 
 
-def _load_active_session_static_adapters() -> dict[str, dict[str, Any]]:
+def _load_active_session_static_consumers() -> dict[str, dict[str, Any]]:
     registry = _load_runtime_consumer_registry()
     active_consumers: dict[str, dict[str, Any]] = {}
     for consumer_id, config in registry.items():
@@ -197,7 +205,7 @@ def _load_active_session_static_adapters() -> dict[str, dict[str, Any]]:
         if isinstance(allowed_keys, list) and allowed_keys:
             active_consumers[consumer_id] = config
     if not active_consumers:
-        die("No static key-fetch-capable adapters found in SUBUMBRA_CONSUMER_REGISTRY")
+        die("No static key-fetch-capable consumers found in SUBUMBRA_CONSUMER_REGISTRY")
     return active_consumers
 
 
@@ -253,16 +261,16 @@ def _session_arg_value(args: list[str], flag_name: str) -> str | None:
         die(f"{flag_name} requires a value")
     return value
 
-def _resolve_session_adapter_scope(raw_adapters: str) -> tuple[list[str], list[str] | None]:
-    static_adapters = _load_active_session_static_adapters()
-    selected = _parse_session_csv_arg(raw_adapters, field_name="--consumers")
+def _resolve_session_consumer_scope(raw_consumers: str) -> tuple[list[str], list[str] | None]:
+    static_consumers = _load_active_session_static_consumers()
+    selected = _parse_session_csv_arg(raw_consumers, field_name="--consumers")
     if selected is None:
-        concrete = sorted(static_adapters.keys())
+        concrete = sorted(static_consumers.keys())
         return concrete, None
 
     resolved: list[str] = []
     for consumer_id in selected:
-        if consumer_id not in static_adapters:
+        if consumer_id not in static_consumers:
             die(f"Unknown or non-key-fetch-capable consumer_id {consumer_id!r} for --consumers")
         resolved.append(consumer_id)
     return sorted(dict.fromkeys(resolved)), sorted(dict.fromkeys(resolved))
@@ -289,10 +297,10 @@ def _format_session_scope(values: list[str] | None, *, empty_label: str = "all")
 
 
 def _effective_session_consumer_ids(session_dict: dict[str, Any]) -> list[str]:
-    allowed_adapters = session_dict["allowed_adapters"]
-    if allowed_adapters is None:
-        return sorted(_load_active_session_static_adapters().keys())
-    return sorted(dict.fromkeys(str(consumer_id) for consumer_id in allowed_adapters))
+    allowed_consumers = session_dict["allowed_consumers"]
+    if allowed_consumers is None:
+        return sorted(_load_active_session_static_consumers().keys())
+    return sorted(dict.fromkeys(str(consumer_id) for consumer_id in allowed_consumers))
 
 
 def _effective_session_key_ids(session_dict: dict[str, Any]) -> list[str]:
@@ -366,10 +374,10 @@ def _ensure_session_start_has_no_overlap(
     candidate_consumer_ids = set(_effective_session_consumer_ids(candidate_session))
     candidate_key_ids = set(_effective_session_key_ids(candidate_session))
     for active_session in active_sessions:
-        overlapping_adapters = sorted(
+        overlapping_consumers = sorted(
             candidate_consumer_ids & set(_effective_session_consumer_ids(active_session))
         )
-        if not overlapping_adapters:
+        if not overlapping_consumers:
             continue
         overlapping_keys = sorted(
             candidate_key_ids & set(_effective_session_key_ids(active_session))
@@ -379,7 +387,7 @@ def _ensure_session_start_has_no_overlap(
         die(
             "session_start_overlap_denied "
             f"conflicting_session_id={active_session['session_id']} "
-            f"consumer_id={overlapping_adapters[0]} "
+            f"consumer_id={overlapping_consumers[0]} "
             f"key_id={overlapping_keys[0]}"
         )
 
@@ -413,7 +421,7 @@ def _print_session_row(prefix: str, row_dict: dict[str, Any]) -> None:
     print(f"{prefix}session_id={row_dict['session_id']}")
     print(f"{prefix}name={row_dict['name'] or '(none)'}")
     print(f"{prefix}status={row_dict['status']}")
-    print(f"{prefix}allowed_adapters={_format_session_scope(row_dict['allowed_adapters'])}")
+    print(f"{prefix}allowed_consumers={_format_session_scope(row_dict['allowed_consumers'])}")
     print(f"{prefix}allowed_keys={_format_session_scope(row_dict['allowed_keys'])}")
     print(f"{prefix}max_queries={row_dict['max_queries'] if row_dict['max_queries'] is not None else 'unlimited'}")
     print(f"{prefix}max_sign_ops={row_dict['max_sign_ops'] if row_dict['max_sign_ops'] is not None else 'unlimited'}")
@@ -425,32 +433,32 @@ def _print_session_row(prefix: str, row_dict: dict[str, Any]) -> None:
 
 def _session_wizard(
     args: list[str],
-    static_adapters: dict[str, dict[str, Any]],
+    static_consumers: dict[str, dict[str, Any]],
     live_key_ids: list[str],
 ) -> tuple[str, str, str | None, str | None, str | None, str | None]:
     """Interactive wizard for --session start when args are missing.
 
-    Returns (ttl_raw, adapters_raw, keys_raw, name, max_queries_raw, max_sign_ops_raw).
+    Returns (ttl_raw, consumers_raw, keys_raw, name, max_queries_raw, max_sign_ops_raw).
     Entry modes:
       - consumer-first: --consumers provided, only keys for those consumers shown
-      - key-first:     --keys provided, only adapters that include those keys shown
-      - bare:          show all adapters, then filter keys to selected adapters
+      - key-first:     --keys provided, only consumers that include those keys shown
+      - bare:          show all consumers, then filter keys to selected consumers
     """
     if not sys.stdin.isatty():
         die("--session start: --ttl and --consumers are required in non-interactive mode")
 
     consumer_key_map: dict[str, list[str]] = {}
-    for consumer_id, config in static_adapters.items():
+    for consumer_id, config in static_consumers.items():
         allowed = config.get("allowed_keys")
         consumer_key_map[consumer_id] = allowed if isinstance(allowed, list) else list(live_key_ids)
 
-    key_adapter_map: dict[str, list[str]] = {}
+    key_consumer_map: dict[str, list[str]] = {}
     for consumer_id, keys in consumer_key_map.items():
         for k in keys:
-            key_adapter_map.setdefault(k, []).append(consumer_id)
+            key_consumer_map.setdefault(k, []).append(consumer_id)
 
     ttl_raw = _session_arg_value(args, "--ttl")
-    adapters_raw = _session_arg_value(args, "--consumers")
+    consumers_raw = _session_arg_value(args, "--consumers")
     keys_raw = _session_arg_value(args, "--keys")
     name = (_session_arg_value(args, "--name") or "").strip() or None
     max_queries_raw = _session_arg_value(args, "--max-queries")
@@ -458,13 +466,13 @@ def _session_wizard(
 
     print("\n=== Subumbra session wizard ===")
 
-    if adapters_raw is not None:
+    if consumers_raw is not None:
         # consumer-first: show only keys available for requested consumers
-        selected_adapters_list = [a.strip() for a in adapters_raw.split(",") if a.strip()]
-        visible_keys = sorted({k for a in selected_adapters_list for k in consumer_key_map.get(a, [])})
+        selected_consumers_list = [a.strip() for a in consumers_raw.split(",") if a.strip()]
+        visible_keys = sorted({k for a in selected_consumers_list for k in consumer_key_map.get(a, [])})
         if keys_raw is None:
             if visible_keys:
-                print(f"\nKeys accessible by {', '.join(selected_adapters_list)}:")
+                print(f"\nKeys accessible by {', '.join(selected_consumers_list)}:")
                 for i, k in enumerate(visible_keys, 1):
                     print(f"  {i}. {k}")
                 raw = input("Keys to allow [enter = all, or comma-separated numbers/names]: ").strip()
@@ -481,58 +489,58 @@ def _session_wizard(
                     keys_raw = ",".join(chosen)
 
     elif keys_raw is not None:
-        # key-first: show only adapters that include the requested keys
+        # key-first: show only consumers that include the requested keys
         selected_keys_list = [k.strip() for k in keys_raw.split(",") if k.strip()]
-        visible_adapters = sorted({a for k in selected_keys_list for a in key_adapter_map.get(k, [])})
-        if not visible_adapters:
-            die(f"No adapters are authorized for keys: {', '.join(selected_keys_list)}")
-        if adapters_raw is None:
+        visible_consumers = sorted({a for k in selected_keys_list for a in key_consumer_map.get(k, [])})
+        if not visible_consumers:
+            die(f"No consumers are authorized for keys: {', '.join(selected_keys_list)}")
+        if consumers_raw is None:
             print(f"\nConsumers authorized for {', '.join(selected_keys_list)}:")
-            for i, a in enumerate(visible_adapters, 1):
+            for i, a in enumerate(visible_consumers, 1):
                 print(f"  {i}. {a}")
             raw = input("Consumers to open [enter = all shown, or comma-separated numbers/names]: ").strip()
             if raw:
-                chosen_a: list[str] = []
+                chosen_consumers: list[str] = []
                 for token in raw.split(","):
                     token = token.strip()
-                    if token.isdigit() and 1 <= int(token) <= len(visible_adapters):
-                        chosen_a.append(visible_adapters[int(token) - 1])
-                    elif token in visible_adapters:
-                        chosen_a.append(token)
+                    if token.isdigit() and 1 <= int(token) <= len(visible_consumers):
+                        chosen_consumers.append(visible_consumers[int(token) - 1])
+                    elif token in visible_consumers:
+                        chosen_consumers.append(token)
                     else:
                         die(f"Unknown consumer {token!r}")
-                adapters_raw = ",".join(chosen_a)
+                consumers_raw = ",".join(chosen_consumers)
             else:
-                adapters_raw = ",".join(visible_adapters)
+                consumers_raw = ",".join(visible_consumers)
 
     else:
-        # bare: show all adapters, then filter keys
-        all_consumer_ids = sorted(static_adapters.keys())
-        print("\nAvailable adapters:")
+        # bare: show all consumers, then filter keys
+        all_consumer_ids = sorted(static_consumers.keys())
+        print("\nAvailable consumers:")
         for i, a in enumerate(all_consumer_ids, 1):
             key_count = len(consumer_key_map.get(a, []))
             print(f"  {i}. {a}  ({key_count} key(s))")
         raw = input("Consumers to open [enter = all, or comma-separated numbers/names]: ").strip()
         if raw:
-            chosen_a2: list[str] = []
+            chosen_consumers: list[str] = []
             for token in raw.split(","):
                 token = token.strip()
                 if token.isdigit() and 1 <= int(token) <= len(all_consumer_ids):
-                    chosen_a2.append(all_consumer_ids[int(token) - 1])
+                    chosen_consumers.append(all_consumer_ids[int(token) - 1])
                 elif token in all_consumer_ids:
-                    chosen_a2.append(token)
+                    chosen_consumers.append(token)
                 else:
                     die(f"Unknown consumer {token!r}")
-            adapters_raw = ",".join(chosen_a2)
-            selected_for_keys = chosen_a2
+            consumers_raw = ",".join(chosen_consumers)
+            selected_consumers_for_keys = chosen_consumers
         else:
-            adapters_raw = "all"
-            selected_for_keys = all_consumer_ids
+            consumers_raw = "all"
+            selected_consumers_for_keys = all_consumer_ids
 
-        # filter keys to those accessible by the selected adapters
-        visible_keys2 = sorted({k for a in selected_for_keys for k in consumer_key_map.get(a, [])})
+        # filter keys to those accessible by the selected consumers
+        visible_keys2 = sorted({k for a in selected_consumers_for_keys for k in consumer_key_map.get(a, [])})
         if visible_keys2:
-            print(f"\nKeys accessible by selected adapters:")
+            print(f"\nKeys accessible by selected consumers:")
             for i, k in enumerate(visible_keys2, 1):
                 print(f"  {i}. {k}")
             raw = input("Keys to allow [enter = all, or comma-separated numbers/names]: ").strip()
@@ -574,7 +582,7 @@ def _session_wizard(
             max_sign_ops_raw = raw_mso
 
     print()
-    return ttl_raw, adapters_raw or "all", keys_raw, name, max_queries_raw, max_sign_ops_raw
+    return ttl_raw, consumers_raw or "all", keys_raw, name, max_queries_raw, max_sign_ops_raw
 
 
 def run_session_start() -> None:
@@ -583,26 +591,26 @@ def run_session_start() -> None:
         die("--session start requires the 'start' subcommand immediately after --session")
 
     ttl_raw = _session_arg_value(args, "--ttl")
-    adapters_raw = _session_arg_value(args, "--consumers")
+    consumers_raw = _session_arg_value(args, "--consumers")
     keys_raw = _session_arg_value(args, "--keys")
     name = (_session_arg_value(args, "--name") or "").strip() or None
     max_queries_raw = _session_arg_value(args, "--max-queries")
     max_sign_ops_raw = _session_arg_value(args, "--max-sign-ops")
 
-    wizard_needed = ttl_raw is None or adapters_raw is None
+    wizard_needed = ttl_raw is None or consumers_raw is None
     if wizard_needed:
-        static_adapters = _load_active_session_static_adapters()
+        static_consumers = _load_active_session_static_consumers()
         live_key_ids = _load_live_key_ids()
-        ttl_raw, adapters_raw, keys_raw, name, max_queries_raw, max_sign_ops_raw = _session_wizard(
-            args, static_adapters, live_key_ids
+        ttl_raw, consumers_raw, keys_raw, name, max_queries_raw, max_sign_ops_raw = _session_wizard(
+            args, static_consumers, live_key_ids
         )
     elif ttl_raw is None:
         die("--session start requires --ttl <duration>")
 
-    if adapters_raw is None:
+    if consumers_raw is None:
         die("--session start requires --consumers <csv|all>")
     ttl_seconds = _parse_session_duration_seconds(ttl_raw)
-    _resolved_consumer_ids, stored_adapter_scope = _resolve_session_adapter_scope(adapters_raw)
+    _resolved_consumer_ids, stored_consumer_scope = _resolve_session_consumer_scope(consumers_raw)
     stored_key_scope = _resolve_session_key_scope(keys_raw)
     max_queries: int | None = None
     if max_queries_raw is not None:
@@ -631,7 +639,7 @@ def run_session_start() -> None:
     candidate_session = {
         "session_id": session_id,
         "name": name,
-        "allowed_adapters": stored_adapter_scope,
+        "allowed_consumers": stored_consumer_scope,
         "allowed_keys": stored_key_scope,
         "max_queries": max_queries,
         "max_sign_ops": max_sign_ops,
@@ -656,7 +664,7 @@ def run_session_start() -> None:
     conn.execute(
         """
         INSERT INTO sessions (
-            session_id, name, allowed_adapters, allowed_keys, max_queries,
+            session_id, name, allowed_consumers, allowed_keys, max_queries,
             max_sign_ops, queries_used, ssh_sign_count, created_at, expires_at,
             status, owner_id, session_type
         ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?, 'pending', ?, ?)
@@ -664,7 +672,7 @@ def run_session_start() -> None:
         (
             session_id,
             name,
-            _session_scope_to_db_value(stored_adapter_scope),
+            _session_scope_to_db_value(stored_consumer_scope),
             _session_scope_to_db_value(stored_key_scope),
             max_queries,
             max_sign_ops,
@@ -761,7 +769,7 @@ def run_session_start() -> None:
 
     ok(f"Started session {session_id}")
     info(f"expires_at={expires_at}")
-    info(f"allowed_adapters={_format_session_scope(stored_adapter_scope)}")
+    info(f"allowed_consumers={_format_session_scope(stored_consumer_scope)}")
     info(f"allowed_keys={_format_session_scope(stored_key_scope)}")
     if max_queries is not None:
         info(f"max_queries={max_queries}")
@@ -892,7 +900,7 @@ def run_session_list() -> None:
     conn = _open_session_db()
     rows = conn.execute(
         """
-        SELECT session_id, name, allowed_adapters, allowed_keys, max_queries,
+        SELECT session_id, name, allowed_consumers, allowed_keys, max_queries,
                max_sign_ops, queries_used, ssh_sign_count, created_at, expires_at,
                status, owner_id, session_type
         FROM sessions
@@ -906,4 +914,3 @@ def run_session_list() -> None:
     for idx, row in enumerate(rows, start=1):
         print(f"[{idx}]")
         _print_session_row("  ", _session_row_to_dict(row))
-

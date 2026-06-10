@@ -269,7 +269,7 @@ def build_policy(key_id: str, app_ids: list[str]) -> dict[str, object]:
             "scheme": "bearer",
         },
         "allow": {
-            "adapters": app_ids,
+            "consumers": app_ids,
             "methods": ["GET", "POST"],
             "path_prefixes": ["/v1"],
             "content_types": ["application/json"],
@@ -288,7 +288,7 @@ def build_manifest(planned_records: list[dict[str, object]]) -> dict[str, object
                 "key_id": key_id,
                 "provider": str(record["provider"]),
                 "secret_ref": str(record["secret_ref"]),
-                "adapters": app_ids,
+                "consumers": app_ids,
                 "unique_vault": False,
                 "policy": build_policy(key_id, app_ids),
             }

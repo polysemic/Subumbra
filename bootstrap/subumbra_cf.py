@@ -987,7 +987,7 @@ def _build_structured_kv_entries(
         if _is_revoked_record(record):
             info(f"Skipping revoked record during structured publish: {key_id}")
             continue
-        policy, adapters = _require_fat_record_fields(record, key_id)
+        policy, consumers = _require_fat_record_fields(record, key_id)
         _verify_embedded_policy_hash(record, key_id)
         if record.get("type") == "ssh_key":
             key_entry = {
@@ -1000,7 +1000,7 @@ def _build_structured_kv_entries(
                 "policy_id": record["policy_id"],
                 "policy_hash": record["policy_hash"],
                 "policy": policy,
-                "adapters": adapters,
+                "consumers": consumers,
                 "created_at": record["created_at"],
                 "status": record.get("status", "active"),
                 "label": record["label"],

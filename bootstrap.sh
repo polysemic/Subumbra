@@ -149,6 +149,9 @@ fi
 if [[ -n "${CF_ACCOUNT_ID:-}" ]]; then
     env_args+=(-e "CF_ACCOUNT_ID=${CF_ACCOUNT_ID}")
 fi
+if [[ -n "${CF_WORKER_NAME:-}" ]]; then
+    env_args+=(-e "CF_WORKER_NAME=${CF_WORKER_NAME}")
+fi
 
 volume_args+=(-v "$repo_root/$env_file:/app/host-env:rw")
 volume_args+=(-v "$repo_root/$manifest_file:/app/manifest:ro")

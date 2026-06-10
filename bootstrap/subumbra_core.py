@@ -844,8 +844,8 @@ def _resolve_manifest_secret(secret_ref: str) -> str:
     )
 
 
-def _effective_manifest_adapters(adapters: list[str]) -> list[str]:
-    return list(adapters) if adapters else ["subumbra-proxy"]
+def _effective_manifest_consumers(consumers: list[str]) -> list[str]:
+    return list(consumers) if consumers else ["subumbra-proxy"]
 
 
 def _load_and_verify_catalog() -> dict[str, dict]:
@@ -937,7 +937,7 @@ def _expand_template_into_policy(
     template: dict[str, Any],
     key_id: str,
     policy_id: str,
-    effective_adapters: list[str],
+    effective_consumers: list[str],
     operator_overrides: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Merge a verified provider template with operator-supplied fields.
@@ -955,7 +955,7 @@ def _expand_template_into_policy(
     allow: dict[str, Any] = {}
     if "allow" in template:
         allow.update(template["allow"])
-    allow["consumers"] = effective_adapters
+    allow["consumers"] = effective_consumers
     policy["allow"] = allow
 
     for opt in ("response", "intent", "velocity", "deny"):
@@ -978,7 +978,7 @@ def _expand_template_into_policy(
                 policy[k] = v
         policy["key_id"] = key_id
         policy["source"] = "env"
-        policy["allow"]["consumers"] = effective_adapters
+        policy["allow"]["consumers"] = effective_consumers
 
     return policy
 
@@ -1058,8 +1058,8 @@ def _format_consumer_line(consumer_ids: Iterable[str]) -> str:
     return "[" + ", ".join(consumer_ids) + "]"
 
 
-def _rewrite_manifest_adapters_line(target_key_id: str, consumer_ids: list[str]) -> tuple[bool, str]:
-    """Best-effort manifest sync for canonical single-line YAML adapter lists only."""
+def _rewrite_manifest_consumers_line(target_key_id: str, consumer_ids: list[str]) -> tuple[bool, str]:
+    """Best-effort manifest sync for canonical single-line YAML consumer lists only."""
     try:
         manifest_text = MANIFEST_FILE.read_text(encoding="utf-8")
     except OSError as exc:
@@ -1074,13 +1074,13 @@ def _rewrite_manifest_adapters_line(target_key_id: str, consumer_ids: list[str])
         return False, "target key stanza not found in canonical YAML item form"
 
     stanza_text = stanza_match.group(0)
-    adapters_pattern = re.compile(r"(?m)^([ \t]*adapters:\s*)\[[^\n]*\]\s*$")
-    adapters_match = adapters_pattern.search(stanza_text)
-    if adapters_match is None:
-        return False, "adapters line is not in canonical single-line form"
+    consumers_pattern = re.compile(r"(?m)^([ \t]*consumers:\s*)\[[^\n]*\]\s*$")
+    consumers_match = consumers_pattern.search(stanza_text)
+    if consumers_match is None:
+        return False, "consumers line is not in canonical single-line form"
 
-    replacement = adapters_match.group(1) + _format_consumer_line(consumer_ids)
-    rewritten_stanza = adapters_pattern.sub(replacement, stanza_text, count=1)
+    replacement = consumers_match.group(1) + _format_consumer_line(consumer_ids)
+    rewritten_stanza = consumers_pattern.sub(replacement, stanza_text, count=1)
     rewritten_manifest = (
         manifest_text[:stanza_match.start()] +
         rewritten_stanza +
@@ -1094,10 +1094,10 @@ def _rewrite_manifest_adapters_line(target_key_id: str, consumer_ids: list[str])
     return True, "updated"
 
 
-def _prompt_manifest_sync_after_adapter_mutation(target_key_id: str, adapters: list[str]) -> None:
+def _prompt_manifest_sync_after_consumer_mutation(target_key_id: str, consumers: list[str]) -> None:
     prompt = (
         f"  Deployed record for {target_key_id!r} changed. Also update manifest.yaml "
-        f"adapters line to {_format_consumer_line(adapters)}? [y/N]: "
+        f"consumers line to {_format_consumer_line(consumers)}? [y/N]: "
     )
     if not sys.stdin.isatty():
         warn("Manifest sync prompt unavailable without a TTY; manual manifest update required.")
@@ -1115,14 +1115,14 @@ def _prompt_manifest_sync_after_adapter_mutation(target_key_id: str, adapters: l
         warn("Manifest left unchanged. A later --publish-policy will restore manifest authority.")
         return
 
-    synced, reason = _rewrite_manifest_adapters_line(target_key_id, adapters)
+    synced, reason = _rewrite_manifest_consumers_line(target_key_id, consumers)
     if not synced:
         warn(
             "Manifest auto-sync skipped; manual manifest update required "
             f"({reason})."
         )
         return
-    ok(f"Updated manifest adapters line for {target_key_id}")
+    ok(f"Updated manifest consumers line for {target_key_id}")
 
 
 def _normalize_manifest_record(record: Any, idx: int) -> dict[str, Any]:
@@ -1138,21 +1138,21 @@ def _normalize_manifest_record(record: Any, idx: int) -> dict[str, Any]:
     if not isinstance(record_type, str) or record_type not in {"api_key", "ssh_key", "npm_token"}:
         _manifest_die(f"{source}.type must be 'api_key', 'ssh_key', or 'npm_token'")
 
-    adapters = record.get("adapters")
-    if not isinstance(adapters, list):
-        _manifest_die(f"{source}.adapters must be an array")
-    normalized_adapters: list[str] = []
-    seen_adapters: set[str] = set()
-    for consumer_idx, consumer_id in enumerate(adapters):
+    consumers = record.get("consumers")
+    if not isinstance(consumers, list):
+        _manifest_die(f"{source}.consumers must be an array")
+    normalized_consumers: list[str] = []
+    seen_consumers: set[str] = set()
+    for consumer_idx, consumer_id in enumerate(consumers):
         if not isinstance(consumer_id, str) or not CONSUMER_ID_RE.fullmatch(consumer_id):
-            _manifest_die(f"{source}.adapters[{consumer_idx}] is invalid")
+            _manifest_die(f"{source}.consumers[{consumer_idx}] is invalid")
         if consumer_id in BUILTIN_CONSUMER_IDS:
-            _manifest_die(f"{source}.adapters[{consumer_idx}] {consumer_id!r} is reserved")
-        if consumer_id in seen_adapters:
+            _manifest_die(f"{source}.consumers[{consumer_idx}] {consumer_id!r} is reserved")
+        if consumer_id in seen_consumers:
             continue
-        seen_adapters.add(consumer_id)
-        normalized_adapters.append(consumer_id)
-    effective_adapters = _effective_manifest_adapters(normalized_adapters)
+        seen_consumers.add(consumer_id)
+        normalized_consumers.append(consumer_id)
+    effective_consumers = _effective_manifest_consumers(normalized_consumers)
 
     unique_vault = record.get("unique_vault")
     if not isinstance(unique_vault, bool):
@@ -1262,7 +1262,7 @@ def _normalize_manifest_record(record: Any, idx: int) -> dict[str, Any]:
 
         policy = build_ssh_policy(
             key_id=key_id,
-            adapters=effective_adapters,
+            consumers=effective_consumers,
             allowed_host_fingerprints=allowed_host_fingerprints,
             gate=normalized_gate,
         )
@@ -1272,14 +1272,14 @@ def _normalize_manifest_record(record: Any, idx: int) -> dict[str, Any]:
             "provider": "ssh",
             "secret_ref": secret_ref,
             "key_source": key_source,
-            "adapters": normalized_adapters,
-            "effective_adapters": effective_adapters,
+            "consumers": normalized_consumers,
+            "effective_consumers": effective_consumers,
             "unique_vault": unique_vault,
             "policy": policy,
             "requested_allow_hosts": requested_hosts,
         }
 
-    required = {"key_id", "provider", "secret_ref", "adapters", "unique_vault"}
+    required = {"key_id", "provider", "secret_ref", "consumers", "unique_vault"}
     missing = sorted(required - record.keys())
     if missing:
         _manifest_die(f"{source} missing required field(s): {', '.join(missing)}")
@@ -1321,7 +1321,7 @@ def _normalize_manifest_record(record: Any, idx: int) -> dict[str, Any]:
             template=template_data,
             key_id=key_id,
             policy_id=f"{template_name}-{key_id}",
-            effective_adapters=effective_adapters,
+            effective_consumers=effective_consumers,
             operator_overrides=operator_overrides,
         )
     else:
@@ -1338,7 +1338,7 @@ def _normalize_manifest_record(record: Any, idx: int) -> dict[str, Any]:
         )
     if normalized_policy.get("source") != "env":
         _manifest_die(f"{source}.policy.source must be 'env' for direct secret bootstrap")
-    if sorted(_policy_consumer_ids(normalized_policy)) != sorted(effective_adapters):
+    if sorted(_policy_consumer_ids(normalized_policy)) != sorted(effective_consumers):
         _manifest_die(
             f"{source}.policy.allow.consumers does not match consumers for key_id {key_id!r}"
         )
@@ -1349,8 +1349,8 @@ def _normalize_manifest_record(record: Any, idx: int) -> dict[str, Any]:
         "type": "npm_token" if record_type == "npm_token" else "api_key",
         "provider": provider,
         "secret_ref": secret_ref,
-        "adapters": normalized_adapters,
-        "effective_adapters": effective_adapters,
+        "consumers": normalized_consumers,
+        "effective_consumers": effective_consumers,
         "unique_vault": unique_vault,
         "policy": normalized_policy,
         "target_host": normalized_policy["target"]["host"],
@@ -1493,8 +1493,8 @@ def _load_manifest_key_ids_only() -> set[str]:
     return key_ids
 
 
-def _binding_policy_id(key_id: str, allowed_adapters: list[str]) -> str:
-    if "subumbra-proxy" in allowed_adapters:
+def _binding_policy_id(key_id: str, allowed_consumers: list[str]) -> str:
+    if "subumbra-proxy" in allowed_consumers:
         return f"auto-compat-{key_id}"
     return f"auto-app-{key_id}"
 
@@ -1516,7 +1516,7 @@ def _resolve_policy_for_key(
     provider: str,
     target_host: str,
     policy_index: dict[str, dict[str, Any]],
-    allowed_adapters: list[str],
+    allowed_consumers: list[str],
 ) -> dict[str, Any]:
     policy = policy_index.get(key_id)
     if policy is None:
@@ -1530,11 +1530,11 @@ def _resolve_policy_for_key(
             f"policy target.host={policy['target']['host']!r} "
             f"does not match bootstrap target_host={target_host!r}"
         )
-    if sorted(_policy_consumer_ids(policy)) != sorted(allowed_adapters):
+    if sorted(_policy_consumer_ids(policy)) != sorted(allowed_consumers):
         die(
             f"Policy consumer conflict for key_id {key_id!r}: "
             f"policy consumers={', '.join(_policy_consumer_ids(policy))} "
-            f"do not match bootstrap consumers={', '.join(allowed_adapters)}"
+            f"do not match bootstrap consumers={', '.join(allowed_consumers)}"
         )
     return policy
 
@@ -1546,17 +1546,17 @@ def _require_fat_record_fields(record: dict[str, Any], key_id: str) -> tuple[dic
             f"endpoint.json record {key_id!r} is missing embedded policy authority.\n"
             "  Repair the record or re-run full bootstrap."
         )
-    adapters = record.get("adapters")
-    if not isinstance(adapters, list) or not adapters or not all(isinstance(consumer_id, str) and consumer_id for consumer_id in adapters):
+    consumers = record.get("consumers")
+    if not isinstance(consumers, list) or not consumers or not all(isinstance(consumer_id, str) and consumer_id for consumer_id in consumers):
         die(
             f"endpoint.json record {key_id!r} is missing embedded consumer authority.\n"
             "  Repair the record or re-run full bootstrap."
         )
-    return policy, list(adapters)
+    return policy, list(consumers)
 
 
 def _verify_embedded_policy_hash(record: dict[str, Any], key_id: str) -> None:
-    policy, _adapters = _require_fat_record_fields(record, key_id)
+    policy, _consumers = _require_fat_record_fields(record, key_id)
     stored_policy_id = record.get("policy_id")
     if not isinstance(stored_policy_id, str) or not stored_policy_id.strip():
         die(
@@ -1595,7 +1595,7 @@ def _load_manifest_repair_authority(target_key_id: str) -> dict[str, Any]:
                     "type": "ssh_key",
                     "provider": record["provider"],
                     "policy": record["policy"],
-                    "adapters": list(record["effective_adapters"]),
+                    "consumers": list(record["effective_consumers"]),
                     "key_source": record["key_source"],
                     "secret_ref": record.get("secret_ref"),
                 }
@@ -1606,7 +1606,7 @@ def _load_manifest_repair_authority(target_key_id: str) -> dict[str, Any]:
                 "raw_secret": _resolve_manifest_secret(record["secret_ref"]),
                 "vault_instance": _vault_instance_for_key(target_key_id, {target_key_id: record["unique_vault"]}),
                 "policy": record["policy"],
-                "adapters": list(record["adapters"]),
+                "consumers": list(record["consumers"]),
                 "auth_header": record["auth_header"],
                 "auth_prefix": record["auth_prefix"],
                 "template_name": record.get("template"),
@@ -1632,7 +1632,7 @@ def _build_structured_kv_entries(
         if _is_revoked_record(record):
             info(f"Skipping revoked record during structured publish: {key_id}")
             continue
-        policy, adapters = _require_fat_record_fields(record, key_id)
+        policy, consumers = _require_fat_record_fields(record, key_id)
         _verify_embedded_policy_hash(record, key_id)
         if record.get("type") == "ssh_key":
             key_entry = {
@@ -1645,7 +1645,7 @@ def _build_structured_kv_entries(
                 "policy_id": record["policy_id"],
                 "policy_hash": record["policy_hash"],
                 "policy": policy,
-                "adapters": adapters,
+                "consumers": consumers,
                 "created_at": record["created_at"],
                 "status": record.get("status", "active"),
                 "label": record["label"],
@@ -1887,12 +1887,12 @@ def _load_simple_env_file(path: Path) -> dict[str, str]:
     return values
 
 
-def _append_unique_adapter_binding(
-    key_adapters_by_key_id: dict[str, list[str]],
+def _append_unique_consumer_binding(
+    key_consumers_by_key_id: dict[str, list[str]],
     key_id: str,
     consumer_id: str,
 ) -> None:
-    bindings = key_adapters_by_key_id.setdefault(key_id, [])
+    bindings = key_consumers_by_key_id.setdefault(key_id, [])
     if consumer_id not in bindings:
         bindings.append(consumer_id)
 
@@ -2075,14 +2075,14 @@ def _parse_key_consumer_ids(
         if not CONSUMER_ID_RE.fullmatch(consumer_id):
             die(
                 f"{source}: invalid consumer_id {consumer_id!r}\n"
-                "  App adapters must match ^[a-z0-9][a-z0-9_-]{0,61}[a-z0-9]$"
+                "  App consumers must match ^[a-z0-9][a-z0-9_-]{0,61}[a-z0-9]$"
             )
         if consumer_id in BUILTIN_CONSUMER_IDS:
             die(f"{source}: built-in consumer_id {consumer_id!r} is reserved")
         if consumer_id not in declared_consumer_ids:
             die(
                 f"{source}: consumer_id {consumer_id!r} was not declared\n"
-                f"  Declared adapters: {', '.join(sorted(declared_consumer_ids)) or '(none)'}"
+                f"  Declared consumers: {', '.join(sorted(declared_consumer_ids)) or '(none)'}"
             )
         if consumer_id in seen:
             continue
@@ -2091,22 +2091,22 @@ def _parse_key_consumer_ids(
     return consumer_ids
 
 
-def _binding_label(allowed_adapters: list[str]) -> str:
-    if allowed_adapters == ["subumbra-proxy"]:
+def _binding_label(allowed_consumers: list[str]) -> str:
+    if allowed_consumers == ["subumbra-proxy"]:
         return "compat/simple"
-    return ",".join(allowed_adapters)
+    return ",".join(allowed_consumers)
 
 
-def _bind_key_to_adapters(
+def _bind_key_to_consumers(
     key_id: str,
     selected_consumer_ids: list[str],
     *,
-    key_adapters_by_key_id: dict[str, list[str]],
+    key_consumers_by_key_id: dict[str, list[str]],
     allowed_keys_by_consumer: dict[str, list[str]],
 ) -> None:
-    effective_adapters = selected_consumer_ids or ["subumbra-proxy"]
-    key_adapters_by_key_id[key_id] = list(effective_adapters)
-    for consumer_id in effective_adapters:
+    effective_consumers = selected_consumer_ids or ["subumbra-proxy"]
+    key_consumers_by_key_id[key_id] = list(effective_consumers)
+    for consumer_id in effective_consumers:
         allowed_keys_by_consumer.setdefault(consumer_id, []).append(key_id)
 
 
@@ -2273,7 +2273,7 @@ def compute_policy_hash(policy_doc: dict[str, Any]) -> str:
     if policy_doc.get("type") == "ssh_key":
         allow = policy_doc["allow"]
         baseline_allow: dict[str, Any] = {
-            "consumers": sorted(allow.get("consumers", allow.get("adapters", []))),
+            "consumers": sorted(allow.get("consumers", [])),
         }
         hosts = allow.get("hosts")
         if isinstance(hosts, list) and hosts:
@@ -2303,7 +2303,7 @@ def compute_policy_hash(policy_doc: dict[str, Any]) -> str:
             "scheme": auth["scheme"],
         },
         "allow": {
-            "consumers": sorted(allow.get("consumers", allow.get("adapters", []))),
+            "consumers": sorted(allow.get("consumers", [])),
             "methods": sorted(allow["methods"]),
             "path_prefixes": sorted(allow["path_prefixes"]),
             "content_types": sorted(allow["content_types"]),
@@ -2337,7 +2337,7 @@ def _build_fat_record(
     ciphertext: str,
     policy: dict[str, Any],
     policy_hash: str,
-    adapters: list[str],
+    consumers: list[str],
     vault_instance: str,
     created_at: str,
     label: str,
@@ -2355,7 +2355,7 @@ def _build_fat_record(
         "policy_id": policy["policy_id"],
         "policy_hash": policy_hash,
         "policy": policy,
-        "adapters": list(adapters),
+        "consumers": list(consumers),
         "vault_instance": vault_instance,
         "created_at": created_at,
         "label": label,

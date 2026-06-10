@@ -31,7 +31,7 @@ def build_npm_token_record(
     target_host: str,
     raw_secret: str,
     policy: dict[str, object],
-    adapters: list[str],
+    consumers: list[str],
     vault_instance: str,
     pub_key,
     pub_key_fp: str,
@@ -52,7 +52,7 @@ def build_npm_token_record(
         ciphertext=ciphertext,
         policy=policy,
         policy_hash=policy_hash,
-        adapters=adapters,
+        consumers=consumers,
         vault_instance=vault_instance,
         created_at=created_at,
         label=label,
@@ -66,7 +66,7 @@ def rewrite_npm_token_record_from_plaintext(
     existing_record: dict[str, object],
     raw_secret: str,
     policy: dict[str, object],
-    adapters: list[str],
+    consumers: list[str],
 ) -> dict[str, object]:
     from subumbra_keys import _load_existing_public_key_for_record
 
@@ -84,7 +84,7 @@ def rewrite_npm_token_record_from_plaintext(
         target_host=target_host,
         raw_secret=raw_secret,
         policy=policy,
-        adapters=adapters,
+        consumers=consumers,
         vault_instance=vault_instance,
         pub_key=pub_key,
         pub_key_fp=pub_key_fp,
@@ -107,7 +107,7 @@ def run_rotate_npm_token(target_key_id: str) -> None:
     vault_instance = existing_record.get("vault_instance", "vault")
     if not isinstance(vault_instance, str) or not vault_instance:
         die(f"--rotate-npm-token requires vault_instance on the existing V3 record for key_id {target_key_id!r}.")
-    policy, adapters = _require_fat_record_fields(existing_record, target_key_id)
+    policy, consumers = _require_fat_record_fields(existing_record, target_key_id)
 
     print(f"  Rotating npm token: {target_key_id}")
 
@@ -128,7 +128,7 @@ def run_rotate_npm_token(target_key_id: str) -> None:
         existing_record=existing_record,
         raw_secret=new_token,
         policy=policy,
-        adapters=adapters,
+        consumers=consumers,
     )
     ok(f"Encrypted npm token  → {target_key_id}")
 

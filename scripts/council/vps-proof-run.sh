@@ -428,12 +428,17 @@ prepare_cf_api_workspace() {
         -e "s/^    container_name: subumbra-probe$/    container_name: ${compose_project}-subumbra-probe/" \
         -e "s/^    container_name: cloudflared$/    container_name: ${compose_project}-cloudflared/" \
         "${workdir}/docker-compose.yml"
-    # Allocate a free host port for the proof proxy; strip the UI port.
+    # Allocate free host ports for the proof proxy and UI.
     proof_proxy_port="$(python3 -c "import socket; s=socket.socket(); s.bind(('127.0.0.1',0)); p=s.getsockname()[1]; s.close(); print(p)")"
-    python3 - "${workdir}/docker-compose.yml" "$proof_proxy_port" <<'PY'
+    proof_ui_port="$(python3 -c "import socket; s=socket.socket(); s.bind(('127.0.0.1',0)); p=s.getsockname()[1]; s.close(); print(p)")"
+    python3 - "${workdir}/docker-compose.yml" "$proof_proxy_port" "$proof_ui_port" <<'PY'
 import re, sys
 text = open(sys.argv[1]).read()
-text = re.sub(r'\n    ports:\n(      - "127\.0\.0\.1:\d+:8080"[^\n]*\n)', '\n', text)
+# Strip the profile from UI so it boots automatically
+text = re.sub(r'\n    profiles:\n      - ui\n', '\n', text)
+# Remap the UI host port to the free port supplied as argv[3]
+text = re.sub(r'(      - "127\.0\.0\.1:)\d+(:8080")', rf'\g<1>{sys.argv[3]}\2', text)
+# Remap the proxy host port to the free port supplied as argv[2]
 text = re.sub(r'(      - "127\.0\.0\.1:)\d+(:8090")', rf'\g<1>{sys.argv[2]}\2', text)
 open(sys.argv[1], "w").write(text)
 PY
@@ -441,6 +446,7 @@ PY
     export SUBUMBRA_PROXY_CONTAINER="${compose_project}-subumbra-proxy"
     export SUBUMBRA_UI_CONTAINER="${compose_project}-subumbra-ui"
     export SUBUMBRA_PROXY_HOST_PORT="$proof_proxy_port"
+    export SUBUMBRA_UI_HOST_PORT="$proof_ui_port"
     if [[ -n "$build_targets_string" ]]; then
         # shellcheck disable=SC2086
         docker compose build $build_targets_string
@@ -473,15 +479,16 @@ install_fresh_once() {
         -e "s/^    container_name: subumbra-agent$/    container_name: ${compose_project}-subumbra-agent/" \
         -e "s/^    container_name: subumbra-probe$/    container_name: ${compose_project}-subumbra-probe/" \
         "${workdir}/docker-compose.yml"
-    # Allocate a free host port for the proof proxy and remap the UI port away.
-    # The UI host port is not needed by verify-round.sh; strip it entirely.
-    # The proxy host port IS needed by verify-round.sh; remap to a free port.
+    # Allocate free host ports for the proof proxy and UI.
     proof_proxy_port="$(python3 -c "import socket; s=socket.socket(); s.bind(('127.0.0.1',0)); p=s.getsockname()[1]; s.close(); print(p)")"
-    python3 - "${workdir}/docker-compose.yml" "$proof_proxy_port" <<'PY'
+    proof_ui_port="$(python3 -c "import socket; s=socket.socket(); s.bind(('127.0.0.1',0)); p=s.getsockname()[1]; s.close(); print(p)")"
+    python3 - "${workdir}/docker-compose.yml" "$proof_proxy_port" "$proof_ui_port" <<'PY'
 import re, sys
 text = open(sys.argv[1]).read()
-# Strip the UI host port binding (live stack holds the same port)
-text = re.sub(r'\n    ports:\n(      - "127\.0\.0\.1:\d+:8080"[^\n]*\n)', '\n', text)
+# Strip the profile from UI so it boots automatically
+text = re.sub(r'\n    profiles:\n      - ui\n', '\n', text)
+# Remap the UI host port to the free port supplied as argv[3]
+text = re.sub(r'(      - "127\.0\.0\.1:)\d+(:8080")', rf'\g<1>{sys.argv[3]}\2', text)
 # Remap the proxy host port to the free port supplied as argv[2]
 text = re.sub(r'(      - "127\.0\.0\.1:)\d+(:8090")', rf'\g<1>{sys.argv[2]}\2', text)
 open(sys.argv[1], "w").write(text)
@@ -490,6 +497,7 @@ PY
     export SUBUMBRA_PROXY_CONTAINER="${compose_project}-subumbra-proxy"
     export SUBUMBRA_UI_CONTAINER="${compose_project}-subumbra-ui"
     export SUBUMBRA_PROXY_HOST_PORT="$proof_proxy_port"
+    export SUBUMBRA_UI_HOST_PORT="$proof_ui_port"
     if [[ -n "$build_targets_string" ]]; then
         # shellcheck disable=SC2086
         docker compose build $build_targets_string

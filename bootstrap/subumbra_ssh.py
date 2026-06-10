@@ -68,7 +68,7 @@ def _encode_ssh_ed25519_public_key(raw_public_bytes: bytes, key_id: str) -> str:
 def _compute_ssh_policy_hash(policy_doc: dict[str, Any]) -> str:
     allow = policy_doc["allow"]
     baseline_allow: dict[str, Any] = {
-        "adapters": sorted(allow["adapters"]),
+        "consumers": sorted(allow["consumers"]),
     }
     hosts = allow.get("hosts")
     if isinstance(hosts, list) and hosts:
@@ -190,12 +190,12 @@ def resolve_allowed_host_fingerprints(hosts: list[str] | None) -> list[str]:
 def build_ssh_policy(
     *,
     key_id: str,
-    adapters: list[str],
+    consumers: list[str],
     allowed_host_fingerprints: list[str] | None = None,
     gate: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     allow: dict[str, Any] = {
-        "adapters": sorted(adapters),
+        "consumers": sorted(consumers),
     }
     normalized_hosts = _normalize_host_fingerprints(allowed_host_fingerprints)
     if normalized_hosts:
@@ -216,7 +216,7 @@ def build_ssh_record(
     *,
     key_id: str,
     key_source: str,
-    adapters: list[str],
+    consumers: list[str],
     allowed_host_fingerprints: list[str] | None,
     public_key: str,
     vault_instance: str,
@@ -224,7 +224,7 @@ def build_ssh_record(
 ) -> dict[str, Any]:
     policy = build_ssh_policy(
         key_id=key_id,
-        adapters=adapters,
+        consumers=consumers,
         allowed_host_fingerprints=allowed_host_fingerprints,
     )
     return {
@@ -240,7 +240,7 @@ def build_ssh_record(
         "policy_id": policy["policy_id"],
         "policy": policy,
         "policy_hash": _compute_ssh_policy_hash(policy),
-        "adapters": sorted(adapters),
+        "consumers": sorted(consumers),
         "label": key_id,
         "revoked": False,
     }
@@ -364,7 +364,7 @@ def provision_generated_ssh_key(
     worker_url: str,
     headers: dict[str, str],
     key_id: str,
-    adapters: list[str],
+    consumers: list[str],
     allowed_host_fingerprints: list[str] | None,
     vault_instance: str,
 ) -> dict[str, Any]:
@@ -383,7 +383,7 @@ def provision_generated_ssh_key(
     record = build_ssh_record(
         key_id=key_id,
         key_source="generated",
-        adapters=adapters,
+        consumers=consumers,
         allowed_host_fingerprints=allowed_host_fingerprints,
         public_key=public_key,
         vault_instance=vault_instance,
@@ -398,7 +398,7 @@ def provision_imported_ssh_key(
     worker_url: str,
     headers: dict[str, str],
     key_id: str,
-    adapters: list[str],
+    consumers: list[str],
     allowed_host_fingerprints: list[str] | None,
     vault_instance: str,
     public_key_pem: str,
@@ -425,7 +425,7 @@ def provision_imported_ssh_key(
     record = build_ssh_record(
         key_id=key_id,
         key_source="provided",
-        adapters=adapters,
+        consumers=consumers,
         allowed_host_fingerprints=allowed_host_fingerprints,
         public_key=public_key,
         vault_instance=vault_instance,
