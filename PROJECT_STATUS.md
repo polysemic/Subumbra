@@ -1,5 +1,5 @@
 # PROJECT_STATUS
-*Current state — updated 2026-06-09 (r94-1-schema-update verified and closed)*
+*Current state — updated 2026-06-23 (r96-4-integration-release verified and closed; r96-3-amigos-hardening epic CLOSED at 0.1.0-alpha)*
 
 
 
@@ -181,8 +181,10 @@ CF Access header strip is enforced at Worker edge only. Accepted as architectura
 | r93-npm-professional | 2026-06-03 | npm professional controls: `allow.npm_operations` classification (`publish`, `query`, `dist-tag`, `owner`, `access`, `unpublish`); `deny.max_tarball_bytes`; `.npmrc` show substitution |
 | r94-naming-consistency | 2026-06-08 | Naming cutover: `adapter`→`consumer`; `Gate`→`Janus`; `subumbra.yaml`→`manifest.yaml`; `keys.json`→`endpoint.json`; split-trust language throughout |
 | r94-1-schema-update | 2026-06-09 | Schema authority cleanup: top-level `consumers`, `allow.consumers`, `allowed_consumers`, `/consumers`, and `endpoint.json` caller-authority naming |
-
-
+| r96-1-control-plane-git | 2026-06-22 | **3-Amigos harness:** typed transition authority, kickoff enforcement, fail-closed overseer, transactional Git (branch creation, plan-scoped commit, SHA binding, truthful merge/handoff) |
+| r96-2-proof-controller | 2026-06-22 | **3-Amigos harness:** runner-owned proof controller, authoritative `proof-metadata.json` + `scenario-results.json`, SHA-bound gate, fail-closed missing-result, cleanup protocol |
+| r96-3-provider-portability | 2026-06-22 | **3-Amigos harness:** installable package (`pyproject.toml` v0.96.3), XDG user-state boundary, `claude-only` profile, strict `council.yaml` validation, shared pool-meter + Telegram-offset coordination, `templates/status.schema.json` |
+| r96-4-integration-release | 2026-06-23 | **3-Amigos harness:** concurrent multi-project isolation proved, E2E fake-backend council (proposal→close) with SHA chain verified, controlled real-backend smoke, `handle_park()` notification guard, trust-boundary/recovery docs, first pre-release `0.1.0-alpha` (epic `r96-3-amigos-hardening` CLOSED) |
 
 ---
 
