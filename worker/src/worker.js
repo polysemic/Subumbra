@@ -2776,7 +2776,7 @@ async function forwardGateRequest(request, env) {
   if (request.method !== "GET" && request.method !== "HEAD") {
     body = await request.text();
   }
-  return gate.fetch(`https://do-internal${new URL(request.url).pathname}${new URL(request.url).search}`, {
+  return janus.fetch(`https://do-internal${new URL(request.url).pathname}${new URL(request.url).search}`, {
     method: request.method,
     headers: request.headers,
     body,
@@ -3486,7 +3486,7 @@ async function submitGateApproval(env, payload) {
     throw new Error("janus binding missing");
   }
   const janus = getGateStub(env);
-  return gate.fetch(`https://do-internal${GATE_SUBMIT_PATH}`, {
+  return janus.fetch(`https://do-internal${GATE_SUBMIT_PATH}`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -3500,7 +3500,7 @@ async function consumeGateApproval(env, payload) {
     throw new Error("janus binding missing");
   }
   const janus = getGateStub(env);
-  return gate.fetch(`https://do-internal${GATE_CONSUME_PATH}`, {
+  return janus.fetch(`https://do-internal${GATE_CONSUME_PATH}`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
