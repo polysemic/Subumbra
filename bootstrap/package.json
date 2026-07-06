@@ -4,6 +4,6 @@
   "private": true,
   "description": "Wrangler CLI for Subumbra bootstrap (pinned via package-lock.json integrity hashes).",
   "dependencies": {
-    "wrangler": "4.93.1"
+    "wrangler": "4.107.0"
   }
 }
