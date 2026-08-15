@@ -84,6 +84,7 @@ jobs:
         with:
           inputs: >-
             bootstrap/requirements.txt
+            subumbra-agent/requirements.txt
             subumbra-keys/requirements.txt
             subumbra-proxy/requirements.txt
             subumbra-probe/requirements.txt
