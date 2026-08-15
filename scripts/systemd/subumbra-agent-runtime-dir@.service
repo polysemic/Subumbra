@@ -1,0 +1,40 @@
+# Creates the Subumbra SSH agent socket directory before Docker starts.
+#
+# Why this exists:
+#   docker-compose.yml bind-mounts ${XDG_RUNTIME_DIR}/subumbra into
+#   subumbra-agent, which runs as user "1000:1000". /run/user/<uid> is tmpfs,
+#   so the directory is gone after every reboot. If Docker starts the agent
+#   before anything recreates it, Docker auto-creates the missing bind-mount
+#   source as root:root — and the agent, running unprivileged, can never bind
+#   its socket inside it. That failure is permanent and silent apart from a
+#   crash loop (observed: 9,658 restarts).
+#
+#   bootstrap.sh::require_xdg_runtime_dir creates this directory correctly,
+#   but only runs when the "ssh" compose profile is active, and only when a
+#   bootstrap/upgrade command is actually invoked — never on a plain reboot.
+#
+# Install (uid must match the `user:` in docker-compose.yml):
+#   sudo install -m 644 scripts/systemd/subumbra-agent-runtime-dir@.service \
+#       /etc/systemd/system/subumbra-agent-runtime-dir@.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now subumbra-agent-runtime-dir@1000.service
+#
+# Requires lingering for the target user so /run/user/<uid> exists at boot:
+#   sudo loginctl enable-linger <user>
+
+[Unit]
+Description=Create Subumbra SSH agent runtime directory for uid %i
+Documentation=https://github.com/polysemic/Subumbra
+# /run/user/%i is created by systemd-logind via user-runtime-dir@%i.service.
+Requires=user-runtime-dir@%i.service
+After=user-runtime-dir@%i.service
+# Must win the race against Docker starting subumbra-agent (restart: unless-stopped).
+Before=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/install -d -o %i -g %i -m 700 /run/user/%i/subumbra
+
+[Install]
+WantedBy=multi-user.target

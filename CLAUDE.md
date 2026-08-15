@@ -103,6 +103,7 @@ subumbra/
 │
 ├── scripts/
 │   ├── council/                 ← verification harness scripts
+│   ├── systemd/                 ← host units (SSH agent runtime dir, install with sudo)
 │   └── subumbra-expire-adapter.sh  ← operational adapter expiry tool
 │
 └── ui/                          ← multi-page management console

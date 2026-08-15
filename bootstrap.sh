@@ -116,13 +116,19 @@ if [[ "$mode" == "--upgrade" ]]; then
     echo "▶  Subumbra upgrade — rebuild images and recreate containers"
     echo "   Docker volumes (e.g. encrypted keys) are not removed by this step."
     echo ""
-    docker compose build
-    docker compose --profile bootstrap build bootstrap
+    # Build every service, including profile-gated ones. Building starts
+    # nothing, so there is no reason to scope this to the active profiles —
+    # and doing so silently left subumbra-ui, subumbra-probe, and
+    # subumbra-agent on stale images across every upgrade, which meant a
+    # security patch applied via --upgrade did not reach them.
+    docker compose --profile "*" build
     mapfile -t _profiles < <(compose_profile_args)
     if profiles_include_ssh "${_profiles[@]}"; then
         require_xdg_runtime_dir
     fi
-    docker compose "${_profiles[@]}" up -d --force-recreate
+    # Only the active profiles are started; --remove-orphans clears containers
+    # left behind by a previous profile set so they cannot hold host ports.
+    docker compose "${_profiles[@]}" up -d --force-recreate --remove-orphans
     python3 "$repo_root/scripts/subumbra-print-adapters.py" "$repo_root/$env_file"
     exit 0
 fi
