@@ -1,6 +1,9 @@
 # Wrangler v4.90+ requires Node 22+; image stays self-contained (no host Node).
+# Trixie (Debian 13), not Bookworm: every Python component runs 3.13, and
+# Bookworm's python3 is 3.11.2. Trixie ships 3.13, matching the python:3.13-slim
+# base the service images use. There is no Node 22 Debian base carrying 3.12.
 # Pinned by digest — supply-chain protection against retagged base images.
-# Refresh via: docker pull node:22-bookworm-slim && docker inspect ... | grep RepoDigests
+# Refresh via: docker pull node:22-trixie-slim && docker inspect ... | grep RepoDigests
 #
 # NOTE: This container intentionally runs as root (no USER directive).
 # Bootstrap is a one-shot admin tool that:
@@ -9,7 +12,7 @@
 #   - shells out to wrangler for Cloudflare Worker deploys
 #   - is invoked manually by an operator, never long-running
 # Trivy AVD-DS-0002 is suppressed for this file in /.trivyignore.yaml.
-FROM node:22-bookworm-slim@sha256:689c11043dad91472750cd824c97dd5e2318e9dd6f954e492fe7af0135d33ceb
+FROM node:22-trixie-slim@sha256:db8a96a63e5264607ada2d206758876ebbed6a12be2ada7517793cbfb0c2a29c
 
 # Install Python 3 + pip from Debian repos — no curl|bash
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -21,7 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Install wrangler from package-lock.json — npm ci verifies SRI integrity hashes
 # for wrangler and every transitive dep. Regenerate lockfile via:
-#   docker run --rm -v "$PWD/bootstrap":/w -w /w node:22-bookworm-slim \
+#   docker run --rm -v "$PWD/bootstrap":/w -w /w node:22-trixie-slim \
 #     npm install --package-lock-only --ignore-scripts
 WORKDIR /opt/wrangler
 COPY package.json package-lock.json ./

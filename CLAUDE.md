@@ -308,7 +308,8 @@ For any new or changed flow, briefly state:
 - Docker: `./bootstrap.sh` (ends with stack recreate + adapter summary) or `./bootstrap.sh --upgrade` after pulling code
 
 ## Notes
-- Python 3.12+ for all Python components
+- Python 3.13 for all Python components (service images use `python:3.13-slim`;
+  the bootstrap image gets 3.13 from its `node:22-trixie-slim` base)
 - Node 22+ in the **bootstrap** image for wrangler deploy (self-contained; host Node not required)
 - wrangler v4+ pinned in bootstrap Dockerfile and worker/package.json
 - All Python deps pinned in requirements.txt
