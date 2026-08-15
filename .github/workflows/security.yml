@@ -41,17 +41,43 @@ jobs:
             --only-binary=:all: \
             --require-hashes \
             -r scripts/security/bandit/requirements-ci.txt
+      # Recursive over every source tree that holds Python, so files added
+      # later are covered automatically. The previous explicit five-file list
+      # silently omitted 17 tracked modules, including the bootstrap crypto
+      # helpers and both _hash_utils.py.
       - name: Run bandit
         run: |
           python3 -m bandit \
-            subumbra-keys/app.py \
-            subumbra-proxy/app.py \
-            ui/app.py \
-            subumbra-probe/probe.py \
-            bootstrap/subumbra-bootstrap.py \
+            --recursive \
+            bootstrap \
+            scripts \
+            subumbra-agent \
+            subumbra-keys \
+            subumbra-probe \
+            subumbra-proxy \
+            ui \
             --format json \
             --output scripts/security/bandit/reports/bandit-report.json \
             --exit-zero
+      # Drift guard: every tracked .py must appear in the scan metrics.
+      # Fails if a new top-level source directory escapes the list above.
+      - name: Verify bandit coverage is complete
+        run: |
+          python3 -c "
+          import json, subprocess, sys
+          with open('scripts/security/bandit/reports/bandit-report.json') as f:
+              scanned = {k.lstrip('./') for k in json.load(f)['metrics'] if k != '_totals'}
+          tracked = {p for p in subprocess.run(
+              ['git', 'ls-files', '*.py'], capture_output=True, text=True, check=True
+          ).stdout.split()}
+          missed = sorted(tracked - scanned)
+          if missed:
+              print(f'FAIL: {len(missed)} tracked .py file(s) not scanned by bandit')
+              for p in missed:
+                  print(f'  {p}')
+              sys.exit(1)
+          print(f'PASS — all {len(tracked)} tracked .py files scanned')
+          "
       - name: Fail on HIGH severity
         run: |
           python3 -c "
